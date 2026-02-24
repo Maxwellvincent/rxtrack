@@ -211,6 +211,39 @@ const BLOCK_STATUS = {
 
 const PALETTE = ["#60a5fa","#f472b6","#34d399","#a78bfa","#fb923c","#38bdf8","#4ade80","#facc15","#22d3ee","#fb7185"];
 
+const THEMES = {
+  dark: {
+    pageBg: "#06090f",
+    text: "#f1f5f9",
+    mutedText: "#374151",
+    navBg: "#06090ff5",
+    navBorder: "#0d1829",
+    sidebarBg: "#060c17",
+    sidebarBorder: "#0d1829",
+    cardBg: "#09111e",
+    cardBorder: "#0f1e30",
+    inputBg: "#080f1c",
+    inputBorder: "#1a2a3a",
+    scrollbarTrack: "#06090f",
+    scrollbarThumb: "#1a2a3a",
+  },
+  light: {
+    pageBg: "#f5f5f5",
+    text: "#0f172a",
+    mutedText: "#6b7280",
+    navBg: "#ffffffdd",
+    navBorder: "#e5e7eb",
+    sidebarBg: "#f9fafb",
+    sidebarBorder: "#e5e7eb",
+    cardBg: "#ffffff",
+    cardBorder: "#e5e7eb",
+    inputBg: "#ffffff",
+    inputBorder: "#d1d5db",
+    scrollbarTrack: "#f3f4f6",
+    scrollbarThumb: "#cbd5e1",
+  },
+};
+
 // ─────────────────────────────────────────────
 // SMALL UI PIECES
 // ─────────────────────────────────────────────
@@ -540,6 +573,12 @@ export default function App() {
   const [ready,    setReady]    = useState(false);
   const [saveMsg,  setSaveMsg]  = useState("");
 
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === "undefined") return "dark";
+    return localStorage.getItem("rxt-theme") || "dark";
+  });
+  const isDark = theme === "dark";
+
   const [view,    setView]    = useState("block");
   const [termId,  setTermId]  = useState("term1");
   const [blockId, setBlockId] = useState("ftm2");
@@ -579,6 +618,11 @@ export default function App() {
       setReady(true);
     })();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("rxt-theme", theme);
+  }, [theme]);
 
   // ── Auto-save ──────────────────────────────
   const save = (t, s, a) => {
@@ -637,6 +681,8 @@ export default function App() {
     setLecs(p => p.filter(l => l.id !== id));
   };
 
+  const t = THEMES[theme] || THEMES.dark;
+
   // ── Upload ─────────────────────────────────
   const handleFiles = async (files, bid, tid) => {
     if (!files?.length) return;
@@ -692,29 +738,29 @@ export default function App() {
   // RENDER
   // ─────────────────────────────────────────────
   if (!ready) return (
-    <div style={{ minHeight:"100vh", background:"#06090f", display:"flex", alignItems:"center", justifyContent:"center" }}>
+    <div style={{ minHeight:"100vh", background:t.pageBg, color:t.text, display:"flex", alignItems:"center", justifyContent:"center" }}>
       <Spinner msg="Loading RxTrack…" />
     </div>
   );
 
-  const INPUT = { background:"#080f1c", border:"1px solid #1a2a3a", color:"#f1f5f9", padding:"7px 12px", borderRadius:7, fontFamily:MONO, fontSize:12, outline:"none", width:"100%" };
-  const CARD  = { background:"#09111e", border:"1px solid #0f1e30", borderRadius:14, padding:20 };
+  const INPUT = { background:t.inputBg, border:"1px solid "+t.inputBorder, color:t.text, padding:"7px 12px", borderRadius:7, fontFamily:MONO, fontSize:12, outline:"none", width:"100%" };
+  const CARD  = { background:t.cardBg, border:"1px solid "+t.cardBorder, borderRadius:14, padding:20 };
 
   return (
-    <div style={{ minHeight:"100vh", background:"#06090f", color:"#f1f5f9", display:"flex", flexDirection:"column" }}>
+    <div style={{ minHeight:"100vh", background:t.pageBg, color:t.text, display:"flex", flexDirection:"column" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
         @keyframes rxt-spin { to { transform:rotate(360deg); } }
         * { box-sizing:border-box; margin:0; padding:0; }
         ::-webkit-scrollbar { width:4px; }
-        ::-webkit-scrollbar-track { background:#06090f; }
-        ::-webkit-scrollbar-thumb { background:#1a2a3a; border-radius:2px; }
-        input[type=range] { -webkit-appearance:none; height:4px; background:#1a2a3a; border-radius:2px; outline:none; cursor:pointer; width:100%; }
+        ::-webkit-scrollbar-track { background:${t.scrollbarTrack}; }
+        ::-webkit-scrollbar-thumb { background:${t.scrollbarThumb}; border-radius:2px; }
+        input[type=range] { -webkit-appearance:none; height:4px; background:${isDark ? "#1a2a3a" : "#e5e7eb"}; border-radius:2px; outline:none; cursor:pointer; width:100%; }
         input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:16px; height:16px; border-radius:50%; background:#ef4444; cursor:pointer; }
       `}</style>
 
       {/* NAV */}
-      <nav style={{ height:52, borderBottom:"1px solid #0d1829", display:"flex", alignItems:"center", padding:"0 20px", gap:12, position:"sticky", top:0, background:"#06090ff5", backdropFilter:"blur(14px)", zIndex:300, flexShrink:0 }}>
+      <nav style={{ height:52, borderBottom:"1px solid "+t.navBorder, display:"flex", alignItems:"center", padding:"0 20px", gap:12, position:"sticky", top:0, background:t.navBg, backdropFilter:"blur(14px)", zIndex:300, flexShrink:0 }}>
         <button onClick={() => setSidebar(p=>!p)} style={{ background:"none", border:"none", color:"#374151", cursor:"pointer", fontSize:18, padding:"0 4px" }}>☰</button>
 
         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
@@ -741,10 +787,24 @@ export default function App() {
           </span>
         )}
 
-        <div style={{ marginLeft:"auto", display:"flex", gap:2 }}>
+        <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
           {[["overview","Overview"],["analytics","Analytics"]].map(([v,l]) => (
             <button key={v} onClick={() => setView(v)} style={{ background:view===v?"#0d1829":"none", border:"none", color:view===v?"#f1f5f9":"#4b5563", padding:"5px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:12 }}>{l}</button>
           ))}
+          <button
+            onClick={() => setTheme(isDark ? "light" : "dark")}
+            style={{
+              background:"none",
+              border:"1px solid "+t.cardBorder,
+              borderRadius:999,
+              padding:"4px 10px",
+              cursor:"pointer",
+              fontFamily:MONO,
+              fontSize:10,
+              color:t.mutedText,
+            }}>
+            {isDark ? "☀ Light" : "🌙 Dark"}
+          </button>
         </div>
       </nav>
 
@@ -752,7 +812,7 @@ export default function App() {
 
         {/* SIDEBAR */}
         {sidebar && (
-          <aside style={{ width:228, borderRight:"1px solid #0d1829", background:"#060c17", display:"flex", flexDirection:"column", position:"sticky", top:52, height:"calc(100vh - 52px)", overflowY:"auto", flexShrink:0 }}>
+          <aside style={{ width:228, borderRight:"1px solid "+t.sidebarBorder, background:t.sidebarBg, display:"flex", flexDirection:"column", position:"sticky", top:52, height:"calc(100vh - 52px)", overflowY:"auto", flexShrink:0 }}>
             <div style={{ padding:"13px 14px 9px", borderBottom:"1px solid #0d1829" }}>
               <div style={{ fontFamily:MONO, color:"#1f2937", fontSize:9, letterSpacing:2.5 }}>TERMS & BLOCKS</div>
             </div>
