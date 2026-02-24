@@ -789,7 +789,21 @@ export default function App() {
 
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
           {[["overview","Overview"],["analytics","Analytics"]].map(([v,l]) => (
-            <button key={v} onClick={() => setView(v)} style={{ background:view===v?"#0d1829":"none", border:"none", color:view===v?"#f1f5f9":"#4b5563", padding:"5px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:12 }}>{l}</button>
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              style={{
+                background: view===v ? (isDark ? "#0d1829" : "#e5e7eb") : "none",
+                border:"none",
+                color: view===v ? t.text : t.mutedText,
+                padding:"5px 14px",
+                borderRadius:7,
+                cursor:"pointer",
+                fontFamily:MONO,
+                fontSize:12,
+              }}>
+              {l}
+            </button>
           ))}
           <button
             onClick={() => setTheme(isDark ? "light" : "dark")}
@@ -822,7 +836,7 @@ export default function App() {
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px 5px" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:7 }}>
                     <div style={{ width:7, height:7, borderRadius:"50%", background:term.color, flexShrink:0 }} />
-                    <span style={{ fontFamily:MONO, color:"#c4cdd6", fontSize:12, fontWeight:600 }}>{term.name}</span>
+                    <span style={{ fontFamily:MONO, color:isDark ? "#c4cdd6" : "#111827", fontSize:12, fontWeight:600 }}>{term.name}</span>
                   </div>
                   <div style={{ display:"flex", gap:3 }}>
                     <button onClick={() => setShowNewBlk(showNewBlk===term.id ? null : term.id)} style={{ background:"none", border:"none", color:"#2d3d4f", cursor:"pointer", fontSize:16, lineHeight:1, padding:2 }}>+</button>
@@ -851,7 +865,7 @@ export default function App() {
                       style={{ padding:"7px 14px 7px 22px", cursor:"pointer", background:isActive?term.color+"18":"transparent", borderLeft:"2px solid "+(isActive?term.color:"transparent"), display:"flex", alignItems:"center", justifyContent:"space-between", transition:"background 0.1s", gap:6 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0 }}>
                         <span style={{ color:st.color, fontSize:9, flexShrink:0 }}>{st.icon}</span>
-                        <span style={{ fontFamily:MONO, color:isActive?"#f1f5f9":"#6b7280", fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{block.name}</span>
+                        <span style={{ fontFamily:MONO, color:isActive ? t.text : t.mutedText, fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{block.name}</span>
                         {lc>0 && <span style={{ fontFamily:MONO, color:"#1f2937", fontSize:9, flexShrink:0 }}>{lc}</span>}
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
@@ -956,7 +970,7 @@ export default function App() {
                           {isCur && <div style={{ position:"absolute", top:-1, right:10, background:term.color, color:"#fff", fontFamily:MONO, fontSize:8, padding:"2px 8px", borderRadius:"0 0 6px 6px", letterSpacing:1 }}>CURRENT</div>}
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
                             <div>
-                              <div style={{ fontFamily:MONO, color:"#e2e8f0", fontSize:13, fontWeight:600 }}>{block.name}</div>
+                              <div style={{ fontFamily:MONO, color:isDark ? "#e2e8f0" : "#111827", fontSize:13, fontWeight:600 }}>{block.name}</div>
                               <div style={{ fontFamily:MONO, color:st.color, fontSize:9, marginTop:3 }}>{st.icon} {st.label.toUpperCase()}</div>
                             </div>
                             <Ring score={sc} size={46} tint={term.color} />
@@ -993,7 +1007,7 @@ export default function App() {
                       {(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).icon} {(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).label.toUpperCase()}
                     </span>
                   </div>
-                  <h1 style={{ fontFamily:SERIF, fontSize:28, fontWeight:900, letterSpacing:-0.5 }}>{activeBlock.name}</h1>
+                  <h1 style={{ fontFamily:SERIF, fontSize:28, fontWeight:900, letterSpacing:-0.5, color:t.text }}>{activeBlock.name}</h1>
                   <div style={{ display:"flex", gap:18, marginTop:6 }}>
                     {[["Lectures",blockLecs.length],["Sessions",sessions.filter(s=>s.blockId===blockId).length],["Questions",sessions.filter(s=>s.blockId===blockId).reduce((a,s)=>a+s.total,0)]].map(([l,v])=>(
                       <span key={l} style={{ fontFamily:MONO, color:"#2d3d4f", fontSize:11 }}><span style={{ color:"#6b7280", fontWeight:600 }}>{v}</span> {l}</span>
@@ -1007,7 +1021,7 @@ export default function App() {
               <div style={{ background:"linear-gradient(135deg,"+tc+"12 0%,#09111e 55%)", border:"1px solid "+tc+"30", borderRadius:16, padding:"20px 24px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:20, flexWrap:"wrap" }}>
                 <div>
                   <div style={{ fontFamily:MONO, color:tc, fontSize:9, letterSpacing:2, marginBottom:6 }}>⚡ BLOCK EXAM PREP</div>
-                  <div style={{ fontFamily:SERIF, color:"#e2e8f0", fontSize:16, fontWeight:700, marginBottom:4 }}>Comprehensive {activeBlock.name} Review</div>
+                  <div style={{ fontFamily:SERIF, color:isDark ? "#e2e8f0" : "#111827", fontSize:16, fontWeight:700, marginBottom:4 }}>Comprehensive {activeBlock.name} Review</div>
                   <p style={{ fontFamily:MONO, color:"#4b5563", fontSize:11, lineHeight:1.6 }}>
                     {blockLecs.length>0 ? "Mixed vignettes from all " + blockLecs.length + " lecture" + (blockLecs.length!==1?"s":"") + (sessions.filter(s=>s.blockId===blockId).length>0?" · weak topics weighted higher":"") : "Upload lectures first."}
                   </p>
@@ -1054,8 +1068,24 @@ export default function App() {
 
               {/* Tabs */}
               <div style={{ display:"flex", borderBottom:"1px solid #0d1829" }}>
-                {[["lectures","Lectures ("+blockLecs.length+")"],["heatmap","Heatmap"],["analysis","AI Analysis"]].map(([t,l])=>(
-                  <button key={t} onClick={()=>setTab(t)} style={{ background:"none", border:"none", borderBottom:"2px solid "+(tab===t?tc:"transparent"), color:tab===t?"#f1f5f9":"#374151", padding:"9px 20px", cursor:"pointer", fontFamily:MONO, fontSize:12, marginBottom:-1, transition:"color 0.12s" }}>{l}</button>
+                {[["lectures","Lectures ("+blockLecs.length+")"],["heatmap","Heatmap"],["analysis","AI Analysis"]].map(([tKey,label])=>(
+                  <button
+                    key={tKey}
+                    onClick={()=>setTab(tKey)}
+                    style={{
+                      background:"none",
+                      border:"none",
+                      borderBottom:"2px solid "+(tab===tKey?tc:"transparent"),
+                      color: tab===tKey ? t.text : t.mutedText,
+                      padding:"9px 20px",
+                      cursor:"pointer",
+                      fontFamily:MONO,
+                      fontSize:12,
+                      marginBottom:-1,
+                      transition:"color 0.12s",
+                    }}>
+                    {label}
+                  </button>
                 ))}
               </div>
 
@@ -1081,12 +1111,12 @@ export default function App() {
               {tab==="analysis" && (
                 <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <p style={{ fontFamily:MONO, color:"#374151", fontSize:12 }}>AI study plan based on your block performance.</p>
+                    <p style={{ fontFamily:MONO, color:t.mutedText, fontSize:12 }}>AI study plan based on your block performance.</p>
                     <Btn onClick={runAnalysis} color={tc} disabled={aLoading}>{aLoading?"Analyzing…":"↺ Run Analysis"}</Btn>
                   </div>
-                  {analyses[blockId] ? (
-                    <div style={{ background:"#050c18", border:"1px solid #0f2040", borderRadius:14, padding:28 }}>
-                      <pre style={{ fontFamily:"Lora, Georgia, serif", color:"#cbd5e1", lineHeight:1.95, fontSize:14, whiteSpace:"pre-wrap" }}>{analyses[blockId]}</pre>
+                    {analyses[blockId] ? (
+                    <div style={{ background:isDark ? "#050c18" : "#f9fafb", border:"1px solid "+(isDark ? "#0f2040" : "#e5e7eb"), borderRadius:14, padding:28 }}>
+                      <pre style={{ fontFamily:"Lora, Georgia, serif", color:isDark ? "#cbd5e1" : "#111827", lineHeight:1.95, fontSize:14, whiteSpace:"pre-wrap" }}>{analyses[blockId]}</pre>
                     </div>
                   ) : (
                     <div style={{ ...CARD, border:"1px dashed #0d1829", padding:50, textAlign:"center" }}>
@@ -1107,7 +1137,7 @@ export default function App() {
           {/* ANALYTICS */}
           {view==="analytics" && (
             <div style={{ padding:"30px 32px", display:"flex", flexDirection:"column", gap:24 }}>
-              <h1 style={{ fontFamily:SERIF, fontSize:30, fontWeight:900, letterSpacing:-1 }}>Global <span style={{ color:"#8b5cf6" }}>Analytics</span></h1>
+              <h1 style={{ fontFamily:SERIF, fontSize:30, fontWeight:900, letterSpacing:-1, color:t.text }}>Global <span style={{ color:"#8b5cf6" }}>Analytics</span></h1>
               {sessions.length===0 ? (
                 <div style={{ ...CARD, border:"1px dashed #0d1829", padding:60, textAlign:"center" }}>
                   <p style={{ fontFamily:MONO, color:"#2d3d4f", fontSize:13 }}>Complete sessions to see analytics.</p>
@@ -1128,7 +1158,7 @@ export default function App() {
                     return (
                       <div key={block.id} style={{ ...CARD, border:"1px solid "+term.color+"15", marginBottom:14 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
-                          <span style={{ fontFamily:MONO, color:"#e2e8f0", fontWeight:600, fontSize:14 }}>{block.name}</span>
+                          <span style={{ fontFamily:MONO, color:isDark ? "#e2e8f0" : "#111827", fontWeight:600, fontSize:14 }}>{block.name}</span>
                           <span style={{ fontFamily:MONO, color:m.fg, fontWeight:700, fontSize:16 }}>{sc!==null?sc+"%":"—"}</span>
                         </div>
                         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))", gap:8, marginBottom:14 }}>
