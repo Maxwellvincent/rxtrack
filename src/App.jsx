@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import Tracker from "./Tracker";
+import LearningModel from "./LearningModel.jsx";
+import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
 
 // ─────────────────────────────────────────────
 // PERSISTENT STORAGE
@@ -99,15 +102,19 @@ async function readPDF(file) {
 // ─────────────────────────────────────────────
 // CLAUDE API
 // ─────────────────────────────────────────────
-async function claude(prompt, maxTokens) {
+async function claude(prompt, maxTokens, systemPrompt) {
+  const body = {
+    model: "claude-sonnet-4-20250514",
+    max_tokens: maxTokens || 1200,
+    messages: [{ role: "user", content: prompt }],
+  };
+  if (systemPrompt != null && systemPrompt !== "") {
+    body.system = systemPrompt;
+  }
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: maxTokens || 1200,
-      messages: [{ role: "user", content: prompt }],
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error("API " + res.status);
   const d = await res.json();
@@ -597,6 +604,7 @@ export default function App() {
   const [showNewTerm,  setShowNewTerm]  = useState(false);
   const [showNewBlk,   setShowNewBlk]  = useState(null);
 
+  const [learningProfile, setLearningProfile] = useState(() => loadProfile());
   const saveRef = useRef(null);
 
   // ── Load from storage ──────────────────────
@@ -623,6 +631,11 @@ export default function App() {
     if (typeof window === "undefined") return;
     localStorage.setItem("rxt-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    saveProfile(learningProfile);
+  }, [learningProfile]);
 
   // ── Auto-save ──────────────────────────────
   const save = (t, s, a) => {
@@ -719,11 +732,22 @@ export default function App() {
   };
   const onSessionDone = ({ correct, total, date }) => {
     const base = { id:uid(), blockId, termId, correct, total, date };
+    const subject = studyCfg.mode === "lecture" ? studyCfg.subject : "Block Exam";
+    const subtopic = studyCfg.mode === "lecture" ? studyCfg.subtopic : "Comprehensive";
     if (studyCfg.mode === "lecture") {
-      setSessions(p => [...p, { ...base, lectureId:studyCfg.lecture.id, subject:studyCfg.subject, subtopic:studyCfg.subtopic }]);
+      setSessions(p => [...p, { ...base, lectureId:studyCfg.lecture.id, subject, subtopic }]);
     } else {
-      setSessions(p => [...p, { ...base, lectureId:null, subject:"Block Exam", subtopic:"Comprehensive" }]);
+      setSessions(p => [...p, { ...base, lectureId:null, subject, subtopic }]);
     }
+    let nextProfile = learningProfile;
+    for (let i = 0; i < correct; i++) {
+      nextProfile = recordAnswer(nextProfile, subject, subtopic, true, "clinicalVignette");
+    }
+    for (let i = 0; i < total - correct; i++) {
+      nextProfile = recordAnswer(nextProfile, subject, subtopic, false, "clinicalVignette");
+    }
+    setLearningProfile(nextProfile);
+    saveProfile(nextProfile);
     setView("block"); setStudyCfg(null);
   };
 
@@ -788,7 +812,7 @@ export default function App() {
         )}
 
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
-          {[["overview","Overview"],["analytics","Analytics"]].map(([v,l]) => (
+          {[["overview","Overview"],["tracker","📋 Tracker"],["learn","🧠 Learn"],["analytics","Analytics"]].map(([v,l]) => (
             <button
               key={v}
               onClick={() => setView(v)}
@@ -911,6 +935,25 @@ export default function App() {
           {view==="study" && studyCfg && (
             <div style={{ padding:"32px 36px" }}>
               <Session cfg={studyCfg} onDone={onSessionDone} onBack={() => { setView("block"); setStudyCfg(null); }} />
+            </div>
+          )}
+
+          {/* TRACKER */}
+          {view==="tracker" && (
+            <div style={{ padding:"30px 32px", display:"flex", flexDirection:"column", gap:20, height:"100%" }}>
+              <Tracker />
+            </div>
+          )}
+
+          {/* LEARNING MODEL */}
+          {view === "learn" && (
+            <div style={{ flex:1, overflow:"auto" }}>
+              <LearningModel
+                profile={learningProfile}
+                onProfileUpdate={(p) => { setLearningProfile(p); saveProfile(p); }}
+                sessions={sessions}
+                lectures={lectures}
+              />
             </div>
           )}
 
