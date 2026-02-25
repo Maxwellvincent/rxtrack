@@ -6,9 +6,11 @@ import {
 } from "./learningModel";
 import { useTheme } from "./theme";
 import { parseExamPDF } from "./examParser";
+import HistoStudy from "./HistoStudy";
 
 const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
+// Fallback when theme not in scope; prefer T.red from useTheme() where available
 const ACCENT = "#ef4444";
 
 const pct = (c, t) => (t ? Math.round((c / t) * 100) : 0);
@@ -105,6 +107,268 @@ async function parseQuestionsWithAI(rawText, filename) {
   const lastBrace = text.lastIndexOf("}");
   if (firstBrace === -1 || lastBrace === -1) throw new Error("No JSON in response");
   return JSON.parse(text.slice(firstBrace, lastBrace + 1));
+}
+
+function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onDelete, profile }) {
+  const { T } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const MONO = "'DM Mono','Courier New',monospace";
+  const SERIF = "'Playfair Display',Georgia,serif";
+
+  const total = questions.length;
+  const clinical = questions.filter((q) => q.type === "clinicalVignette" || q.type === "clinical").length;
+  const mechanism = questions.filter((q) => q.type === "mechanismBased").length;
+  const pharma = questions.filter((q) => q.type === "pharmacology").length;
+  const image = questions.filter((q) => q.imageQuestion).length;
+  const hasAnswer = questions.filter((q) => q.correct).length;
+  const noAnswer = total - hasAnswer;
+
+  const topics = [...new Set(questions.map((q) => q.topic).filter(Boolean))].slice(0, 6);
+  const allTopics = [...new Set(questions.map((q) => q.topic).filter(Boolean))];
+
+  return (
+    <div
+      style={{
+        background: T.cardBg,
+        border: "1px solid " + T.border2,
+        borderRadius: 14,
+        overflow: "hidden",
+        marginBottom: 12,
+      }}
+    >
+      <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: 14 }}>
+        <div style={{ fontSize: 28, flexShrink: 0 }}>📋</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontFamily: MONO,
+              color: T.text1,
+              fontSize: 13,
+              fontWeight: 600,
+              marginBottom: 4,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {filename}
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: MONO, color: T.blue, fontSize: 10 }}>{total} questions</span>
+            {image > 0 && (
+              <span style={{ fontFamily: MONO, color: T.purple, fontSize: 10 }}>· {image} histology slides</span>
+            )}
+            {noAnswer > 0 && (
+              <span style={{ fontFamily: MONO, color: T.amber, fontSize: 10 }}>· {noAnswer} missing answer keys</span>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={() => onPractice(questions)}
+            style={{
+              background: T.red,
+              border: "none",
+              color: T.text1,
+              padding: "7px 14px",
+              borderRadius: 7,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            ▶ Practice
+          </button>
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            style={{
+              background: T.pillBg,
+              border: "none",
+              color: T.pillText,
+              padding: "7px 10px",
+              borderRadius: 7,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 11,
+            }}
+          >
+            {expanded ? "▲" : "▾"}
+          </button>
+          <button
+            type="button"
+            onClick={() => onDelete(filename)}
+            style={{
+              background: "none",
+              border: "1px solid " + T.border1,
+              color: T.text4,
+              padding: "7px 10px",
+              borderRadius: 7,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 11,
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = T.red;
+              e.currentTarget.style.color = T.red;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = T.border1;
+              e.currentTarget.style.color = T.text4;
+            }}
+          >
+            🗑
+          </button>
+        </div>
+      </div>
+      <div style={{ padding: "0 20px 14px", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {[
+          { label: "Clinical", count: clinical, color: "#3b82f6" },
+          { label: "Mechanism", count: mechanism, color: "#a78bfa" },
+          { label: "Pharma", count: pharma, color: "#f59e0b" },
+          { label: "Histology", count: image, color: "#10b981" },
+        ]
+          .filter((t) => t.count > 0)
+          .map((t) => (
+            <div
+              key={t.label}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                background: t.color + "18",
+                border: "1px solid " + t.color + "30",
+                borderRadius: 6,
+                padding: "3px 10px",
+              }}
+            >
+              <div style={{ width: 6, height: 6, borderRadius: "50%", background: t.color }} />
+              <span style={{ fontFamily: MONO, color: t.color, fontSize: 10 }}>
+                {t.count} {t.label}
+              </span>
+            </div>
+          ))}
+      </div>
+      {expanded && (
+        <div
+          style={{
+            borderTop: "1px solid #0f1e30",
+            padding: "16px 20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: MONO, color: "#374151", fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
+              TOPICS COVERED
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {topics.map((t, i) => (
+                <span
+                  key={i}
+                  style={{
+                    fontFamily: MONO,
+                    color: "#9ca3af",
+                    background: "#0d1829",
+                    border: "1px solid #1a2a3a",
+                    fontSize: 10,
+                    padding: "3px 10px",
+                    borderRadius: 5,
+                  }}
+                >
+                  {t.length > 45 ? t.slice(0, 45) + "…" : t}
+                </span>
+              ))}
+              {topics.length < allTopics.length && (
+                <span style={{ fontFamily: MONO, color: "#374151", fontSize: 10, padding: "3px 6px" }}>
+                  +{allTopics.length - topics.length} more
+                </span>
+              )}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontFamily: MONO, color: "#374151", fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
+              PRACTICE OPTIONS
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => onPractice(questions)}
+                style={{
+                  background: "#ef444418",
+                  border: "1px solid #ef444440",
+                  color: "#ef4444",
+                  padding: "7px 16px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: MONO,
+                  fontSize: 11,
+                }}
+              >
+                ▶ All {total} Questions
+              </button>
+              <button
+                type="button"
+                onClick={() => onPracticeWeak(questions)}
+                style={{
+                  background: "#f59e0b18",
+                  border: "1px solid #f59e0b40",
+                  color: "#f59e0b",
+                  padding: "7px 16px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: MONO,
+                  fontSize: 11,
+                }}
+              >
+                📌 Weak Topics Only
+              </button>
+              {image > 0 && (
+                <button
+                  type="button"
+                  onClick={() => onPractice(questions.filter((q) => q.imageQuestion))}
+                  style={{
+                    background: "#10b98118",
+                    border: "1px solid #10b98140",
+                    color: "#10b981",
+                    padding: "7px 16px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    fontFamily: MONO,
+                    fontSize: 11,
+                  }}
+                >
+                  🔬 Histology Only
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() =>
+                  onPractice(questions.filter((q) => q.type === "clinicalVignette" || q.type === "clinical"))
+                }
+                style={{
+                  background: "#3b82f618",
+                  border: "1px solid #3b82f640",
+                  color: "#3b82f6",
+                  padding: "7px 16px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: MONO,
+                  fontSize: 11,
+                }}
+              >
+                🏥 Clinical Only
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Toggle({ label, checked, onChange }) {
@@ -317,7 +581,7 @@ function LearningSession({
           {(v.difficulty || "medium").toUpperCase()}
         </span>
         {(v.topic || v.subtopic) && (
-          <span style={{ fontFamily: MONO, color: "#2d3d4f", fontSize: 11 }}>
+          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
             {[v.topic, v.subtopic].filter(Boolean).join(" — ")}
           </span>
         )}
@@ -326,7 +590,7 @@ function LearningSession({
       <div
         style={{
           background: T.inputBg,
-          border: "1px solid " + T.cardBorder,
+          border: "1px solid " + T.border1,
           borderRadius: 16,
           padding: 28,
         }}
@@ -342,7 +606,7 @@ function LearningSession({
                 />
               </div>
             )}
-            <p style={{ fontFamily: MONO, color: "#6b7280", fontSize: 11, margin: 0 }}>
+            <p style={{ fontFamily: MONO, color: T.text3, fontSize: 11, margin: 0 }}>
               🔬 Identify the structures or select the correct answer based on the histological slide above.
             </p>
             {shown && v.answerPageImage && (
@@ -361,7 +625,7 @@ function LearningSession({
             )}
           </div>
         ) : (
-          <p style={{ fontFamily: SERIF, color: "#e2e8f0", lineHeight: 1.95, fontSize: 15, margin: 0 }}>
+          <p style={{ fontFamily: SERIF, color: T.text1, lineHeight: 1.8, fontSize: 14, margin: 0 }}>
             {v.stem}
           </p>
         )}
@@ -369,9 +633,9 @@ function LearningSession({
 
       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {CHOICES.map((ch) => {
-          let bg = T.inputBg,
-            border = T.cardBorder,
-            color = "#8a9bb0";
+          let bg = T.cardBg,
+            border = T.border1,
+            color = T.text2;
           if (shown) {
             if (ch === v.correct) {
               bg = "#021710";
@@ -405,7 +669,7 @@ function LearningSession({
                 lineHeight: 1.65,
               }}
             >
-              <span style={{ fontWeight: 700, minWidth: 22 }}>{ch}.</span>
+              <span style={{ fontWeight: 700, minWidth: 22, color: shown || sel === ch ? color : T.text3 }}>{ch}.</span>
               <span style={{ flex: 1 }}>{v.choices[ch]}</span>
               {shown && ch === v.correct && <span style={{ color: "#10b981" }}>✓</span>}
               {shown && ch === sel && ch !== v.correct && (
@@ -419,7 +683,7 @@ function LearningSession({
       {shown && (
         <div
           style={{
-            background: "#050c18",
+            background: "#09111e",
             border: "1px solid #0f2040",
             borderRadius: 14,
             padding: 24,
@@ -439,8 +703,8 @@ function LearningSession({
           <p
             style={{
               fontFamily: SERIF,
-              color: "#cbd5e1",
-              lineHeight: 1.95,
+              color: "#f1f5f9",
+              lineHeight: 1.8,
               fontSize: 14,
               margin: 0,
             }}
@@ -524,19 +788,35 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
   const [tab, setTab] = useState("profile");
   const [filterType, setFilterType] = useState("all");
   const [filterDifficulty, setFilterDifficulty] = useState("all");
-  const [parsing, setParsing] = useState(false);
-  const [parseMsg, setParseMsg] = useState("");
-  const [parsedQuestions, setParsedQuestions] = useState([]);
-  const [expandedRowIndex, setExpandedRowIndex] = useState(null);
+  const [parsingJobs, setParsingJobs] = useState([]);
+  const [questionBanksByFile, setQuestionBanksByFile] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    } catch {
+      return {};
+    }
+  });
   const [practiceSubject, setPracticeSubject] = useState("");
+  // File refs for re-parse (only available for files uploaded this session)
+  const [fileRefs, setFileRefs] = useState({});
 
-  // Load saved questions from profile on mount and when profile changes
+  // Migrate legacy profile.uploadedExamPatterns into questionBanksByFile once
   useEffect(() => {
     const raw = profile.uploadedExamPatterns || [];
-    const flat = raw.flatMap((p) =>
-      p && Array.isArray(p.questions) ? p.questions : [p]
-    );
-    setParsedQuestions(flat);
+    if (raw.length === 0) return;
+    const banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    if (Object.keys(banks).length > 0) return;
+    const next = { ...banks };
+    raw.forEach((p) => {
+      if (p && Array.isArray(p.questions)) {
+        const key = p.fileName || p.examTitle || "Imported";
+        next[key] = p.questions;
+      }
+    });
+    if (Object.keys(next).length > Object.keys(banks).length) {
+      localStorage.setItem("rxt-question-banks", JSON.stringify(next));
+      setQuestionBanksByFile(next);
+    }
   }, [profile.uploadedExamPatterns]);
   const [practiceMode, setPracticeMode] = useState("aiGenerated");
   const [practiceCount, setPracticeCount] = useState(10);
@@ -566,11 +846,8 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
   const strongTopics = Object.entries(topicStats).filter(([, v]) => v.t > 0 && pct(v.c, v.t) >= 80);
 
   const subjectsFromLectures = [...new Set(lectures.map((l) => l.subject).filter(Boolean))];
-  // Support both legacy { examTitle, questions } and flat array of question objects
-  const bankQuestions = (profile.uploadedExamPatterns || []).flatMap((p) =>
-    p && Array.isArray(p.questions)
-      ? (p.questions || []).map((q) => ({ ...q, _examTitle: p.examTitle }))
-      : [{ ...p, _examTitle: p.topic || p.examTitle || "Imported" }]
+  const bankQuestions = Object.entries(questionBanksByFile).flatMap(([filename, qs]) =>
+    (qs || []).map((q) => ({ ...q, _examTitle: filename }))
   );
 
   const filteredBank = bankQuestions.filter((q) => {
@@ -587,96 +864,104 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
       })
     : filteredBank;
 
-  const filteredParsed = parsedQuestions.filter((q) => {
-    if (filterType !== "all" && (q.type || "") !== filterType) return false;
-    if (filterDifficulty !== "all" && (q.difficulty || "") !== filterDifficulty) return false;
-    return true;
-  });
-  const parsedWeak = parsedQuestions.filter((q) => {
-    const key = [q.topic, q.subtopic].filter(Boolean).join(" — ") || "Other";
-    return weakTopicKeys.has(key);
-  });
-  const fileCount = profile.uploadedExamFileCount || 0;
+  const formatLabel = (format) => {
+    const labels = { grid: "Grid/table", slidedeck: "Slide deck", standard: "Standard" };
+    return labels[format] || format;
+  };
 
-  const handleExamUpload = async (files) => {
+  const onFileParsed = (filename, questions) => {
+    setQuestionBanksByFile((prev) => {
+      const updated = { ...prev, [filename]: questions };
+      localStorage.setItem("rxt-question-banks", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const addParsingJob = (filename) => {
+    const jobId = Date.now() + "_" + filename;
+    setParsingJobs((prev) => [
+      ...prev,
+      { id: jobId, filename, status: "parsing", progress: "Starting...", questionCount: 0 },
+    ]);
+    return jobId;
+  };
+  const updateJobProgress = (jobId, progress) => {
+    setParsingJobs((prev) => prev.map((j) => (j.id === jobId ? { ...j, progress } : j)));
+  };
+  const completeJob = (jobId, questionCount) => {
+    setParsingJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, status: "done", progress: "✓ Complete", questionCount } : j))
+    );
+  };
+  const failJob = (jobId, message) => {
+    setParsingJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, status: "error", progress: "✗ " + message } : j))
+    );
+  };
+
+  const handleExamUpload = (files) => {
     if (!files?.length) return;
-    setParsing(true);
-    setParseMsg("");
-    let allQuestions = [];
-
     for (const file of Array.from(files)) {
-      try {
-        const isPdf = file.name.toLowerCase().endsWith(".pdf");
-        if (isPdf) {
-          setParseMsg("📄 Parsing PDF " + file.name + "...");
-          const result = await parseExamPDF(file);
-          if (result?.questions?.length > 0) {
-            allQuestions = [...allQuestions, ...result.questions];
-            const clinical = result.questions.filter(
-              (q) => !q.imageQuestion && q.type !== "image"
-            ).length;
-            const image = result.questions.filter(
-              (q) => q.imageQuestion || q.type === "image"
-            ).length;
-            setParseMsg(
-              "✓ Parsed " +
-                clinical +
-                " clinical questions and " +
-                image +
-                " histology image questions from " +
-                file.name
-            );
-          } else {
-            setParseMsg("⚠ No questions found in " + file.name);
-          }
-        } else {
-          setParseMsg("📄 Reading " + file.name + "...");
-          const text = await file.text();
-          if (!text || text.trim().length < 50) {
-            setParseMsg("⚠ " + file.name + " appears empty — skipping");
-            continue;
-          }
-          setParseMsg("🧠 AI parsing questions from " + file.name + "...");
-          const result = await parseQuestionsWithAI(text, file.name);
-          if (result?.questions?.length > 0) {
-            allQuestions = [...allQuestions, ...result.questions];
-            setParseMsg("✓ Found " + result.questions.length + " questions in " + file.name);
-          } else {
-            setParseMsg("⚠ No questions found in " + file.name);
-          }
-        }
-        await new Promise((r) => setTimeout(r, 1200));
-      } catch (e) {
-        setParseMsg("✗ Error parsing " + file.name + ": " + (e.message || String(e)));
-        await new Promise((r) => setTimeout(r, 2000));
+      const isPdf = file.name.toLowerCase().endsWith(".pdf");
+      const jobId = addParsingJob(file.name);
+
+      if (isPdf) {
+        setFileRefs((prev) => ({ ...prev, [file.name]: file }));
+        parseExamPDF(file, (msg) => updateJobProgress(jobId, msg))
+          .then((result) => {
+            if (result?.questions?.length > 0) {
+              onFileParsed(file.name, result.questions);
+              completeJob(jobId, result.questions.length);
+              const imageCount = result.questions.filter((q) => q.imageQuestion).length;
+              if (imageCount > 0) setTab("histology");
+            } else {
+              completeJob(jobId, 0);
+              updateJobProgress(jobId, "⚠ No questions found");
+            }
+          })
+          .catch((err) => failJob(jobId, err.message || String(err)));
+      } else {
+        updateJobProgress(jobId, "Reading file...");
+        file
+          .text()
+          .then((text) => {
+            if (!text || text.trim().length < 50) {
+              failJob(jobId, "File appears empty");
+              return;
+            }
+            updateJobProgress(jobId, "🧠 AI parsing...");
+            return parseQuestionsWithAI(text, file.name);
+          })
+          .then((result) => {
+            if (!result) return;
+            if (result?.questions?.length > 0) {
+              onFileParsed(file.name, result.questions);
+              completeJob(jobId, result.questions.length);
+            } else {
+              completeJob(jobId, 0);
+              updateJobProgress(jobId, "⚠ No questions found");
+            }
+          })
+          .catch((err) => failJob(jobId, err.message || String(err)));
       }
     }
+  };
 
-    if (allQuestions.length > 0) {
-      setParsedQuestions((prev) => [...prev, ...allQuestions]);
-      const updatedProfile = {
-        ...profile,
-        uploadedExamPatterns: [...(profile.uploadedExamPatterns || []), ...allQuestions],
-        uploadedExamFileCount: (profile.uploadedExamFileCount || 0) + files.length,
-      };
-      onProfileUpdate(updatedProfile);
-      const clinical = allQuestions.filter(
-        (q) => !q.imageQuestion && q.type !== "image"
-      ).length;
-      const image = allQuestions.filter(
-        (q) => q.imageQuestion || q.type === "image"
-      ).length;
-      setParseMsg(
-        "✓ Done — " +
-          clinical +
-          " clinical and " +
-          image +
-          " histology questions loaded"
-      );
-    }
-
-    setParsing(false);
-    setTimeout(() => setParseMsg(""), 5000);
+  const handleReparse = (fileName) => {
+    const file = fileRefs[fileName];
+    if (!file) return;
+    const jobId = addParsingJob(fileName);
+    parseExamPDF(file, (msg) => updateJobProgress(jobId, msg))
+      .then((result) => {
+        if (result?.questions?.length > 0) {
+          onFileParsed(fileName, result.questions);
+          completeJob(jobId, result.questions.length);
+        } else {
+          completeJob(jobId, 0);
+          updateJobProgress(jobId, "⚠ No questions found");
+        }
+      })
+      .catch((e) => failJob(jobId, e.message || String(e)));
   };
 
   const startPractice = async () => {
@@ -757,8 +1042,79 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
     marginBottom: -1,
   });
 
+  const histoCount = Object.values(questionBanksByFile)
+    .flat()
+    .filter((q) => q && q.imageQuestion).length;
+
   return (
     <div style={{ background: T.appBg, color: T.text1, minHeight: "100%", fontFamily: MONO }}>
+      {parsingJobs.length > 0 && (
+        <div style={{ borderBottom: "1px solid #0d1829", background: "#07090e" }}>
+          {parsingJobs.map((job) => (
+            <div
+              key={job.id}
+              style={{
+                padding: "8px 20px",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              {job.status === "parsing" ? (
+                <div
+                  style={{
+                    width: 14,
+                    height: 14,
+                    border: "2px solid #1a2a3a",
+                    borderTopColor: "#ef4444",
+                    borderRadius: "50%",
+                    animation: "rxt-spin 0.8s linear infinite",
+                    flexShrink: 0,
+                  }}
+                />
+              ) : job.status === "done" ? (
+                <span style={{ color: "#10b981", fontSize: 14 }}>✓</span>
+              ) : (
+                <span style={{ color: "#ef4444", fontSize: 14 }}>✗</span>
+              )}
+              <span
+                style={{
+                  fontFamily: MONO,
+                  color: "#c4cdd6",
+                  fontSize: 11,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  maxWidth: 200,
+                }}
+              >
+                {job.filename}
+              </span>
+              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 10, flex: 1 }}>{job.progress}</span>
+              {job.status === "done" && (
+                <span style={{ fontFamily: MONO, color: "#10b981", fontSize: 10 }}>{job.questionCount} questions</span>
+              )}
+              {job.status !== "parsing" && (
+                <button
+                  type="button"
+                  onClick={() => setParsingJobs((prev) => prev.filter((j) => j.id !== job.id))}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "#374151",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    padding: "0 2px",
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <style>{`@keyframes rxt-spin { to { transform: rotate(360deg); } }`}</style>
       <div style={{ display: "flex", borderBottom: "1px solid " + T.cardBorder, padding: "0 20px" }}>
         <button style={navStyle("profile")} onClick={() => setTab("profile")}>
           Profile
@@ -768,6 +1124,9 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
         </button>
         <button style={navStyle("practice")} onClick={() => setTab("practice")}>
           Practice
+        </button>
+        <button style={navStyle("histology")} onClick={() => setTab("histology")}>
+          {"🔬 Histology" + (histoCount > 0 ? " (" + histoCount + ")" : "")}
         </button>
       </div>
 
@@ -933,7 +1292,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
               }}
             >
               <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-              <p style={{ fontFamily: MONO, color: T.text3 || "#c4cdd6", fontSize: 13, marginBottom: 8 }}>
+              <p style={{ fontFamily: MONO, color: T.text3, fontSize: 13, marginBottom: 8 }}>
                 Drop your instructor question bank PDFs here
               </p>
               <p style={{ fontFamily: MONO, color: T.text5 || "#374151", fontSize: 11, marginBottom: 16 }}>
@@ -951,7 +1310,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   fontWeight: 700,
                 }}
               >
-                {parsing ? "Parsing..." : "Select PDF Files"}
+                Select PDF Files
                 <input
                   type="file"
                   accept=".pdf,.txt"
@@ -960,75 +1319,16 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   style={{ display: "none" }}
                 />
               </label>
-              {parseMsg && (
-                <div
-                  style={{
-                    marginTop: 16,
-                    fontFamily: MONO,
-                    color: parseMsg.startsWith("✓")
-                      ? "#10b981"
-                      : parseMsg.startsWith("✗")
-                        ? "#ef4444"
-                        : "#f59e0b",
-                    fontSize: 12,
-                  }}
-                >
-                  {parsing && <span style={{ marginRight: 8 }}>⟳</span>}
-                  {parseMsg}
-                </div>
-              )}
             </div>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <span style={{ color: T.text3, fontSize: 11 }}>Type:</span>
-              {["all", "clinicalVignette", "mechanismBased", "pharmacology", "laboratory"].map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setFilterType(t)}
-                  style={{
-                    background: filterType === t ? ACCENT + "22" : "none",
-                    border: "1px solid " + (filterType === t ? ACCENT : T.cardBorder),
-                    color: filterType === t ? ACCENT : T.text3,
-                    padding: "4px 12px",
-                    borderRadius: 20,
-                    cursor: "pointer",
-                    fontFamily: MONO,
-                    fontSize: 11,
-                  }}
-                >
-                  {t === "all" ? "All" : t}
-                </button>
-              ))}
-              <span style={{ color: T.text3, fontSize: 11, marginLeft: 12 }}>Difficulty:</span>
-              {["all", "easy", "medium", "hard"].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setFilterDifficulty(d)}
-                  style={{
-                    background: filterDifficulty === d ? ACCENT + "22" : "none",
-                    border: "1px solid " + (filterDifficulty === d ? ACCENT : T.cardBorder),
-                    color: filterDifficulty === d ? ACCENT : T.text3,
-                    padding: "4px 12px",
-                    borderRadius: 20,
-                    cursor: "pointer",
-                    fontFamily: MONO,
-                    fontSize: 11,
-                  }}
-                >
-                  {d === "all" ? "All" : d}
-                </button>
-              ))}
-            </div>
-
-            <p style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>
-              {parsedQuestions.length} question{parsedQuestions.length !== 1 ? "s" : ""} from {fileCount} uploaded file{fileCount !== 1 ? "s" : ""}
-            </p>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button
-                onClick={() => {
-                  const shuffled = [...parsedQuestions].sort(() => Math.random() - 0.5);
-                  const vignettes = shuffled.map((q, i) => ({
+            {Object.entries(questionBanksByFile).map(([filename, questions]) => (
+              <QuestionBankCard
+                key={filename}
+                filename={filename}
+                questions={questions || []}
+                profile={profile}
+                onPractice={(qs) => {
+                  const vignettes = (qs || []).map((q, i) => ({
                     id: q.id || "bank-" + i,
                     stem: q.stem,
                     choices: q.choices || {},
@@ -1045,26 +1345,13 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   setSessionVignettes(vignettes);
                   setTab("practice");
                 }}
-                disabled={parsedQuestions.length === 0}
-                style={{
-                  background: parsedQuestions.length ? "#10b981" : T.border1,
-                  border: "none",
-                  color: "#fff",
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  cursor: parsedQuestions.length ? "pointer" : "not-allowed",
-                  fontFamily: MONO,
-                  fontSize: 12,
-                  fontWeight: 600,
-                }}
-              >
-                ▶ Practice All
-              </button>
-              <button
-                onClick={() => {
-                  if (parsedWeak.length === 0) return;
-                  const shuffled = [...parsedWeak].sort(() => Math.random() - 0.5);
-                  const vignettes = shuffled.map((q, i) => ({
+                onPracticeWeak={(qs) => {
+                  const weak = (qs || []).filter((q) => {
+                    const key = [q.topic, q.subtopic].filter(Boolean).join(" — ") || "Other";
+                    return weakTopicKeys.has(key);
+                  });
+                  const toUse = weak.length > 0 ? weak : qs || [];
+                  const vignettes = toUse.map((q, i) => ({
                     id: q.id || "weak-" + i,
                     stem: q.stem,
                     choices: q.choices || {},
@@ -1081,153 +1368,23 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   setSessionVignettes(vignettes);
                   setTab("practice");
                 }}
-                disabled={parsedWeak.length === 0}
-                style={{
-                  background: parsedWeak.length ? ACCENT : T.border1,
-                  border: "none",
-                  color: "#fff",
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  cursor: parsedWeak.length ? "pointer" : "not-allowed",
-                  fontFamily: MONO,
-                  fontSize: 12,
-                  fontWeight: 600,
+                onDelete={(fname) => {
+                  if (!window.confirm("Remove " + fname + " from your question bank?")) return;
+                  const updated = { ...questionBanksByFile };
+                  delete updated[fname];
+                  setQuestionBanksByFile(updated);
+                  localStorage.setItem("rxt-question-banks", JSON.stringify(updated));
                 }}
-              >
-                ▶ Practice Weak Topics
-              </button>
-              <button
-                onClick={() => {
-                  if (!window.confirm("Clear all questions from the bank?")) return;
-                  setParsedQuestions([]);
-                  onProfileUpdate({
-                    ...profile,
-                    uploadedExamPatterns: [],
-                    uploadedExamFileCount: 0,
-                  });
-                  setExpandedRowIndex(null);
-                }}
-                style={{
-                  background: T.border1,
-                  border: "1px solid " + T.cardBorder,
-                  color: T.text3,
-                  padding: "10px 20px",
-                  borderRadius: 8,
-                  cursor: "pointer",
-                  fontFamily: MONO,
-                  fontSize: 12,
-                }}
-              >
-                🗑 Clear Bank
-              </button>
-            </div>
+              />
+            ))}
 
-            <div
-              style={{
-                background: T.cardBg,
-                border: "1px solid " + T.cardBorder,
-                borderRadius: 12,
-                overflow: "hidden",
-              }}
-            >
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                <thead>
-                  <tr style={{ background: T.inputBg, borderBottom: "1px solid " + T.cardBorder }}>
-                    <th style={{ textAlign: "left", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Type</th>
-                    <th style={{ textAlign: "left", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Difficulty</th>
-                    <th style={{ textAlign: "left", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Topic</th>
-                    <th style={{ textAlign: "left", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Subtopic</th>
-                    <th style={{ textAlign: "left", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Question</th>
-                    <th style={{ textAlign: "center", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Answer</th>
-                    <th style={{ textAlign: "center", padding: "10px 14px", color: T.text4, fontSize: 11, fontWeight: 600 }}>Explanation</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredParsed.map((q, i) => {
-                    const typeColors = {
-                      clinicalVignette: { bg: "#0f172a", border: "#3b82f6", color: "#93c5fd" },
-                      mechanismBased: { bg: "#1e1b4b", border: "#8b5cf6", color: "#c4b5fd" },
-                      pharmacology: { bg: "#431407", border: "#ea580c", color: "#fdba74" },
-                      laboratory: { bg: "#042f2e", border: "#0d9488", color: "#5eead4" },
-                    };
-                    const typeStyle = typeColors[q.type] || { bg: T.border1, border: T.cardBorder, color: T.text4 };
-                    const diffColors = {
-                      easy: { bg: "#021710", border: "#064e3b", color: "#10b981" },
-                      medium: { bg: "#160e00", border: "#b45309", color: "#f59e0b" },
-                      hard: { bg: "#150404", border: "#450a0a", color: ACCENT },
-                    };
-                    const diffStyle = diffColors[q.difficulty] || { bg: T.border1, border: T.cardBorder, color: T.text4 };
-                    const expanded = expandedRowIndex === i;
-                    return (
-                      <Fragment key={i}>
-                        <tr
-                          onClick={() => setExpandedRowIndex(expanded ? null : i)}
-                          style={{
-                            borderBottom: "1px solid " + T.cardBorder,
-                            cursor: "pointer",
-                            background: expanded ? T.border1 + "40" : "transparent",
-                          }}
-                        >
-                          <td style={{ padding: "8px 14px" }}>
-                            <span style={{ background: typeStyle.bg, border: "1px solid " + typeStyle.border, color: typeStyle.color, padding: "2px 8px", borderRadius: 6, fontSize: 11 }}>
-                              {q.imageQuestion || q.type === "image" ? "🔬 image" : (q.type ? "📝 " + q.type : "—")}
-                            </span>
-                          </td>
-                          <td style={{ padding: "8px 14px" }}>
-                            <span style={{ background: diffStyle.bg, border: "1px solid " + diffStyle.border, color: diffStyle.color, padding: "2px 8px", borderRadius: 6, fontSize: 11 }}>
-                              {q.difficulty || "—"}
-                            </span>
-                          </td>
-                          <td style={{ padding: "8px 14px", color: T.text1 }}>{q.topic || "—"}</td>
-                          <td style={{ padding: "8px 14px", color: T.text2 }}>{q.subtopic || "—"}</td>
-                          <td style={{ padding: "8px 14px", color: T.text3, maxWidth: 320 }}>{(q.stem || "").slice(0, 100)}{(q.stem || "").length > 100 ? "…" : ""}</td>
-                          <td style={{ padding: "8px 14px", textAlign: "center", color: T.text2 }}>{q.correct != null && q.correct !== "" ? "✓" : "—"}</td>
-                          <td style={{ padding: "8px 14px", textAlign: "center", color: T.text2 }}>{q.explanation ? "✓" : "—"}</td>
-                        </tr>
-                        {expanded && (
-                          <tr style={{ background: T.inputBg, borderBottom: "1px solid " + T.cardBorder }}>
-                            <td colSpan={7} style={{ padding: "16px 14px", verticalAlign: "top" }}>
-                              {(q.imageQuestion || q.type === "image") && q.questionPageImage ? (
-                                <div style={{ marginBottom: 12 }}>
-                                  <div style={{ fontFamily: MONO, color: T.text4, fontSize: 10, marginBottom: 6 }}>🔬 Question slide</div>
-                                  <img
-                                    src={"data:image/png;base64," + q.questionPageImage}
-                                    alt="Question slide"
-                                    style={{ maxWidth: "100%", maxHeight: 280, borderRadius: 8, border: "1px solid " + T.cardBorder }}
-                                  />
-                                </div>
-                              ) : null}
-                              <div style={{ fontFamily: MONO, color: T.text1, fontSize: 12, lineHeight: 1.6, marginBottom: 12 }}>{q.stem}</div>
-                              <div style={{ marginBottom: 12 }}>
-                                {["A", "B", "C", "D"].map((letter) => {
-                                  const choice = (q.choices || {})[letter];
-                                  const isCorrect = (q.correct || "").toUpperCase() === letter;
-                                  return choice != null ? (
-                                    <div key={letter} style={{ marginBottom: 4, padding: "6px 10px", borderRadius: 6, background: isCorrect ? "#021710" : T.border1 + "40", border: "1px solid " + (isCorrect ? "#10b981" : T.cardBorder), color: isCorrect ? "#10b981" : T.text2 }}>
-                                      <strong>{letter}.</strong> {choice}
-                                    </div>
-                                  ) : null;
-                                })}
-                              </div>
-                              {q.explanation && (
-                                <div style={{ padding: "10px 12px", background: T.cardBg, border: "1px solid " + T.cardBorder, borderRadius: 8, color: T.text3, fontSize: 11, lineHeight: 1.5 }}>
-                                  <strong style={{ color: T.text4 }}>Explanation:</strong> {q.explanation}
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {filteredParsed.length === 0 && (
-                <div style={{ padding: 40, textAlign: "center", color: T.text3 }}>
-                  No questions in bank. Upload PDFs above to get started.
-                </div>
-              )}
-            </div>
+            {Object.keys(questionBanksByFile).length === 0 && (
+              <div style={{ textAlign: "center", padding: "50px 0" }}>
+                <div style={{ fontSize: 42, marginBottom: 12 }}>📭</div>
+                <p style={{ fontFamily: MONO, color: "#374151", fontSize: 13 }}>No question banks uploaded yet</p>
+                <p style={{ fontFamily: MONO, color: "#2d3d4f", fontSize: 11 }}>Upload a PDF above to get started</p>
+              </div>
+            )}
           </div>
         )}
 
@@ -1415,6 +1572,23 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                 </div>
               </>
             )}
+          </div>
+        )}
+
+        {tab === "histology" && (
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 400 }}>
+            <HistoStudy
+              questions={(Object.values(questionBanksByFile).flat() || []).filter((q) => q && q.imageQuestion)}
+              profile={profile}
+              termColor={ACCENT}
+              onBack={() => setTab("questionBank")}
+              parsingCallbacks={{
+                addJob: addParsingJob,
+                progress: updateJobProgress,
+                complete: completeJob,
+                fail: failJob,
+              }}
+            />
           </div>
         )}
       </div>
