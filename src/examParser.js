@@ -1,107 +1,200 @@
-let pdfLib = null;
-
-async function getPdf() {
-  if (pdfLib) return pdfLib;
-  if (typeof window !== "undefined" && window.pdfjsLib) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    pdfLib = window.pdfjsLib;
-    return pdfLib;
-  }
-  return new Promise((res, rej) => {
-    if (typeof document === "undefined") {
-      rej(new Error("PDF.js can only be loaded in a browser environment"));
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-    s.onload = () => {
-      try {
+export async function parseExamPDF(file) {
+  if (!window.pdfjsLib) {
+    await new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.onload = () => {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc =
           "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-        pdfLib = window.pdfjsLib;
-        res(pdfLib);
-      } catch (e) {
-        rej(e);
+        res();
+      };
+      s.onerror = () => rej(new Error("PDF.js failed to load"));
+      document.head.appendChild(s);
+    });
+  } else {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const totalPages = pdf.numPages;
+  const OPS = window.pdfjsLib.OPS || {};
+
+  const pages = [];
+  for (let i = 1; i <= totalPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map((x) => x.str).join(" ").trim();
+    let imgCount = 0;
+    try {
+      const ops = await page.getOperatorList();
+      if (ops && ops.fnArray) {
+        imgCount = ops.fnArray.filter(
+          (fn) =>
+            fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject
+        ).length;
       }
-    };
-    s.onerror = () => rej(new Error("PDF.js load failed"));
-    document.head.appendChild(s);
-  });
-}
-
-async function readPDF(file) {
-  const lib = await getPdf();
-  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
-  let text = "";
-  for (let i = 1; i <= Math.min(pdf.numPages, 80); i++) {
-    const pg = await pdf.getPage(i);
-    const ct = await pg.getTextContent();
-    text += "\n[Page " + i + "]\n" + ct.items.map(x => x.str).join(" ");
+    } catch (e) {
+      // ignore
+    }
+    pages.push({ pageNum: i, text, imgCount, page });
   }
-  return text.trim();
-}
 
-async function claude(rawPrompt, maxTokens) {
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: maxTokens || 6000,
-      messages: [{ role: "user", content: rawPrompt }],
-    }),
-  });
-  if (!res.ok) throw new Error("API " + res.status);
-  const d = await res.json();
-  return (d.content || []).map(b => b.text || "").join("");
-}
+  const questionGroups = {};
+  for (const p of pages) {
+    const match = p.text.match(/QUESTION\s+(\d+)/);
+    if (match) {
+      const num = parseInt(match[1], 10);
+      if (!questionGroups[num]) questionGroups[num] = [];
+      questionGroups[num].push(p);
+    }
+  }
 
-function safeJSON(raw) {
-  return JSON.parse(
-    raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim()
+  const questions = [];
+  const sortedEntries = Object.entries(questionGroups).sort(
+    (a, b) => parseInt(a[0], 10) - parseInt(b[0], 10)
   );
-}
 
-export async function parseQuestionsWithClaude(rawText) {
-  const prompt =
-    "You are parsing a medical school exam PDF. Extract every question.\n" +
-    "Return ONLY valid JSON with no markdown:\n" +
-    '{ "questions": [ { "stem": "string", "choices": { "A": "string", "B": "string", "C": "string", "D": "string" }, "correct": "A|B|C|D", "explanation": "string", "topic": "string", "subtopic": "string", "difficulty": "easy|medium|hard", "type": "clinicalVignette|mechanismBased|pharmacology|laboratory" } ] }\n\n' +
-    "Only extract questions that actually exist in the text, do not invent any.\n\n" +
-    "TEXT START:\n" +
-    rawText;
+  for (const [numStr, group] of sortedEntries) {
+    const num = parseInt(numStr, 10);
+    const firstPage = group[0];
+    const isImageQuestion =
+      firstPage.imgCount > 5 && firstPage.text.length < 200;
 
-  const raw = await claude(prompt, 6000);
-  const parsed = safeJSON(raw);
-  const questions = Array.isArray(parsed.questions) ? parsed.questions : [];
-  return { questions };
-}
+    if (isImageQuestion) {
+      const renderPageToBase64 = async (pdfPage) => {
+        const viewport = pdfPage.getViewport({ scale: 1.5 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+        await pdfPage.render({ canvasContext: ctx, viewport }).promise;
+        return canvas.toDataURL("image/png").split(",")[1];
+      };
 
-export async function parseExamPDF(file) {
-  const rawText = await readPDF(file);
-  let questions = [];
-  try {
-    const parsed = await parseQuestionsWithClaude(rawText);
-    questions = parsed.questions || [];
-  } catch {
-    questions = [];
+      const questionImg = await renderPageToBase64(firstPage.page);
+      const answerImg =
+        group.length > 1 ? await renderPageToBase64(group[1].page) : null;
+
+      const topicLines = firstPage.text
+        .replace(/QUESTION\s+\d+\s*/, "")
+        .split(/\s{2,}/)
+        .filter(Boolean);
+      const topic = topicLines.slice(0, 2).join(" — ") || "Histology";
+
+      questions.push({
+        id: "q" + num,
+        num,
+        type: "image",
+        imageQuestion: true,
+        subject: "Histology",
+        topic,
+        stem:
+          "Examine the histological slide shown. Identify the labeled structures or answer the question about this tissue section.",
+        questionPageImage: questionImg,
+        answerPageImage: answerImg,
+        choices: {
+          A: "(Answer choices visible in the slide image above)",
+          B: "(Select based on the labeled image)",
+          C: "(See slide labels)",
+          D: "(See slide labels)",
+        },
+        correct: null,
+        explanation:
+          "Review the annotated answer slide which labels the correct structures in this " +
+          topic +
+          " specimen.",
+        difficulty: "medium",
+      });
+    } else {
+      const stemPageText = firstPage.text.replace(/QUESTION\s+\d+\s*/, "");
+      const explPageText =
+        group.length > 1
+          ? group[group.length - 1].text.replace(/QUESTION\s+\d+\s*/, "")
+          : "";
+
+      const lines = stemPageText.split(/\n|\s{3,}/);
+      const stemLines = [];
+      const choices = {};
+      let inChoices = false;
+      let currentChoice = null;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        if (/^(Lecture|DLA)\s+\d+/.test(trimmed)) continue;
+
+        const choiceMatch = trimmed.match(/^([A-E])[.)]\s*(.*)/);
+        if (choiceMatch) {
+          inChoices = true;
+          currentChoice = choiceMatch[1];
+          choices[currentChoice] = choiceMatch[2].trim();
+        } else if (inChoices && currentChoice) {
+          choices[currentChoice] += " " + trimmed;
+        } else if (!inChoices) {
+          stemLines.push(trimmed);
+        }
+      }
+      const stem = stemLines.join(" ").trim();
+
+      let correct = null;
+      const explanationParts = [];
+      let inExplanation = false;
+
+      const explLines = explPageText.split(/\n|\s{3,}/);
+      for (const line of explLines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        const perChoiceMatch = trimmed.match(/^([A-E])[.)]\s*(.*)/);
+        if (perChoiceMatch) {
+          const letter = perChoiceMatch[1];
+          const content = perChoiceMatch[2];
+          if (
+            /[Cc]orrect/.test(content) &&
+            !/[Ii]ncorrect/.test(content.slice(0, 40))
+          ) {
+            correct = letter;
+          }
+          inExplanation = false;
+          continue;
+        }
+
+        if (/^[Ee]xplanation[:\s]/.test(trimmed)) {
+          inExplanation = true;
+          const rest = trimmed.replace(/^[Ee]xplanation[:\s]*/, "").trim();
+          if (rest) explanationParts.push(rest);
+        } else if (inExplanation) {
+          explanationParts.push(trimmed);
+        }
+      }
+
+      const explanation = explanationParts.join(" ").trim();
+      const lecMatch = stemPageText.match(/Lecture\s+\d+[^A-E\n]*/);
+      const topic = lecMatch
+        ? lecMatch[0].trim().slice(0, 60)
+        : "FTM2 Review";
+
+      questions.push({
+        id: "q" + num,
+        num,
+        type: "clinical",
+        imageQuestion: false,
+        subject: "FTM2",
+        topic,
+        stem,
+        choices,
+        correct,
+        explanation: explanation || "See explanation in original PDF.",
+        difficulty: "medium",
+      });
+    }
   }
-
-  const firstLine =
-    rawText
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find((l) => l.length > 0) || "";
-
-  const examTitle = firstLine.slice(0, 120) || "Imported Exam";
 
   return {
     questions,
-    examTitle,
+    examTitle: file.name.replace(".pdf", ""),
     totalQuestions: questions.length,
   };
 }
-

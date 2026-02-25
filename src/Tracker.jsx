@@ -86,10 +86,11 @@ const SAMPLE = [
 // ─────────────────────────────────────────────────────────
 
 function Check({ checked, onClick, color }) {
+  const { T } = useTheme();
   return (
     <div onClick={onClick} style={{
       width:24, height:24, borderRadius:6,
-      border:"1.5px solid "+(checked ? color : "#1a2a3a"),
+      border:"1.5px solid "+(checked ? color : T.border1),
       background: checked ? color+"28" : "transparent",
       display:"flex", alignItems:"center", justifyContent:"center",
       cursor:"pointer", transition:"all 0.15s", margin:"0 auto", flexShrink:0,
@@ -100,46 +101,65 @@ function Check({ checked, onClick, color }) {
 }
 
 function DaysBadge({ lastStudied, confidence }) {
-  const { theme } = useTheme();
+  const { T, isDark } = useTheme();
   const days = daysSince(lastStudied);
   const urg  = getUrgency(confidence, lastStudied);
   const u    = URG[urg];
-  if (days === null) return <span style={{ fontFamily:MONO, color:theme.textGhost, fontSize:10 }}>—</span>;
+  if (days === null) return <span style={{ fontFamily:MONO, color:T.text5, fontSize:11 }}>—</span>;
+  const pillBg = u.label ? (isDark ? u.color+"18" : u.color+"26") : "transparent";
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-      <span style={{ fontFamily:MONO, color:u.color, fontSize:13, fontWeight:700, lineHeight:1, textShadow:u.glow }}>{days}d</span>
-      {u.label && <span style={{ fontFamily:MONO, color:u.color, fontSize:8, letterSpacing:1, background:u.color+"18", padding:"1px 5px", borderRadius:3 }}>{u.label}</span>}
+      <span style={{ fontFamily:MONO, color:u.color, fontSize:15, fontWeight:700, lineHeight:1, textShadow:u.glow }}>{days}d</span>
+      {u.label && <span style={{ fontFamily:MONO, color:u.color, fontSize:11, letterSpacing:1, background:pillBg, padding:"1px 5px", borderRadius:3 }}>{u.label}</span>}
     </div>
   );
 }
 
 function ScoreCell({ scores, onAdd, onClear }) {
   const [val, setVal] = useState("");
-  const { theme } = useTheme();
+  const { T, isDark } = useTheme();
   const submit = () => {
     const n = Number(val);
     if (!val || isNaN(n) || n < 0 || n > 100) return;
     onAdd(n); setVal("");
   };
   const a = avg(scores);
-  const col = a===null?theme.textFaint:a>=80?"#10b981":a>=70?"#f59e0b":a>=60?"#fb923c":"#ef4444";
+  const col = a===null?T.text4:a>=80?"#10b981":a>=70?"#f59e0b":a>=60?"#fb923c":"#ef4444";
+  const badgeBg = isDark ? col+"18" : col+"26";
   return (
     <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
       {a !== null && (
         <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-          <span style={{ fontFamily:MONO, color:col, fontSize:12, fontWeight:700 }}>{a}%</span>
-          <span style={{ fontFamily:MONO, color:col, background:col+"18", fontSize:8, padding:"1px 5px", borderRadius:3 }}>×{scores.length}</span>
-          <button onClick={onClear} style={{ background:"none", border:"none", color:"#1f2937", cursor:"pointer", fontSize:9 }} title="Clear">✕</button>
+          <span style={{ fontFamily:MONO, color:col, fontSize:14, fontWeight:700 }}>{a}%</span>
+          <span style={{ fontFamily:MONO, color:col, background:badgeBg, fontSize:11, padding:"1px 5px", borderRadius:3 }}>×{scores.length}</span>
+          <button onClick={onClear} style={{ background:"none", border:"none", color:T.text4, cursor:"pointer", fontSize:11 }} title="Clear">✕</button>
         </div>
       )}
       <div style={{ display:"flex", gap:3 }}>
         <input value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
           placeholder="%" type="number" min={0} max={100}
-          style={{ width:44, background:theme.inputBg, border:"1px solid "+theme.borderSubtle, color:theme.textPrimary, padding:"3px 5px", borderRadius:4, fontFamily:MONO, fontSize:10, outline:"none" }} />
-        <button onClick={submit} style={{ background:theme.borderSubtle, border:"none", color:"#60a5fa", padding:"3px 7px", borderRadius:4, cursor:"pointer", fontFamily:MONO, fontSize:10 }}>+</button>
+          style={{ width:44, background:T.inputBg, border:"1px solid "+T.border1, color:T.text1, padding:"3px 5px", borderRadius:4, fontFamily:MONO, fontSize:12, outline:"none" }} />
+        <button onClick={submit} style={{ background:T.border1, border:"none", color:"#60a5fa", padding:"3px 7px", borderRadius:4, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>+</button>
       </div>
     </div>
   );
+}
+
+// Shared date input style (calendar picker, theme-aware)
+function dateInputStyle(T, isDark) {
+  return {
+    background: T.inputBg,
+    border: "1px solid " + T.border1,
+    color: T.text1,
+    padding: "4px 8px",
+    borderRadius: 6,
+    fontFamily: MONO,
+    fontSize: 11,
+    outline: "none",
+    cursor: "pointer",
+    width: "100%",
+    colorScheme: isDark ? "dark" : "light",
+  };
 }
 
 // Inline-editable text cell
@@ -147,28 +167,33 @@ function EditCell({ value, onChange, placeholder, type }) {
   const [editing, setEditing] = useState(false);
   const [draft,   setDraft]   = useState(value || "");
   const ref = useRef();
-  const { theme } = useTheme();
+  const { T, isDark } = useTheme();
   useEffect(() => { setDraft(value || ""); }, [value]);
   useEffect(() => { if (editing && ref.current) ref.current.focus(); }, [editing]);
   const commit = () => { setEditing(false); if (draft !== (value||"")) onChange(draft); };
 
   if (type === "date") {
     return (
-      <input type="date" value={value || ""} onChange={e=>onChange(e.target.value)}
-        style={{ background:"transparent", border:"none", color:value?theme.textSecondary:theme.textGhost, fontFamily:MONO, fontSize:10, outline:"none", cursor:"pointer", width:"100%" }} />
+      <input
+        type="date"
+        value={value || ""}
+        onChange={e => onChange(e.target.value)}
+        style={dateInputStyle(T, isDark)}
+        title="Click to open calendar"
+      />
     );
   }
   return editing ? (
     <input ref={ref} value={draft} onChange={e=>setDraft(e.target.value)}
       onBlur={commit}
       onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Tab") commit(); if(e.key==="Escape"){ setDraft(value||""); setEditing(false); } }}
-      style={{ background:theme.inputBg, border:"1px solid #3b82f6", color:theme.textPrimary, fontFamily:MONO, fontSize:11, padding:"2px 6px", borderRadius:4, outline:"none", width:"100%" }} />
+      style={{ background:T.inputBg, border:"1px solid #3b82f6", color:T.text1, fontFamily:MONO, fontSize:11, padding:"2px 6px", borderRadius:4, outline:"none", width:"100%" }} />
   ) : (
     <div onClick={() => setEditing(true)}
       title="Click to edit"
-      style={{ color:value?theme.textSecondary:theme.textGhost, fontFamily:MONO, fontSize:11, cursor:"text", padding:"2px 4px", borderRadius:4,
+      style={{ color:value?T.text2:T.text5, fontFamily:MONO, fontSize:11, cursor:"text", padding:"2px 4px", borderRadius:4,
         overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", transition:"background 0.1s" }}
-      onMouseEnter={e=>e.currentTarget.style.background=theme.rowHover}
+      onMouseEnter={e=>e.currentTarget.style.background=T.rowHover}
       onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
       {value || placeholder || "—"}
     </div>
@@ -179,41 +204,43 @@ function EditCell({ value, onChange, placeholder, type }) {
 function ConfPicker({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
-  const { theme } = useTheme();
+  const { T, isDark } = useTheme();
   const conf = value ? getConf(value) : null;
   useEffect(() => {
     const handler = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+  const triggerBg = conf ? (isDark ? conf.bg : conf.color+"26") : "transparent";
+  const triggerBorder = conf ? (isDark ? conf.color+"40" : conf.color) : T.border1;
   return (
     <div ref={ref} style={{ position:"relative" }}>
       <div onClick={() => setOpen(p=>!p)} style={{
         display:"flex", alignItems:"center", gap:5, cursor:"pointer", padding:"3px 8px",
-        borderRadius:6, border:"1px solid "+(conf?conf.color+"40":theme.borderSubtle),
-        background:conf?conf.bg:"transparent", transition:"all 0.15s", whiteSpace:"nowrap", userSelect:"none",
+        borderRadius:6, border:"1px solid "+(conf?(isDark?conf.color+"40":conf.color):T.border1),
+        background:triggerBg, transition:"all 0.15s", whiteSpace:"nowrap", userSelect:"none",
       }}>
         {conf
-          ? <><div style={{ width:7, height:7, borderRadius:"50%", background:conf.color, flexShrink:0 }}/><span style={{ fontFamily:MONO, color:conf.color, fontSize:10, fontWeight:600 }}>{conf.label}</span></>
-          : <span style={{ fontFamily:MONO, color:theme.textGhost, fontSize:10 }}>Rate confidence</span>}
-        <span style={{ color:theme.textFaint, fontSize:9, marginLeft:2 }}>▾</span>
+          ? <><div style={{ width:7, height:7, borderRadius:"50%", background:conf.color, flexShrink:0 }}/><span style={{ fontFamily:MONO, color:conf.color, fontSize:11, fontWeight:600 }}>{conf.label}</span></>
+          : <span style={{ fontFamily:MONO, color:T.text5, fontSize:11 }}>Rate confidence</span>}
+        <span style={{ color:T.text4, fontSize:11, marginLeft:2 }}>▾</span>
       </div>
       {open && (
-        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:600, background:theme.cardBg,
-          border:"1px solid "+theme.borderSubtle, borderRadius:10, padding:6, minWidth:185, boxShadow:"0 12px 40px #000c" }}>
+        <div style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:600, background:T.pickerBg||T.cardBg,
+          border:"1px solid "+(T.pickerBorder||T.border1), borderRadius:10, padding:6, minWidth:185, boxShadow:"0 12px 40px #000c" }}>
           {CONFIDENCE.map(c => (
             <div key={c.value} onClick={()=>{ onChange(c.value); setOpen(false); }}
               style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 10px", borderRadius:7, cursor:"pointer",
-                background:value===c.value?c.bg:"transparent", border:"1px solid "+(value===c.value?c.color+"40":"transparent"), marginBottom:2, transition:"all 0.1s" }}
-              onMouseEnter={e=>{ if(value!==c.value) e.currentTarget.style.background=theme.rowHover; }}
+                background:value===c.value?(isDark?c.bg:c.color+"26"):"transparent", border:"1px solid "+(value===c.value?c.color+(isDark?"40":""):"transparent"), marginBottom:2, transition:"all 0.1s" }}
+              onMouseEnter={e=>{ if(value!==c.value) e.currentTarget.style.background=T.pickerHover||T.rowHover; }}
               onMouseLeave={e=>{ if(value!==c.value) e.currentTarget.style.background="transparent"; }}>
               <div style={{ width:8, height:8, borderRadius:"50%", background:c.color, flexShrink:0 }}/>
               <span style={{ fontFamily:MONO, color:c.color, fontSize:11, fontWeight:600, flex:1 }}>{c.label}</span>
-              <span style={{ fontFamily:MONO, color:theme.textFaint, fontSize:9 }}>/{c.reviewDays}d</span>
+              <span style={{ fontFamily:MONO, color:T.text4, fontSize:11 }}>/{c.reviewDays}d</span>
             </div>
           ))}
           {value && <div onClick={()=>{ onChange(null); setOpen(false); }}
-            style={{ padding:"5px 10px", cursor:"pointer", fontFamily:MONO, color:theme.textFaint, fontSize:10, textAlign:"center", marginTop:2 }}>clear</div>}
+            style={{ padding:"5px 10px", cursor:"pointer", fontFamily:MONO, color:T.text4, fontSize:11, textAlign:"center", marginTop:2 }}>clear</div>}
         </div>
       )}
     </div>
@@ -222,45 +249,50 @@ function ConfPicker({ value, onChange }) {
 
 // Add Row Modal
 function AddModal({ onAdd, onClose }) {
+  const { T, isDark } = useTheme();
   const [row, setRow] = useState({ block:"FTM 2", subject:"", topic:"", lectureDate:"", lastStudied:"", ankiDate:"", confidence:null });
   const set = (k,v) => setRow(p=>({...p,[k]:v}));
-  const INP = { background:"#080f1c", border:"1px solid #1a2a3a", color:"#f1f5f9", padding:"8px 11px", borderRadius:7, fontFamily:MONO, fontSize:12, outline:"none", width:"100%" };
+  const INP = { background:T.inputBg, border:"1px solid "+T.border1, color:T.text1, padding:"8px 11px", borderRadius:7, fontFamily:MONO, fontSize:12, outline:"none", width:"100%" };
+  const canSubmit = row.subject.trim().length > 0 && row.topic.trim().length > 0;
   const submit = () => {
-    if (!row.subject.trim() || !row.topic.trim()) return;
+    if (!canSubmit) return;
     onAdd(makeRow({ ...row, subject:row.subject.trim(), topic:row.topic.trim() }));
     onClose();
   };
+  const optionalHint = { fontFamily: MONO, color: T.text4, fontSize: 11, marginTop: 3 };
   return (
     <div style={{ position:"fixed", inset:0, background:"#000000c0", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999 }}>
-      <div style={{ background:"#09111e", border:"1px solid #1a2a3a", borderRadius:18, padding:30, width:500, display:"flex", flexDirection:"column", gap:18 }}>
-        <div style={{ fontFamily:SERIF, fontSize:20, fontWeight:700 }}>Add Lecture / Topic</div>
+      <div style={{ background:T.cardBg, border:"1px solid "+T.border1, borderRadius:18, padding:30, width:500, display:"flex", flexDirection:"column", gap:18, boxShadow:T.cardShadow }}>
+        <div style={{ fontFamily:SERIF, fontSize:20, fontWeight:700, color:T.text1 }}>Add Lecture / Topic</div>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <div style={{ gridColumn:"1/-1" }}>
-            <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:1.5, marginBottom:5 }}>BLOCK</div>
+            <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:1.5, marginBottom:5 }}>BLOCK</div>
             <select value={row.block} onChange={e=>set("block",e.target.value)} style={{...INP,cursor:"pointer"}}>
               {BLOCKS.map(b=><option key={b}>{b}</option>)}
             </select>
           </div>
           {[["subject","SUBJECT / COURSE","e.g. Physiology"],["topic","LECTURE / TOPIC","e.g. Cardiac Cycle"]].map(([k,l,ph])=>(
             <div key={k}>
-              <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:1.5, marginBottom:5 }}>{l}</div>
-              <input style={INP} placeholder={ph} value={row[k]} onChange={e=>set(k,e.target.value)} autoFocus={k==="subject"} onKeyDown={e=>k==="topic"&&e.key==="Enter"&&submit()} />
+              <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:1.5, marginBottom:5 }}>{l}</div>
+              <input style={INP} placeholder={ph} value={row[k]} onChange={e=>set(k,e.target.value)} autoFocus={k==="subject"} onKeyDown={e=>k==="topic"&&e.key==="Enter"&&canSubmit&&submit()} />
             </div>
           ))}
           {[["lectureDate","LECTURE DATE"],["lastStudied","LAST STUDIED"],["ankiDate","ANKI CARD RELEASE"]].map(([k,l])=>(
             <div key={k}>
-              <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:1.5, marginBottom:5 }}>{l}</div>
-              <input type="date" value={row[k]} onChange={e=>set(k,e.target.value)} style={INP} />
+              <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:1.5, marginBottom:5 }}>{l}</div>
+              <input type="date" value={row[k]} onChange={e=>set(k,e.target.value)} style={dateInputStyle(T, isDark)} title="Click to open calendar" />
+              <div style={optionalHint}>optional</div>
             </div>
           ))}
           <div>
-            <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:1.5, marginBottom:5 }}>CONFIDENCE LEVEL</div>
+            <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:1.5, marginBottom:5 }}>CONFIDENCE LEVEL</div>
             <ConfPicker value={row.confidence} onChange={v=>set("confidence",v)} />
+            <div style={optionalHint}>optional</div>
           </div>
         </div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-          <button onClick={onClose} style={{ background:"#1a2a3a", border:"none", color:"#9ca3af", padding:"9px 20px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:12 }}>Cancel</button>
-          <button onClick={submit} style={{ background:"#ef4444", border:"none", color:"#fff", padding:"9px 24px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:13, fontWeight:700 }}>Add Row</button>
+          <button onClick={onClose} style={{ background:T.border1, border:"none", color:T.text5, padding:"9px 20px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:12 }}>Cancel</button>
+          <button onClick={submit} disabled={!canSubmit} style={{ background:canSubmit?"#ef4444":T.border1, border:"none", color:canSubmit?"#fff":T.text5, padding:"9px 24px", borderRadius:8, cursor:canSubmit?"pointer":"not-allowed", fontFamily:MONO, fontSize:13, fontWeight:700, opacity:canSubmit?1:0.7 }}>Add Row</button>
         </div>
       </div>
     </div>
@@ -271,9 +303,10 @@ function AddModal({ onAdd, onClose }) {
 // ANALYTICS PANEL
 // ─────────────────────────────────────────────────────────
 function Analytics({ rows }) {
+  const { T, isDark } = useTheme();
   const allScores = rows.flatMap(r=>r.scores);
   const overall   = avg(allScores);
-  const acol      = p => p===null?"#374151":p>=80?"#10b981":p>=70?"#f59e0b":p>=60?"#fb923c":"#ef4444";
+  const acol      = p => p===null?T.text4:p>=80?"#10b981":p>=70?"#f59e0b":p>=60?"#fb923c":"#ef4444";
 
   const needsReview = rows
     .filter(r => ["critical","overdue"].includes(getUrgency(r.confidence,r.lastStudied)))
@@ -301,8 +334,8 @@ function Analytics({ rows }) {
           { l:"Need Review Now", v:needsReview.length,                    c:needsReview.length>0?"#ef4444":"#10b981" },
           { l:"Fully Complete",  v:rows.filter(r=>r.preRead&&r.lecture&&r.postReview&&r.anki).length, c:"#10b981" },
         ].map(({l,v,c})=>(
-          <div key={l} style={{ background:"#09111e", border:"1px solid #0f1e30", borderRadius:12, padding:"16px 18px" }}>
-            <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:1.5, marginBottom:6 }}>{l.toUpperCase()}</div>
+          <div key={l} style={{ background:T.cardBg, border:"1px solid "+T.cardBorder, borderRadius:12, padding:"16px 18px", boxShadow:T.cardShadow }}>
+            <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:1.5, marginBottom:6 }}>{l.toUpperCase()}</div>
             <div style={{ fontFamily:SERIF, color:c, fontSize:30, fontWeight:900, lineHeight:1 }}>{v}</div>
           </div>
         ))}
@@ -311,24 +344,26 @@ function Analytics({ rows }) {
       {/* Review queue */}
       {needsReview.length > 0 && (
         <div>
-          <div style={{ fontFamily:MONO, color:"#ef4444", fontSize:9, letterSpacing:2, marginBottom:12 }}>🔴 REVIEW QUEUE — NEEDS ATTENTION NOW</div>
+          <div style={{ fontFamily:MONO, color:"#ef4444", fontSize:11, letterSpacing:2, marginBottom:12 }}>🔴 REVIEW QUEUE — NEEDS ATTENTION NOW</div>
           <div style={{ display:"flex", flexDirection:"column", gap:6 }}>
             {needsReview.map(r=>{
               const urg=getUrgency(r.confidence,r.lastStudied), u=URG[urg], conf=r.confidence?getConf(r.confidence):null, days=daysSince(r.lastStudied);
+              const cardBg = (urg==="critical"||urg==="overdue") && !isDark ? (urg==="critical"?"#fef2f2":"#fff7ed") : u.bg;
+              const cardGlow = urg==="critical" && (isDark ? u.glow : "0 0 14px #ef444426") || (urg==="overdue" && (isDark ? u.glow : "0 0 8px #f9731626")) || "none";
               return (
-                <div key={r.id} style={{ background:u.bg, border:"1px solid "+u.border, borderRadius:10, padding:"12px 18px",
-                  display:"flex", alignItems:"center", gap:16, boxShadow:urg==="critical"?u.glow:"none" }}>
+                <div key={r.id} style={{ background:cardBg, border:"1px solid "+u.border, borderRadius:10, padding:"12px 18px",
+                  display:"flex", alignItems:"center", gap:16, boxShadow:cardGlow }}>
                   <div style={{ width:3, height:36, background:u.color, borderRadius:2, flexShrink:0 }}/>
                   <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontFamily:MONO, color:"#e2e8f0", fontSize:12, fontWeight:600 }}>{r.topic}</div>
-                    <div style={{ fontFamily:MONO, color:"#4b5563", fontSize:10 }}>{r.block} · {r.subject}</div>
+                    <div style={{ fontFamily:MONO, color:T.text2, fontSize:12, fontWeight:600 }}>{r.topic}</div>
+                    <div style={{ fontFamily:MONO, color:T.text3, fontSize:12 }}>{r.block} · {r.subject}</div>
                   </div>
-                  {conf && <div style={{ display:"flex", alignItems:"center", gap:5, background:conf.bg, border:"1px solid "+conf.border, borderRadius:6, padding:"4px 10px", flexShrink:0 }}>
-                    <div style={{ width:6,height:6,borderRadius:"50%",background:conf.color }}/><span style={{ fontFamily:MONO,color:conf.color,fontSize:10 }}>{conf.label}</span>
+                  {conf && <div style={{ display:"flex", alignItems:"center", gap:5, background:isDark?conf.bg:conf.color+"26", border:"1px solid "+conf.color, borderRadius:6, padding:"4px 10px", flexShrink:0 }}>
+                    <div style={{ width:6,height:6,borderRadius:"50%",background:conf.color }}/><span style={{ fontFamily:MONO,color:conf.color,fontSize:11 }}>{conf.label}</span>
                   </div>}
                   <div style={{ textAlign:"right", flexShrink:0 }}>
                     <div style={{ fontFamily:MONO, color:u.color, fontSize:16, fontWeight:700 }}>{days!==null?days+"d ago":"Never studied"}</div>
-                    <div style={{ fontFamily:MONO, color:u.color, background:u.color+"18", fontSize:8, padding:"2px 7px", borderRadius:3, letterSpacing:1, marginTop:2 }}>{u.label}</div>
+                    <div style={{ fontFamily:MONO, color:u.color, background:isDark?u.color+"18":u.color+"26", fontSize:11, padding:"2px 7px", borderRadius:3, letterSpacing:1, marginTop:2 }}>{u.label}</div>
                   </div>
                 </div>
               );
@@ -339,7 +374,7 @@ function Analytics({ rows }) {
 
       {/* Confidence breakdown */}
       <div>
-        <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:2, marginBottom:12 }}>CONFIDENCE BREAKDOWN</div>
+        <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:2, marginBottom:12 }}>CONFIDENCE BREAKDOWN</div>
         <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
           {CONFIDENCE.map(c=>{
             const d=byConf[c.value]; if(!d||d.count===0) return null;
@@ -350,8 +385,8 @@ function Analytics({ rows }) {
                   <div style={{ width:8,height:8,borderRadius:"50%",background:c.color }}/><span style={{ fontFamily:MONO,color:c.color,fontSize:11,fontWeight:600 }}>{c.label}</span>
                 </div>
                 <div style={{ fontFamily:SERIF, color:c.color, fontSize:26, fontWeight:900 }}>{d.count}</div>
-                <div style={{ fontFamily:MONO, color:"#374151", fontSize:9 }}>topic{d.count!==1?"s":""}{a!==null?" · "+a+"%":""}</div>
-                <div style={{ fontFamily:MONO, color:"#2d3d4f", fontSize:9, marginTop:3 }}>review every {c.reviewDays}d</div>
+                <div style={{ fontFamily:MONO, color:T.text4, fontSize:11 }}>topic{d.count!==1?"s":""}{a!==null?" · "+a+"%":""}</div>
+                <div style={{ fontFamily:MONO, color:T.text5, fontSize:11, marginTop:3 }}>review every {c.reviewDays}d</div>
               </div>
             );
           })}
@@ -360,23 +395,23 @@ function Analytics({ rows }) {
 
       {/* By subject */}
       <div>
-        <div style={{ fontFamily:MONO, color:"#374151", fontSize:9, letterSpacing:2, marginBottom:12 }}>BY SUBJECT — WEAKEST FIRST</div>
+        <div style={{ fontFamily:MONO, color:T.text4, fontSize:11, letterSpacing:2, marginBottom:12 }}>BY SUBJECT — WEAKEST FIRST</div>
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))", gap:10 }}>
           {Object.entries(bySubject).sort((a,b)=>(avg(a[1].scores)??101)-(avg(b[1].scores)??101)).map(([subj,d])=>{
             const a=avg(d.scores), col=acol(a);
             const avgConf=d.conf.length?Math.round(d.conf.reduce((s,v)=>s+v,0)/d.conf.length):null;
             const confData=avgConf?getConf(Math.round(avgConf)):null;
             return (
-              <div key={subj} style={{ background:"#09111e", border:"1px solid "+(confData?confData.color+"25":"#0f1e30"), borderRadius:10, padding:"13px 16px" }}>
-                <div style={{ fontFamily:MONO, color:"#c4cdd6", fontSize:12, fontWeight:600, marginBottom:8 }}>{subj}</div>
+              <div key={subj} style={{ background:T.cardBg, border:"1px solid "+(confData?confData.color+"25":T.cardBorder), borderRadius:10, padding:"13px 16px", boxShadow:T.cardShadow }}>
+                <div style={{ fontFamily:MONO, color:T.text2, fontSize:12, fontWeight:600, marginBottom:8 }}>{subj}</div>
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
                   <span style={{ fontFamily:SERIF, color:col, fontSize:24, fontWeight:900 }}>{a!==null?a+"%":"—"}</span>
                   {confData && <div style={{ display:"flex", alignItems:"center", gap:4, background:confData.bg, border:"1px solid "+confData.border, borderRadius:5, padding:"3px 8px" }}>
-                    <div style={{ width:6,height:6,borderRadius:"50%",background:confData.color }}/><span style={{ fontFamily:MONO,color:confData.color,fontSize:9 }}>{confData.label}</span>
+                    <div style={{ width:6,height:6,borderRadius:"50%",background:confData.color }}/><span style={{ fontFamily:MONO,color:confData.color,fontSize:11 }}>{confData.label}</span>
                   </div>}
                 </div>
-                {a!==null && <div style={{ height:3,background:"#1a2a3a",borderRadius:2,marginBottom:8 }}><div style={{ width:a+"%",height:"100%",background:col,borderRadius:2 }}/></div>}
-                <div style={{ fontFamily:MONO, color:"#2d3d4f", fontSize:9 }}>{d.count} lecture{d.count!==1?"s":""} · {d.scores.length} scores</div>
+                {a!==null && <div style={{ height:3,background:T.border1,borderRadius:2,marginBottom:8 }}><div style={{ width:a+"%",height:"100%",background:col,borderRadius:2 }}/></div>}
+                <div style={{ fontFamily:MONO, color:T.text5, fontSize:11 }}>{d.count} lecture{d.count!==1?"s":""} · {d.scores.length} scores</div>
               </div>
             );
           })}
@@ -389,58 +424,69 @@ function Analytics({ rows }) {
 // ─────────────────────────────────────────────────────────
 // SINGLE TABLE ROW
 // ─────────────────────────────────────────────────────────
-const GRID = "20px 58px 110px 1fr 92px 92px 58px 26px 26px 26px 26px 92px 160px 112px 20px";
+const GRID = "20px 58px 110px 1fr 92px 92px 58px 26px 26px 26px 26px 92px 112px 70px 160px 20px";
 
-function TrackerRow({ row, upd, delRow, addScore, clrScore, expanded, setExpanded }) {
-  const bc      = BLOCK_COLORS[row.block] || "#374151";
+function TrackerRow({ row, upd, delRow, addScore, clrScore, expanded, setExpanded, flashLastStudied, index, isDark }) {
+  const { T } = useTheme();
+  const bc      = BLOCK_COLORS[row.block] || T.text4;
   const allDone = row.preRead && row.lecture && row.postReview && row.anki;
   const urg     = getUrgency(row.confidence, row.lastStudied);
   const u       = URG[urg];
   const isOpen  = expanded[row.id];
   const conf    = row.confidence ? getConf(row.confidence) : null;
+  const todayStr = () => new Date().toISOString().split("T")[0];
 
-  const rowBg     = urg==="critical" ? u.bg : urg==="overdue" ? u.bg : allDone ? "#021710" : "transparent";
+  const rowIndex = index != null ? index : 0;
+  const rowBg = urg==="critical" ? (isDark?u.bg:"#fef2f2") : urg==="overdue" ? (isDark?u.bg:"#fff7ed") : allDone ? (isDark?"#021710":"#ecfdf5") : (isDark?"transparent":(rowIndex%2===0?"#f8fafc":"#ffffff"));
   const leftBorder= urg==="critical" ? "#ef4444" : urg==="overdue" ? "#f97316" : "transparent";
+  const rowGlow = (urg==="critical"||urg==="overdue") ? (isDark ? u.glow : (urg==="critical" ? "0 0 14px #ef444426" : "0 0 8px #f9731626")) : "none";
 
   return (
-    <div style={{ borderBottom:"1px solid #08111e" }}>
+    <div style={{ borderBottom:"1px solid " + T.border2 }}>
       <div
         style={{ display:"grid", gridTemplateColumns:GRID, gap:6, padding:"9px 16px", alignItems:"center",
           background:rowBg, borderLeft:"3px solid "+leftBorder, transition:"background 0.2s",
-          boxShadow:urg==="critical"?u.glow:urg==="overdue"?u.glow:"none" }}
-        onMouseEnter={e=>{ if(urg==="none"&&!allDone) e.currentTarget.style.background="#09111e"; }}
+          boxShadow:rowGlow }}
+        onMouseEnter={e=>{ if(urg==="none"&&!allDone) e.currentTarget.style.background=T.rowHover; }}
         onMouseLeave={e=>{ e.currentTarget.style.background=rowBg; }}>
 
         {/* Expand toggle */}
         <button onClick={()=>setExpanded(p=>({...p,[row.id]:!p[row.id]}))}
-          style={{ background:"none", border:"none", color:"#2d3d4f", cursor:"pointer", fontSize:10, padding:0, lineHeight:1, textAlign:"center" }}>
+          style={{ background:"none", border:"none", color:T.text5, cursor:"pointer", fontSize:11, padding:0, lineHeight:1, textAlign:"center" }}>
           {isOpen?"▾":"▸"}
         </button>
 
         {/* Block selector */}
         <select value={row.block} onChange={e=>upd(row.id,{block:e.target.value})}
-          style={{ background:"transparent", border:"none", color:bc, fontFamily:MONO, fontSize:10, cursor:"pointer", outline:"none", width:"100%" }}>
-          {BLOCKS.map(b=><option key={b} style={{ background:"#09111e", color:BLOCK_COLORS[b]||"#f1f5f9" }}>{b}</option>)}
+          style={{ background:"transparent", border:"none", color:bc, fontFamily:MONO, fontSize:11, cursor:"pointer", outline:"none", width:"100%" }}>
+          {BLOCKS.map(b=><option key={b} style={{ background:T.cardBg, color:BLOCK_COLORS[b]||T.text1 }}>{b}</option>)}
         </select>
 
         {/* Subject — inline edit */}
         <EditCell value={row.subject} onChange={v=>upd(row.id,{subject:v})} placeholder="Subject…" />
 
-        {/* Topic — inline edit */}
-        <EditCell value={row.topic} onChange={v=>upd(row.id,{topic:v})} placeholder="Lecture / topic…" />
+        {/* Topic — inline edit + AUTO badge if synced from session */}
+        <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
+          <EditCell value={row.topic} onChange={v=>upd(row.id,{topic:v})} placeholder="Lecture / topic…" />
+          {(row.reps > 0 && row.lecture && !row.lectureDate) && (
+            <span style={{ fontFamily:MONO, fontSize:10, fontWeight:700, color:"#3b82f6", background:"#3b82f626", padding:"2px 5px", borderRadius:4, flexShrink:0 }}>AUTO</span>
+          )}
+        </div>
 
         {/* Lecture date */}
         <EditCell value={row.lectureDate} onChange={v=>upd(row.id,{lectureDate:v})} type="date" />
 
         {/* Last studied */}
-        <EditCell value={row.lastStudied} onChange={v=>upd(row.id,{lastStudied:v})} type="date" />
+        <div style={{ transition:"background 0.3s ease", background:flashLastStudied?"#10b98120":"transparent", borderRadius:6 }}>
+          <EditCell value={row.lastStudied} onChange={v=>upd(row.id,{lastStudied:v})} type="date" />
+        </div>
 
         {/* Days since */}
         <DaysBadge lastStudied={row.lastStudied} confidence={row.confidence} />
 
-        {/* Step checkboxes */}
+        {/* Step checkboxes — ticking any = studied today */}
         {STEPS.map(s=>(
-          <Check key={s.key} checked={row[s.key]} onClick={()=>upd(row.id,{[s.key]:!row[s.key]})} color={s.color} />
+          <Check key={s.key} checked={row[s.key]} onClick={()=>upd(row.id,{[s.key]:!row[s.key],lastStudied:todayStr()})} color={s.color} />
         ))}
 
         {/* Anki date */}
@@ -449,38 +495,57 @@ function TrackerRow({ row, upd, delRow, addScore, clrScore, expanded, setExpande
         {/* Confidence picker */}
         <ConfPicker value={row.confidence} onChange={v=>upd(row.id,{confidence:v})} />
 
+        {/* Sessions */}
+        <div style={{ fontFamily:MONO, fontSize:11, color:T.text2 }}>{(row.reps||0) ? (row.reps||0) + " session" + ((row.reps||0)!==1?"s":"") : "—"}</div>
+
         {/* Score input */}
         <ScoreCell scores={row.scores} onAdd={sc=>addScore(row.id,sc)} onClear={()=>clrScore(row.id)} />
 
         {/* Delete */}
         <button onClick={()=>delRow(row.id)}
-          style={{ background:"none", border:"none", color:"#1a2a3a", cursor:"pointer", fontSize:11, padding:2 }}
+          style={{ background:"none", border:"none", color:T.border1, cursor:"pointer", fontSize:11, padding:2 }}
           onMouseEnter={e=>e.currentTarget.style.color="#ef4444"}
-          onMouseLeave={e=>e.currentTarget.style.color="#1a2a3a"}>✕</button>
+          onMouseLeave={e=>e.currentTarget.style.color=T.border1}>✕</button>
       </div>
 
       {/* Expanded section */}
       {isOpen && (
-        <div style={{ padding:"10px 16px 14px 46px", background:"#060c17", borderTop:"1px solid #0a1422" }}>
+        <div style={{ padding:"10px 16px 14px 46px", background:T.sidebarBg, borderTop:"1px solid " + T.border2 }}>
           <div style={{ display:"flex", gap:16, flexWrap:"wrap", marginBottom:10, alignItems:"center" }}>
             {conf && (
-              <div style={{ display:"flex", alignItems:"center", gap:8, background:conf.bg, border:"1px solid "+conf.border, borderRadius:8, padding:"6px 14px" }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, background:isDark?conf.bg:conf.color+"26", border:"1px solid "+conf.color, borderRadius:8, padding:"6px 14px" }}>
                 <div style={{ width:8,height:8,borderRadius:"50%",background:conf.color }}/>
                 <span style={{ fontFamily:MONO, color:conf.color, fontSize:11, fontWeight:600 }}>{conf.label}</span>
-                <span style={{ fontFamily:MONO, color:"#374151", fontSize:10 }}>· review every {conf.reviewDays} days</span>
+                <span style={{ fontFamily:MONO, color:T.text4, fontSize:11 }}>· review every {conf.reviewDays} days</span>
               </div>
             )}
             {row.scores.length > 0 && (
               <div style={{ display:"flex", gap:5, alignItems:"center", flexWrap:"wrap" }}>
-                <span style={{ fontFamily:MONO, color:"#2d3d4f", fontSize:9 }}>Score log:</span>
-                {row.scores.map((sc,i)=>{ const c=sc>=80?"#10b981":sc>=70?"#f59e0b":sc>=60?"#fb923c":"#ef4444"; return <span key={i} style={{ fontFamily:MONO,color:c,background:c+"18",fontSize:10,padding:"1px 7px",borderRadius:4 }}>{sc}%</span>; })}
+                <span style={{ fontFamily:MONO, color:T.text5, fontSize:11 }}>Score log:</span>
+                {row.scores.map((sc,i)=>{ const c=sc>=80?"#10b981":sc>=70?"#f59e0b":sc>=60?"#fb923c":"#ef4444"; return <span key={i} style={{ fontFamily:MONO,color:c,background:isDark?c+"18":c+"26",fontSize:14,fontWeight:700,padding:"1px 7px",borderRadius:4 }}>{sc}%</span>; })}
+              </div>
+            )}
+            {row.scores.length > 1 && (
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <span style={{ fontFamily:MONO, color:T.text5, fontSize:11 }}>Trend:</span>
+                <div style={{ display:"flex", gap:2 }}>
+                  {row.scores.map((sc,i)=>(
+                    <span key={i} style={{ width:8, height:8, borderRadius:2, background: sc>=70?"#10b981":sc>=60?"#f59e0b":"#ef4444", flexShrink:0 }} title={sc+"%"} />
+                  ))}
+                </div>
               </div>
             )}
           </div>
-          <div style={{ fontFamily:MONO, color:"#2d3d4f", fontSize:9, letterSpacing:1.5, marginBottom:5 }}>NOTES / HIGH-YIELD POINTS</div>
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+            <div style={{ fontFamily:MONO, color:T.text5, fontSize:11, letterSpacing:1.5 }}>NOTES / HIGH-YIELD POINTS</div>
+            <button type="button" onClick={()=>upd(row.id,{lastStudied:todayStr()})}
+              style={{ fontFamily:MONO, fontSize:11, color:"#10b981", background:"#10b98118", border:"1px solid #10b98140", borderRadius:6, padding:"4px 10px", cursor:"pointer" }}>
+              Mark Studied Today
+            </button>
+          </div>
           <textarea value={row.notes} onChange={e=>upd(row.id,{notes:e.target.value})}
             placeholder="Mnemonics, First Aid pages, weak areas, connections to revisit…" rows={2}
-            style={{ width:"100%", maxWidth:740, background:"#080f1c", border:"1px solid #1a2a3a", color:"#c4cdd6",
+            style={{ width:"100%", maxWidth:740, background:T.inputBg, border:"1px solid " + T.border1, color:T.text2,
               padding:"8px 12px", borderRadius:8, fontFamily:MONO, fontSize:11, outline:"none", lineHeight:1.6, resize:"vertical" }} />
         </div>
       )}
@@ -502,8 +567,10 @@ export default function Tracker() {
   const [showAdd,   setShowAdd]   = useState(false);
   const [saveMsg,   setSaveMsg]   = useState("");
   const [expanded,  setExpanded]  = useState({});
+  const [flashLastStudiedRowId, setFlashLastStudiedRowId] = useState(null);
   const timerRef = useRef(null);
-  const { theme: t } = useTheme();
+  const flashTimerRef = useRef(null);
+  const { T: t, isDark } = useTheme();
 
   // Load
   useEffect(() => {
@@ -519,10 +586,23 @@ export default function Tracker() {
     timerRef.current = setTimeout(() => { sSet("rxt-tracker-v2",nr); setSaveMsg("saved"); setTimeout(()=>setSaveMsg(""),2000); }, 500);
   };
 
-  const upd      = (id,patch) => setRows(p=>{ const n=p.map(r=>r.id===id?{...r,...patch}:r); persist(n); return n; });
+  const todayStr = () => new Date().toISOString().split("T")[0];
+  const triggerFlash = (id) => {
+    setFlashLastStudiedRowId(id);
+    clearTimeout(flashTimerRef.current);
+    flashTimerRef.current = setTimeout(() => setFlashLastStudiedRowId(null), 1500);
+  };
+  const upd = (id, patch) => {
+    setRows(p => { const n = p.map(r => r.id === id ? { ...r, ...patch } : r); persist(n); return n; });
+    if (patch.lastStudied !== undefined) triggerFlash(id);
+  };
   const addRow   = row        => setRows(p=>{ const n=[...p,row]; persist(n); return n; });
   const delRow   = id         => setRows(p=>{ const n=p.filter(r=>r.id!==id); persist(n); return n; });
-  const addScore = (id,sc)    => setRows(p=>{ const n=p.map(r=>r.id===id?{...r,scores:[...r.scores,sc]}:r); persist(n); return n; });
+  const addScore = (id, sc)   => {
+    const today = todayStr();
+    setRows(p=>{ const n=p.map(r=>r.id===id?{...r,scores:[...r.scores,sc],lastStudied:today}:r); persist(n); return n; });
+    triggerFlash(id);
+  };
   const clrScore = id         => setRows(p=>{ const n=p.map(r=>r.id===id?{...r,scores:[]}:r); persist(n); return n; });
 
   // Filter
@@ -552,27 +632,36 @@ export default function Tracker() {
   const critCount = rows.filter(r=>getUrgency(r.confidence,r.lastStudied)==="critical").length;
   const ovdCount  = rows.filter(r=>getUrgency(r.confidence,r.lastStudied)==="overdue").length;
 
-  const COL_HEADS = ["","Block","Subject","Lecture / Topic","Lecture Date","Last Studied","Days Ago","📖","🎓","📝","🃏","Anki Date","Confidence","Score",""];
-  const COL_TIPS  = ["","","","","Lecture date","Last date studied","Days since last study","Pre-Read","Attended Lecture","Post-Lecture Review","Anki Cards Released","Anki card release date","Confidence level (drives review frequency)","Practice question score",""];
+  const COL_HEADS = ["","Block","Subject","Lecture / Topic","Lecture Date","Last Studied","Days Ago","📖","🎓","📝","🃏","Anki Date","Confidence","Sessions","Score",""];
+  const COL_TIPS  = ["","","","","Lecture date","Last date studied","Days since last study","Pre-Read","Attended Lecture","Post-Lecture Review","Anki Cards Released","Anki card release date","Confidence level (drives review frequency)","Number of practice sessions","Practice question score",""];
+
+  const totalSessions = rows.reduce((a,r)=>a+(r.reps||0),0);
+  const overallAvgScore = avg(rows.flatMap(r=>r.scores||[]));
+  const repsBySubject = {};
+  rows.forEach(r=>{ const s=r.subject||"Unknown"; repsBySubject[s]=(repsBySubject[s]||0)+(r.reps||0); });
+  const mostPracticedSubject = Object.keys(repsBySubject).length ? Object.entries(repsBySubject).sort((a,b)=>b[1]-a[1])[0][0] : null;
+  const withImprovement = rows.filter(r=>(r.scores||[]).length>=2).map(r=>{ const s=r.scores; return { row:r, diff: s[s.length-1]-s[0] }; });
+  const mostImproved = withImprovement.length ? withImprovement.sort((a,b)=>b.diff-a.diff)[0] : null;
+  const needingAttention = rows.filter(r=>{ const s=r.scores||[]; return s.length>=2 && s[s.length-1]<65 && s[s.length-2]<65; });
 
   if (!ready) return (
     <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:60 }}>
-      <div style={{ width:36,height:36,border:"3px solid "+t.borderSubtle,borderTopColor:"#ef4444",borderRadius:"50%",animation:"rxt-spin 0.85s linear infinite" }}/>
+      <div style={{ width:36,height:36,border:"3px solid "+t.border1,borderTopColor:"#ef4444",borderRadius:"50%",animation:"rxt-spin 0.85s linear infinite" }}/>
     </div>
   );
 
   return (
-    <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0, fontFamily:MONO, background:t.appBg, color:t.textPrimary }}>
+    <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0, fontFamily:MONO, background:t.appBg, color:t.text1 }}>
 
       {/* ── Toolbar ─────────────────────────────────────── */}
-      <div style={{ padding:"10px 18px", borderBottom:"1px solid "+t.borderFaint, background:t.subnavBg,
+      <div style={{ padding:"10px 18px", borderBottom:"1px solid "+t.border2, background:t.subnavBg,
         display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", flexShrink:0 }}>
 
         {/* Tab toggles */}
         <div style={{ display:"flex", gap:2 }}>
           {[["tracker","📋 Tracker"],["analytics","📊 Analytics"]].map(([v,l])=>(
             <button key={v} onClick={()=>setTab(v)} style={{ background:tab===v?t.rowHover:"none",border:"none",
-              color:tab===v?t.textPrimary:t.textMuted,padding:"5px 13px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:11 }}>{l}</button>
+              color:tab===v?t.text1:t.text3,padding:"5px 13px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:13 }}>{l}</button>
           ))}
         </div>
 
@@ -581,48 +670,48 @@ export default function Tracker() {
           <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
             {["All",...BLOCKS].map(b=>(
               <button key={b} onClick={()=>setFilter(b)} style={{
-                background:filter===b?(BLOCK_COLORS[b]||t.textFaint)+"22":"none",
-                border:"1px solid "+(filter===b?(BLOCK_COLORS[b]||t.textFaint):t.borderSubtle),
-                color:filter===b?(BLOCK_COLORS[b]||t.textPrimary):t.textMuted,
-                padding:"3px 10px",borderRadius:20,cursor:"pointer",fontFamily:MONO,fontSize:10 }}>{b}</button>
+                background:filter===b?(BLOCK_COLORS[b]||t.text4)+"22":"none",
+                border:"1px solid "+(filter===b?(BLOCK_COLORS[b]||t.text4):t.border1),
+                color:filter===b?(BLOCK_COLORS[b]||t.text1):t.text3,
+                padding:"3px 10px",borderRadius:20,cursor:"pointer",fontFamily:MONO,fontSize:11 }}>{b}</button>
             ))}
           </div>
 
           {/* Urgency filter */}
           <div style={{ display:"flex", gap:3 }}>
-            {[["All","All",t.textFaint],["critical","🔴 Critical","#ef4444"],["overdue","🟠 Overdue","#f97316"],["soon","🟡 Soon","#f59e0b"],["ok","✅ OK","#10b981"]].map(([v,l,c])=>(
+            {[["All","All",t.text4],["critical","🔴 Critical","#ef4444"],["overdue","🟠 Overdue","#f97316"],["soon","🟡 Soon","#f59e0b"],["ok","✅ OK","#10b981"]].map(([v,l,c])=>(
               <button key={v} onClick={()=>setUrgFilter(v)} style={{
-                background:urgFilter===v?c+"22":"none",border:"1px solid "+(urgFilter===v?c:t.borderSubtle),
-                color:urgFilter===v?c:t.textMuted,padding:"3px 9px",borderRadius:6,cursor:"pointer",fontFamily:MONO,fontSize:10 }}>{l}</button>
+                background:urgFilter===v?c+"22":"none",border:"1px solid "+(urgFilter===v?c:t.border1),
+                color:urgFilter===v?c:t.text3,padding:"3px 9px",borderRadius:6,cursor:"pointer",fontFamily:MONO,fontSize:11 }}>{l}</button>
             ))}
           </div>
 
           {/* Sort */}
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ background:t.cardBg,border:"1px solid "+t.borderSubtle,color:t.textGhost,padding:"4px 10px",borderRadius:7,fontFamily:MONO,fontSize:10,outline:"none",cursor:"pointer" }}>
+          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ background:t.cardBg,border:"1px solid "+t.border1,color:t.text5,padding:"4px 10px",borderRadius:7,fontFamily:MONO,fontSize:11,outline:"none",cursor:"pointer" }}>
             {[["block","Sort: Block"],["urgency","Sort: Urgency ↑"],["confidence","Sort: Confidence ↑"],["score","Sort: Score ↑"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
 
           {/* Search */}
-          <div style={{ display:"flex",alignItems:"center",gap:5,background:t.cardBg,border:"1px solid "+t.borderSubtle,borderRadius:7,padding:"4px 9px" }}>
-            <span style={{ color:t.textFaint,fontSize:11 }}>🔍</span>
+          <div style={{ display:"flex",alignItems:"center",gap:5,background:t.cardBg,border:"1px solid "+t.border1,borderRadius:7,padding:"4px 9px" }}>
+            <span style={{ color:t.text4,fontSize:11 }}>🔍</span>
             <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
-              style={{ background:"none",border:"none",color:t.textPrimary,fontFamily:MONO,fontSize:11,outline:"none",width:120 }} />
-            {search&&<button onClick={()=>setSearch("")} style={{ background:"none",border:"none",color:t.textFaint,cursor:"pointer",fontSize:10 }}>✕</button>}
+              style={{ background:"none",border:"none",color:t.text1,fontFamily:MONO,fontSize:11,outline:"none",width:120 }} />
+            {search&&<button onClick={()=>setSearch("")} style={{ background:"none",border:"none",color:t.text4,cursor:"pointer",fontSize:11 }}>✕</button>}
           </div>
         </>}
 
         {/* Right side */}
         <div style={{ marginLeft:"auto", display:"flex", gap:7, alignItems:"center" }}>
-          {critCount>0 && <div style={{ background:"#150404",border:"1px solid #450a0a",borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:10 }}>🔴</span><span style={{ fontFamily:MONO,color:"#ef4444",fontSize:10,fontWeight:700 }}>{critCount} critical</span></div>}
-          {ovdCount>0  && <div style={{ background:"#130800",border:"1px solid #431407",borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:10 }}>🟠</span><span style={{ fontFamily:MONO,color:"#f97316",fontSize:10,fontWeight:700 }}>{ovdCount} overdue</span></div>}
+          {critCount>0 && <div style={{ background:isDark?"#150404":"#ef444426",border:"1px solid "+(isDark?"#450a0a":"#ef4444"),borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:14 }}>🔴</span><span style={{ fontFamily:MONO,color:"#ef4444",fontSize:11,fontWeight:700 }}>{critCount} critical</span></div>}
+          {ovdCount>0  && <div style={{ background:isDark?"#130800":"#f9731626",border:"1px solid "+(isDark?"#431407":"#f97316"),borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:14 }}>🟠</span><span style={{ fontFamily:MONO,color:"#f97316",fontSize:11,fontWeight:700 }}>{ovdCount} overdue</span></div>}
           {[["Rows",rows.length],["Done",rows.filter(r=>r.preRead&&r.lecture&&r.postReview&&r.anki).length]].map(([l,v])=>(
-            <div key={l} style={{ background:t.cardBg,borderRadius:6,padding:"3px 10px",display:"flex",gap:5,alignItems:"center", border:"1px solid "+t.borderSubtle }}>
-              <span style={{ color:t.textFaint,fontSize:9 }}>{l}</span>
-              <span style={{ color:t.textPrimary,fontSize:11,fontWeight:600 }}>{v}</span>
+            <div key={l} style={{ background:t.cardBg,borderRadius:6,padding:"3px 10px",display:"flex",gap:5,alignItems:"center", border:"1px solid "+t.border1 }}>
+              <span style={{ color:t.text4,fontSize:11 }}>{l}</span>
+              <span style={{ color:t.text1,fontSize:11,fontWeight:600 }}>{v}</span>
             </div>
           ))}
           <button onClick={()=>setShowAdd(true)} style={{ background:"#ef4444",border:"none",color:"#fff",padding:"6px 14px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:11,fontWeight:700 }}>+ Add Row</button>
-          {saveMsg&&<span style={{ fontSize:10,color:saveMsg==="saved"?"#10b981":"#f59e0b" }}>{saveMsg==="saving"?"⟳ Saving…":"✓ Saved"}</span>}
+          {saveMsg&&<span style={{ fontSize:11,color:saveMsg==="saved"?"#10b981":"#f59e0b" }}>{saveMsg==="saving"?"⟳ Saving…":"✓ Saved"}</span>}
         </div>
       </div>
 
@@ -631,25 +720,51 @@ export default function Tracker() {
         <div style={{ flex:1, overflowX:"auto", overflowY:"auto" }}>
           <div style={{ minWidth:1300 }}>
 
+            {/* Stats bar */}
+            <div style={{ display:"flex", flexWrap:"wrap", gap:12, padding:"10px 16px", borderBottom:"1px solid "+t.border2, background:t.cardBg, alignItems:"center", fontFamily:MONO, fontSize:11 }}>
+              <span style={{ color:t.text4 }}>Total sessions:</span>
+              <span style={{ color:t.text1, fontWeight:600 }}>{totalSessions}</span>
+              <span style={{ color:t.text4, marginLeft:8 }}>Overall avg:</span>
+              <span style={{ color:overallAvgScore!==null?(overallAvgScore>=70?"#10b981":overallAvgScore>=60?"#f59e0b":"#ef4444"):t.text2, fontWeight:600 }}>{overallAvgScore!==null?overallAvgScore+"%":"—"}</span>
+              {mostPracticedSubject && (
+                <>
+                  <span style={{ color:t.text4, marginLeft:8 }}>Most practiced:</span>
+                  <span style={{ color:t.text1, fontWeight:600 }}>{mostPracticedSubject}</span>
+                </>
+              )}
+              {mostImproved && mostImproved.diff > 0 && (
+                <>
+                  <span style={{ color:t.text4, marginLeft:8 }}>Most improved:</span>
+                  <span style={{ color:"#10b981", fontWeight:600 }}>{mostImproved.row.topic} (+{mostImproved.diff}%)</span>
+                </>
+              )}
+              {needingAttention.length > 0 && (
+                <>
+                  <span style={{ color:t.text4, marginLeft:8 }}>Needs attention:</span>
+                  <span style={{ color:"#ef4444", fontWeight:600 }}>{needingAttention.map(r=>r.topic||r.subject).filter(Boolean).slice(0,5).join(", ")}{needingAttention.length>5?" …":""}</span>
+                </>
+              )}
+            </div>
+
             {/* Column headers */}
             <div style={{ display:"grid", gridTemplateColumns:GRID, gap:6, padding:"7px 16px",
-              borderBottom:"1px solid "+t.borderFaint, background:t.subnavBg, position:"sticky", top:0, zIndex:50, alignItems:"center" }}>
+              borderBottom:"1px solid "+t.border2, background:t.subnavBg, position:"sticky", top:0, zIndex:50, alignItems:"center" }}>
               {COL_HEADS.map((h,i)=>(
                 <div key={i} title={COL_TIPS[i]}
-                  style={{ fontSize:9,color:t.textGhost,letterSpacing:1,textAlign:(i>=7&&i<=10)?"center":"left",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{h}</div>
+                  style={{ fontSize:(i>=7&&i<=10)?16:11,fontWeight:(i>=7&&i<=10)?undefined:600,color:t.text5,letterSpacing:1,textAlign:(i>=7&&i<=10)?"center":"left",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{h}</div>
               ))}
             </div>
 
               {visible.length===0 && (
               <div style={{ padding:"70px 0",textAlign:"center" }}>
                 <div style={{ fontSize:38,marginBottom:12 }}>📋</div>
-                <p style={{ color:t.textGhost,fontSize:13 }}>No rows found. Adjust filters or add a new row.</p>
+                <p style={{ color:t.text5,fontSize:13 }}>No rows found. Adjust filters or add a new row.</p>
               </div>
             )}
 
             {/* Flat (urgency/confidence/score sort) */}
-            {sortBy!=="block" && visible.map(row=>(
-              <TrackerRow key={row.id} row={row} upd={upd} delRow={delRow} addScore={addScore} clrScore={clrScore} expanded={expanded} setExpanded={setExpanded} />
+            {sortBy!=="block" && visible.map((row,i)=>(
+              <TrackerRow key={row.id} row={row} upd={upd} delRow={delRow} addScore={addScore} clrScore={clrScore} expanded={expanded} setExpanded={setExpanded} flashLastStudied={flashLastStudiedRowId===row.id} index={i} isDark={isDark} />
             ))}
 
             {/* Grouped by block → subject */}
@@ -661,26 +776,26 @@ export default function Tracker() {
                 <div key={block}>
                   <div style={{ display:"flex",alignItems:"center",gap:10,padding:"13px 16px 5px",borderBottom:"1px solid "+bc+"25" }}>
                     <div style={{ width:3,height:13,background:bc,borderRadius:2 }}/>
-                    <span style={{ color:bc,fontSize:10,fontWeight:700,letterSpacing:1 }}>{block.toUpperCase()}</span>
-                    {bCrit>0&&<span style={{ fontFamily:MONO,color:"#ef4444",background:"#150404",border:"1px solid #450a0a",fontSize:8,padding:"1px 7px",borderRadius:3 }}>🔴 {bCrit} critical</span>}
+                    <span style={{ color:bc,fontSize:11,fontWeight:700,letterSpacing:1 }}>{block.toUpperCase()}</span>
+                    {bCrit>0&&<span style={{ fontFamily:MONO,color:"#ef4444",background:isDark?"#150404":"#ef444426",border:"1px solid "+(isDark?"#450a0a":"#ef4444"),fontSize:11,padding:"1px 7px",borderRadius:3 }}>🔴 {bCrit} critical</span>}
                     <div style={{ flex:1,height:1,background:bc+"18" }}/>
-                    {bAvg!==null&&<span style={{ fontFamily:MONO,color:"#6b7280",fontSize:10 }}>avg <span style={{ color:"#f1f5f9",fontWeight:600 }}>{bAvg}%</span></span>}
+                    {bAvg!==null&&<span style={{ fontFamily:MONO,color:t.text3,fontSize:11 }}>avg <span style={{ color:t.text1,fontWeight:600 }}>{bAvg}%</span></span>}
                   </div>
                   {Object.entries(subjects).map(([subj,subRows])=>(
                     <div key={subj}>
-                      <div style={{ display:"grid",gridTemplateColumns:GRID,gap:6,padding:"6px 16px",background:"#080d18",borderBottom:"1px solid #0a1422",alignItems:"center" }}>
-                        <div/><div style={{ color:bc,fontSize:9 }}>{block}</div>
-                        <div style={{ color:"#c4cdd6",fontSize:11,fontWeight:600 }}>{subj}</div>
-                        <div style={{ color:"#2d3d4f",fontSize:10 }}>
+                      <div style={{ display:"grid",gridTemplateColumns:GRID,gap:6,padding:"6px 16px",background:t.tableHeader,borderBottom:"1px solid " + t.border2,alignItems:"center" }}>
+                        <div/><div style={{ color:bc,fontSize:11 }}>{block}</div>
+                        <div style={{ color:t.text2,fontSize:11,fontWeight:600 }}>{subj}</div>
+                        <div style={{ color:t.text5,fontSize:11 }}>
                           {subRows.length} lecture{subRows.length!==1?"s":""}
                           {avg(subRows.flatMap(r=>r.scores))!==null?" · "+avg(subRows.flatMap(r=>r.scores))+"%":""}
                         </div>
                         <div/><div/><div/>
-                        {STEPS.map(s=>{ const d=subRows.filter(r=>r[s.key]).length; return <div key={s.key} style={{ textAlign:"center",color:d===subRows.length?"#10b981":"#1f2937",fontSize:9 }}>{d}/{subRows.length}</div>; })}
+                        {STEPS.map(s=>{ const d=subRows.filter(r=>r[s.key]).length; return <div key={s.key} style={{ textAlign:"center",color:d===subRows.length?"#10b981":t.text4,fontSize:11 }}>{d}/{subRows.length}</div>; })}
                         <div/><div/><div/><div/>
                       </div>
                       {subRows.map(row=>(
-                        <TrackerRow key={row.id} row={row} upd={upd} delRow={delRow} addScore={addScore} clrScore={clrScore} expanded={expanded} setExpanded={setExpanded} />
+                        <TrackerRow key={row.id} row={row} upd={upd} delRow={delRow} addScore={addScore} clrScore={clrScore} expanded={expanded} setExpanded={setExpanded} flashLastStudied={flashLastStudiedRowId===row.id} index={visible.findIndex(r=>r.id===row.id)} isDark={isDark} />
                       ))}
                     </div>
                   ))}
