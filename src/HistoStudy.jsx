@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useTheme } from "./theme";
 
 const MONO = "'DM Mono','Courier New',monospace";
 const SERIF = "'Playfair Display',Georgia,serif";
@@ -134,10 +135,11 @@ async function loadPDFJS() {
   });
 }
 
-function HistoUpload({ onAdd, termColor, onJobStart, onJobProgress, onJobDone, onJobError }) {
+function HistoUpload({ onAdd, termColor, onJobStart, onJobProgress, onJobDone, onJobError, T: TProp }) {
   const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState("");
+  const T = TProp || {};
   const tc = termColor || "#a78bfa";
   const useJobs = typeof onJobStart === "function";
 
@@ -312,39 +314,39 @@ function HistoUpload({ onAdd, termColor, onJobStart, onJobProgress, onJobDone, o
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
       style={{
-        border: "2px dashed " + (dragging ? tc : "#1a2a3a"),
-        borderRadius: 12,
+        background: T.inputBg ?? "#0d1829",
+        border: "2px dashed " + (dragging ? tc + "50" : (T.border1 ?? "#1a2a3a")),
+        borderRadius: 14,
         padding: "20px 24px",
         display: "flex",
         alignItems: "center",
         gap: 16,
-        marginBottom: 16,
-        background: dragging ? tc + "08" : "transparent",
+        marginBottom: 20,
         transition: "all 0.2s",
       }}
     >
-      <div style={{ fontSize: 28, flexShrink: 0 }}>🔬</div>
+      <span style={{ fontSize: 32, flexShrink: 0 }}>🔬</span>
       <div style={{ flex: 1 }}>
-        <div style={{ fontFamily: MONO, color: "#c4cdd6", fontSize: 12, fontWeight: 600, marginBottom: 3 }}>
+        <div style={{ fontFamily: SERIF, color: T.text1 ?? "#f1f5f9", fontSize: 15, fontWeight: 700, marginBottom: 4 }}>
           Add your own histology slides
         </div>
-        <div style={{ fontFamily: MONO, color: "#374151", fontSize: 10 }}>
+        <div style={{ fontFamily: MONO, color: T.text3 ?? "#6b7280", fontSize: 12 }}>
           Drop images or PDFs · JPG, PNG, PDF · AI identifies tissue type automatically
         </div>
         {!useJobs && msg && (
-          <div style={{ fontFamily: MONO, color: "#f59e0b", fontSize: 10, marginTop: 6 }}>{msg}</div>
+          <div style={{ fontFamily: MONO, color: T.amber ?? "#f59e0b", fontSize: 12, marginTop: 6 }}>{msg}</div>
         )}
       </div>
       <label
         style={{
-          background: !useJobs && uploading ? "#1a2a3a" : tc,
+          background: !useJobs && uploading ? (T.border1 ?? "#1a2a3a") : tc,
           border: "none",
           color: "#fff",
-          padding: "8px 18px",
-          borderRadius: 8,
+          padding: "11px 22px",
+          borderRadius: 9,
           cursor: !useJobs && uploading ? "not-allowed" : "pointer",
           fontFamily: MONO,
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: 700,
           flexShrink: 0,
           transition: "background 0.15s",
@@ -396,7 +398,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
             borderRadius: 8,
             cursor: "pointer",
             fontFamily: MONO,
-            fontSize: 11,
+            fontSize: 13,
           }}
         >
           ← Back
@@ -458,16 +460,16 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
             color: "#374151",
             cursor: "pointer",
             fontFamily: MONO,
-            fontSize: 11,
+            fontSize: 13,
           }}
         >
           ← All Tissues
         </button>
         <div style={{ width: 1, height: 16, background: "#1a2a3a" }} />
-        <span style={{ fontFamily: SERIF, color: displayColor, fontSize: 15, fontWeight: 900 }}>
+        <span style={{ fontFamily: SERIF, color: displayColor, fontSize: 17, fontWeight: 900 }}>
           {TISSUE_ICONS[tissue] || "🔬"} {tissueLabel}
         </span>
-        <span style={{ fontFamily: MONO, color: "#374151", fontSize: 11 }}>
+        <span style={{ fontFamily: MONO, color: "#374151", fontSize: 13 }}>
           {idx + 1} / {slides.length}
         </span>
         <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
@@ -491,7 +493,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                 borderRadius: 7,
                 cursor: "pointer",
                 fontFamily: MONO,
-                fontSize: 10,
+                fontSize: 12,
               }}
             >
               {l}
@@ -536,7 +538,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                     style={{
                       fontFamily: MONO,
                       color: displayColor,
-                      fontSize: 10,
+                      fontSize: 12,
                       letterSpacing: 1.5,
                       marginBottom: 8,
                     }}
@@ -548,7 +550,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                       style={{
                         fontFamily: SERIF,
                         color: "#c4cdd6",
-                        fontSize: 13,
+                        fontSize: 15,
                         marginBottom: 12,
                         marginTop: 0,
                         lineHeight: 1.5,
@@ -563,7 +565,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                   style={{
                     fontFamily: MONO,
                     color: displayColor,
-                    fontSize: 10,
+                    fontSize: 12,
                     letterSpacing: 1.5,
                     marginBottom: 12,
                     animation: "fadeIn 0.4s ease",
@@ -577,7 +579,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                 style={{
                   fontFamily: MONO,
                   color: displayColor,
-                  fontSize: 10,
+                  fontSize: 12,
                   letterSpacing: 1.5,
                   marginBottom: 12,
                 }}
@@ -613,7 +615,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                   padding: "4px 10px",
                   fontFamily: MONO,
                   color: "#f1f5f9",
-                  fontSize: 10,
+                  fontSize: 12,
                 }}
               >
                 {isManualBlind && !revealed
@@ -632,7 +634,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                       style={{
                         fontFamily: MONO,
                         color: "#374151",
-                        fontSize: 9,
+                        fontSize: 11,
                         letterSpacing: 1.5,
                         marginBottom: 6,
                       }}
@@ -648,7 +650,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                             color: displayColor,
                             background: displayColor + "18",
                             border: "1px solid " + displayColor + "40",
-                            fontSize: 10,
+                            fontSize: 12,
                             padding: "2px 10px",
                             borderRadius: 4,
                           }}
@@ -666,13 +668,15 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                       borderRadius: 10,
                       padding: "14px 16px",
                       border: "1px solid " + displayColor + "20",
+                      opacity: 1,
+                      filter: "none",
                     }}
                   >
                     <div
                       style={{
                         fontFamily: MONO,
                         color: displayColor,
-                        fontSize: 9,
+                        fontSize: 11,
                         letterSpacing: 1.5,
                         marginBottom: 6,
                       }}
@@ -682,8 +686,8 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                     <p
                       style={{
                         fontFamily: MONO,
-                        color: "#c4cdd6",
-                        fontSize: 12,
+                        color: "#f1f5f9",
+                        fontSize: 14,
                         lineHeight: 1.7,
                         margin: 0,
                       }}
@@ -697,7 +701,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                     style={{
                       fontFamily: MONO,
                       color: "#6b7280",
-                      fontSize: 10,
+                      fontSize: 12,
                       background: "#1a2a3a",
                       padding: "3px 10px",
                       borderRadius: 4,
@@ -712,7 +716,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                     style={{
                       fontFamily: MONO,
                       color: "#60a5fa",
-                      fontSize: 11,
+                      fontSize: 13,
                       fontStyle: "italic",
                       margin: 0,
                     }}
@@ -731,7 +735,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                 marginBottom: 16,
               }}
             >
-              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 10 }}>Confidence:</span>
+              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 12 }}>Confidence:</span>
                 {[1, 2, 3, 4, 5].map((n) => (
                   <button
                     key={n}
@@ -741,7 +745,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                       background: "none",
                       border: "none",
                       cursor: "pointer",
-                      fontSize: 20,
+                      fontSize: 22,
                       color: conf >= n ? "#f59e0b" : "#1a2a3a",
                       transition: "color 0.1s",
                       padding: "0 2px",
@@ -754,7 +758,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                   <span
                     style={{
                       fontFamily: MONO,
-                      fontSize: 9,
+                      fontSize: 11,
                       color: conf >= 4 ? "#10b981" : conf >= 3 ? "#f59e0b" : "#ef4444",
                     }}
                   >
@@ -773,7 +777,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
                       border: "none",
                       color: "#1a2a3a",
                       cursor: "pointer",
-                      fontSize: 12,
+                      fontSize: 14,
                       transition: "color 0.15s",
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
@@ -819,7 +823,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
               borderRadius: 9,
               cursor: idx === 0 ? "not-allowed" : "pointer",
               fontFamily: MONO,
-              fontSize: 12,
+              fontSize: 14,
             }}
           >
             ← Prev
@@ -846,7 +850,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
               />
             ))}
             {slides.length > 15 && (
-              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 9, alignSelf: "center" }}>
+              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 11, alignSelf: "center" }}>
                 +{slides.length - 15}
               </span>
             )}
@@ -863,7 +867,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
               borderRadius: 9,
               cursor: idx === slides.length - 1 ? "not-allowed" : "pointer",
               fontFamily: MONO,
-              fontSize: 12,
+              fontSize: 14,
               opacity: idx === slides.length - 1 ? 0.3 : 1,
             }}
           >
@@ -900,15 +904,15 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
         gap: 10,
       }}>
         <div style={{ width: 8, height: 8, borderRadius: "50%", background: tc, flexShrink: 0 }} />
-        <span style={{ fontFamily: MONO, color: tc, fontSize: 10, fontWeight: 600, letterSpacing: 1 }}>
+        <span style={{ fontFamily: MONO, color: tc, fontSize: 12, fontWeight: 600, letterSpacing: 1 }}>
           {(question.tissueType || tissueType).toUpperCase()}
         </span>
         {question.manualUpload && (
-          <span style={{ fontFamily: MONO, color: "#a78bfa", background: "#a78bfa18", border: "1px solid #a78bfa40", fontSize: 8, padding: "1px 6px", borderRadius: 3, letterSpacing: 1 }}>
+          <span style={{ fontFamily: MONO, color: "#a78bfa", background: "#a78bfa18", border: "1px solid #a78bfa40", fontSize: 10, padding: "1px 6px", borderRadius: 3, letterSpacing: 1 }}>
             UPLOADED
           </span>
         )}
-        <span style={{ fontFamily: MONO, color: "#6b7280", fontSize: 10, marginLeft: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>
+        <span style={{ fontFamily: MONO, color: "#6b7280", fontSize: 12, marginLeft: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }}>
           {question.topic?.slice(0, 50)}
         </span>
         <button
@@ -918,7 +922,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
             background: "none",
             border: "none",
             cursor: "pointer",
-            fontSize: 16,
+            fontSize: 18,
             color: bookmarked ? "#f59e0b" : "#374151",
             transition: "color 0.15s",
             flexShrink: 0,
@@ -947,7 +951,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
           padding: "4px 10px",
           fontFamily: MONO,
           color: "#f1f5f9",
-          fontSize: 10,
+          fontSize: 12,
         }}>
           {flipped ? "👁 Answer" : "👆 Tap to reveal"}
         </div>
@@ -961,7 +965,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
             padding: "3px 10px",
             fontFamily: MONO,
             color: "#fff",
-            fontSize: 10,
+            fontSize: 12,
             fontWeight: 700,
           }}>
             ✓ ANSWER
@@ -971,7 +975,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
 
       {/* Structure labels */}
       <div style={{ padding: "12px 16px", borderTop: "1px solid #0f1e30" }}>
-        <div style={{ fontFamily: MONO, color: "#374151", fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
+        <div style={{ fontFamily: MONO, color: "#374151", fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>
           LABELED STRUCTURES
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -983,7 +987,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
                 color: tc,
                 background: tc + "18",
                 border: "1px solid " + tc + "40",
-                fontSize: 10,
+                fontSize: 12,
                 padding: "2px 9px",
                 borderRadius: 4,
               }}
@@ -1002,7 +1006,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
         alignItems: "center",
         gap: 10,
       }}>
-        <span style={{ fontFamily: MONO, color: "#374151", fontSize: 10 }}>Confidence:</span>
+        <span style={{ fontFamily: MONO, color: "#374151", fontSize: 12 }}>Confidence:</span>
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
@@ -1024,7 +1028,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
         {conf != null && (
           <span style={{
             fontFamily: MONO,
-            fontSize: 9,
+            fontSize: 11,
             color: conf >= 4 ? "#10b981" : conf >= 3 ? "#f59e0b" : "#ef4444",
           }}>
             {conf >= 4 ? "Mastered" : conf >= 3 ? "Getting it" : "Needs review"}
@@ -1035,17 +1039,17 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
       {question.manualUpload && (
         <div style={{ padding: "8px 16px", borderTop: "1px solid #0f1e30", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {question.stain && (
-            <span style={{ fontFamily: MONO, color: "#6b7280", background: "#1a2a3a", fontSize: 9, padding: "2px 8px", borderRadius: 4 }}>
+            <span style={{ fontFamily: MONO, color: "#6b7280", background: "#1a2a3a", fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>
               {question.stain}
             </span>
           )}
           {question.keyFeatures?.map((f, i) => (
-            <span key={i} style={{ fontFamily: MONO, color: "#374151", fontSize: 9, background: "#0d1829", padding: "2px 8px", borderRadius: 4 }}>
+            <span key={i} style={{ fontFamily: MONO, color: "#374151", fontSize: 11, background: "#0d1829", padding: "2px 8px", borderRadius: 4 }}>
               {f}
             </span>
           ))}
           {question.clinicalRelevance && (
-            <span style={{ fontFamily: MONO, color: "#60a5fa", fontSize: 9, marginLeft: "auto", fontStyle: "italic" }}>
+            <span style={{ fontFamily: MONO, color: "#60a5fa", fontSize: 11, marginLeft: "auto", fontStyle: "italic" }}>
               {question.clinicalRelevance}
             </span>
           )}
@@ -1053,7 +1057,7 @@ export function HistoCard({ question, onConfidence, onBookmark, bookmarked, onDe
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete?.(question.id); }}
             title="Remove this slide"
-            style={{ background: "none", border: "none", color: "#1a2a3a", cursor: "pointer", fontSize: 12, marginLeft: 4, padding: 2, transition: "color 0.15s" }}
+            style={{ background: "none", border: "none", color: "#1a2a3a", cursor: "pointer", fontSize: 14, marginLeft: 4, padding: 2, transition: "color 0.15s" }}
             onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
             onMouseLeave={(e) => (e.currentTarget.style.color = "#1a2a3a")}
           >
@@ -1116,10 +1120,10 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
     <div style={{ maxWidth: 680, margin: "0 auto", padding: "20px" }}>
       {/* Progress */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
-        <span style={{ fontFamily: MONO, color: "#6b7280", fontSize: 11 }}>
+        <span style={{ fontFamily: MONO, color: "#6b7280", fontSize: 13 }}>
           Slide {qIdx + 1} of {questions.length}
         </span>
-        <span style={{ fontFamily: MONO, color: tc, fontSize: 11 }}>
+        <span style={{ fontFamily: MONO, color: tc, fontSize: 13 }}>
           {correctSoFar} correct
         </span>
       </div>
@@ -1164,7 +1168,7 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
                 borderRadius: 7,
                 cursor: "pointer",
                 fontFamily: MONO,
-                fontSize: 10,
+                fontSize: 12,
               }}
             >
               💡 Show Labels (−1pt)
@@ -1176,7 +1180,7 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
       <p style={{
         fontFamily: SERIF,
         color: "#e2e8f0",
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: 600,
         marginBottom: 16,
         textAlign: "center",
@@ -1209,7 +1213,7 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
                 cursor: revealed ? "default" : "pointer",
                 fontFamily: MONO,
                 color,
-                fontSize: 13,
+                fontSize: 15,
                 display: "flex",
                 alignItems: "center",
                 gap: 10,
@@ -1233,7 +1237,7 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
             padding: "12px 16px",
             fontFamily: MONO,
             color: isRight ? "#10b981" : "#ef4444",
-            fontSize: 12,
+            fontSize: 14,
           }}>
             {isRight ? "✓ Correct! " : "✗ Incorrect — "}
             {hintUsed[q.id] ? "Hint used (−1pt)" : ""}
@@ -1241,7 +1245,7 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
 
           {q.answerPageImage && (
             <div>
-              <div style={{ fontFamily: MONO, color: "#10b981", fontSize: 9, letterSpacing: 2, marginBottom: 8 }}>
+              <div style={{ fontFamily: MONO, color: "#10b981", fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>
                 ANNOTATED ANSWER
               </div>
               <img
@@ -1268,7 +1272,7 @@ export function HistoQuiz({ questions, startIdx = 0, onDone, termColor }) {
               borderRadius: 10,
               cursor: "pointer",
               fontFamily: SERIF,
-              fontSize: 15,
+              fontSize: 17,
               fontWeight: 700,
             }}
           >
@@ -1303,6 +1307,7 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
       return [];
     }
   });
+  const { T } = useTheme();
   const tc = termColor || "#a78bfa";
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
@@ -1369,24 +1374,25 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
       <div style={{ display: "flex", gap: 8, padding: "14px 20px 0", flexWrap: "wrap" }}>
         {[
-          ["Total Slides", allSlides.length, "#6b7280"],
-          ["Need Review", needReview, "#ef4444"],
-          ["Mastered", mastered, "#10b981"],
-          ["Bookmarked", bookmarked, "#f59e0b"],
-        ].map(([l, v, c]) => (
+          { label: "Total Slides", val: allSlides.length, color: T.text1 },
+          { label: "Need Review", val: needReview, color: T.red },
+          { label: "Mastered", val: mastered, color: T.green },
+          { label: "Bookmarked", val: bookmarked, color: T.amber },
+        ].map((stat) => (
           <div
-            key={l}
+            key={stat.label}
             style={{
-              background: "#0d1829",
-              borderRadius: 7,
-              padding: "5px 12px",
+              background: T.cardBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 10,
+              padding: "8px 16px",
               display: "flex",
-              gap: 6,
               alignItems: "center",
+              gap: 8,
             }}
           >
-            <span style={{ fontFamily: MONO, color: c, fontSize: 12, fontWeight: 700 }}>{v}</span>
-            <span style={{ fontFamily: MONO, color: "#374151", fontSize: 9 }}>{l}</span>
+            <span style={{ fontFamily: MONO, color: stat.color, fontSize: 16, fontWeight: 900 }}>{stat.val}</span>
+            <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>{stat.label}</span>
           </div>
         ))}
         {needReview > 0 && (
@@ -1394,18 +1400,50 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
             type="button"
             onClick={() => setActiveTissue("__review__")}
             style={{
-              background: "#ef444418",
-              border: "1px solid #ef444440",
-              color: "#ef4444",
+              background: T.redBg,
+              border: "1px solid " + T.redBorder,
+              color: T.red,
               padding: "5px 12px",
               borderRadius: 7,
               cursor: "pointer",
               fontFamily: MONO,
-              fontSize: 10,
+              fontSize: 12,
               marginLeft: "auto",
             }}
           >
             📌 Review Queue ({needReview})
+          </button>
+        )}
+        {manualSlides.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm(`Delete all ${manualSlides.length} histology slides?`)) {
+                setManualSlides([]);
+                try {
+                  localStorage.removeItem("rxt-histo-manual");
+                } catch {}
+              }
+            }}
+            style={{
+              background: "none",
+              border: "1px solid " + T.red,
+              color: T.red,
+              padding: "6px 14px",
+              borderRadius: 7,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 11,
+              transition: "all 0.15s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = T.redBg;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "none";
+            }}
+          >
+            🗑 Clear All Slides
           </button>
         )}
       </div>
@@ -1414,12 +1452,80 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
         <HistoUpload
           onAdd={addManualSlide}
           termColor={tc}
+          T={T}
           onJobStart={parsingCallbacks?.addJob}
           onJobProgress={parsingCallbacks?.progress}
           onJobDone={parsingCallbacks?.complete}
           onJobError={parsingCallbacks?.fail}
         />
       </div>
+
+      {manualSlides.length > 0 && (
+        <div style={{ padding: "0 20px 16px" }}>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 10 }}>
+            YOUR UPLOADED SLIDES
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: 12 }}>
+            {manualSlides.map((slide, i) => (
+              <div
+                key={slide.id || i}
+                style={{ position: "relative", display: "inline-block", borderRadius: 10, overflow: "hidden", border: "1px solid " + T.border1, background: T.cardBg }}
+                onMouseEnter={(e) => {
+                  const btn = e.currentTarget.querySelector(".histo-del-btn");
+                  if (btn) btn.style.opacity = "1";
+                }}
+                onMouseLeave={(e) => {
+                  const btn = e.currentTarget.querySelector(".histo-del-btn");
+                  if (btn) btn.style.opacity = "0";
+                }}
+              >
+                <img
+                  src={slide.questionPageImage?.startsWith("data:") ? slide.questionPageImage : "data:image/png;base64," + (slide.questionPageImage || "")}
+                  alt={slide.topic || "Slide"}
+                  style={{ width: "100%", display: "block", height: 140, objectFit: "cover" }}
+                />
+                <div style={{ padding: "6px 10px", fontFamily: MONO, color: T.text3, fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {slide.filename || slide.topic || "Slide " + (i + 1)}
+                </div>
+                <button
+                  type="button"
+                  className="histo-del-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Delete "${slide.filename || slide.topic || "this slide"}"?`)) {
+                      removeManualSlide(slide.id);
+                    }
+                  }}
+                  style={{
+                    position: "absolute",
+                    top: 8,
+                    right: 8,
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: T.red + "90",
+                    border: "none",
+                    color: "#fff",
+                    fontSize: 14,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    opacity: 0,
+                    transition: "opacity 0.15s, background 0.15s",
+                    zIndex: 10,
+                    fontWeight: 700,
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = T.red; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = T.red + "90"; }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div
         style={{
@@ -1446,22 +1552,22 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
               onClick={() => setActiveTissue(tissue)}
               onKeyDown={(e) => e.key === "Enter" && setActiveTissue(tissue)}
               style={{
-                background: "#09111e",
-                border: "1px solid " + color + "30",
+                background: T.cardBg,
+                border: "1px solid " + T.border1,
                 borderRadius: 14,
-                padding: "20px 18px",
+                padding: "18px 20px",
                 cursor: "pointer",
-                transition: "all 0.18s",
+                transition: "all 0.15s",
                 position: "relative",
                 overflow: "hidden",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = color;
-                e.currentTarget.style.background = color + "0d";
+                e.currentTarget.style.border = "1px solid " + tc;
+                e.currentTarget.style.boxShadow = "0 4px 20px " + tc + "22";
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = color + "30";
-                e.currentTarget.style.background = "#09111e";
+                e.currentTarget.style.border = "1px solid " + T.border1;
+                e.currentTarget.style.boxShadow = "none";
               }}
             >
               <div
@@ -1475,41 +1581,32 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
                   borderRadius: "14px 14px 0 0",
                 }}
               />
-              <div
-                style={{
-                  fontFamily: SERIF,
-                  color: color,
-                  fontSize: 16,
-                  fontWeight: 900,
-                  marginBottom: 4,
-                  marginTop: 4,
-                }}
-              >
+              <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 18, fontWeight: 900, marginBottom: 4, marginTop: 4 }}>
                 {TISSUE_ICONS[tissue]} {tissue}
               </div>
-              <div style={{ fontFamily: MONO, color: "#6b7280", fontSize: 10, marginBottom: 14 }}>
+              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginBottom: 10 }}>
                 {slides.length} slide{slides.length !== 1 ? "s" : ""}
               </div>
-              <div style={{ height: 3, background: "#1a2a3a", borderRadius: 2, marginBottom: 8 }}>
+              <div style={{ height: 5, background: T.border1, borderRadius: 3, marginBottom: 8 }}>
                 <div
                   style={{
-                    width: pct + "%",
                     height: "100%",
-                    background: color,
-                    borderRadius: 2,
+                    borderRadius: 3,
+                    background: mastCount === slides.length ? T.green : tc,
+                    width: (mastCount / Math.max(slides.length, 1) * 100) + "%",
                     transition: "width 0.4s",
                   }}
                 />
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {mastCount > 0 && (
-                  <span style={{ fontFamily: MONO, color: "#10b981", fontSize: 9 }}>✓ {mastCount} mastered</span>
+                  <span style={{ fontFamily: MONO, color: T.green, fontSize: 12 }}>✓ {mastCount} mastered</span>
                 )}
                 {needCount > 0 && (
-                  <span style={{ fontFamily: MONO, color: "#ef4444", fontSize: 9 }}>⚠ {needCount} review</span>
+                  <span style={{ fontFamily: MONO, color: T.red, fontSize: 12 }}>⚠ {needCount} review</span>
                 )}
                 {reviewed === 0 && (
-                  <span style={{ fontFamily: MONO, color: "#374151", fontSize: 9 }}>Not started</span>
+                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Not started</span>
                 )}
               </div>
             </div>

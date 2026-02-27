@@ -1,4 +1,12 @@
-async function loadPDFJS() {
+function detectLectureNumber(text) {
+  const m =
+    (text || "").match(/lecture\s*(\d+)/i) ||
+    (text || "").match(/\blec[\s_-]*(\d+)/i) ||
+    (text || "").match(/\bL(\d{1,3})\b/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
+export async function loadPDFJS() {
   if (window.pdfjsLib) {
     window.pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -37,7 +45,7 @@ function detectFormat(pages, fullText) {
   return "standard";
 }
 
-async function parseWithAI(fullText, format, onProgress) {
+async function parseWithAI(fullText, format, onProgress, examTitle = "") {
   const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
   if (!GEMINI_KEY) throw new Error("No API key configured (VITE_GEMINI_API_KEY)");
 
@@ -92,14 +100,19 @@ async function parseWithAI(fullText, format, onProgress) {
       );
       if (!res.ok) throw new Error("API " + res.status);
       const d = await res.json();
-      const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const text = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+      const cleaned = text
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
       const first = Math.min(
-        text.indexOf("{") === -1 ? Infinity : text.indexOf("{"),
-        text.indexOf("[") === -1 ? Infinity : text.indexOf("[")
+        cleaned.indexOf("{") === -1 ? Infinity : cleaned.indexOf("{"),
+        cleaned.indexOf("[") === -1 ? Infinity : cleaned.indexOf("[")
       );
-      const last = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+      const last = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
       if (first === Infinity || last === -1) continue;
-      const parsed = JSON.parse(text.slice(first, last + 1));
+      const parsed = JSON.parse(cleaned.slice(first, last + 1));
       const qs = Array.isArray(parsed) ? parsed : parsed.questions || [];
 
       for (const q of qs) {
@@ -112,7 +125,7 @@ async function parseWithAI(fullText, format, onProgress) {
             type: q.type || "clinicalVignette",
             imageQuestion: false,
             subject: "Uploaded",
-            topic: q.topic || "Exam Review",
+            topic: q.topic || examTitle || "Exam Review",
             stem: q.stem,
             choices: q.choices || {},
             correct: q.correct || null,
@@ -250,16 +263,21 @@ async function parseGridFormat(pages, onProgress, options = {}) {
       );
 
       const d = await res.json();
-      const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      const text = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+      const cleaned = text
+        .replace(/^```json\s*/i, "")
+        .replace(/^```\s*/i, "")
+        .replace(/\s*```$/, "")
+        .trim();
 
       const first = Math.min(
-        text.indexOf("{") === -1 ? Infinity : text.indexOf("{"),
-        text.indexOf("[") === -1 ? Infinity : text.indexOf("[")
+        cleaned.indexOf("{") === -1 ? Infinity : cleaned.indexOf("{"),
+        cleaned.indexOf("[") === -1 ? Infinity : cleaned.indexOf("[")
       );
-      const last = Math.max(text.lastIndexOf("}"), text.lastIndexOf("]"));
+      const last = Math.max(cleaned.lastIndexOf("}"), cleaned.lastIndexOf("]"));
       if (first === Infinity || last === -1) continue;
 
-      const parsed = JSON.parse(text.slice(first, last + 1));
+      const parsed = JSON.parse(cleaned.slice(first, last + 1));
       const qs = parsed.questions || parsed;
 
       for (const q of qs) {
@@ -439,6 +457,115 @@ async function parseSlidedeckFormat(pages, pdf, onProgress) {
   return questions;
 }
 
+export async function extractLectureObjectives(pdfFile, onProgress) {
+  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+  if (!GEMINI_KEY) return [];
+
+  await loadPDFJS();
+  const arrayBuffer = await pdfFile.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+  onProgress?.("🎯 Scanning for learning objectives...");
+
+  const pagesToScan = Math.min(8, pdf.numPages);
+  let combinedText = "";
+  const pageImages = [];
+
+  for (let i = 1; i <= pagesToScan; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map((x) => x.str).join(" ").trim();
+    combinedText += `\n--- PAGE ${i} ---\n${text}`;
+
+    if (i <= 4) {
+      const vp = page.getViewport({ scale: 1.2 });
+      const canvas = document.createElement("canvas");
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+      pageImages.push(canvas.toDataURL("image/png").split(",")[1]);
+    }
+  }
+
+  const prompt =
+    "This is the beginning of a medical school lecture PDF.\n\n" +
+    "Find and extract ALL learning objectives/goals listed in this document.\n" +
+    "Learning objectives are usually on a slide titled 'Learning Objectives', 'Objectives', 'Goals', or 'By the end of this lecture'.\n" +
+    "They typically start with action verbs like: Describe, Explain, List, Define, Compare, Identify, Discuss, Analyze, Predict, etc.\n\n" +
+    "Also extract:\n" +
+    "- The lecture number (e.g. Lecture 50, Lec 50, L50)\n" +
+    "- The lecture title\n" +
+    "- The discipline (BCHM, GNET, HCB, PHAR, PHYS, ANAT, etc.)\n\n" +
+    "Return ONLY valid JSON with no markdown:\n" +
+    "{\n" +
+    '  "lectureNumber": 50,\n' +
+    '  "lectureTitle": "Nutrition in Health and Disease",\n' +
+    '  "discipline": "BCHM",\n' +
+    '  "objectives": [\n' +
+    '    "Describe the general structure of proteoglycans",\n' +
+    '    "Discuss the functions of hyaluronic acid and heparin"\n' +
+    "  ]\n" +
+    "}\n\n" +
+    'If no objectives are found, return {"objectives": [], "lectureNumber": null, "lectureTitle": null, "discipline": null}\n\n' +
+    "EXTRACTED TEXT:\n" +
+    combinedText.slice(0, 6000);
+
+  try {
+    const parts = [{ text: prompt }];
+    if (pageImages[0]) {
+      parts.unshift({ inline_data: { mime_type: "image/png", data: pageImages[0] } });
+    }
+
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: { maxOutputTokens: 3000, temperature: 0.1 },
+          safetySettings: [
+            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          ],
+        }),
+      }
+    );
+
+    const d = await res.json();
+    const text = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+    const cleaned = text
+      .replace(/^```json\s*/i, "")
+      .replace(/^```\s*/i, "")
+      .replace(/\s*```$/, "")
+      .trim();
+    const first = cleaned.indexOf("{");
+    const last = cleaned.lastIndexOf("}");
+    if (first === -1 || last === -1) return [];
+
+    const parsed = JSON.parse(cleaned.slice(first, last + 1));
+
+    return (parsed.objectives || []).map((obj, i) => ({
+      id: "auto_" + Date.now() + "_" + i,
+      activity: parsed.lectureNumber ? "Lec" + parsed.lectureNumber : "Unknown",
+      discipline: parsed.discipline || "Unknown",
+      lectureTitle: parsed.lectureTitle || pdfFile.name,
+      lectureNumber: parsed.lectureNumber || null,
+      objective: typeof obj === "string" ? obj : obj.text || obj.objective || String(obj),
+      status: "untested",
+      confidence: 0,
+      lastTested: null,
+      quizScore: null,
+      source: "extracted",
+    }));
+  } catch (e) {
+    console.warn("Objective extraction failed:", e.message);
+    return [];
+  }
+}
+
 export async function parseExamPDF(file, onProgress) {
   await loadPDFJS();
   const arrayBuffer = await file.arrayBuffer();
@@ -481,6 +608,7 @@ export async function parseExamPDF(file, onProgress) {
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
 
+  const examTitle = file.name.replace(/\.pdf$/i, "");
   let questions = [];
 
   if (format === "grid") {
@@ -489,14 +617,39 @@ export async function parseExamPDF(file, onProgress) {
     questions = await parseSlidedeckFormat(pages, pdf, onProgress);
   } else {
     onProgress?.("🧠 AI parsing questions...");
-    questions = await parseWithAI(fullText, format, onProgress);
+    questions = await parseWithAI(fullText, format, onProgress, examTitle);
   }
 
   onProgress?.("✓ Extracted " + questions.length + " questions");
+
+  const chunks = pages.map((p) => ({ text: p.text }));
+
+  const subtopicsFromQs = [
+    ...new Set(
+      (questions || [])
+        .map((q) => q.topic || q.subject || "")
+        .filter((t) => t.length > 3 && t.length < 80)
+    ),
+  ];
+
+  const keyTermsFromQs = [
+    ...new Set(
+      (questions || [])
+        .flatMap((q) => q.keyTerms || q.terms || [])
+        .filter(Boolean)
+    ),
+  ];
+
   return {
     questions,
-    examTitle: file.name.replace(/\.pdf$/i, ""),
+    examTitle,
     totalQuestions: questions.length,
     format,
+    fullText,
+    chunks,
+    subtopics: subtopicsFromQs,
+    keyTerms: keyTermsFromQs,
+    lectureNumber: detectLectureNumber(examTitle || ""),
+    lectureTitle: examTitle || "",
   };
 }

@@ -5,7 +5,7 @@ import {
   buildSystemPrompt,
 } from "./learningModel";
 import { useTheme } from "./theme";
-import { parseExamPDF } from "./examParser";
+import { parseExamPDF, extractLectureObjectives } from "./examParser";
 import HistoStudy from "./HistoStudy";
 
 const MONO = "'DM Mono', 'Courier New', monospace";
@@ -143,7 +143,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
             style={{
               fontFamily: MONO,
               color: T.text1,
-              fontSize: 13,
+              fontSize: 17,
               fontWeight: 600,
               marginBottom: 4,
               overflow: "hidden",
@@ -154,12 +154,12 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
             {filename}
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontFamily: MONO, color: T.blue, fontSize: 10 }}>{total} questions</span>
+            <span style={{ fontFamily: MONO, color: T.blue, fontSize: 12 }}>{total} questions</span>
             {image > 0 && (
-              <span style={{ fontFamily: MONO, color: T.purple, fontSize: 10 }}>· {image} histology slides</span>
+              <span style={{ fontFamily: MONO, color: T.purple, fontSize: 12 }}>· {image} histology slides</span>
             )}
             {noAnswer > 0 && (
-              <span style={{ fontFamily: MONO, color: T.amber, fontSize: 10 }}>· {noAnswer} missing answer keys</span>
+              <span style={{ fontFamily: MONO, color: T.amber, fontSize: 12 }}>· {noAnswer} missing answer keys</span>
             )}
           </div>
         </div>
@@ -175,7 +175,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
               borderRadius: 7,
               cursor: "pointer",
               fontFamily: MONO,
-              fontSize: 11,
+              fontSize: 13,
               fontWeight: 700,
             }}
           >
@@ -192,7 +192,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
               borderRadius: 7,
               cursor: "pointer",
               fontFamily: MONO,
-              fontSize: 11,
+              fontSize: 13,
             }}
           >
             {expanded ? "▲" : "▾"}
@@ -208,7 +208,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
               borderRadius: 7,
               cursor: "pointer",
               fontFamily: MONO,
-              fontSize: 11,
+              fontSize: 13,
               transition: "all 0.15s",
             }}
             onMouseEnter={(e) => {
@@ -246,7 +246,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
               }}
             >
               <div style={{ width: 6, height: 6, borderRadius: "50%", background: t.color }} />
-              <span style={{ fontFamily: MONO, color: t.color, fontSize: 10 }}>
+              <span style={{ fontFamily: MONO, color: t.color, fontSize: 12 }}>
                 {t.count} {t.label}
               </span>
             </div>
@@ -263,7 +263,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
           }}
         >
           <div>
-            <div style={{ fontFamily: MONO, color: "#374151", fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
+            <div style={{ fontFamily: MONO, color: "#374151", fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>
               TOPICS COVERED
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -275,7 +275,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
                     color: "#9ca3af",
                     background: "#0d1829",
                     border: "1px solid #1a2a3a",
-                    fontSize: 10,
+                    fontSize: 12,
                     padding: "3px 10px",
                     borderRadius: 5,
                   }}
@@ -284,14 +284,14 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
                 </span>
               ))}
               {topics.length < allTopics.length && (
-                <span style={{ fontFamily: MONO, color: "#374151", fontSize: 10, padding: "3px 6px" }}>
+                <span style={{ fontFamily: MONO, color: "#374151", fontSize: 12, padding: "3px 6px" }}>
                   +{allTopics.length - topics.length} more
                 </span>
               )}
             </div>
           </div>
           <div>
-            <div style={{ fontFamily: MONO, color: "#374151", fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
+            <div style={{ fontFamily: MONO, color: "#374151", fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>
               PRACTICE OPTIONS
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -306,7 +306,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
                   borderRadius: 8,
                   cursor: "pointer",
                   fontFamily: MONO,
-                  fontSize: 11,
+                  fontSize: 13,
                 }}
               >
                 ▶ All {total} Questions
@@ -322,7 +322,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
                   borderRadius: 8,
                   cursor: "pointer",
                   fontFamily: MONO,
-                  fontSize: 11,
+                  fontSize: 13,
                 }}
               >
                 📌 Weak Topics Only
@@ -339,7 +339,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
                     borderRadius: 8,
                     cursor: "pointer",
                     fontFamily: MONO,
-                    fontSize: 11,
+                    fontSize: 13,
                   }}
                 >
                   🔬 Histology Only
@@ -358,7 +358,7 @@ function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onD
                   borderRadius: 8,
                   cursor: "pointer",
                   fontFamily: MONO,
-                  fontSize: 11,
+                  fontSize: 13,
                 }}
               >
                 🏥 Clinical Only
@@ -383,7 +383,7 @@ function Toggle({ label, checked, onChange }) {
         padding: "8px 0",
         cursor: "pointer",
         fontFamily: MONO,
-        fontSize: 12,
+        fontSize: 14,
         color: T.text1,
       }}
     >
@@ -471,7 +471,7 @@ function LearningSession({
           padding: "70px 40px",
         }}
       >
-        <div style={{ fontFamily: SERIF, fontSize: 22, color: T.text3 }}>
+        <div style={{ fontFamily: SERIF, fontSize: 24, color: T.text3 }}>
           Session Complete
         </div>
         <div
@@ -491,7 +491,7 @@ function LearningSession({
         >
           {score}%
         </div>
-        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>
+        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>
           {results.filter((r) => r.ok).length} / {results.length} correct
         </p>
         <button
@@ -504,7 +504,7 @@ function LearningSession({
             borderRadius: 8,
             cursor: "pointer",
             fontFamily: MONO,
-            fontSize: 14,
+            fontSize: 18,
             fontWeight: 600,
           }}
         >
@@ -537,7 +537,7 @@ function LearningSession({
             color: T.text4,
             cursor: "pointer",
             fontFamily: MONO,
-            fontSize: 11,
+            fontSize: 13,
           }}
         >
           ← Exit
@@ -561,7 +561,7 @@ function LearningSession({
             }}
           />
         </div>
-        <span style={{ fontFamily: MONO, color: T.text4, fontSize: 11 }}>
+        <span style={{ fontFamily: MONO, color: T.text4, fontSize: 13 }}>
           {idx + 1}/{vignettes.length}
         </span>
       </div>
@@ -572,7 +572,7 @@ function LearningSession({
             fontFamily: MONO,
             background: dc + "18",
             color: dc,
-            fontSize: 11,
+            fontSize: 13,
             padding: "3px 10px",
             borderRadius: 20,
             letterSpacing: 1.5,
@@ -581,7 +581,7 @@ function LearningSession({
           {(v.difficulty || "medium").toUpperCase()}
         </span>
         {(v.topic || v.subtopic) && (
-          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
+          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>
             {[v.topic, v.subtopic].filter(Boolean).join(" — ")}
           </span>
         )}
@@ -606,12 +606,12 @@ function LearningSession({
                 />
               </div>
             )}
-            <p style={{ fontFamily: MONO, color: T.text3, fontSize: 11, margin: 0 }}>
+            <p style={{ fontFamily: MONO, color: T.text3, fontSize: 13, margin: 0 }}>
               🔬 Identify the structures or select the correct answer based on the histological slide above.
             </p>
             {shown && v.answerPageImage && (
               <div>
-                <div style={{ fontFamily: MONO, color: "#10b981", fontSize: 11, marginBottom: 8, letterSpacing: 1 }}>
+                <div style={{ fontFamily: MONO, color: "#10b981", fontSize: 13, marginBottom: 8, letterSpacing: 1 }}>
                   ✓ ANSWER — ANNOTATED SLIDE
                 </div>
                 <div style={{ background: "#021710", borderRadius: 12, overflow: "hidden", border: "1px solid #10b98130" }}>
@@ -625,7 +625,7 @@ function LearningSession({
             )}
           </div>
         ) : (
-          <p style={{ fontFamily: SERIF, color: T.text1, lineHeight: 1.8, fontSize: 14, margin: 0 }}>
+          <p style={{ fontFamily: SERIF, color: T.text1, lineHeight: 1.8, fontSize: 18, margin: 0 }}>
             {v.stem}
           </p>
         )}
@@ -665,7 +665,7 @@ function LearningSession({
                 gap: 13,
                 color,
                 fontFamily: MONO,
-                fontSize: 13,
+                fontSize: 17,
                 lineHeight: 1.65,
               }}
             >
@@ -683,17 +683,19 @@ function LearningSession({
       {shown && (
         <div
           style={{
-            background: "#09111e",
-            border: "1px solid #0f2040",
+            background: T.cardBg,
+            border: "1px solid " + T.border1,
             borderRadius: 14,
             padding: 24,
+            opacity: 1,
+            filter: "none",
           }}
         >
           <div
             style={{
               fontFamily: MONO,
               color: "#3b82f6",
-              fontSize: 11,
+              fontSize: 13,
               letterSpacing: 3,
               marginBottom: 12,
             }}
@@ -703,9 +705,9 @@ function LearningSession({
           <p
             style={{
               fontFamily: SERIF,
-              color: "#f1f5f9",
+              color: T.text1,
               lineHeight: 1.8,
-              fontSize: 14,
+              fontSize: 18,
               margin: 0,
             }}
           >
@@ -727,7 +729,7 @@ function LearningSession({
               borderRadius: 8,
               cursor: sel ? "pointer" : "not-allowed",
               fontFamily: MONO,
-              fontSize: 13,
+              fontSize: 17,
               fontWeight: 600,
               opacity: sel ? 1 : 0.6,
             }}
@@ -745,7 +747,7 @@ function LearningSession({
               borderRadius: 8,
               cursor: "pointer",
               fontFamily: MONO,
-              fontSize: 13,
+              fontSize: 17,
               fontWeight: 600,
             }}
           >
@@ -769,6 +771,7 @@ async function generateVignettesWithClaude(profile, subject, subtopic, count) {
     body: JSON.stringify({
       model: "claude-sonnet-4-20250514",
       max_tokens: 6000,
+      temperature: 0.9,
       system: systemPrompt,
       messages: [{ role: "user", content: userPrompt }],
     }),
@@ -782,10 +785,13 @@ async function generateVignettesWithClaude(profile, subject, subtopic, count) {
   return list.slice(0, count).map((v, i) => ({ ...v, id: v.id || "v" + (i + 1) }));
 }
 
-export default function LearningModel({ profile: profileProp, onProfileUpdate, sessions = [], lectures = [] }) {
+export default function LearningModel({ profile: profileProp, onProfileUpdate, sessions = [], lectures = [], blockId, onObjectivesExtracted }) {
   const { T } = useTheme();
   const profile = profileProp || loadProfile();
   const [tab, setTab] = useState("profile");
+  useEffect(() => {
+    if (tab === "practice") setTab("questionBank");
+  }, [tab]);
   const [filterType, setFilterType] = useState("all");
   const [filterDifficulty, setFilterDifficulty] = useState("all");
   const [parsingJobs, setParsingJobs] = useState([]);
@@ -907,17 +913,31 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
 
       if (isPdf) {
         setFileRefs((prev) => ({ ...prev, [file.name]: file }));
-        parseExamPDF(file, (msg) => updateJobProgress(jobId, msg))
-          .then((result) => {
-            if (result?.questions?.length > 0) {
-              onFileParsed(file.name, result.questions);
-              completeJob(jobId, result.questions.length);
-              const imageCount = result.questions.filter((q) => q.imageQuestion).length;
-              if (imageCount > 0) setTab("histology");
-            } else {
-              completeJob(jobId, 0);
-              updateJobProgress(jobId, "⚠ No questions found");
+        Promise.all([
+          parseExamPDF(file, (msg) => updateJobProgress(jobId, msg)),
+          extractLectureObjectives(file, (msg) => updateJobProgress(jobId, msg)),
+        ])
+          .then(([contentResult, extractedObjectives]) => {
+            if (contentResult?.questions?.length > 0) {
+              onFileParsed(file.name, contentResult.questions);
             }
+            if (extractedObjectives?.length > 0 && onObjectivesExtracted && blockId) {
+              onObjectivesExtracted(file.name, extractedObjectives, blockId);
+            }
+            const qCount = contentResult?.questions?.length ?? 0;
+            completeJob(jobId, qCount);
+            if (qCount > 0) {
+              updateJobProgress(
+                jobId,
+                extractedObjectives?.length > 0
+                  ? "✓ Done · " + qCount + " questions · " + extractedObjectives.length + " objectives extracted"
+                  : "✓ Done · " + qCount + " questions"
+              );
+            } else {
+              updateJobProgress(jobId, extractedObjectives?.length > 0 ? "✓ " + extractedObjectives.length + " objectives extracted" : "⚠ No questions found");
+            }
+            const imageCount = (contentResult?.questions || []).filter((q) => q.imageQuestion).length;
+            if (imageCount > 0) setTab("histology");
           })
           .catch((err) => failJob(jobId, err.message || String(err)));
       } else {
@@ -1038,7 +1058,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
     padding: "10px 18px",
     cursor: "pointer",
     fontFamily: MONO,
-    fontSize: 12,
+    fontSize: 14,
     marginBottom: -1,
   });
 
@@ -1073,15 +1093,15 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   }}
                 />
               ) : job.status === "done" ? (
-                <span style={{ color: "#10b981", fontSize: 14 }}>✓</span>
+                <span style={{ color: "#10b981", fontSize: 18 }}>✓</span>
               ) : (
-                <span style={{ color: "#ef4444", fontSize: 14 }}>✗</span>
+                <span style={{ color: "#ef4444", fontSize: 18 }}>✗</span>
               )}
               <span
                 style={{
                   fontFamily: MONO,
                   color: "#c4cdd6",
-                  fontSize: 11,
+                  fontSize: 13,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -1090,9 +1110,9 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
               >
                 {job.filename}
               </span>
-              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 10, flex: 1 }}>{job.progress}</span>
+              <span style={{ fontFamily: MONO, color: "#374151", fontSize: 12, flex: 1 }}>{job.progress}</span>
               {job.status === "done" && (
-                <span style={{ fontFamily: MONO, color: "#10b981", fontSize: 10 }}>{job.questionCount} questions</span>
+                <span style={{ fontFamily: MONO, color: "#10b981", fontSize: 12 }}>{job.questionCount} questions</span>
               )}
               {job.status !== "parsing" && (
                 <button
@@ -1103,7 +1123,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                     border: "none",
                     color: "#374151",
                     cursor: "pointer",
-                    fontSize: 12,
+                    fontSize: 14,
                     padding: "0 2px",
                   }}
                 >
@@ -1121,9 +1141,6 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
         </button>
         <button style={navStyle("questionBank")} onClick={() => setTab("questionBank")}>
           Question Bank
-        </button>
-        <button style={navStyle("practice")} onClick={() => setTab("practice")}>
-          Practice
         </button>
         <button style={navStyle("histology")} onClick={() => setTab("histology")}>
           {"🔬 Histology" + (histoCount > 0 ? " (" + histoCount + ")" : "")}
@@ -1144,7 +1161,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                 padding: 20,
               }}
             >
-              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 11, letterSpacing: 2, marginBottom: 8 }}>
+              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 13, letterSpacing: 2, marginBottom: 8 }}>
                 OVERALL
               </div>
               <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
@@ -1152,24 +1169,24 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   <div style={{ fontFamily: SERIF, fontSize: 28, fontWeight: 900, color: T.text1 }}>
                     {overallAccuracy !== null ? overallAccuracy + "%" : "—"}
                   </div>
-                  <div style={{ fontSize: 11, color: T.text3 }}>Accuracy</div>
+                  <div style={{ fontSize: 13, color: T.text3 }}>Accuracy</div>
                 </div>
                 <div>
                   <div style={{ fontFamily: SERIF, fontSize: 28, fontWeight: 900, color: T.text1 }}>
                     {totalQuestions}
                   </div>
-                  <div style={{ fontSize: 11, color: T.text3 }}>Questions answered</div>
+                  <div style={{ fontSize: 13, color: T.text3 }}>Questions answered</div>
                 </div>
               </div>
             </div>
 
             <div>
-              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 11, letterSpacing: 2, marginBottom: 10 }}>
+              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 13, letterSpacing: 2, marginBottom: 10 }}>
                 WEAK TOPICS (&lt;65%)
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {weakTopics.length === 0 ? (
-                  <span style={{ color: T.text3, fontSize: 12 }}>None yet</span>
+                  <span style={{ color: T.text3, fontSize: 14 }}>None yet</span>
                 ) : (
                   weakTopics.map(([key, v]) => (
                     <span
@@ -1180,7 +1197,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                         color: ACCENT,
                         padding: "6px 12px",
                         borderRadius: 20,
-                        fontSize: 14,
+                        fontSize: 18,
                         fontWeight: 700,
                         fontFamily: MONO,
                       }}
@@ -1193,12 +1210,12 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
             </div>
 
             <div>
-              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 11, letterSpacing: 2, marginBottom: 10 }}>
+              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 13, letterSpacing: 2, marginBottom: 10 }}>
                 STRONG TOPICS (≥80%)
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {strongTopics.length === 0 ? (
-                  <span style={{ color: T.text3, fontSize: 12 }}>None yet</span>
+                  <span style={{ color: T.text3, fontSize: 14 }}>None yet</span>
                 ) : (
                   strongTopics.map(([key, v]) => (
                     <span
@@ -1209,7 +1226,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                         color: "#10b981",
                         padding: "6px 12px",
                         borderRadius: 20,
-                        fontSize: 14,
+                        fontSize: 18,
                         fontWeight: 700,
                         fontFamily: MONO,
                       }}
@@ -1229,7 +1246,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                 padding: 20,
               }}
             >
-              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>
+              <div style={{ fontFamily: MONO, color: T.text4, fontSize: 13, letterSpacing: 2, marginBottom: 14 }}>
                 STYLE PREFERENCES
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1292,10 +1309,10 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
               }}
             >
               <div style={{ fontSize: 36, marginBottom: 12 }}>📋</div>
-              <p style={{ fontFamily: MONO, color: T.text3, fontSize: 13, marginBottom: 8 }}>
+              <p style={{ fontFamily: MONO, color: T.text3, fontSize: 17, marginBottom: 8 }}>
                 Drop your instructor question bank PDFs here
               </p>
-              <p style={{ fontFamily: MONO, color: T.text5 || "#374151", fontSize: 11, marginBottom: 16 }}>
+              <p style={{ fontFamily: MONO, color: T.text5 || "#374151", fontSize: 13, marginBottom: 16 }}>
                 The AI will extract all questions and learn your instructor's style
               </p>
               <label
@@ -1306,7 +1323,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                   borderRadius: 8,
                   cursor: "pointer",
                   fontFamily: MONO,
-                  fontSize: 12,
+                  fontSize: 14,
                   fontWeight: 700,
                 }}
               >
@@ -1321,256 +1338,28 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
               </label>
             </div>
 
-            {Object.entries(questionBanksByFile).map(([filename, questions]) => (
-              <QuestionBankCard
-                key={filename}
-                filename={filename}
-                questions={questions || []}
-                profile={profile}
-                onPractice={(qs) => {
-                  const vignettes = (qs || []).map((q, i) => ({
-                    id: q.id || "bank-" + i,
-                    stem: q.stem,
-                    choices: q.choices || {},
-                    correct: q.correct,
-                    explanation: q.explanation,
-                    topic: q.topic,
-                    subtopic: q.subtopic,
-                    difficulty: q.difficulty || "medium",
-                    type: q.type,
-                    imageQuestion: q.imageQuestion,
-                    questionPageImage: q.questionPageImage,
-                    answerPageImage: q.answerPageImage,
-                  }));
-                  setSessionVignettes(vignettes);
-                  setTab("practice");
+            {Object.keys(questionBanksByFile || {}).length > 0 && (
+              <div
+                style={{
+                  fontFamily: MONO,
+                  color: T.green,
+                  fontSize: 12,
+                  padding: "6px 12px",
+                  background: T.greenBg,
+                  border: "1px solid " + T.greenBorder,
+                  borderRadius: 6,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
                 }}
-                onPracticeWeak={(qs) => {
-                  const weak = (qs || []).filter((q) => {
-                    const key = [q.topic, q.subtopic].filter(Boolean).join(" — ") || "Other";
-                    return weakTopicKeys.has(key);
-                  });
-                  const toUse = weak.length > 0 ? weak : qs || [];
-                  const vignettes = toUse.map((q, i) => ({
-                    id: q.id || "weak-" + i,
-                    stem: q.stem,
-                    choices: q.choices || {},
-                    correct: q.correct,
-                    explanation: q.explanation,
-                    topic: q.topic,
-                    subtopic: q.subtopic,
-                    difficulty: q.difficulty || "medium",
-                    type: q.type,
-                    imageQuestion: q.imageQuestion,
-                    questionPageImage: q.questionPageImage,
-                    answerPageImage: q.answerPageImage,
-                  }));
-                  setSessionVignettes(vignettes);
-                  setTab("practice");
-                }}
-                onDelete={(fname) => {
-                  if (!window.confirm("Remove " + fname + " from your question bank?")) return;
-                  const updated = { ...questionBanksByFile };
-                  delete updated[fname];
-                  setQuestionBanksByFile(updated);
-                  localStorage.setItem("rxt-question-banks", JSON.stringify(updated));
-                }}
-              />
-            ))}
-
-            {Object.keys(questionBanksByFile).length === 0 && (
-              <div style={{ textAlign: "center", padding: "50px 0" }}>
-                <div style={{ fontSize: 42, marginBottom: 12 }}>📭</div>
-                <p style={{ fontFamily: MONO, color: "#374151", fontSize: 13 }}>No question banks uploaded yet</p>
-                <p style={{ fontFamily: MONO, color: "#2d3d4f", fontSize: 11 }}>Upload a PDF above to get started</p>
+              >
+                <span>✓</span>
+                <span>
+                  Learned from {Object.keys(questionBanksByFile).length} exam
+                  {Object.keys(questionBanksByFile).length !== 1 ? "s" : ""} ·{" "}
+                  {Object.values(questionBanksByFile).flat().length} questions in style bank
+                </span>
               </div>
-            )}
-          </div>
-        )}
-
-        {tab === "practice" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-            {sessionVignettes ? (
-              <LearningSession
-                vignettes={sessionVignettes}
-                termColor={ACCENT}
-                profile={profile}
-                onProfileUpdate={onProfileUpdate}
-                onDone={() => setSessionVignettes(null)}
-                onBack={() => setSessionVignettes(null)}
-              />
-            ) : (
-              <>
-                {typeof window !== "undefined" && (() => {
-                  const savedMissed = JSON.parse(localStorage.getItem("rxt-missed-questions") || "[]");
-                  return savedMissed.length > 0 ? (
-                    <div
-                      style={{
-                        background: T.cardBg,
-                        border: "1px solid " + T.cardBorder,
-                        borderRadius: 14,
-                        padding: 20,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        flexWrap: "wrap",
-                        gap: 12,
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontFamily: MONO, color: T.text4, fontSize: 11, letterSpacing: 2, marginBottom: 4 }}>
-                          MISSED QUESTIONS BANK
-                        </div>
-                        <p style={{ fontFamily: MONO, color: T.text2, fontSize: 13, margin: 0 }}>
-                          {savedMissed.length} saved missed question{savedMissed.length !== 1 ? "s" : ""} from past sessions
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => {
-                          const vignettes = savedMissed.map((q, i) => ({
-                            id: q.id || "missed-" + i,
-                            stem: q.stem,
-                            choices: q.choices || {},
-                            correct: q.correct,
-                            explanation: q.explanation,
-                            topic: q.topic || q.subject,
-                            subtopic: q.subtopic,
-                            difficulty: q.difficulty || "medium",
-                            type: q.type,
-                            imageQuestion: q.imageQuestion,
-                            questionPageImage: q.questionPageImage,
-                            answerPageImage: q.answerPageImage,
-                          }));
-                          setSessionVignettes(vignettes);
-                        }}
-                        style={{
-                          background: ACCENT,
-                          border: "none",
-                          color: "#fff",
-                          padding: "10px 20px",
-                          borderRadius: 8,
-                          cursor: "pointer",
-                          fontFamily: MONO,
-                          fontSize: 12,
-                          fontWeight: 600,
-                        }}
-                      >
-                        Re-Practice Missed
-                      </button>
-                    </div>
-                  ) : null;
-                })()}
-                <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 700, color: ACCENT }}>
-                  Practice
-                </h2>
-                <div
-                  style={{
-                    background: T.cardBg,
-                    border: "1px solid " + T.cardBorder,
-                    borderRadius: 14,
-                    padding: 24,
-                    maxWidth: 520,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 16,
-                  }}
-                >
-                  <div>
-                    <label style={{ fontFamily: MONO, color: T.text3, fontSize: 11, display: "block", marginBottom: 6 }}>
-                      Subject
-                    </label>
-                    <select
-                      value={practiceSubject || (subjectsFromLectures[0] ?? "General")}
-                      onChange={(e) => setPracticeSubject(e.target.value)}
-                      style={{
-                        width: "100%",
-                        background: T.inputBg,
-                        border: "1px solid " + T.cardBorder,
-                        color: T.text1,
-                        padding: "8px 12px",
-                        borderRadius: 8,
-                        fontFamily: MONO,
-                        fontSize: 12,
-                      }}
-                    >
-                      {subjectsFromLectures.length > 0 ? (
-                        subjectsFromLectures.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))
-                      ) : null}
-                      <option value="General">General</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontFamily: MONO, color: T.text3, fontSize: 11, display: "block", marginBottom: 6 }}>
-                      Mode
-                    </label>
-                    <select
-                      value={practiceMode}
-                      onChange={(e) => setPracticeMode(e.target.value)}
-                      style={{
-                        width: "100%",
-                        background: T.inputBg,
-                        border: "1px solid " + T.cardBorder,
-                        color: T.text1,
-                        padding: "8px 12px",
-                        borderRadius: 8,
-                        fontFamily: MONO,
-                        fontSize: 12,
-                      }}
-                    >
-                      <option value="aiGenerated">AI Generated</option>
-                      <option value="fromBank">From Question Bank</option>
-                      <option value="mixed">Mixed</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label style={{ fontFamily: MONO, color: T.text3, fontSize: 11, display: "block", marginBottom: 6 }}>
-                      Question count: {practiceCount}
-                    </label>
-                    <input
-                      type="range"
-                      min={1}
-                      max={40}
-                      value={practiceCount}
-                      onChange={(e) => setPracticeCount(Number(e.target.value))}
-                      style={{ width: "100%", accentColor: ACCENT }}
-                    />
-                  </div>
-                  {(practiceMode === "fromBank" || practiceMode === "mixed") && (
-                    <Toggle
-                      label="Weak topics only"
-                      checked={practiceWeakOnly}
-                      onChange={setPracticeWeakOnly}
-                    />
-                  )}
-                  {sessionError && (
-                    <div style={{ color: ACCENT, fontSize: 12 }}>{sessionError}</div>
-                  )}
-                  <button
-                    onClick={startPractice}
-                    disabled={
-                      sessionLoading ||
-                      (practiceMode === "fromBank" && bankForPractice.length === 0)
-                    }
-                    style={{
-                      background: sessionLoading ? T.border1 : ACCENT,
-                      border: "none",
-                      color: "#fff",
-                      padding: "12px 24px",
-                      borderRadius: 8,
-                      cursor: sessionLoading ? "not-allowed" : "pointer",
-                      fontFamily: MONO,
-                      fontSize: 13,
-                      fontWeight: 600,
-                    }}
-                  >
-                    {sessionLoading ? "Generating…" : "Generate Session →"}
-                  </button>
-                </div>
-              </>
             )}
           </div>
         )}
