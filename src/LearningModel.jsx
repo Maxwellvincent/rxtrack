@@ -785,7 +785,7 @@ async function generateVignettesWithClaude(profile, subject, subtopic, count) {
   return list.slice(0, count).map((v, i) => ({ ...v, id: v.id || "v" + (i + 1) }));
 }
 
-export default function LearningModel({ profile: profileProp, onProfileUpdate, sessions = [], lectures = [], blockId, onObjectivesExtracted }) {
+export default function LearningModel({ profile: profileProp, onProfileUpdate, sessions = [], lectures = [], blocks = [], blockId, onObjectivesExtracted }) {
   const { T } = useTheme();
   const profile = profileProp || loadProfile();
   const [tab, setTab] = useState("profile");
@@ -1339,27 +1339,63 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
             </div>
 
             {Object.keys(questionBanksByFile || {}).length > 0 && (
-              <div
-                style={{
-                  fontFamily: MONO,
-                  color: T.green,
-                  fontSize: 12,
-                  padding: "6px 12px",
-                  background: T.greenBg,
-                  border: "1px solid " + T.greenBorder,
-                  borderRadius: 6,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-              >
-                <span>✓</span>
-                <span>
-                  Learned from {Object.keys(questionBanksByFile).length} exam
-                  {Object.keys(questionBanksByFile).length !== 1 ? "s" : ""} ·{" "}
-                  {Object.values(questionBanksByFile).flat().length} questions in style bank
-                </span>
-              </div>
+              <>
+                <div
+                  style={{
+                    fontFamily: MONO,
+                    color: T.green,
+                    fontSize: 12,
+                    padding: "6px 12px",
+                    background: T.greenBg,
+                    border: "1px solid " + T.greenBorder,
+                    borderRadius: 6,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  <span>✓</span>
+                  <span>
+                    Learned from {Object.keys(questionBanksByFile).length} exam
+                    {Object.keys(questionBanksByFile).length !== 1 ? "s" : ""} ·{" "}
+                    {Object.values(questionBanksByFile).flat().length} questions in style bank
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
+                  {Object.entries(questionBanksByFile || {}).map(([fname, questions]) => {
+                    const qList = Array.isArray(questions) ? questions : [];
+                    const usedInBlocks = (blocks || []).filter((b) =>
+                      (lectures || []).some(
+                        (l) =>
+                          l.blockId === b.id &&
+                          qList.some((q) =>
+                            (q.topic || "").toLowerCase().includes((b.name || "").toLowerCase().slice(0, 6))
+                          )
+                      )
+                    );
+                    return (
+                      <div
+                        key={fname}
+                        style={{
+                          background: T.cardBg,
+                          border: "1px solid " + T.border1,
+                          borderRadius: 10,
+                          padding: "12px 16px",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ fontFamily: MONO, color: T.text1, fontSize: 13 }}>{fname}</div>
+                        <div style={{ fontFamily: MONO, color: T.green, fontSize: 11, marginTop: 4 }}>
+                          ✓ {qList.length} questions loaded into AI style bank
+                        </div>
+                        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 2 }}>
+                          Active for: {usedInBlocks.length > 0 ? usedInBlocks.map((b) => b.name).join(", ") : "all blocks"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
         )}

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useTheme } from "./theme";
+import { useTheme, getObjStatusColor, getObjStatusIcon, getBarColor } from "./theme";
 
 const MONO = "'DM Mono','Courier New',monospace";
 
@@ -53,10 +53,10 @@ function LecObjectiveGroup({ group, objectives, onSelfRate, onQuiz, color, T }) 
         </span>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           {mastered > 0 && (
-            <span style={{ fontFamily: MONO, color: T.green, fontSize: 16 }}>✓{mastered}</span>
+            <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 16 }}>✓{mastered}</span>
           )}
           {struggling > 0 && (
-            <span style={{ fontFamily: MONO, color: T.red, fontSize: 16 }}>⚠{struggling}</span>
+            <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 16 }}>⚠{struggling}</span>
           )}
           {untested > 0 && (
             <span style={{ fontFamily: MONO, color: T.text3, fontSize: 16 }}>○{untested}</span>
@@ -75,7 +75,7 @@ function LecObjectiveGroup({ group, objectives, onSelfRate, onQuiz, color, T }) 
             style={{
               width: pct + "%",
               height: "100%",
-              background: pct === 100 ? T.green : pct > 50 ? T.amber : color,
+              background: pct === 100 ? T.statusGood : pct > 50 ? T.statusProgress : color,
               borderRadius: 2,
               transition: "width 0.4s",
             }}
@@ -84,7 +84,7 @@ function LecObjectiveGroup({ group, objectives, onSelfRate, onQuiz, color, T }) 
         <span
           style={{
             fontFamily: MONO,
-            color: pct === 100 ? T.green : T.text3,
+            color: pct === 100 ? T.statusGood : T.text3,
             fontSize: 12,
             minWidth: 30,
             textAlign: "right",
@@ -144,7 +144,7 @@ function LecObjectiveGroup({ group, objectives, onSelfRate, onQuiz, color, T }) 
 
 function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture }) {
   const statusColorToken =
-    { mastered: T.green, struggling: T.red, inprogress: T.amber, untested: T.text3 }[obj.status] ??
+    getObjStatusColor(T, obj.status) ??
     T.text3;
   const statusIcon = {
     mastered: "✓",
@@ -210,7 +210,7 @@ function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture }) {
         </span>
         {hasLecture != null && (
           hasLecture ? (
-            <span title="Lecture uploaded" style={{ fontFamily: MONO, color: T.green, fontSize: 10, background: T.greenBg || (T.green + "22"), padding: "1px 5px", borderRadius: 3, marginTop: 4, display: "inline-block" }}>
+            <span title="Lecture uploaded" style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, background: T.statusGoodBg || (T.statusGood + "22"), padding: "1px 5px", borderRadius: 3, marginTop: 4, display: "inline-block" }}>
               📖 linked
             </span>
           ) : (
@@ -426,14 +426,7 @@ export default function ObjectiveTracker({
                       height: 12,
                       borderRadius: 3,
                       cursor: "default",
-                      background:
-                        obj.status === "mastered"
-                          ? T.green
-                          : obj.status === "struggling"
-                            ? T.red
-                            : obj.status === "inprogress"
-                              ? T.amber
-                              : T.border1,
+                      background: getObjStatusColor(T, obj.status) || T.border1,
                       transition: "transform 0.1s",
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.6)")}
@@ -535,8 +528,8 @@ function Column({ title, count, objectives, onSelfRate, T, color }) {
                     height: 22,
                     borderRadius: 4,
                     border: "1px solid " + T.border1,
-                    background: obj.status === s ? (s === "mastered" ? T.green : s === "struggling" ? T.red : T.amber) + "22" : "transparent",
-                    color: obj.status === s ? (s === "mastered" ? T.green : s === "struggling" ? T.red : T.amber) : T.text3,
+                    background: obj.status === s ? (getObjStatusColor(T, s) || T.border1) + "22" : "transparent",
+                    color: obj.status === s ? (getObjStatusColor(T, s) || T.text3) : T.text3,
                     cursor: "pointer",
                     fontSize: 12,
                   }}

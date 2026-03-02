@@ -4,8 +4,28 @@ import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import ObjectiveTracker from "./ObjectiveTracker";
 import { loadPDFJS, parseExamPDF } from "./examParser";
+import { extractPDFWithMistralSafe } from "./mistralOCR";
 import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
-import { ThemeContext, useTheme, themes } from "./theme";
+import {
+  ThemeContext,
+  useTheme,
+  themes,
+  getScoreColor,
+  getScoreLabel,
+  getBarColor,
+  getObjStatusColor,
+  getObjStatusIcon,
+  getUrgencyColor,
+  URGENCY_LABELS,
+  StatusBadge,
+} from "./theme";
+import {
+  enrichObjectiveWithBloom,
+  getActivityType,
+  LEVEL_NAMES,
+  LEVEL_COLORS,
+  LEVEL_BG,
+} from "./bloomsTaxonomy";
 import FTM2_DATA from "./ftm2_objectives_full.json";
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
@@ -27,6 +47,41 @@ async function sSet(key, val) {
   } catch (e) {
     console.warn("storage set failed", key, e);
   }
+}
+
+function deduplicateTrackerRows(rows) {
+  const seen = {};
+  const merged = [];
+  (rows || []).forEach((row) => {
+    // ONLY deduplicate by lectureId — never by topic string alone.
+    // Topic strings like "Objectives" or "Body Planes" can appear in
+    // multiple lectures and must NOT be merged.
+    const key = row.lectureId
+      ? `lecId_${row.lectureId}`
+      : `manual_${row.id}`;
+    if (seen[key] !== undefined) {
+      const existing = merged[seen[key]];
+      const combinedScores = [...(existing.scores || []), ...(row.scores || [])].filter((s) => s != null && s !== "");
+      merged[seen[key]] = {
+        ...existing,
+        lastStudied: [existing.lastStudied, row.lastStudied].filter(Boolean).sort().slice(-1)[0] || existing.lastStudied,
+        reps: (existing.reps || 0) + (row.reps || 0),
+        scores: combinedScores,
+        score: row.score != null && row.score !== "" ? row.score : existing.score,
+        confidence: row.confidence ?? existing.confidence,
+        ankiDate: row.ankiDate || existing.ankiDate,
+        lectureDate: row.lectureDate || existing.lectureDate,
+        preRead: existing.preRead || row.preRead,
+        lecture: existing.lecture || row.lecture,
+        postReview: existing.postReview || row.postReview,
+        anki: existing.anki || row.anki,
+      };
+    } else {
+      seen[key] = merged.length;
+      merged.push({ ...row });
+    }
+  });
+  return merged;
 }
 async function sDel(key) {
   try { localStorage.removeItem(key); } catch {}
@@ -92,8 +147,21 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
 
   return objectives.map((obj) => {
     const matched = lectures.find((lec) => {
-      if (obj.lectureNumber && lec.lectureNumber) {
-        if (String(obj.lectureNumber) === String(lec.lectureNumber)) return true;
+      let lecType = (lec.lectureType || "LEC").toUpperCase();
+      if (lecType === "LECTURE" || lecType.startsWith("LECT")) lecType = "LEC";
+      const lecNum = String(lec.lectureNumber || "");
+      const objActivity = (obj.activity || "").toUpperCase().replace(/\s+/g, " ").trim();
+
+      if (objActivity && lecNum) {
+        if (objActivity === lecType + lecNum) return true;
+        if (objActivity === lecType + " " + lecNum) return true;
+        const actMatch = objActivity.match(/^([A-Z]+)\s*(\d+)$/);
+        if (actMatch && actMatch[1] === lecType && actMatch[2] === lecNum) return true;
+      }
+      if (obj.lectureNumber && lec.lectureNumber && String(obj.lectureNumber) === String(lec.lectureNumber)) {
+        const objType = (obj.lectureType || "LEC").toUpperCase();
+        const objTypeNorm = objType === "LECTURE" || objType.startsWith("LECT") ? "LEC" : objType.slice(0, 4);
+        if (!obj.activity || objTypeNorm === lecType) return true;
       }
       if (obj.activity && lec.lectureNumber) {
         const actNum = parseInt((obj.activity || "").replace(/\D/g, ""), 10);
@@ -111,6 +179,7 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
           fn.includes("lecture" + n) ||
           fn.includes("lec" + n) ||
           fn.includes("lec_" + n) ||
+          fn.includes("dla" + n) ||
           fn.includes("l" + n + "_") ||
           fn.includes("_" + n + "_")
         )
@@ -119,11 +188,22 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
       return false;
     });
 
+    // Last resort: match by lecture number within same block
+    let finalMatch = matched;
+    if (!finalMatch && obj.lectureNumber != null) {
+      const fallbackLec = lectures.find(
+        (l) =>
+          String(l.lectureNumber) === String(obj.lectureNumber) &&
+          (!obj.lectureType || !l.lectureType || (obj.lectureType || "LEC") === (l.lectureType || "LEC"))
+      );
+      if (fallbackLec) finalMatch = fallbackLec;
+    }
+
     return {
       ...obj,
-      linkedLecId: matched?.id || obj.linkedLecId || null,
-      linkedLecName: matched?.lectureTitle || matched?.filename || matched?.fileName || obj.linkedLecName || null,
-      hasLecture: !!matched,
+      linkedLecId: finalMatch?.id || obj.linkedLecId || null,
+      linkedLecName: finalMatch?.lectureTitle || finalMatch?.filename || finalMatch?.fileName || obj.linkedLecName || null,
+      hasLecture: !!finalMatch,
     };
   });
 }
@@ -276,6 +356,44 @@ const safeJSON = (raw) => {
   throw new Error(`Invalid JSON from Claude: ${cleaned.slice(0, 120)}...`);
 };
 
+const detectStudyMode = (lec, objectives = []) => {
+  const title = (lec?.lectureTitle || lec?.fileName || "").toLowerCase();
+  const discipline = (lec?.subject || lec?.discipline || "").toLowerCase();
+  const objText = (objectives || []).map((o) => o.objective).join(" ").toLowerCase();
+  const allText = title + " " + discipline + " " + objText;
+
+  const hasUploadedContent = ((lec?.chunks || []).map((c) => c.text || "").join("").trim().length) > 200;
+  const isAnatomy = /\banat|anatomy|muscle|bone|nerve|artery|vein|ligament|joint|vertebr|spinal|plexus|foramen|fossa|groove|insertion|origin|landmark|imaging|radiol|x.ray|mri|ct scan|ultrasound/i.test(allText);
+  const isHistology = /\bhisto|histol|microscop|stain|cell type|tissue|epithelial|connective|gland|slide/i.test(allText);
+
+  if (isAnatomy || isHistology) {
+    return {
+      mode: isHistology ? "histology" : "anatomy",
+      label: isHistology ? "Histology" : "Anatomy & Structure",
+      icon: isHistology ? "🔬" : "🦴",
+      recommended: ["anki", "deepLearn"],
+      avoid: [],
+      hasUploadedContent,
+      reason: `${isHistology ? "Histology" : "Anatomy"} is best studied with Anki image cards. Log your Anki sessions here to track progress.`,
+      color: isHistology ? "#a78bfa" : "#6366f1",
+    };
+  }
+
+  if (/\bphar|drug|pharmac|receptor|agonist|antagonist|inhibit|mechanism|dose|toxicity|side effect|contraindic/i.test(allText)) {
+    return { mode: "pharmacology", label: "Pharmacology", icon: "💊", recommended: ["deepLearn", "flashcards", "mcq"], avoid: [], reason: "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.", color: "#10b981" };
+  }
+  if (/\bbchm|biochem|metabol|pathway|enzyme|substrate|cofactor|atp|nadh|glycol|krebs|oxidat|synthesis|protein|dna|rna|gene|transcri|translat/i.test(allText)) {
+    return { mode: "biochemistry", label: "Biochemistry & Pathways", icon: "⚗️", recommended: ["deepLearn", "algorithmDraw", "mcq"], avoid: [], reason: "Biochemistry pathways need step-by-step algorithm drawing and mechanism explanation.", color: "#f59e0b" };
+  }
+  if (/\bphys|physiol|homeosta|pressure|volume|flow|cardiac|respirat|renal|filtrat|hormonal|feedback|regulation/i.test(allText)) {
+    return { mode: "physiology", label: "Physiology", icon: "❤️", recommended: ["deepLearn", "mcq"], avoid: [], reason: "Physiology needs clinical reasoning and mechanism-based deep learning.", color: "#ef4444" };
+  }
+  if (/\bpath|disease|disorder|syndrome|lesion|tumor|inflam|necrosis|infarct|diagnosis/i.test(allText)) {
+    return { mode: "pathology", label: "Pathology", icon: "🧬", recommended: ["deepLearn", "mcq", "flashcards"], avoid: [], reason: "Pathology combines mechanisms with clinical presentations — Deep Learn is ideal.", color: "#f97316" };
+  }
+  return { mode: "clinical", label: "Clinical Sciences", icon: "🏥", recommended: ["deepLearn", "mcq"], avoid: [], reason: "Mixed clinical content works well with Deep Learn and MCQ practice.", color: "#60a5fa" };
+};
+
 const validateAndFixQuestions = (questions) => {
   return (questions || []).map((q) => {
     const stem = (q.stem || "").trim();
@@ -327,7 +445,107 @@ const buildExamPrompt = (count, objectives, content, uploadedQs, mode, difficult
     `- Keep each explanation under 60 words to save space\n` +
     `- Never truncate — complete all ${count} questions fully\n\n` +
     `Return ONLY complete valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"...","topic":"...","difficulty":"${difficulty || "medium"}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"...","topic":"...","difficulty":"${difficulty || "medium"}","usedUploadedStyle":${!!(uploadedQs && uploadedQs.length)}}]}`
+  );
+};
+
+const getReviewInterval = (confidenceLevel, isCurrentBlock, blockAgeMonths) => {
+  if (isCurrentBlock) {
+    return confidenceLevel === "High" ? 7 : confidenceLevel === "Medium" ? 3 : 1;
+  }
+  if (blockAgeMonths <= 1) {
+    return confidenceLevel === "High" ? 42 : confidenceLevel === "Medium" ? 30 : 14;
+  }
+  if (blockAgeMonths <= 3) {
+    return confidenceLevel === "High" ? 60 : confidenceLevel === "Medium" ? 45 : 30;
+  }
+  return confidenceLevel === "High" ? 90 : confidenceLevel === "Medium" ? 60 : 30;
+};
+
+const buildExamPromptFromContext = (count, objectives, context, difficulty) => {
+  const { relevantQs = [], lectureChunks = "", styleAnalysis, stylePrefs } = context || {};
+  const diff = (difficulty || "medium").toString().toUpperCase();
+  const targetObjectives = (objectives || []).slice(0, 20);
+  const objList = targetObjectives
+    .map((o, i) => `${i + 1}. [${o.activity || ""}] ${o.objective}`)
+    .join("\n");
+
+  const bloomDist = targetObjectives.reduce((acc, obj) => {
+    const lvl = obj.bloom_level ?? 2;
+    acc[lvl] = (acc[lvl] || 0) + 1;
+    return acc;
+  }, {});
+  const avgBloom = targetObjectives.length
+    ? Math.round(
+        Object.entries(bloomDist).reduce((sum, [lvl, cnt]) => sum + parseInt(lvl, 10) * cnt, 0) / targetObjectives.length
+      )
+    : 2;
+  const bloomGuidance =
+    avgBloom <= 1
+      ? "Focus on recall and definition questions. Ask students to identify, name, or define concepts."
+      : avgBloom === 2
+        ? "Focus on comprehension. Ask students to explain, describe, or summarize concepts in their own words."
+        : avgBloom === 3
+          ? "Focus on application. Use clinical scenarios where students must apply concepts to solve problems."
+          : avgBloom === 4
+            ? "Focus on analysis. Ask students to compare, contrast, differentiate between related concepts."
+            : avgBloom === 5
+              ? "Focus on evaluation. Use complex vignettes requiring students to justify, prioritize, or defend clinical decisions."
+              : "Focus on synthesis and creation. Ask students to formulate, design, or construct a complete clinical reasoning chain.";
+  const bloomSection =
+    `\nBloom's Taxonomy guidance for this question set (avg level ${avgBloom}/6):\n${bloomGuidance}\n` +
+    `Individual objective levels: ${(targetObjectives || [])
+      .map((o) => `"${(o.objective || "").slice(0, 40)}..." = L${o.bloom_level ?? 2} ${o.bloom_level_name || "Understand"}`)
+      .join("; ")}\n`;
+
+  const stylePrefText = [
+    stylePrefs?.longStems && "Use long, detailed clinical vignette stems (4-6 sentences).",
+    stylePrefs?.hardDistractors && "Use challenging distractors that are plausible and require careful reasoning.",
+    stylePrefs?.labValues && "Include specific lab values, vital signs, and diagnostic data where relevant.",
+    stylePrefs?.firstAid && "Reference First Aid mnemonics and high-yield facts where applicable.",
+    stylePrefs?.explainWrong && "For each question, include a brief explanation of why each wrong answer is incorrect.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const styleSection =
+    relevantQs.length > 0 && styleAnalysis
+      ? `\nYOUR SCHOOL'S EXAM STYLE (${relevantQs.length} questions from ${(styleAnalysis.sourceFiles || []).join(", ")}):\n` +
+        `- Average stem length: ~${styleAnalysis.avgStemLength || 0} characters\n` +
+        `- Clinical vignettes: ${styleAnalysis.hasClinicalCases || 0} of ${relevantQs.length} questions use patient scenarios\n` +
+        `- Mechanism questions: ${styleAnalysis.hasMechanisms || 0} questions test mechanisms\n\n` +
+        `EXAMPLE QUESTIONS (match this exact style):\n` +
+        relevantQs
+          .slice(0, 5)
+          .map(
+            (q) =>
+              `Q: ${q.stem}\n` +
+              `A: ${q.choices?.A ?? ""}  B: ${q.choices?.B ?? ""}  C: ${q.choices?.C ?? ""}  D: ${q.choices?.D ?? ""}\n` +
+              `Correct: ${q.correct ?? "A"} — ${q.choices?.[q.correct ?? "A"] ?? ""}`
+          )
+          .join("\n\n")
+      : "\n(No uploaded exam questions available for style reference — using USMLE Step 1 standard format)\n";
+
+  const contentSection =
+    lectureChunks.length > 100
+      ? `\nLECTURE CONTENT (base questions on this material):\n${lectureChunks.slice(0, 4000)}\n`
+      : "\n(No lecture slides uploaded — generating from objectives only)\n";
+
+  return (
+    `Generate exactly ${count} questions.\n` +
+    `Difficulty: ${diff}\n` +
+    (stylePrefText ? `Style preferences: ${stylePrefText}\n\n` : "") +
+    styleSection +
+    contentSection +
+    bloomSection +
+    `\nOBJECTIVES TO COVER:\n${objList}\n\n` +
+    `RULES:\n` +
+    `- Every stem MUST end with a "?" question\n` +
+    `- Match the style patterns from uploaded exams above\n` +
+    `- Keep explanations under 60 words\n` +
+    `- Never truncate — complete all ${count} questions\n\n` +
+    `Return ONLY complete JSON:\n` +
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveCovered":"...","topic":"...","difficulty":"${diff}","usedUploadedStyle":${relevantQs.length > 0}}]}`
   );
 };
 
@@ -347,6 +565,38 @@ function extractLecNumberFromFilename(filename) {
   }
   return null;
 }
+
+const detectLectureType = (fileName, title = "") => {
+  const text = (fileName + " " + title).toUpperCase();
+  if (/\bDLA\b/.test(text)) return "DLA";
+  if (/\bSGL?\b|\bSMALL\s*GROUP\b/.test(text)) return "SG";
+  if (/\bTBL\b|\bTEAM.BASED\b/.test(text)) return "TBL";
+  if (/\bLAB\b/.test(text)) return "LAB";
+  if (/\bLEC\b|\bLECTURE\b/.test(text)) return "LEC";
+  if (/\bCLIN\b|\bCLINICAL\b/.test(text)) return "CLIN";
+  return "LEC";
+};
+
+const detectLectureNumber = (fileName, title = "", type = "LEC") => {
+  const text = fileName + " " + title;
+  const patterns = [
+    new RegExp(`\\b${type}\\s*(\\d+)`, "i"),
+    /\b(?:lecture|lec|dla|sg|tbl|lab)\s*(\d+)/i,
+    /\b(\d+)\b/,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return parseInt(match[1], 10);
+  }
+  return null;
+};
+
+const detectWeekNumber = (fileName, title = "") => {
+  const text = (fileName + " " + title).toLowerCase();
+  const match = text.match(/\b(?:week|wk|w)\s*(\d+)\b/);
+  if (match) return parseInt(match[1], 10);
+  return null;
+};
 
 async function extractObjectivesFromLecture(file) {
   if (!GEMINI_KEY) return [];
@@ -484,8 +734,12 @@ function buildLectureContext(lectureId, subtopic, blockId, { lecs, getBlockObjec
   const fromChunks = (lec.chunks || [])
     .map((c) => c.text || c.content || "")
     .join("\n");
-  const lectureContent = (fromChunks || lec.fullText || "")
+  let lectureContent = (fromChunks || lec.fullText || "")
     .slice(0, 8000);
+  const contentNote = lec.extractionMethod === "mistral-ocr"
+    ? "The following lecture content has been extracted with high-fidelity OCR, preserving tables, headings, and document structure as markdown. Use the structure to identify high-yield topics."
+    : "The following is extracted lecture text.";
+  if (lectureContent) lectureContent = contentNote + "\n\n" + lectureContent;
 
   const uploadedQs = Object.values(questionBanksByFile || {})
     .flat()
@@ -623,7 +877,7 @@ async function genTopicVignettesWithContext(cfg, deps) {
     blockId: cfg.blockId,
   };
   const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-  const { lectures = [], getBlockObjectives, getTopicDifficulty, sessions = [], performanceHistory: perfHistory = {} } = deps || {};
+  const { lectures = [], getBlockObjectives, getTopicDifficulty, sessions = [], performanceHistory: perfHistory = {}, makeTopicKey: makeKey, stylePrefs } = deps || {};
   const { lectureContent, questionExamples, objectives, patterns, lec } = buildLectureContext(
     lectureId,
     subtopic,
@@ -631,7 +885,7 @@ async function genTopicVignettesWithContext(cfg, deps) {
     { lecs: lectures, getBlockObjectives }
   );
 
-  const topicKey = (lectureId || blockId) + "__" + (subtopic || "full");
+  const topicKey = makeKey ? makeKey(lectureId || null, blockId) : (lectureId || blockId) + "__" + (subtopic || "full");
   const currentDiff = (getTopicDifficulty && getTopicDifficulty(topicKey)) || difficulty || "medium";
   const perfData = perfHistory[topicKey];
   const streak = perfData?.streak || 0;
@@ -670,8 +924,19 @@ async function genTopicVignettesWithContext(cfg, deps) {
 - Question types used: ${(patterns.commonTypes || []).join(", ") || "mixed"}`
       : "";
 
+  const stylePrefText = [
+    stylePrefs?.longStems && "Use long, detailed clinical vignette stems (4-6 sentences).",
+    stylePrefs?.hardDistractors && "Use challenging distractors that are plausible and require careful reasoning.",
+    stylePrefs?.labValues && "Include specific lab values, vital signs, and diagnostic data where relevant.",
+    stylePrefs?.firstAid && "Reference First Aid mnemonics and high-yield facts where applicable.",
+    stylePrefs?.explainWrong && "For each question, include a brief explanation of why each wrong answer is incorrect.",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   const prompt =
     `Generate ${count} questions on "${subtopic}" from ${lec?.lectureTitle || subtopic}.\n\n` +
+    (stylePrefText ? `Style preferences: ${stylePrefText}\n\n` : "") +
     `CRITICAL: Each 'stem' field must end with a '?' question sentence.\n` +
     `Format: [Clinical scenario 2-4 sentences]. [Question sentence ending in ?]\n` +
     `Example: 'A 45-year-old male presents with... Which of the following muscles is responsible for...?'\n\n` +
@@ -957,17 +1222,41 @@ function getAvgScore(lecId, sessions) {
 }
 
 function mastery(p, T) {
-  if (!T) return { fg: "#6b7280", bg: "#0d1829", border: "#1a2a3a", label: "Untested" };
-  if (p === null) return { fg: T.text4, bg: T.border2, border: T.border1, label: "Untested" };
-  if (p >= 80) return { fg: T.green, bg: T.greenBg, border: T.greenBorder, label: "Strong" };
-  if (p >= 60) return { fg: T.amber, bg: T.amberBg, border: T.amberBorder, label: "Moderate" };
-  return { fg: T.red, bg: T.redBg, border: T.redBorder, label: "Weak" };
+  if (!T) return { fg: "#6b7280", bg: "#0d1829", border: "#1a2a3a", label: "○ Untested" };
+  if (p === null) return { fg: T.statusNeutral, bg: T.statusNeutralBg, border: T.border1, label: "○ Untested" };
+  if (p >= 80) return { fg: T.statusGood, bg: T.statusGoodBg, border: T.statusGoodBorder, label: "✓ Strong" };
+  if (p >= 60) return { fg: T.statusProgress, bg: T.statusProgressBg, border: T.statusProgressBorder, label: "◑ Moderate" };
+  if (p >= 40) return { fg: T.statusWarn, bg: T.statusWarnBg, border: T.statusWarnBorder, label: "△ Weak" };
+  return { fg: T.statusBad, bg: T.statusBadBg, border: T.statusBadBorder, label: "⚠ Low" };
+}
+
+// Colorblind-safe score/bar color helpers (use T.status* instead of green/red/amber)
+function scoreColor(T, score) {
+  if (score == null) return T.statusNeutral;
+  return score >= 80 ? T.statusGood : score >= 60 ? T.statusProgress : score >= 40 ? T.statusWarn : T.statusBad;
+}
+function scoreLabel(score) {
+  if (score == null) return "○ —";
+  return score >= 80 ? "✓ Strong" : score >= 60 ? "◑ OK" : score >= 40 ? "△ Weak" : "⚠ Low";
+}
+function barColor(T, pct) {
+  return pct === 100 ? T.statusGood : pct >= 70 ? T.statusProgress : pct >= 40 ? T.statusWarn : pct > 0 ? T.statusBad : T.statusNeutral;
+}
+function objStatusColor(T, status) {
+  return { mastered: T.statusGood, inprogress: T.statusProgress, struggling: T.statusBad, untested: T.statusNeutral }[status] || T.statusNeutral;
+}
+function objStatusIcon(status) {
+  return { mastered: "✓", inprogress: "◑", struggling: "⚠", untested: "○" }[status] || "○";
+}
+const urgencyLabel = { overdue: "⏰ Overdue", soon: "⏱ Due Soon", weak: "△ Weak", untouched: "○ Not Started", ok: "✓ OK" };
+function urgencyColor(T, urgency) {
+  return { overdue: T.statusBad, soon: T.statusWarn, weak: T.statusWarn, untouched: T.statusNeutral, ok: T.statusGood }[urgency] || T.statusNeutral;
 }
 
 function blockStatus(T) {
   return {
-    complete: { color: T.green, icon: "✓", label: "Completed" },
-    active: { color: T.amber, icon: "◉", label: "In Progress" },
+    complete: { color: T.statusGood, icon: "✓", label: "Completed" },
+    active: { color: T.statusProgress, icon: "◉", label: "In Progress" },
     upcoming: { color: T.text4, icon: "○", label: "Upcoming" },
   };
 }
@@ -980,11 +1269,40 @@ const PALETTE = ["#60a5fa","#f472b6","#34d399","#a78bfa","#fb923c","#38bdf8","#4
 const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
 
+const LEC_TYPE_STYLES = {
+  LEC:  { bg: "#ef444418", color: "#ef4444", border: "#ef444440" },
+  DLA:  { bg: "#6366f118", color: "#6366f1", border: "#6366f140" },
+  SG:   { bg: "#10b98118", color: "#10b981", border: "#10b98140" },
+  TBL:  { bg: "#f59e0b18", color: "#f59e0b", border: "#f59e0b40" },
+  LAB:  { bg: "#a78bfa18", color: "#a78bfa", border: "#a78bfa40" },
+  CLIN: { bg: "#60a5fa18", color: "#60a5fa", border: "#60a5fa40" },
+};
+function lecTypeBadge(type) {
+  let key = (type || "LEC").toUpperCase();
+  if (key === "LECTURE" || key.startsWith("LECT")) key = "LEC";
+  else key = key.slice(0, 4);
+  const s = LEC_TYPE_STYLES[key] || LEC_TYPE_STYLES.LEC;
+  return (
+    <span style={{
+      fontFamily: MONO,
+      fontSize: 10,
+      fontWeight: 700,
+      padding: "2px 7px",
+      borderRadius: 5,
+      background: s.bg,
+      color: s.color,
+      border: "1px solid " + s.border,
+    }}>
+      {key}
+    </span>
+  );
+}
+
 function Spinner({ msg }) {
   const { T } = useTheme();
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:18, padding:"70px 40px" }}>
-      <div style={{ width:44, height:44, border:"3px solid " + T.border1, borderTopColor:T.red, borderRadius:"50%", animation:"rxt-spin 0.85s linear infinite" }} />
+      <div style={{ width:44, height:44, border:"3px solid " + T.border1, borderTopColor:T.statusBad, borderRadius:"50%", animation:"rxt-spin 0.85s linear infinite" }} />
       {msg && <p style={{ fontFamily:MONO, color:T.text3, fontSize:12, textAlign:"center", maxWidth:320, lineHeight:1.7 }}>{msg}</p>}
     </div>
   );
@@ -1037,9 +1355,11 @@ function Btn({ children, onClick, color, disabled, style }) {
 // ─────────────────────────────────────────────
 // SESSION CONFIG (before starting a session)
 // ─────────────────────────────────────────────
-function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, performanceHistory = {} }) {
+function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, performanceHistory = {}, makeTopicKey }) {
   const { T } = useTheme();
-  const topicKey = cfg.mode === "lecture" && cfg.lecture ? cfg.lecture.id + "__" + (cfg.subtopic || "full") : "block__" + (cfg.blockId || "");
+  const topicKey = makeTopicKey
+    ? (cfg.mode === "lecture" && cfg.lecture ? makeTopicKey(cfg.lecture.id, cfg.blockId ?? cfg.lecture?.blockId) : makeTopicKey(null, cfg.blockId || ""))
+    : (cfg.mode === "lecture" && cfg.lecture ? cfg.lecture.id + "__" + (cfg.subtopic || "full") : "block__" + (cfg.blockId || ""));
   const storedDiff = getTopicDifficulty ? getTopicDifficulty(topicKey) : "medium";
   const storedPerf = getTopicDifficulty ? (performanceHistory[topicKey] || null) : null;
 
@@ -1062,9 +1382,9 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
 
   const diffOptions = [
     { value: "auto", label: "Auto", desc: "Based on your weak areas", color: T.blue },
-    { value: "easy", label: "Easy", desc: "Foundational concepts", color: T.green },
-    { value: "medium", label: "Medium", desc: "Standard Step 1 level", color: T.amber },
-    { value: "hard", label: "Hard", desc: "Challenging distractors", color: T.red },
+    { value: "easy", label: "Easy", desc: "Foundational concepts", color: T.statusGood },
+    { value: "medium", label: "Medium", desc: "Standard Step 1 level", color: T.statusWarn },
+    { value: "hard", label: "Hard", desc: "Challenging distractors", color: T.statusBad },
     { value: "expert", label: "Expert", desc: "Hardest USMLE synthesis", color: "#a78bfa" },
   ];
 
@@ -1193,17 +1513,17 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
             <div style={{ flex: 1 }}>
               <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 3 }}>YOUR CURRENT LEVEL</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 14, color: storedDiff === "expert" ? "#a78bfa" : storedDiff === "hard" ? T.red : storedDiff === "medium" ? T.amber : T.green }}>
+                <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 14, color: storedDiff === "expert" ? "#a78bfa" : storedDiff === "hard" ? T.statusBad : storedDiff === "medium" ? T.statusWarn : T.statusGood }}>
                   {storedDiff.toUpperCase()}
                 </span>
                 {storedPerf.streak >= 1 && (
-                  <span style={{ fontFamily: MONO, color: T.amber, fontSize: 12 }}>🔥 {storedPerf.streak} streak</span>
+                  <span style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 12 }}>🔥 {storedPerf.streak} streak</span>
                 )}
                 {storedPerf.trend === "improving" && (
-                  <span style={{ fontFamily: MONO, color: T.green, fontSize: 12 }}>↑ improving</span>
+                  <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 12 }}>↑ improving</span>
                 )}
                 {storedPerf.trend === "declining" && (
-                  <span style={{ fontFamily: MONO, color: T.red, fontSize: 12 }}>↓ needs work</span>
+                  <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 12 }}>↓ needs work</span>
                 )}
               </div>
             </div>
@@ -1211,7 +1531,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
               {storedPerf.sessions.slice(-5).map((s, i, arr) => {
                 const x = (i / (arr.length - 1 || 1)) * 72 + 4;
                 const y = 24 - (s.score / 100) * 20;
-                const c = s.score >= 80 ? T.green : s.score >= 60 ? T.amber : T.red;
+                const c = getScoreColor(T, s.score);
                 return (
                   <g key={i}>
                     {i > 0 && (() => {
@@ -1396,9 +1716,9 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
             style={{
               fontFamily: MONO,
               fontSize: 12,
-              background: T.redBg,
-              color: T.red,
-              border: "1px solid " + T.redBorder,
+              background: T.statusBadBg,
+              color: T.statusBad,
+              border: "1px solid " + T.statusBadBorder,
               padding: "3px 10px",
               borderRadius: 5,
             }}
@@ -1409,9 +1729,9 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
             style={{
               fontFamily: MONO,
               fontSize: 12,
-              background: T.greenBg,
-              color: T.green,
-              border: "1px solid " + T.greenBorder,
+              background: T.statusGoodBg,
+              color: T.statusGood,
+              border: "1px solid " + T.statusGoodBorder,
               padding: "3px 10px",
               borderRadius: 5,
             }}
@@ -1451,8 +1771,8 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
                   display: "flex",
                   gap: 12,
                   alignItems: "flex-start",
-                  border: "1px solid " + (isCorrect ? T.green : isYours ? T.red : T.border1),
-                  background: isCorrect ? T.greenBg : isYours ? T.redBg : T.cardBg,
+                  border: "1px solid " + (isCorrect ? T.statusGood : isYours ? T.statusBad : T.border1),
+                  background: isCorrect ? T.statusGoodBg : isYours ? T.statusBadBg : T.cardBg,
                 }}
               >
                 <span
@@ -1462,7 +1782,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
                     fontSize: 15,
                     flexShrink: 0,
                     marginTop: 1,
-                    color: isCorrect ? T.green : isYours ? T.red : T.text3,
+                    color: isCorrect ? T.statusGood : isYours ? T.statusBad : T.text3,
                   }}
                 >
                   {letter} {isCorrect ? "✓" : isYours ? "✗" : ""}
@@ -1471,7 +1791,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
                   style={{
                     fontFamily: MONO,
                     fontSize: 15,
-                    color: isCorrect ? T.green : isYours ? T.red : T.text2,
+                    color: isCorrect ? T.statusGood : isYours ? T.statusBad : T.text2,
                     lineHeight: 1.6,
                   }}
                 >
@@ -1484,7 +1804,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
 
         {q.explanation && (
           <div style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "16px 18px", opacity: 1, filter: "none" }}>
-            <div style={{ fontFamily: MONO, color: T.green, fontSize: 11, letterSpacing: 2, marginBottom: 10 }}>
+            <div style={{ fontFamily: MONO, color: T.statusGood, fontSize: 11, letterSpacing: 2, marginBottom: 10 }}>
               EXPLANATION
             </div>
             <p style={{ fontFamily: MONO, fontSize: 14, color: T.text1, lineHeight: 1.8, margin: 0 }}>{q.explanation}</p>
@@ -1767,7 +2087,7 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
 
   if (error) return (
     <div style={{ background: T.appBg, minHeight: "100%", maxWidth: 640, margin: "0 auto", padding: 40 }}>
-      <div style={{ fontFamily: MONO, color: T.red, fontSize: 15, marginBottom: 16, fontWeight: 600 }}>
+      <div style={{ fontFamily: MONO, color: T.statusBad, fontSize: 15, marginBottom: 16, fontWeight: 600 }}>
         ⚠ Session error
       </div>
       <pre
@@ -1823,7 +2143,7 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
         <p style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>{results.filter(r => r.ok).length} / {results.length} correct</p>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", justifyContent: "center", maxWidth: 420 }}>
           {results.map((r, i) => (
-            <div key={i} style={{ width: 38, height: 38, borderRadius: 9, background: r.ok ? T.greenBg : T.redBg, border: "2px solid " + (r.ok ? T.green : T.red), display: "flex", alignItems: "center", justifyContent: "center", color: r.ok ? T.green : T.red, fontSize: 17 }}>
+            <div key={i} style={{ width: 38, height: 38, borderRadius: 9, background: r.ok ? T.statusGoodBg : T.statusBadBg, border: "2px solid " + (r.ok ? T.statusGood : T.statusBad), display: "flex", alignItems: "center", justifyContent: "center", color: r.ok ? T.statusGood : T.statusBad, fontSize: 17 }}>
               {r.ok ? "✓" : "✗"}
             </div>
           ))}
@@ -1835,8 +2155,8 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
               onClick={() => setReviewMode(true)}
               style={{
                 background: T.cardBg,
-                border: "1px solid " + T.red,
-                color: T.red,
+                border: "1px solid " + T.statusBad,
+                color: T.statusBad,
                 padding: "12px 28px",
                 borderRadius: 10,
                 cursor: "pointer",
@@ -1856,7 +2176,7 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
   const v = vigs[idx];
   const CHOICES = ["A","B","C","D"];
   const difficulty = v?.difficulty ?? cfg?.difficulty ?? "medium";
-  const dColor = { easy: T.green, medium: T.amber, hard: T.red, expert: "#a78bfa" };
+  const dColor = { easy: T.statusGood, medium: T.statusWarn, hard: T.statusBad, expert: "#a78bfa" };
   const dc = dColor[difficulty] || dColor.medium || T.amber;
 
   return (
@@ -1878,6 +2198,20 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
         {v.topic && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>{v.topic}</span>}
       </div>
 
+      {/* Generated With — style indicator */}
+      {vigs.some((q) => q.usedUploadedStyle) && (
+        <div style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, display: "flex", alignItems: "center", gap: 5 }}>
+          <span>✓</span>
+          <span>Questions styled from your uploaded {cfg.blockName || "block"} exams</span>
+        </div>
+      )}
+      {!vigs.some((q) => q.usedUploadedStyle) && (
+        <div style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 10, display: "flex", alignItems: "center", gap: 5 }}>
+          <span>⚠</span>
+          <span>No uploaded exams matched — using USMLE standard style. Upload {cfg.blockName || "block"} exams to improve.</span>
+        </div>
+      )}
+
       {/* Stem */}
       <div style={{ background:T.inputBg, border:"1px solid " + T.border1, borderRadius:16, padding:28 }}>
         {v.imageQuestion ? (
@@ -1896,10 +2230,10 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
             </p>
             {shown && v.answerPageImage && (
               <div>
-                <div style={{ fontFamily:MONO, color:T.green, fontSize:11, marginBottom:8, letterSpacing:1 }}>
+                <div style={{ fontFamily:MONO, color:T.statusGood, fontSize:11, marginBottom:8, letterSpacing:1 }}>
                   ✓ ANSWER — ANNOTATED SLIDE
                 </div>
-                <div style={{ background: T.cardBg, borderRadius: 12, overflow: "hidden", border: "1px solid " + T.greenBorder }}>
+                <div style={{ background: T.cardBg, borderRadius: 12, overflow: "hidden", border: "1px solid " + T.statusGoodBorder }}>
                   <img
                     src={"data:image/png;base64," + v.answerPageImage}
                     alt="Histology answer slide"
@@ -1956,8 +2290,8 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
 
           let bg = T.cardBg, border = T.border1, color = T.text2;
           if (shown) {
-            if (letter === v.correct)     { bg = T.greenBg; border = T.green; color = T.green; }
-            else if (letter === sel)      { bg = T.redBg; border = T.red; color = T.red; }
+            if (letter === v.correct)     { bg = T.statusGoodBg; border = T.statusGood; color = T.statusGood; }
+            else if (letter === sel)      { bg = T.statusBadBg; border = T.statusBad; color = T.statusBad; }
           } else if (isSelected) {
             bg = tc + "18"; border = tc; color = T.text1;
           }
@@ -1971,12 +2305,12 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
                   title={isEliminated ? "Restore choice" : "Eliminate this choice"}
                   style={{
                     flexShrink: 0, width: 20, height: 20, marginTop: 2, borderRadius: 4,
-                    background: "none", border: "1px solid " + T.border1, color: isEliminated ? T.red : T.text3,
+                    background: "none", border: "1px solid " + T.border1, color: isEliminated ? T.statusBad : T.text3,
                     cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center",
                     transition: "all 0.15s",
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = isEliminated ? T.red : T.border1; }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = T.statusBad; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = isEliminated ? T.statusBad : T.border1; }}
                 >
                   {isEliminated ? "↩" : "✕"}
                 </button>
@@ -2002,8 +2336,8 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
               >
                 <span style={{ fontWeight: 700, minWidth: 22, color: isEliminated ? T.text4 : (shown || isSelected ? color : T.text3) }}>{letter}.</span>
                 <span style={{ flex: 1, color: isEliminated ? T.text4 : color }}>{v.choices[letter]}</span>
-                {shown && letter === v.correct && <span style={{ color: T.green }}>✓</span>}
-                {shown && letter === sel && letter !== v.correct && <span style={{ color: T.red }}>✗</span>}
+                {shown && letter === v.correct && <span style={{ color: T.statusGood }}>✓</span>}
+                {shown && letter === sel && letter !== v.correct && <span style={{ color: T.statusBad }}>✗</span>}
               </div>
             </div>
           );
@@ -2026,7 +2360,7 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
       <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
         {!shown
           ? <Btn onClick={() => setShown(true)} color={tc} disabled={!sel}>Reveal Answer</Btn>
-          : <Btn onClick={next} color={T.green}>{idx+1>=vigs.length ? "Finish ✓" : "Next →"}</Btn>
+          : <Btn onClick={next} color={T.statusGood}>{idx+1>=vigs.length ? "Finish ✓" : "Next →"}</Btn>
         }
       </div>
     </div>
@@ -2146,48 +2480,302 @@ function EditableLecNumber({ value, type, onChange, tc, T }) {
 }
 
 function LecTypeBadge({ value, onChange, tc, T }) {
-  const TYPES = ["Lecture", "DLA", "Lab"];
+  const TYPES = ["LEC", "DLA", "SG", "TBL", "LAB", "CLIN"];
   const MONO = "'DM Mono','Courier New',monospace";
   const cycle = (e) => {
     e.stopPropagation();
-    const next = TYPES[(TYPES.indexOf(value || "Lecture") + 1) % TYPES.length];
+    const v = (value || "LEC").toUpperCase();
+    const key = v === "LECTURE" || v.startsWith("LECT") ? "LEC" : v.slice(0, 4);
+    const idx = TYPES.indexOf(key);
+    const next = TYPES[(idx >= 0 ? idx : 0) + 1] || TYPES[0];
     onChange(next);
   };
-  const colors = { Lecture: tc, DLA: T.green, Lab: T.amber };
-  const c = colors[value || "Lecture"] || tc;
+  let key = (value || "LEC").toUpperCase();
+  if (key === "LECTURE" || key.startsWith("LECT")) key = "LEC";
+  else key = key.slice(0, 4);
+  const s = LEC_TYPE_STYLES[key] || LEC_TYPE_STYLES.LEC;
   return (
     <span
       onClick={cycle}
       title="Click to change type"
       style={{
         fontFamily: MONO,
-        color: c,
-        background: c + "18",
-        border: "1px solid " + c + "30",
+        color: s.color,
+        background: s.bg,
+        border: "1px solid " + s.border,
         fontSize: 10,
-        padding: "1px 6px",
-        borderRadius: 3,
+        fontWeight: 700,
+        padding: "2px 7px",
+        borderRadius: 5,
         cursor: "pointer",
         flexShrink: 0,
         letterSpacing: 0.5,
         transition: "all 0.15s",
       }}
     >
-      {(value || "LEC").slice(0, 3).toUpperCase()}
+      {key}
     </span>
+  );
+}
+
+// ─────────────────────────────────────────────
+// WEEK GROUP (collapsible week section for lecture list)
+// ─────────────────────────────────────────────
+const DOW_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function WeekGroup({
+  weekLabel,
+  weekNumber,
+  lecs,
+  isCurrentWeek,
+  mastered,
+  struggling,
+  total,
+  pct,
+  avgScore,
+  sessionCount,
+  defaultOpen,
+  expandedLec,
+  setExpandedLec,
+  ...lecRowProps
+}) {
+  const MONO = "'DM Mono','Courier New',monospace";
+  const SERIF = "'Playfair Display',Georgia,serif";
+  const { T, tc } = lecRowProps;
+  const [open, setOpen] = useState(defaultOpen);
+
+  const hasStruggling = struggling > 0;
+  const headerColor = isCurrentWeek ? tc : hasStruggling ? T.statusBad : T.text2;
+
+  const weekLecs = lecs;
+  const byDay = DOW_ORDER.reduce((acc, day) => {
+    const dayLecs = weekLecs.filter((l) => l.dayOfWeek === day);
+    if (dayLecs.length > 0) acc[day] = dayLecs;
+    return acc;
+  }, {});
+  const unassigned = weekLecs.filter((l) => !l.dayOfWeek);
+  const todayDow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
+
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div
+        onClick={() => setOpen((prev) => !prev)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          padding: "11px 16px",
+          borderRadius: open ? "10px 10px 0 0" : 10,
+          background: isCurrentWeek ? tc + "12" : T.cardBg,
+          border: "1px solid " + (isCurrentWeek ? tc + "50" : T.border1),
+          cursor: "pointer",
+          userSelect: "none",
+          transition: "all 0.15s",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = isCurrentWeek ? tc + "1a" : T.hoverBg)}
+        onMouseLeave={(e) => (e.currentTarget.style.background = isCurrentWeek ? tc + "12" : T.cardBg)}
+      >
+        <span
+          style={{
+            fontFamily: MONO,
+            color: T.text3,
+            fontSize: 11,
+            transform: open ? "rotate(90deg)" : "rotate(0deg)",
+            transition: "transform 0.2s",
+            display: "inline-block",
+            flexShrink: 0,
+          }}
+        >
+          ▶
+        </span>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontFamily: SERIF, color: headerColor, fontSize: 15, fontWeight: 900 }}>
+              {weekLabel}
+            </span>
+            {isCurrentWeek && (
+              <span
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 9,
+                  color: tc,
+                  background: tc + "18",
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                  border: "1px solid " + tc + "40",
+                }}
+              >
+                CURRENT
+              </span>
+            )}
+            {hasStruggling && (
+              <span
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 9,
+                  color: T.statusBad,
+                  background: T.statusBadBg,
+                  padding: "2px 7px",
+                  borderRadius: 4,
+                }}
+              >
+                ⚠ {struggling} struggling
+              </span>
+            )}
+          </div>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 1 }}>
+            {lecs.length} lecture{lecs.length !== 1 ? "s" : ""} ·{" "}
+            {total > 0 ? `${mastered}/${total} obj` : "no objectives"}{" "}
+            {sessionCount > 0 ? `· ${sessionCount} sessions` : ""}{" "}
+            {avgScore != null ? `· avg ${avgScore}%` : ""}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {total > 0 && (
+            <>
+              <div style={{ width: 80, height: 5, background: T.border1, borderRadius: 3 }}>
+                <div
+                  style={{
+                    height: "100%",
+                    borderRadius: 3,
+                    background: pct === 100 ? T.statusGood : isCurrentWeek ? tc : T.statusWarn,
+                    width: pct + "%",
+                    transition: "width 0.4s",
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: pct === 100 ? T.statusGood : headerColor,
+                  minWidth: 32,
+                }}
+              >
+                {pct}%
+              </span>
+            </>
+          )}
+        </div>
+      </div>
+      {open && (
+        <div
+          style={{
+            borderTop: "none",
+            borderRight: "1px solid " + (isCurrentWeek ? tc + "50" : T.border1),
+            borderBottom: "1px solid " + (isCurrentWeek ? tc + "50" : T.border1),
+            borderLeft: "1px solid " + (isCurrentWeek ? tc + "50" : T.border1),
+            borderRadius: "0 0 10px 10px",
+            overflow: "hidden",
+          }}
+        >
+          {DOW_ORDER.filter((d) => byDay[d]).map((day) => {
+            const isToday = day === todayDow;
+            return (
+              <div key={day} style={{ marginBottom: 8 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "4px 12px",
+                    marginBottom: 4,
+                  }}
+                >
+                  <div style={{ height: 1, width: 12, background: isToday ? tc : T.border1 }} />
+                  <span
+                    style={{
+                      fontFamily: MONO,
+                      color: isToday ? tc : T.text3,
+                      fontSize: isToday ? 11 : 10,
+                      fontWeight: isToday ? 700 : 400,
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {day.toUpperCase()}
+                  </span>
+                  {isToday && (
+                    <span
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: 8,
+                        color: "#fff",
+                        background: tc,
+                        padding: "1px 6px",
+                        borderRadius: 3,
+                        fontWeight: 700,
+                      }}
+                    >
+                      TODAY
+                    </span>
+                  )}
+                  <div style={{ flex: 1, height: 1, background: isToday ? tc + "40" : T.border2 }} />
+                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9 }}>
+                    {byDay[day].length} lecture{byDay[day].length !== 1 ? "s" : ""}
+                  </span>
+                </div>
+                {byDay[day].map((lec, i) => (
+                  <div key={lec.id} style={{ borderTop: i > 0 ? "1px solid " + T.border2 : "none" }}>
+                    <LecListRow
+                      lec={lec}
+                      index={i}
+                      onOpen={() => setExpandedLec(lec.id)}
+                      onClose={() => setExpandedLec(null)}
+                      isExpanded={expandedLec === lec.id}
+                      {...lecRowProps}
+                    />
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+          {unassigned.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "4px 12px",
+                  marginBottom: 4,
+                }}
+              >
+                <div style={{ flex: 1, height: 1, background: T.border2 }} />
+                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1 }}>
+                  UNSCHEDULED
+                </span>
+                <div style={{ flex: 1, height: 1, background: T.border2 }} />
+              </div>
+              {unassigned.map((lec, i) => (
+                <div key={lec.id} style={{ borderTop: i > 0 ? "1px solid " + T.border2 : "none" }}>
+                  <LecListRow
+                    lec={lec}
+                    index={i}
+                    onOpen={() => setExpandedLec(lec.id)}
+                    onClose={() => setExpandedLec(null)}
+                    isExpanded={expandedLec === lec.id}
+                    {...lecRowProps}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
 // ─────────────────────────────────────────────
 // LECTURE LIST ROW (compact list view)
 // ─────────────────────────────────────────────
-function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, allObjectives, allBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz }) {
+function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {} }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const [quizLoading, setQuizLoading] = useState(false);
 
   const lecSessions = (sessions || []).filter(s => s.lectureId === lec.id);
-  const overall = getScore(sessions, s => s.lectureId === lec.id);
   const sessionCount = lecSessions.length;
   const isMergeSelected = mergeSelected.includes(lec.id);
   const objectivesList = allBlockObjectives ?? allObjectives ?? [];
@@ -2255,40 +2843,118 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
           T={T}
           onChange={type => onUpdateLec(lec.id, { lectureType: type })}
         />
+        <select
+          value={lec.weekNumber ?? ""}
+          onChange={(e) => {
+            e.stopPropagation();
+            onUpdateLec(lec.id, { weekNumber: e.target.value ? parseInt(e.target.value, 10) : null });
+          }}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: lec.weekNumber ? tc + "15" : T.inputBg,
+            border: "1px solid " + (lec.weekNumber ? tc + "60" : T.border1),
+            borderRadius: 6,
+            padding: "3px 8px",
+            color: lec.weekNumber ? tc : T.text3,
+            fontFamily: MONO,
+            fontSize: 10,
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+        >
+          <option value="">+ Week</option>
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => (
+            <option key={w} value={w}>Wk {w}</option>
+          ))}
+        </select>
+        {lec.weekNumber != null && lec.weekNumber !== "" && (
+          <select
+            value={lec.dayOfWeek || ""}
+            onChange={(e) => {
+              e.stopPropagation();
+              onUpdateLec(lec.id, { dayOfWeek: e.target.value || null });
+            }}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: lec.dayOfWeek ? tc + "15" : T.inputBg,
+              border: "1px solid " + (lec.dayOfWeek ? tc + "60" : T.border1),
+              borderRadius: 6,
+              padding: "3px 8px",
+              color: lec.dayOfWeek ? tc : T.text3,
+              fontFamily: MONO,
+              fontSize: 10,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            <option value="">+ Day</option>
+            {DOW_ORDER.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+        {bulkWeekTarget != null && !lec.weekNumber && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUpdateLec(lec.id, { weekNumber: bulkWeekTarget });
+            }}
+            style={{
+              background: tc,
+              border: "none",
+              color: "#fff",
+              padding: "3px 10px",
+              borderRadius: 6,
+              fontFamily: MONO,
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            → Assign Wk {bulkWeekTarget}
+          </button>
+        )}
         <div style={{ width: 6, height: 6, borderRadius: "50%", background: tc, flexShrink: 0 }} />
-        <span style={{ fontFamily: MONO, color: T.text1, fontSize: 14, fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {lec.lectureTitle || lec.filename}
+        <span style={{ fontFamily: SERIF, color: T.text1, fontSize: 15, fontWeight: 700, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {(() => {
+            const title = (lec.lectureTitle || "").trim();
+            const fileName = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
+            if (title && title.toLowerCase() !== fileName.toLowerCase()) return title;
+            return title || fileName;
+          })()}
         </span>
         {lec.isMerged && (
           <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: MONO, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5, flexShrink: 0 }}>MERGED</span>
         )}
-        {lec.subject && (
-          <span style={{ fontFamily: MONO, color: tc, background: tc + "18", border: "1px solid " + tc + "30", fontSize: 11, padding: "2px 8px", borderRadius: 4, flexShrink: 0 }}>
-            {lec.subject}
-          </span>
+        {lec.extractionMethod === "mistral-ocr" && (
+          <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
+        )}
+        {lec.subject && lec.subject !== lec.discipline && (
+          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10, flexShrink: 0 }}>{lec.subject}</span>
         )}
         {sessionCount > 0 && (
           <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, flexShrink: 0 }}>
             {sessionCount} session{sessionCount !== 1 ? "s" : ""}
           </span>
         )}
-        {overall !== null && (
-          <span style={{ fontFamily: MONO, fontSize: 12, flexShrink: 0, fontWeight: 700, color: overall >= 80 ? T.green : overall >= 65 ? T.amber : T.red }}>
-            {overall}%
-          </span>
-        )}
-        {lecObjs.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-            <div style={{ width: 40, height: 5, background: T.border1, borderRadius: 2 }}>
-              <div style={{ width: (masteredObjs / lecObjs.length) * 100 + "%", height: "100%", background: masteredObjs === lecObjs.length ? T.green : tc, borderRadius: 2 }} />
+        {getLecCompletion && (() => {
+          const pct = getLecCompletion(lec, currentBlock?.id);
+          const color = getBarColor(T, pct);
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <div style={{ width: 60, height: 4, background: T.border1, borderRadius: 2 }}>
+                <div style={{ height: "100%", borderRadius: 2, background: color, width: pct + "%", transition: "width 0.4s" }} />
+              </div>
+              <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color, minWidth: 32 }}>
+                {pct}%
+              </span>
             </div>
-            <span style={{ fontFamily: MONO, fontSize: 11, color: masteredObjs === lecObjs.length ? T.green : T.text3 }}>
-              {masteredObjs}/{lecObjs.length}
-            </span>
-            {strugglingObjs > 0 && (
-              <span style={{ fontFamily: MONO, fontSize: 11, color: T.red }}>⚠{strugglingObjs}</span>
-            )}
-          </div>
+          );
+        })()}
+        {strugglingObjs > 0 && (
+          <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusBad, flexShrink: 0 }}>⚠{strugglingObjs}</span>
         )}
         <span style={{ color: T.text3, fontSize: 13, flexShrink: 0, transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.18s" }}>
           ▾
@@ -2297,32 +2963,351 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
 
       {isExpanded && (
         <div style={{ padding: "0 16px 16px", borderTop: "1px solid " + T.border1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>Week:</span>
+            <select
+              value={lec.weekNumber ?? ""}
+              onChange={(e) => {
+                const wk = e.target.value ? parseInt(e.target.value, 10) : null;
+                onUpdateLec(lec.id, { weekNumber: wk });
+              }}
+              style={{
+                background: T.inputBg,
+                border: "1px solid " + T.border1,
+                borderRadius: 6,
+                padding: "4px 10px",
+                color: T.text1,
+                fontFamily: MONO,
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              <option value="">Unassigned</option>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((w) => (
+                <option key={w} value={w}>Week {w}</option>
+              ))}
+            </select>
+          </div>
+          {detectStudyModeFn && (() => {
+            const studyMode = detectStudyModeFn(lec, lecObjs);
+            const recLabels = { flashcards: "Flashcards", imageQuiz: "Image Quiz", anki: "Anki", deepLearn: "Deep Learn", mcq: "MCQ Practice", algorithmDraw: "Algorithm Drawing", labelDiagram: "Label Diagrams" };
+            return (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 12,
+                  padding: "10px 14px",
+                  borderRadius: 9,
+                  marginBottom: 12,
+                  background: studyMode.color + "12",
+                  border: "1px solid " + studyMode.color + "40",
+                }}
+              >
+                <span style={{ fontSize: 18 }}>{studyMode.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: MONO, color: studyMode.color, fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
+                    {studyMode.label}
+                    {" — " + (studyMode.recommended || []).map((r) => recLabels[r] || r).join(" · ")}
+                  </div>
+                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, lineHeight: 1.5 }}>{studyMode.reason}</div>
+                </div>
+              </div>
+            );
+          })()}
           <div style={{ padding: "12px 0 10px" }}>
             <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SUBTOPICS</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {(lec.subtopics || []).map((sub, si) => (
-                <button
-                  key={si}
-                  type="button"
-                  onClick={() => onStart(lec, sub)}
-                  style={{
-                    background: T.inputBg,
-                    border: "1px solid " + T.border1,
-                    color: T.text2,
-                    padding: "5px 12px",
-                    borderRadius: 6,
-                    cursor: "pointer",
-                    fontFamily: MONO,
-                    fontSize: 13,
-                    transition: "all 0.15s",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = tc; e.currentTarget.style.color = tc; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = T.border1; e.currentTarget.style.color = T.text2; }}
-                >
-                  ▶ {sub}
-                </button>
-              ))}
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {(() => {
+                const getSubtopicCompletion = (lec, si, subName, blockId) => {
+                  const blockObjs = getBlockObjectives?.(blockId) || [];
+                  const lecObjs = blockObjs.filter(
+                    (o) =>
+                      o.linkedLecId === lec.id ||
+                      String(o.lectureNumber) === String(lec.lectureNumber)
+                  );
+                  if (lecObjs.length === 0) return { pct: 0, mastered: 0, total: 0, sessions: 0 };
+                  const subWords = subName
+                    .toLowerCase()
+                    .split(/\s+/)
+                    .filter((w) => w.length > 3);
+                  const subObjs = lecObjs.filter((o) => {
+                    const objText = (o.objective || "").toLowerCase();
+                    return subWords.some((w) => objText.includes(w));
+                  });
+                  const totalSubs = lec.subtopics?.length || 1;
+                  const objsToUse =
+                    subObjs.length > 0
+                      ? subObjs
+                      : lecObjs.slice(
+                          Math.floor((si / totalSubs) * lecObjs.length),
+                          Math.floor(((si + 1) / totalSubs) * lecObjs.length)
+                        );
+                  if (objsToUse.length === 0) {
+                    const lecPct = getLecCompletion ? getLecCompletion(lec, blockId) : 0;
+                    return {
+                      pct: lecPct,
+                      mastered: 0,
+                      total: 0,
+                      sessions: 0,
+                      fallback: true,
+                      struggling: 0,
+                      untested: 0,
+                      weakness: null,
+                    };
+                  }
+                  const mastered = objsToUse.filter((o) => o.status === "mastered").length;
+                  const inProgress = objsToUse.filter((o) => o.status === "inprogress").length;
+                  const struggling = objsToUse.filter((o) => o.status === "struggling").length;
+                  const untested = objsToUse.filter((o) => o.status === "untested").length;
+                  const total = objsToUse.length;
+                  const pct = Math.round(((mastered + inProgress * 0.5) / total) * 100);
+                  const weakness =
+                    struggling > 0
+                      ? "critical"
+                      : pct < 50 && untested > 0
+                        ? "weak"
+                        : pct < 80 && total > 0
+                          ? "review"
+    : null;
+                  const subKey = makeSubtopicKey ? makeSubtopicKey(lec.id, si, blockId) : null;
+                  const subPerf = subKey ? performanceHistory[subKey] : null;
+                  const sessions = subPerf?.sessions?.length || 0;
+                  return {
+                    pct,
+                    mastered,
+                    total,
+                    sessions,
+                    lastScore: subPerf?.lastScore,
+                    struggling,
+                    untested,
+                    weakness,
+                  };
+                };
+                return (lec.subtopics || []).map((sub, si) => {
+                  const {
+                    pct,
+                    mastered,
+                    total,
+                    sessions,
+                    lastScore,
+                    weakness,
+                  } = getSubtopicCompletion(lec, si, sub, currentBlock?.id);
+                  const isDone = pct >= 100;
+                  const ringColor = isDone
+                    ? T.statusGood
+                    : weakness === "critical"
+                      ? T.statusBad
+                      : weakness === "weak"
+                        ? T.statusWarn
+                        : pct >= 80
+                          ? tc
+                          : T.statusWarn;
+                  const rowBg = isDone
+                    ? T.statusGoodBg
+                    : weakness === "critical"
+                      ? T.statusBadBg
+                      : weakness === "weak"
+                        ? T.statusWarnBg
+                        : T.inputBg;
+                  const rowBorder = isDone
+                    ? T.statusGoodBorder
+                    : weakness === "critical"
+                      ? T.statusBadBorder
+                      : weakness === "weak"
+                        ? T.statusWarnBorder
+                        : T.border1;
+                  return (
+                    <div
+                      key={si}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "9px 14px",
+                        borderRadius: 8,
+                        marginBottom: 4,
+                        background: rowBg,
+                        border: "1px solid " + rowBorder,
+                        transition: "all 0.2s",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 32,
+                          height: 32,
+                          borderRadius: "50%",
+                          flexShrink: 0,
+                          position: "relative",
+                          background: `conic-gradient(${ringColor} ${pct * 3.6}deg, ${T.border1} 0deg)`,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: "50%",
+                            background: T.cardBg,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 8,
+                              fontWeight: 700,
+                              color: isDone ? T.statusGood : weakness ? ringColor : pct > 0 ? tc : T.text3,
+                            }}
+                          >
+                            {isDone ? "✓" : pct + "%"}
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            overflow: "hidden",
+                            minWidth: 0,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontFamily: MONO,
+                              color: isDone ? T.statusGood : T.text1,
+                              fontSize: 12,
+                              fontWeight: isDone ? 700 : 400,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {isDone && "✓ "}{sub}
+                          </span>
+                          {weakness && (
+                            <span
+                              style={{
+                                fontFamily: MONO,
+                                fontSize: 9,
+                                fontWeight: 700,
+                                padding: "2px 7px",
+                                borderRadius: 4,
+                                flexShrink: 0,
+                                background:
+                                  weakness === "critical"
+                                    ? T.statusBadBg
+                                    : weakness === "weak"
+                                      ? T.statusWarnBg
+                                      : T.border1,
+                                color:
+                                  weakness === "critical"
+                                    ? T.statusBad
+                                    : weakness === "weak"
+                                      ? T.statusWarn
+                                      : T.text3,
+                                border:
+                                  "1px solid " +
+                                  (weakness === "critical"
+                                    ? T.statusBadBorder
+                                    : weakness === "weak"
+                                      ? T.statusWarnBorder
+                                      : T.border2),
+                              }}
+                            >
+                              {weakness === "critical"
+                                ? "⚠ Struggling"
+                                : weakness === "weak"
+                                  ? "△ Weak"
+                                  : "↻ Review"}
+                            </span>
+                          )}
+                        </div>
+                        {(total > 0 || sessions > 0) && (
+                          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, marginTop: 1 }}>
+                            {total > 0 && `${mastered}/${total} obj`}
+                            {sessions > 0 && ` · ${sessions} session${sessions !== 1 ? "s" : ""}`}
+                            {lastScore != null && (
+                              <span
+                                style={{
+                                  color: getScoreColor(T, lastScore),
+                                }}
+                              >
+                                {" "}
+                                · {lastScore}%
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const subObjs = (() => {
+                            const blockObjs = getBlockObjectives?.(currentBlock?.id) || allBlockObjectives || [];
+                            const lecObjs = blockObjs.filter(
+                              (o) =>
+                                o.linkedLecId === lec.id ||
+                                String(o.lectureNumber) === String(lec.lectureNumber)
+                            );
+                            const subWords = sub.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+                            const matched = lecObjs.filter((o) =>
+                              subWords.some((w) => (o.objective || "").toLowerCase().includes(w))
+                            );
+                            return matched.length > 0 ? matched : lecObjs.slice(si * 2, si * 2 + 3);
+                          })();
+                          await startObjectiveQuiz?.(subObjs, sub, currentBlock?.id, {
+                            lectureId: lec.id,
+                            subtopicIndex: si,
+                            subtopicName: sub,
+                          });
+                        }}
+                        style={{
+                          background: isDone ? T.statusGoodBg : tc + "18",
+                          border: "1px solid " + (isDone ? T.statusGoodBorder : tc + "50"),
+                          color: isDone ? T.statusGood : tc,
+                          padding: "5px 10px",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          fontFamily: MONO,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {isDone ? "Review" : "► Quiz"}
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateLec(lec.id, {
+                            subtopics: (lec.subtopics || []).filter((_, i) => i !== si),
+                          });
+                        }}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: T.text3,
+                          cursor: "pointer",
+                          fontSize: 12,
+                          flexShrink: 0,
+                          padding: "4px",
+                        }}
+                        onMouseEnter={(e) => (e.currentTarget.style.color = T.statusBad)}
+                        onMouseLeave={(e) => (e.currentTarget.style.color = T.text3)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
           {lec.keyTerms?.length > 0 && (
@@ -2348,33 +3333,46 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
             const struggling = expandedObjs.filter((o) => o.status === "struggling").length;
             const untested = expandedObjs.filter((o) => o.status === "untested").length;
 
-            return (
+  return (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid " + T.border2 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
                   <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>
                     LEARNING OBJECTIVES ({expandedObjs.length})
                   </span>
                   <div style={{ display: "flex", gap: 8 }}>
-                    {mastered > 0 && <span style={{ fontFamily: MONO, color: T.green, fontSize: 11 }}>✓ {mastered}</span>}
-                    {struggling > 0 && <span style={{ fontFamily: MONO, color: T.red, fontSize: 11 }}>⚠ {struggling}</span>}
+                    {mastered > 0 && <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 11 }}>✓ {mastered}</span>}
+                    {struggling > 0 && <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 11 }}>⚠ {struggling}</span>}
                     {untested > 0 && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>○ {untested}</span>}
                   </div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {expandedObjs.map((obj, i) => {
-                    const statusColor = { mastered: T.green, struggling: T.red, inprogress: T.amber, untested: T.text3 }[obj.status] || T.text3;
-                    const statusIcon = { mastered: "✓", struggling: "⚠", inprogress: "◐", untested: "○" }[obj.status] || "○";
+                    const statusColor = getObjStatusColor(T, obj.status);
+                    const statusIcon = getObjStatusIcon(obj.status);
+                    const bloomColor = LEVEL_COLORS[obj.bloom_level] || "#6b7280";
+                    const bloomBg = LEVEL_BG[obj.bloom_level] || "#6b728015";
+                    const bloomName = obj.bloom_level_name || "Understand";
+                    const bloomLevel = obj.bloom_level ?? 2;
+                    const lecDate = lec.lectureDate;
+                    const isPre = lecDate && new Date(lecDate) > new Date();
+                    const actType = getActivityType(lec.lectureType);
+                    const guidance =
+                      actType === "DLA"
+                        ? obj.dla_guide
+                        : actType === "SG"
+                          ? obj.sg_guide
+                          : isPre
+                            ? obj.pre_lecture_guide
+                            : obj.post_lecture_guide;
                     return (
                       <div
                         key={obj.id || i}
                         style={{
                           display: "flex",
                           alignItems: "flex-start",
-                          gap: 8,
-                          padding: "6px 10px",
-                          borderRadius: 7,
-                          background: T.inputBg,
-                          border: "1px solid " + T.border2,
+                          gap: 10,
+                          padding: "10px 0",
+                          borderBottom: "1px solid " + T.border2,
                         }}
                       >
                         <span
@@ -2384,18 +3382,38 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                             updateObjective(currentBlock.id, obj.id, { status: next });
                           }}
                           title="Click to cycle status"
-                          style={{ color: statusColor, fontSize: 15, flexShrink: 0, cursor: updateObjective ? "pointer" : "default", paddingTop: 1, transition: "transform 0.1s" }}
+                          style={{ color: statusColor, fontSize: 14, flexShrink: 0, marginTop: 1, cursor: updateObjective ? "pointer" : "default", transition: "transform 0.1s" }}
                           onMouseEnter={(e) => updateObjective && (e.currentTarget.style.transform = "scale(1.3)")}
                           onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
                         >
                           {statusIcon}
                         </span>
-                        <span style={{ fontFamily: MONO, color: T.text1, fontSize: 12, lineHeight: 1.55, flex: 1 }}>{obj.objective}</span>
-                        {obj.code && (
-                          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, flexShrink: 0, paddingTop: 3, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {obj.code}
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontFamily: MONO, color: T.text1, fontSize: 12, lineHeight: 1.6 }}>{obj.objective}</div>
+                          {guidance && (
+                            <div style={{ fontFamily: MONO, color: bloomColor, fontSize: 10, marginTop: 4, fontStyle: "italic", lineHeight: 1.5 }}>💡 {guidance}</div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
+                          <span
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 9,
+                              fontWeight: 700,
+                              padding: "2px 7px",
+                              borderRadius: 4,
+                              background: bloomBg,
+                              color: bloomColor,
+                              border: "1px solid " + bloomColor + "40",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            L{bloomLevel} {bloomName}
                           </span>
-                        )}
+                          {obj.bloom_verb && obj.bloom_verb !== "unknown" && (
+                            <span style={{ fontFamily: MONO, fontSize: 8, color: T.text3, fontStyle: "italic" }}>verb: {obj.bloom_verb}</span>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -2447,7 +3465,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                     <button
                       type="button"
                       onClick={() => expandedObjs.forEach((o) => updateObjective(currentBlock.id, o.id, { status: "mastered" }))}
-                      style={{ background: T.greenBg, border: "1px solid " + T.greenBorder, color: T.green, padding: "7px 14px", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 12 }}
+                      style={{ background: T.statusGoodBg, border: "1px solid " + T.statusGoodBorder, color: T.statusGood, padding: "7px 14px", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 12 }}
                     >
                       ✓ All Done
                     </button>
@@ -2466,16 +3484,380 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
             >
               📚 Full Lecture Quiz
             </button>
-            <button
-              type="button"
-              onClick={onDeepLearn}
-              style={{ flex: 1, background: "none", border: "1px solid " + tc + "40", color: tc, padding: "7px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 12, transition: "all 0.15s" }}
-              onMouseEnter={e => (e.currentTarget.style.background = tc + "12")}
-              onMouseLeave={e => (e.currentTarget.style.background = "none")}
-            >
-              🧬 Deep Learn
-            </button>
+            {(() => {
+              const studyMode = detectStudyModeFn ? detectStudyModeFn(lec, lecObjs) : { mode: "clinical", color: tc, icon: "🧬" };
+              const isVisual = ["anatomy", "histology"].includes(studyMode.mode);
+
+              return (
+                <div style={{ display: "flex", gap: 8, flex: 1 }}>
+                  <button
+                    type="button"
+                    onClick={() => setAnkiLogTarget?.(lec)}
+                    style={{
+                      flex: 1,
+                      background: "#f59e0b18",
+                      border: "1px solid #f59e0b50",
+                      color: "#f59e0b",
+                      padding: "10px 0",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      fontFamily: MONO,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    📇 Log Anki
+                  </button>
+                  {!isVisual && (
+                    <button
+                      type="button"
+                      onClick={() => handleDeepLearnStart?.({ selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }], blockId: currentBlock?.id })}
+                      style={{
+                        flex: 1,
+                        background: studyMode.color + "18",
+                        border: "1px solid " + studyMode.color + "50",
+                        color: studyMode.color,
+                        padding: "10px 0",
+                        borderRadius: 8,
+                        cursor: "pointer",
+                        fontFamily: MONO,
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {studyMode.icon} Deep Learn
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setQuizLoading(lec.id);
+                      await startObjectiveQuiz?.(lecObjs, lec.lectureTitle, currentBlock?.id);
+                      setQuizLoading(null);
+                    }}
+                    disabled={quizLoading === lec.id}
+                    style={{
+                      flex: 1,
+                      background: quizLoading === lec.id ? T.inputBg : tc + "18",
+                      border: "1px solid " + (quizLoading === lec.id ? T.border1 : tc + "50"),
+                      color: quizLoading === lec.id ? T.text3 : tc,
+                      padding: "10px 0",
+                      borderRadius: 8,
+                      cursor: quizLoading === lec.id ? "not-allowed" : "pointer",
+                      fontFamily: MONO,
+                      fontSize: 12,
+                      fontWeight: 700,
+                    }}
+                  >
+                    {quizLoading === lec.id ? "Generating..." : "🎯 Quiz"}
+                  </button>
+                </div>
+              );
+            })()}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// BLOCK WEAK OBJECTIVES BREAKDOWN (collapsible)
+// ─────────────────────────────────────────────
+function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, T, tc, startObjectiveQuiz, updateObjective, lecTypeBadge }) {
+  const [showWeak, setShowWeak] = useState(false);
+  const weakObjs = (blockObjs || []).filter(
+    (o) => o.status === "struggling" || o.status === "untested"
+  );
+
+  if (weakObjs.length === 0) {
+    return (
+      <div style={{ fontFamily: MONO, color: T.statusGood, fontSize: 11, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+        ✓ All objectives mastered — you're ready!
+      </div>
+    );
+  }
+
+  const blockLecs = (lecs || []).filter((l) => !currentBlock?.id || l.blockId === currentBlock?.id);
+  const byLecture = {};
+  weakObjs.forEach((o) => {
+    const lec =
+      blockLecs.find((l) => l.id === o.linkedLecId) ||
+      blockLecs.find(
+        (l) =>
+          l.blockId === currentBlock?.id &&
+          String(l.lectureNumber) === String(o.lectureNumber) &&
+          (l.lectureType || "LEC") === (o.lectureType || l.lectureType || "LEC")
+      ) ||
+      blockLecs.find(
+        (l) =>
+          l.blockId === currentBlock?.id &&
+          String(l.lectureNumber) === String(o.lectureNumber)
+      ) ||
+      blockLecs.find((l) => {
+        const activity = (o.activity || "").toLowerCase().trim();
+        const title = (l.lectureTitle || l.fileName || "").toLowerCase();
+        const typeNum = `${(l.lectureType || "lec").toLowerCase()}${l.lectureNumber}`;
+        return (
+          activity &&
+          (title.includes(activity.slice(0, 15)) ||
+            activity.includes(typeNum) ||
+            typeNum.includes(activity.replace(/\s+/g, "")))
+        );
+      }) ||
+      blockLecs.find((l) => {
+        const objText = (o.objective || "").toLowerCase();
+        const titleWords = (l.lectureTitle || "")
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 4);
+        return titleWords.some((w) => objText.includes(w));
+      });
+
+    const key = lec?.id || `unknown_${o.activity || o.lectureNumber || "misc"}`;
+    const label = lec
+      ? `${lec.lectureType || "LEC"}${lec.lectureNumber} — ${lec.lectureTitle || lec.fileName || ""}`
+      : o.activity
+        ? o.activity
+        : o.lectureNumber
+          ? `Lecture ${o.lectureNumber}`
+          : "Unlinked Objectives";
+
+    if (!byLecture[key]) byLecture[key] = { label, lec, objs: [] };
+    byLecture[key].objs.push(o);
+  });
+
+  const groups = Object.values(byLecture).sort((a, b) => {
+    const aStruggling = a.objs.filter((o) => o.status === "struggling").length;
+    const bStruggling = b.objs.filter((o) => o.status === "struggling").length;
+    return bStruggling - aStruggling;
+  });
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <button
+        onClick={() => setShowWeak((p) => !p)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: 0,
+          marginBottom: showWeak ? 12 : 0,
+        }}
+      >
+        <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 10, letterSpacing: 1.5, fontWeight: 700 }}>
+          ⚠ {weakObjs.filter((o) => o.status === "struggling").length} STRUGGLING
+        </span>
+        <span style={{ fontFamily: MONO, color: T.statusNeutral, fontSize: 10, letterSpacing: 1.5 }}>
+          ○ {weakObjs.filter((o) => o.status === "untested").length} UNTESTED
+        </span>
+        <span
+          style={{
+            fontFamily: MONO,
+            color: T.text3,
+            fontSize: 10,
+            marginLeft: 4,
+            transform: showWeak ? "rotate(90deg)" : "rotate(0deg)",
+            display: "inline-block",
+            transition: "transform 0.2s",
+          }}
+        >
+          ▶
+        </span>
+      </button>
+
+      {showWeak && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {groups.map((group) => {
+            const struggling = group.objs.filter((o) => o.status === "struggling");
+            const untested = group.objs.filter((o) => o.status === "untested");
+
+            return (
+              <div
+                key={group.label}
+                style={{
+                  background: T.inputBg,
+                  border: "1px solid " + T.border1,
+                  borderRadius: 10,
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "10px 14px",
+                    borderBottom: "1px solid " + T.border2,
+                    background: struggling.length > 0 ? T.statusBadBg : T.statusNeutralBg,
+                  }}
+                >
+                  {group.lec && lecTypeBadge && lecTypeBadge(group.lec.lectureType || "LEC")}
+                  <span
+                    style={{
+                      fontFamily: MONO,
+                      color: T.text1,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      flex: 1,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {group.label}
+                  </span>
+                  <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                    {struggling.length > 0 && (
+                      <span
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 10,
+                          color: T.statusBad,
+                          fontWeight: 700,
+                          background: T.statusBadBg,
+                          padding: "2px 7px",
+                          borderRadius: 4,
+                          border: "1px solid " + T.statusBadBorder,
+                        }}
+                      >
+                        ⚠ {struggling.length}
+                      </span>
+                    )}
+                    {untested.length > 0 && (
+                      <span
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 10,
+                          color: T.statusNeutral,
+                          fontWeight: 700,
+                          background: T.statusNeutralBg,
+                          padding: "2px 7px",
+                          borderRadius: 4,
+                          border: "1px solid " + T.border1,
+                        }}
+                      >
+                        ○ {untested.length}
+                      </span>
+                    )}
+                    <button
+                      onClick={() =>
+                        startObjectiveQuiz(
+                          group.objs,
+                          group.lec?.lectureTitle || group.label,
+                          blockId,
+                          { lectureId: group.lec?.id }
+                        )
+                      }
+                      style={{
+                        background: tc,
+                        border: "none",
+                        color: "#fff",
+                        padding: "3px 10px",
+                        borderRadius: 5,
+                        cursor: "pointer",
+                        fontFamily: MONO,
+                        fontSize: 10,
+                        fontWeight: 700,
+                      }}
+                    >
+                      Quiz →
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ padding: "8px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+                  {struggling.map((o) => (
+                    <div
+                      key={o.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 8,
+                        padding: "5px 0",
+                        borderBottom: "1px solid " + T.border2,
+                      }}
+                    >
+                      <span style={{ color: T.statusBad, fontSize: 13, flexShrink: 0, marginTop: 1 }}>⚠</span>
+                      <span style={{ fontFamily: MONO, color: T.text2, fontSize: 11, lineHeight: 1.5, flex: 1 }}>{o.objective}</span>
+                      <button
+                        onClick={() =>
+                          updateObjective(blockId, o.id, {
+                            status: o.status === "struggling" ? "inprogress" : "struggling",
+                          })
+                        }
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: T.text3,
+                          cursor: "pointer",
+                          fontFamily: MONO,
+                          fontSize: 9,
+                          flexShrink: 0,
+                          padding: "2px 4px",
+                        }}
+                      >
+                        cycle
+                      </button>
+                    </div>
+                  ))}
+
+                  {untested.map((o) => (
+                    <div
+                      key={o.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 8,
+                        padding: "5px 0",
+                        borderBottom: "1px solid " + T.border2,
+                      }}
+                    >
+                      <span style={{ color: T.statusNeutral, fontSize: 13, flexShrink: 0, marginTop: 1 }}>○</span>
+                      <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, lineHeight: 1.5, flex: 1 }}>{o.objective}</span>
+                      <button
+                        onClick={() => updateObjective(blockId, o.id, { status: "inprogress" })}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: T.text3,
+                          cursor: "pointer",
+                          fontFamily: MONO,
+                          fontSize: 9,
+                          flexShrink: 0,
+                          padding: "2px 4px",
+                        }}
+                      >
+                        start
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          <button
+            onClick={() =>
+              startObjectiveQuiz(weakObjs, "All Weak Objectives", blockId)
+            }
+            style={{
+              background: T.statusBad,
+              border: "none",
+              color: "#fff",
+              padding: "12px 0",
+              borderRadius: 9,
+              cursor: "pointer",
+              fontFamily: SERIF,
+              fontSize: 14,
+              fontWeight: 900,
+            }}
+          >
+            ⚠ Quiz All {weakObjs.length} Weak Objectives →
+          </button>
         </div>
       )}
     </div>
@@ -2485,21 +3867,47 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
 // ─────────────────────────────────────────────
 // LECTURE CARD
 // ─────────────────────────────────────────────
-function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, onDeepLearn, mergeMode, mergeSelected = [], onMergeToggle, allObjectives }) {
+const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, onDeepLearn, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, showSubjectLabel = true, setAnkiLogTarget, getBlockObjectives, currentBlock, startObjectiveQuiz, detectStudyMode, handleDeepLearnStart, getLectureSubtopicCompletion, getLecCompletion, getSubtopicCompletion, getLecPerf }) {
   const { T } = useTheme();
   const tc = tint || accent || "#ef4444";
+  const MONO = "'DM Mono','Courier New',monospace";
   const [confirming, setConfirming] = useState(false);
   const confirmTimeoutRef = useRef(null);
   const [addingTopic, setAddingTopic] = useState(false);
   const [newTopicDraft, setNewTopicDraft] = useState("");
   const addTopicRef = useRef();
   const isMergeSelected = mergeSelected.includes(lec.id);
-  const lecObjs = (allObjectives || []).filter((o) =>
-    o.lectureNumber === lec.lectureNumber ||
-    (o.lectureTitle && lec.lectureTitle && lec.lectureTitle.toLowerCase().includes((o.lectureTitle || "").toLowerCase().slice(0, 15)))
+
+  // Single source for completion: ring, bar, and any % label all use lecPct
+  const lecPct = getLecCompletion ? getLecCompletion(lec, currentBlock?.id) : null;
+  const blockObjs = getBlockObjectives ? (getBlockObjectives(currentBlock?.id) || []) : [];
+  const lecObjs = blockObjs.filter(
+    (o) =>
+      o.linkedLecId === lec.id ||
+      String(o.lectureNumber) === String(lec.lectureNumber)
   );
-  const masteredObjs = lecObjs.filter((o) => o.status === "mastered").length;
-  const strugglingObjs = lecObjs.filter((o) => o.status === "struggling").length;
+  const mastered = lecObjs.filter((o) => o.status === "mastered").length;
+  const struggling = lecObjs.filter((o) => o.status === "struggling").length;
+  const inProgress = lecObjs.filter((o) => o.status === "inprogress").length;
+  const total = lecObjs.length;
+
+  const ringColor =
+    lecPct === 100
+      ? T.statusGood
+      : struggling > 0
+        ? T.statusBad
+        : lecPct >= 70
+          ? T.statusProgress
+          : lecPct >= 40
+            ? T.statusWarn
+            : lecPct > 0
+              ? T.statusWarn
+              : T.statusNeutral;
+
+  const perf = getLecPerf ? getLecPerf(lec, currentBlock?.id) : null;
+  const lastScore = perf?.lastScore ?? perf?.sessions?.slice(-1)[0]?.score ?? null;
+  const sessionCount = perf?.sessions?.length || 0;
 
   const clearConfirmTimeout = () => {
     if (confirmTimeoutRef.current) {
@@ -2531,11 +3939,6 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
   useEffect(() => () => clearConfirmTimeout(), []);
   useEffect(() => { if (addingTopic && addTopicRef.current) addTopicRef.current.focus(); }, [addingTopic]);
 
-  const lecSess = sessions.filter(s => s.lectureId === lec.id);
-  const overall = lecSess.length
-    ? pct(lecSess.reduce((a,s)=>a+s.correct,0), lecSess.reduce((a,s)=>a+s.total,0))
-    : null;
-
   return (
     <div style={{ background: isMergeSelected ? T.amberBg : T.cardBg, border: "1px solid " + (isMergeSelected ? T.amberBorder : T.border1), borderRadius: 14, padding: 18, display: "flex", flexDirection: "column", gap: 12, position: "relative", boxShadow: T.cardShadow || "0 1px 4px rgba(15,23,42,0.08)" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 5, background: tc, borderRadius: "14px 14px 0 0" }} />
@@ -2562,7 +3965,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
         {confirming ? (
           <>
             <button onClick={cancelConfirm} style={{ background:T.border1, border:"1px solid " + T.text5, color:T.text5, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>Cancel</button>
-            <button onClick={doDelete} style={{ background:T.redBg, border:"1px solid "+T.redBorder, color:T.red, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>Delete</button>
+            <button onClick={doDelete} style={{ background:T.statusBadBg, border:"1px solid "+T.statusBadBorder, color:T.statusBad, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>Delete</button>
           </>
         ) : (
           <button onClick={startConfirm} style={{ background:T.border1, border:"1px solid " + T.text5, color:T.text5, cursor:"pointer", fontSize:12, width:24, height:24, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center" }} title="Delete lecture">✕</button>
@@ -2588,45 +3991,203 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             {lec.isMerged && (
               <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: MONO, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5 }}>MERGED</span>
             )}
+            {lec.extractionMethod === "mistral-ocr" && (
+              <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30" }}>OCR✓</span>
+            )}
         </div>
+          {showSubjectLabel && (lec.subject || lec.discipline) && (
+            <div style={{ fontFamily: MONO, color: tc, fontSize: 10, fontWeight: 700, marginBottom: 4 }}>
+              <EditableText
+                value={lec.subject || lec.discipline || ""}
+                onChange={newSubject => onUpdateLec(lec.id, { subject: newSubject })}
+                style={{ fontFamily: MONO, color: tc, fontSize: 10, fontWeight: 700 }}
+                placeholder="Subject"
+              />
+            </div>
+          )}
           <div style={{ marginBottom: 2 }}>
             <EditableText
-              value={lec.subject}
-              onChange={newSubject => onUpdateLec(lec.id, { subject: newSubject })}
-              style={{ fontFamily: SERIF, color: tc, fontWeight: 700, fontSize: 16 }}
-              placeholder="Click to set subject"
-            />
-          </div>
-          <div style={{ marginBottom: 2 }}>
-            <EditableText
-              value={lec.lectureTitle}
+              value={(() => {
+                const title = (lec.lectureTitle || "").trim();
+                const fileName = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
+                if (title && title.toLowerCase() !== fileName.toLowerCase()) return title;
+                return title || fileName;
+              })()}
               onChange={newTitle => onUpdateLec(lec.id, { lectureTitle: newTitle })}
-              style={{ fontFamily: MONO, color: T.text1, fontSize: 14 }}
+              style={{
+                fontFamily: SERIF,
+                color: T.text1,
+                fontSize: 15,
+                fontWeight: 700,
+                lineHeight: 1.4,
+                overflow: "hidden",
+                display: "-webkit-box",
+                WebkitLineClamp: 2,
+                WebkitBoxOrient: "vertical",
+              }}
               placeholder="Click to set title"
             />
           </div>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 14, marginTop: 2 }}>{lec.filename}</div>
         </div>
-        <Ring score={overall} size={52} tint={tc} />
+        {/* Completion ring — top right of card */}
+        <div style={{ position: "relative", width: 56, height: 56, flexShrink: 0 }}>
+          <svg width="56" height="56" style={{ transform: "rotate(-90deg)" }}>
+            <circle cx="28" cy="28" r="22" fill="none" stroke={T.border1} strokeWidth="4" />
+            <circle
+              cx="28"
+              cy="28"
+              r="22"
+              fill="none"
+              stroke={ringColor}
+              strokeWidth="4"
+              strokeDasharray={`${(lecPct ?? 0) * 1.382} 138.2`}
+              strokeLinecap="round"
+              style={{ transition: "stroke-dasharray 0.5s ease" }}
+            />
+          </svg>
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexDirection: "column",
+            }}
+          >
+            <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 900, color: ringColor, lineHeight: 1 }}>
+              {lecPct != null ? lecPct + "%" : "—"}
+            </span>
+          </div>
+        </div>
       </div>
 
-      {overall !== null && (
-        <div style={{ height: 5, background: T.border1, borderRadius: 2 }}>
-          <div style={{ width: overall + "%", height: "100%", background: tc, borderRadius: 2, transition: "width 1s" }} />
+      {/* Week / Day assignment — always visible */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }} onClick={(e) => e.stopPropagation()}>
+        <select
+          value={lec.weekNumber ?? ""}
+          onChange={(e) => onUpdateLec(lec.id, { weekNumber: e.target.value ? parseInt(e.target.value, 10) : null })}
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: lec.weekNumber ? tc + "15" : T.inputBg,
+            border: "1px solid " + (lec.weekNumber ? tc + "60" : T.border1),
+            borderRadius: 6,
+            padding: "3px 8px",
+            color: lec.weekNumber ? tc : T.text3,
+            fontFamily: MONO,
+            fontSize: 10,
+            cursor: "pointer",
+          }}
+        >
+          <option value="">+ Week</option>
+          {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => (
+            <option key={w} value={w}>Wk {w}</option>
+          ))}
+        </select>
+        {lec.weekNumber != null && lec.weekNumber !== "" && (
+          <select
+            value={lec.dayOfWeek || ""}
+            onChange={(e) => onUpdateLec(lec.id, { dayOfWeek: e.target.value || null })}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: lec.dayOfWeek ? tc + "15" : T.inputBg,
+              border: "1px solid " + (lec.dayOfWeek ? tc + "60" : T.border1),
+              borderRadius: 6,
+              padding: "3px 8px",
+              color: lec.dayOfWeek ? tc : T.text3,
+              fontFamily: MONO,
+              fontSize: 10,
+              cursor: "pointer",
+            }}
+          >
+            <option value="">+ Day</option>
+            {DOW_ORDER_CARD.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+        {bulkWeekTarget != null && !lec.weekNumber && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onUpdateLec(lec.id, { weekNumber: bulkWeekTarget });
+            }}
+            style={{
+              background: tc,
+              border: "none",
+              color: "#fff",
+              padding: "3px 10px",
+              borderRadius: 6,
+              fontFamily: MONO,
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            → Assign Wk {bulkWeekTarget}
+          </button>
+        )}
+      </div>
+
+      {lecObjs.length > 0 && (() => {
+        const dist = lecObjs.reduce((acc, o) => {
+          acc[o.bloom_level ?? 2] = (acc[o.bloom_level ?? 2] || 0) + 1;
+          return acc;
+        }, {});
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+            {[1, 2, 3, 4, 5, 6].filter((l) => dist[l]).map((l) => (
+              <span
+                key={l}
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 9,
+                  padding: "1px 6px",
+                  borderRadius: 3,
+                  background: LEVEL_BG[l],
+                  color: LEVEL_COLORS[l],
+                  border: "1px solid " + LEVEL_COLORS[l] + "30",
+                }}
+              >
+                L{l} ×{dist[l]}
+              </span>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Objective bar */}
+      {total > 0 && (
+        <div>
+          <div style={{ height: 5, background: T.border1, borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ height: "100%", display: "flex" }}>
+              <div style={{ width: (mastered / total) * 100 + "%", background: T.statusGood, transition: "width 0.4s" }} />
+              <div style={{ width: (inProgress / total) * 100 + "%", background: T.statusProgress, transition: "width 0.4s" }} />
+              <div style={{ width: (struggling / total) * 100 + "%", background: T.statusBad, transition: "width 0.4s" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
+            <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10 }}>✓ {mastered}</span>
+            {inProgress > 0 && (
+              <span style={{ fontFamily: MONO, color: T.statusProgress, fontSize: 10 }}>◑ {inProgress}</span>
+            )}
+            {struggling > 0 && (
+              <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 10 }}>⚠ {struggling}</span>
+            )}
+            <span style={{ fontFamily: MONO, color: T.statusNeutral, fontSize: 10 }}>○ {total - mastered - inProgress - struggling}</span>
+            {lastScore != null && (
+              <span style={{ fontFamily: MONO, marginLeft: "auto", fontSize: 11, fontWeight: 700, color: getScoreColor(T, lastScore) }}>
+                {lastScore}%
+              </span>
+            )}
+          </div>
         </div>
       )}
 
-      {lecObjs.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <div style={{ width: 40, height: 5, background: T.border1, borderRadius: 2 }}>
-            <div style={{ width: (masteredObjs / lecObjs.length) * 100 + "%", height: "100%", background: masteredObjs === lecObjs.length ? T.green : tc, borderRadius: 2 }} />
-          </div>
-          <span style={{ fontFamily: MONO, fontSize: 11, color: masteredObjs === lecObjs.length ? T.green : T.text3 }}>
-            {masteredObjs}/{lecObjs.length}
-          </span>
-          {strugglingObjs > 0 && (
-            <span style={{ fontFamily: MONO, fontSize: 11, color: T.red }}>⚠{strugglingObjs}</span>
-          )}
+      {sessionCount > 0 && (
+        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 4 }}>
+          {sessionCount} session{sessionCount !== 1 ? "s" : ""}
         </div>
       )}
 
@@ -2637,46 +4198,149 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-        {(lec.subtopics || []).map(sub => {
-          const sp = getScore(sessions, s => s.lectureId === lec.id && s.subtopic === sub);
-          const m = mastery(sp, T);
+        {(lec.subtopics || []).map((sub, si) => {
+          const { pct, weakness } =
+            getSubtopicCompletion
+              ? getSubtopicCompletion(lec, si, sub, currentBlock?.id)
+              : { pct: 0, weakness: null };
+          const subColor =
+            pct === 100
+              ? T.statusGood
+              : weakness === "critical"
+                ? T.statusBad
+                : weakness === "weak"
+                  ? T.statusWarn
+                  : pct > 0
+                    ? T.statusProgress
+                    : T.statusNeutral;
+
           return (
             <div
-              key={sub}
-              onClick={() => onStudy(lec, sub)}
+              key={si}
               style={{
                 display: "flex",
-                justifyContent: "space-between",
                 alignItems: "center",
-                background: T.cardBg,
-                border: "1px solid " + T.border1,
-                borderRadius: 8,
-                padding: "8px 12px",
-                cursor: "pointer",
-                transition: "padding-left 0.1s, border-color 0.1s",
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.borderColor = tc;
-                e.currentTarget.style.paddingLeft = "16px";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.borderColor = T.border1;
-                e.currentTarget.style.paddingLeft = "12px";
+                gap: 8,
+                padding: "7px 10px",
+                borderRadius: 7,
+                marginBottom: 3,
+                background:
+                  weakness === "critical"
+                    ? T.statusBadBg
+                    : weakness === "weak"
+                      ? T.statusWarnBg
+                      : T.inputBg,
+                border:
+                  "1px solid " +
+                  (weakness === "critical"
+                    ? T.statusBadBorder
+                    : weakness === "weak"
+                      ? T.statusWarnBorder
+                      : T.border1),
               }}
             >
-              <span style={{ fontFamily: MONO, color: T.text1, fontSize: 14 }}>{sub}</span>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ fontFamily: MONO, color: m.fg, fontWeight: 700, fontSize: 16 }}>{sp !== null ? sp + "%" : "—"}</span>
-                <button
-                  type="button"
-                  onClick={e => { e.stopPropagation(); onUpdateLec(lec.id, { subtopics: (lec.subtopics || []).filter(s => s !== sub) }); }}
-                  style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 14, padding: 2, lineHeight: 1 }}
-                  title="Remove topic"
+              {/* Mini ring — stroke starts from top (-90deg), text upright (+90deg) */}
+              <div
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: "50%",
+                  flexShrink: 0,
+                  background: `conic-gradient(${subColor} ${Math.min(100, pct) * 3.6}deg, ${T.border1} 0deg)`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transform: "rotate(-90deg)",
+                }}
+              >
+                <div
+                  style={{
+                    width: 13,
+                    height: 13,
+                    borderRadius: "50%",
+                    background: T.cardBg,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transform: "rotate(90deg)",
+                  }}
                 >
-                  ✕
-                </button>
-                <span style={{ color: T.text3, fontSize: 13 }}>▶</span>
+                  <span style={{ fontFamily: MONO, fontSize: 7, fontWeight: 700, color: subColor }}>
+                    {pct >= 100 ? "✓" : pct > 0 ? pct + "%" : "○"}
+                  </span>
               </div>
+              </div>
+
+              <span
+                style={{
+                  fontFamily: MONO,
+                  color: T.text1,
+                  fontSize: 11,
+                  flex: 1,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {sub}
+              </span>
+
+              {weakness && (
+                <span style={{ fontFamily: MONO, fontSize: 8, color: subColor, fontWeight: 700, flexShrink: 0 }}>
+                  {weakness === "critical" ? "⚠" : weakness === "weak" ? "△" : "↻"}
+                </span>
+              )}
+
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdateLec(lec.id, { subtopics: (lec.subtopics || []).filter((_, i) => i !== si) });
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: T.text3,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  flexShrink: 0,
+                }}
+              >
+                ✕
+              </button>
+              <button
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  const subObjs = (() => {
+                    const bo = getBlockObjectives(currentBlock?.id) || [];
+                    const lo = bo.filter(
+                      (o) =>
+                        o.linkedLecId === lec.id ||
+                        String(o.lectureNumber) === String(lec.lectureNumber)
+                    );
+                    const sw = sub.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+                    const m = lo.filter((o) =>
+                      sw.some((w) => (o.objective || "").toLowerCase().includes(w))
+                    );
+                    return m.length ? m : lo.slice(si * 2, si * 2 + 3);
+                  })();
+                  await startObjectiveQuiz(subObjs, sub, currentBlock?.id, {
+                    lectureId: lec.id,
+                    subtopicIndex: si,
+                    subtopicName: sub,
+                  });
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: tc,
+                  cursor: "pointer",
+                  fontSize: 11,
+                  flexShrink: 0,
+                  fontWeight: 700,
+                }}
+              >
+                ▶
+              </button>
             </div>
           );
         })}
@@ -2702,6 +4366,58 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
           <button type="button" onClick={() => setAddingTopic(true)} style={{ background:T.border1, border:"1px dashed "+T.text5, color:T.text5, padding:"6px 12px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:11, textAlign:"left" }}>+ Add Topic</button>
         )}
       </div>
+      {!lec.weekNumber && (
+        <div
+          style={{
+            marginTop: 10,
+            padding: "8px 10px",
+            background: T.amberBg,
+            borderRadius: 7,
+            border: "1px solid " + T.amberBorder,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <span style={{ fontFamily: MONO, color: T.amber, fontSize: 10 }}>△ Assign to week:</span>
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => (
+              <button
+                key={w}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onUpdateLec(lec.id, { weekNumber: w });
+                }}
+                style={{
+                  background: T.inputBg,
+                  border: "1px solid " + T.border1,
+                  borderRadius: 5,
+                  padding: "3px 9px",
+                  fontFamily: MONO,
+                  fontSize: 10,
+                  cursor: "pointer",
+                  color: T.text2,
+                  transition: "all 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = tc + "20";
+                  e.currentTarget.style.borderColor = tc;
+                  e.currentTarget.style.color = tc;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = T.inputBg;
+                  e.currentTarget.style.borderColor = T.border1;
+                  e.currentTarget.style.color = T.text2;
+                }}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <button
         type="button"
         onClick={() => onStudy(lec, "__full__")}
@@ -2746,6 +4462,51 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
           🧬 Deep Learn
         </button>
       )}
+      <div style={{ display: "flex", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px solid " + T.border2 }}>
+        <button
+          onClick={e => {
+            e.stopPropagation();
+            setAnkiLogTarget?.(lec);
+          }}
+          style={{ flex: 1, background: "#f59e0b18", border: "1px solid #f59e0b50", color: "#f59e0b", padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 11, fontWeight: 700 }}
+        >
+          📇 Anki
+        </button>
+        <button
+          onClick={async e => {
+            e.stopPropagation();
+            const lecObjs = (getBlockObjectives?.(currentBlock?.id) || []).filter(
+              o => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+            );
+            await startObjectiveQuiz?.(lecObjs, lec.lectureTitle, currentBlock?.id);
+          }}
+          style={{ flex: 1, background: tc + "18", border: "1px solid " + tc + "50", color: tc, padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 11, fontWeight: 700 }}
+        >
+          🎯 Quiz
+        </button>
+        {(() => {
+          const lecObjs = (getBlockObjectives?.(currentBlock?.id) || []).filter(
+            o => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+          );
+          const studyMode = detectStudyMode ? detectStudyMode(lec, lecObjs) : { mode: "clinical", color: tc, icon: "🧬" };
+          const isVisual = ["anatomy", "histology"].includes(studyMode.mode);
+          if (isVisual) return null;
+          return (
+            <button
+              onClick={e => {
+                e.stopPropagation();
+                handleDeepLearnStart?.({
+                  selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }],
+                  blockId: currentBlock?.id,
+                });
+              }}
+              style={{ flex: 1, background: studyMode.color + "18", border: "1px solid " + studyMode.color + "50", color: studyMode.color, padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 11, fontWeight: 700 }}
+            >
+              {studyMode.icon} Learn
+            </button>
+          );
+        })()}
+      </div>
     </div>
   );
 }
@@ -2753,43 +4514,188 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
 // ─────────────────────────────────────────────
 // HEATMAP
 // ─────────────────────────────────────────────
-function Heatmap({ lectures, sessions, onStudy }) {
+function Heatmap({
+  lectures,
+  getLecCompletion,
+  getSubtopicCompletion,
+  getBlockObjectives,
+  startObjectiveQuiz,
+  currentBlock,
+  lecTypeBadge,
+  tc,
+}) {
   const { T } = useTheme();
-  if (!lectures.length) return (
-    <div style={{ background:T.cardBg, border:"1px dashed " + T.border1, borderRadius:14, padding:50, textAlign:"center", boxShadow:T.shadowSm }}>
-      <p style={{ fontFamily:MONO, color:T.text3, fontSize:12 }}>Upload lectures to see the heatmap.</p>
+  const blockId = currentBlock?.id;
+  if (!lectures.length)
+    return (
+      <div style={{ background: T.cardBg, border: "1px dashed " + T.border1, borderRadius: 14, padding: 50, textAlign: "center", boxShadow: T.shadowSm }}>
+        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Upload lectures to see the heatmap.</p>
     </div>
   );
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-      {lectures.map((lec, li) => {
-        const overall = getScore(sessions, s => s.lectureId===lec.id);
-        const m = mastery(overall, T);
-        const ac = PALETTE[li % PALETTE.length];
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {lectures.map((lec) => {
+        const lecPct = getLecCompletion ? getLecCompletion(lec, blockId) : 0;
+        const lecColor = getBarColor(T, lecPct);
         return (
-          <div key={lec.id} style={{ background:T.cardBg, border:"1px solid "+T.border1, borderRadius:12, padding:16, boxShadow:T.shadowSm }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-              <div>
-                <span style={{ fontFamily:MONO, color:ac, fontSize:12, fontWeight:600 }}>{lec.lectureTitle}</span>
-                <span style={{ fontFamily:MONO, color:T.text3, fontSize:12, marginLeft:8 }}>{lec.subject}</span>
+          <div
+            key={lec.id}
+            style={{
+              background: T.cardBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {lecTypeBadge && lecTypeBadge(lec.lectureType || "LEC")}
+                <span style={{ fontFamily: MONO, color: lecColor, fontSize: 13, fontWeight: 700 }}>
+                  {lec.lectureTitle || lec.fileName}
+                </span>
+                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
+                  {lec.subject || lec.discipline || ""}
+                </span>
               </div>
-              <span style={{ fontFamily:MONO, color:m.fg, fontWeight:700, fontSize:14 }}>{overall!==null ? overall+"%" : "—"}</span>
+              <span
+                style={{
+                  fontFamily: MONO,
+                  fontWeight: 900,
+                  fontSize: 14,
+                  color: lecColor,
+                }}
+              >
+                {lecPct > 0 ? lecPct + "%" : "—"}
+              </span>
             </div>
-            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(150px,1fr))", gap:6 }}>
-              {(lec.subtopics||[]).map(sub => {
-                const sp = getScore(sessions, s => s.lectureId===lec.id && s.subtopic===sub);
-                const sm = mastery(sp, T);
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
+                gap: 8,
+              }}
+            >
+              {(lec.subtopics || []).map((sub, si) => {
+                const { pct, mastered, total, weakness } =
+                  getSubtopicCompletion ? getSubtopicCompletion(lec, si, sub, blockId) : { pct: 0, mastered: 0, total: 0, weakness: null };
+
+                const cellColor =
+                  pct === 100 ? T.statusGood : weakness === "critical" ? T.statusBad : weakness === "weak" ? T.statusWarn : pct >= 60 ? tc : pct > 0 ? T.statusProgress : T.text3;
+                const cellBg =
+                  pct === 100 ? T.statusGoodBg : weakness === "critical" ? T.statusBadBg : weakness === "weak" ? T.statusWarnBg : pct > 0 ? tc + "0d" : T.inputBg;
+                const cellPattern =
+                  weakness === "critical"
+                    ? "repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(147,51,234,0.1) 3px, rgba(147,51,234,0.1) 6px)"
+                    : weakness === "weak"
+                      ? "repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(217,119,6,0.08) 4px, rgba(217,119,6,0.08) 8px)"
+                      : "none";
+                const cellBorder =
+                  pct === 100 ? T.statusGoodBorder : weakness === "critical" ? T.statusBadBorder : weakness === "weak" ? T.statusWarnBorder : pct > 0 ? tc + "40" : T.border1;
+
                 return (
-                  <div key={sub}
-                    onClick={() => onStudy(lec, sub)}
-                    style={{ background:T.cardBg, border:"1px solid "+T.border1, borderRadius:7, padding:"7px 11px", cursor:"pointer", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"border-color 0.1s" }}
-                    onMouseEnter={e => { e.currentTarget.style.borderColor=ac; }}
-                    onMouseLeave={e => { e.currentTarget.style.borderColor=T.border1; }}>
-                    <span style={{ fontFamily:MONO, color:T.text1, fontSize:11 }}>{sub}</span>
-                    <span style={{ fontFamily:MONO, color:sm.fg, fontWeight:700, fontSize:14, flexShrink:0, marginLeft:6 }}>{sp!==null ? sp+"%" : "—"}</span>
+                  <div
+                    key={si}
+                    style={{
+                      background: cellBg,
+                      backgroundImage: cellPattern,
+                      border: "1px solid " + cellBorder,
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                    }}
+                    onClick={async () => {
+                      if (!startObjectiveQuiz || !getBlockObjectives) return;
+                      const blockObjs = getBlockObjectives(blockId) || [];
+                      const lecObjs = blockObjs.filter(
+                        (o) => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+                      );
+                      const subWords = sub.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+                      const subObjs = lecObjs.filter((o) =>
+                        subWords.some((w) => (o.objective || "").toLowerCase().includes(w))
+                      );
+                      await startObjectiveQuiz(
+                        subObjs.length ? subObjs : lecObjs.slice(si * 2, si * 2 + 3),
+                        sub,
+                        blockId,
+                        { lectureId: lec.id, subtopicIndex: si, subtopicName: sub }
+                      );
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 4 }}>
+                      <div style={{ fontFamily: MONO, color: T.text1, fontSize: 11, lineHeight: 1.4, flex: 1 }}>
+                        {sub}
+                      </div>
+                      <span
+                        style={{
+                          fontFamily: MONO,
+                          fontWeight: 900,
+                          fontSize: 12,
+                          flexShrink: 0,
+                          color: cellColor,
+                        }}
+                      >
+                        {pct > 0 ? pct + "%" : "—"}
+                      </span>
+                    </div>
+                    {total > 0 && (
+                      <div style={{ height: 3, background: T.border1, borderRadius: 2, marginTop: 6 }}>
+                        <div
+                          style={{
+                            height: "100%",
+                            borderRadius: 2,
+                            background: cellColor,
+                            width: pct + "%",
+                            transition: "width 0.4s",
+                          }}
+                        />
+                      </div>
+                    )}
+                    {weakness && (
+                      <div
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 8,
+                          color: cellColor,
+                          marginTop: 4,
+                          fontWeight: 700,
+                        }}
+                      >
+                        {weakness === "critical" ? "⚠ Struggling" : weakness === "weak" ? "△ Needs Work" : "↻ Review"}
+                      </div>
+                    )}
                   </div>
                 );
               })}
+
+              {(lec.subtopics || []).length === 0 &&
+                (() => {
+                  const blockObjs = getBlockObjectives?.(blockId) || [];
+                  const lecObjs = blockObjs.filter(
+                    (o) => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+                  );
+                  return (
+                    <div
+                      style={{
+                        background: lecPct > 0 ? tc + "0d" : T.inputBg,
+                        border: "1px solid " + (lecPct > 0 ? tc + "40" : T.border1),
+                        borderRadius: 8,
+                        padding: "10px 12px",
+                      }}
+                    >
+                      <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
+                        {lecObjs.length} objectives
+                      </div>
+                      <div style={{ fontFamily: MONO, color: lecColor, fontSize: 12, fontWeight: 700, marginTop: 2 }}>
+                        {lecPct}% complete
+                      </div>
+                    </div>
+                  );
+                })()}
             </div>
           </div>
         );
@@ -2799,9 +4705,398 @@ function Heatmap({ lectures, sessions, onStudy }) {
 }
 
 // ─────────────────────────────────────────────
+// AI CONTEXT BADGE — shows what content is used for generation
+// ─────────────────────────────────────────────
+function AIContextBadge({ context, T, MONO }) {
+  if (!context) return null;
+  return (
+    <div
+      style={{
+        background: T.inputBg,
+        border: "1px solid " + T.border1,
+        borderRadius: 10,
+        padding: "12px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}
+    >
+      <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1.5 }}>
+        AI CONTEXT — WHAT WILL BE USED TO GENERATE YOUR QUESTIONS
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <span
+          style={{
+            fontFamily: MONO,
+            fontSize: 11,
+            padding: "3px 10px",
+            borderRadius: 5,
+            background: context.hasUploadedQs ? T.statusGoodBg : T.statusBadBg,
+            color: context.hasUploadedQs ? T.statusGood : T.statusBad,
+            border: "1px solid " + (context.hasUploadedQs ? T.statusGoodBorder : T.statusBadBorder),
+          }}
+        >
+          {context.hasUploadedQs
+            ? `✓ ${context.relevantQs.length} uploaded questions as style guide`
+            : "✗ No uploaded questions matched"}
+        </span>
+        <span
+          style={{
+            fontFamily: MONO,
+            fontSize: 11,
+            padding: "3px 10px",
+            borderRadius: 5,
+            background: context.hasLectureContent ? T.statusGoodBg : T.statusBadBg,
+            color: context.hasLectureContent ? T.statusGood : T.statusBad,
+            border: "1px solid " + (context.hasLectureContent ? T.statusGoodBorder : T.statusBadBorder),
+          }}
+        >
+          {context.hasLectureContent
+            ? `✓ Lecture slides loaded (${Math.round(context.lectureChunks.length / 100) * 100} chars)`
+            : "✗ No lecture slides uploaded"}
+        </span>
+        <span
+          style={{
+            fontFamily: MONO,
+            fontSize: 11,
+            padding: "3px 10px",
+            borderRadius: 5,
+            background: context.hasObjectives ? T.statusGoodBg : T.statusWarnBg,
+            color: context.hasObjectives ? T.statusGood : T.statusWarn,
+            border: "1px solid " + (context.hasObjectives ? T.statusGoodBorder : T.statusWarnBorder),
+          }}
+        >
+          {context.hasObjectives
+            ? `✓ ${context.objectives.length} objectives targeted`
+            : "⚠ No objectives linked"}
+        </span>
+      </div>
+      {context.styleAnalysis?.sourceFiles?.length > 0 && (
+        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+          Style learned from: {context.styleAnalysis.sourceFiles.join(", ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// ANKI LOG MODAL — log external Anki sessions for a lecture
+// ─────────────────────────────────────────────
+function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
+  const MONO = "'DM Mono','Courier New',monospace";
+  const SERIF = "'Playfair Display',Georgia,serif";
+
+  const [cardCount, setCardCount] = useState("");
+  const [newCards, setNewCards] = useState("");
+  const [reviewCards, setReviewCards] = useState("");
+  const [retention, setRetention] = useState("");
+  const [timeSpent, setTimeSpent] = useState("");
+  const [confidence, setConfidence] = useState(null);
+  const [notes, setNotes] = useState("");
+  const [studyDate, setStudyDate] = useState(new Date().toISOString().slice(0, 10));
+
+  const handleSave = () => {
+    const total = parseInt(cardCount || 0, 10) || parseInt(newCards || 0, 10) + parseInt(reviewCards || 0, 10);
+    if (!total) return;
+
+    const score = retention ? parseInt(retention, 10) : confidence === "High" ? 85 : confidence === "Medium" ? 65 : 45;
+
+    onSave({
+      sessionType: "anki",
+      date: new Date(studyDate).toISOString(),
+      completedAt: new Date().toISOString(),
+      score,
+      cardCount: total,
+      newCards: parseInt(newCards || 0, 10),
+      reviewCards: parseInt(reviewCards || 0, 10),
+      retention: retention ? parseInt(retention, 10) : null,
+      timeSpent: timeSpent ? parseInt(timeSpent, 10) : null,
+      confidenceLevel: confidence,
+      notes,
+      lectureId: lec.id,
+      blockId,
+      questionCount: total,
+    });
+  };
+
+  const canSave = parseInt(cardCount || 0, 10) || parseInt(newCards || 0, 10) || parseInt(reviewCards || 0, 10);
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "#000000bb",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1000,
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        style={{
+          background: T.cardBg,
+          borderRadius: 18,
+          padding: "28px 32px",
+          maxWidth: 440,
+          width: "100%",
+          border: "1px solid " + T.border1,
+          boxShadow: "0 20px 60px #00000050",
+        }}
+      >
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: MONO, color: "#f59e0b", fontSize: 9, letterSpacing: 1.5, marginBottom: 4 }}>📇 LOG ANKI SESSION</div>
+          <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 18, fontWeight: 900 }}>{lec.lectureTitle || lec.fileName}</div>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 2 }}>{lec.lectureType || "LEC"}{lec.lectureNumber}</div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 5 }}>STUDY DATE</div>
+          <input
+            type="date"
+            value={studyDate}
+            max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => setStudyDate(e.target.value)}
+            style={{
+              background: T.inputBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 8,
+              padding: "9px 14px",
+              color: T.text1,
+              fontFamily: MONO,
+              fontSize: 13,
+              width: "100%",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1, marginBottom: 4 }}>TOTAL CARDS</div>
+          <input
+            type="number"
+            value={cardCount}
+            onChange={(e) => setCardCount(e.target.value)}
+            placeholder="e.g. new + reviews"
+            style={{
+              background: T.inputBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 7,
+              padding: "8px 10px",
+              color: T.text1,
+              fontFamily: MONO,
+              fontSize: 13,
+              width: "100%",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          {[
+            { label: "New Cards", val: newCards, set: setNewCards },
+            { label: "Reviews", val: reviewCards, set: setReviewCards },
+            { label: "Retention %", val: retention, set: setRetention },
+            { label: "Min Spent", val: timeSpent, set: setTimeSpent },
+          ].map((field) => (
+            <div key={field.label} style={{ flex: 1 }}>
+              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1, marginBottom: 4 }}>{field.label}</div>
+              <input
+                type="number"
+                value={field.val}
+                onChange={(e) => field.set(e.target.value)}
+                placeholder="0"
+                style={{
+                  background: T.inputBg,
+                  border: "1px solid " + T.border1,
+                  borderRadius: 7,
+                  padding: "8px 10px",
+                  color: T.text1,
+                  fontFamily: MONO,
+                  fontSize: 13,
+                  width: "100%",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 6 }}>HOW DID IT FEEL?</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {[
+              { val: "Low", label: "😰 Tough", color: T.statusBad },
+              { val: "Medium", label: "😐 OK", color: T.statusWarn },
+              { val: "High", label: "💪 Solid", color: T.statusGood },
+            ].map((c) => (
+              <button
+                key={c.val}
+                onClick={() => setConfidence(c.val)}
+                style={{
+                  flex: 1,
+                  padding: "9px 0",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  fontWeight: confidence === c.val ? 700 : 400,
+                  border: "1px solid " + (confidence === c.val ? c.color : T.border1),
+                  background: confidence === c.val ? c.color + "18" : T.inputBg,
+                  color: confidence === c.val ? c.color : T.text3,
+                  transition: "all 0.15s",
+                }}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 5 }}>NOTES (optional)</div>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g. struggled with muscle origins, nailed nerve supply..."
+            rows={2}
+            style={{
+              background: T.inputBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 8,
+              padding: "10px 14px",
+              color: T.text1,
+              fontFamily: MONO,
+              fontSize: 12,
+              width: "100%",
+              boxSizing: "border-box",
+              resize: "none",
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              background: T.inputBg,
+              border: "1px solid " + T.border1,
+              color: T.text2,
+              padding: "12px 0",
+              borderRadius: 9,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 13,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={!canSave}
+            style={{
+              flex: 2,
+              background: !canSave ? T.border1 : "#f59e0b",
+              border: "none",
+              color: "#fff",
+              padding: "12px 0",
+              borderRadius: 9,
+              cursor: "pointer",
+              fontFamily: SERIF,
+              fontSize: 15,
+              fontWeight: 900,
+              opacity: !canSave ? 0.5 : 1,
+            }}
+          >
+            Log Session →
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// CONFIDENCE MODAL (post-session rating)
+// ─────────────────────────────────────────────
+function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
+  const MONO = "'DM Mono','Courier New',monospace";
+  const SERIF = "'Playfair Display',Georgia,serif";
+
+  const scoreColor = getScoreColor(T, score);
+  const suggestedConfidence = score >= 80 ? "High" : score >= 60 ? "Medium" : "Low";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#000000cc", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 }}>
+      <div style={{ background: T.cardBg, borderRadius: 20, padding: "32px", maxWidth: 420, width: "100%", border: "1px solid " + T.border1, boxShadow: "0 24px 64px #00000060", display: "flex", flexDirection: "column", gap: 20 }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 40, marginBottom: 8 }}>🎯</div>
+          <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 20, fontWeight: 900, marginBottom: 4 }}>Session Complete</div>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginBottom: 12 }}>{lectureName}</div>
+          {score != null && (
+            <div style={{ display: "inline-block", background: scoreColor + "15", border: "2px solid " + scoreColor, borderRadius: 12, padding: "10px 24px" }}>
+              <div style={{ fontFamily: MONO, color: scoreColor, fontSize: 32, fontWeight: 900 }}>{score}%</div>
+              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+                {sessionType === "anki" ? "retention" : sessionType === "deepLearn" ? "post-MCQ" : "score"}
+              </div>
+            </div>
+          )}
+        </div>
+        <div>
+          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1.5, textAlign: "center", marginBottom: 12 }}>HOW CONFIDENT DO YOU FEEL ABOUT THIS MATERIAL?</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {[
+              { val: "High", emoji: "💪", label: "Solid", sub: "I could explain this to someone else", color: T.statusGood, bg: T.statusGoodBg, border: T.statusGoodBorder },
+              { val: "Medium", emoji: "😐", label: "Getting There", sub: "I understand most of it but have some gaps", color: T.statusWarn, bg: T.statusWarnBg, border: T.statusWarnBorder },
+              { val: "Low", emoji: "😰", label: "Shaky", sub: "I need more review — this didn't stick well", color: T.statusBad, bg: T.statusBadBg, border: T.statusBadBorder },
+            ].map((opt) => (
+              <button
+                key={opt.val}
+                onClick={() => onRate(opt.val)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  border: "2px solid " + (opt.val === suggestedConfidence ? opt.color : T.border1),
+                  background: opt.val === suggestedConfidence ? opt.bg : T.inputBg,
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "all 0.15s",
+                  width: "100%",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.border = "2px solid " + opt.color; e.currentTarget.style.background = opt.bg; }}
+                onMouseLeave={(e) => { e.currentTarget.style.border = "2px solid " + (opt.val === suggestedConfidence ? opt.color : T.border1); e.currentTarget.style.background = opt.val === suggestedConfidence ? opt.bg : T.inputBg; }}
+              >
+                <span style={{ fontSize: 24, flexShrink: 0 }}>{opt.emoji}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontFamily: MONO, color: opt.color, fontSize: 13, fontWeight: 700 }}>
+                    {opt.label}
+                    {opt.val === suggestedConfidence && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9, fontWeight: 400, marginLeft: 8 }}>suggested</span>}
+                  </div>
+                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 2 }}>{opt.sub}</div>
+                </div>
+                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 16, flexShrink: 0 }}>→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        <button onClick={() => onRate(suggestedConfidence)} style={{ background: "none", border: "none", color: T.text3, fontFamily: MONO, fontSize: 11, cursor: "pointer", textAlign: "center", padding: "4px" }}>
+          Skip — use suggested ({suggestedConfidence})
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // EXAM CONFIG MODAL
 // ─────────────────────────────────────────────
-function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, performanceHistory, onStart, onCancel, T, tc }) {
+function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, performanceHistory, onStart, onCancel, T, tc, buildQuestionContext, stylePrefs = {}, updateStylePref }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const DIFFICULTY_LADDER = ["easy", "medium", "hard", "expert"];
@@ -2841,33 +5136,43 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
     return Object.values(groups).sort((a, b) => (a.lectureNumber || 99) - (b.lectureNumber || 99));
   }, [blockObjs, blockLecs, questionBanksByFile]);
 
-  const defaultSelected = useMemo(() => {
+  const defaultLecIds = useMemo(() => {
     if (mode === "weak") {
-      return lectureGroups.filter((g) => g.objectives.some((o) => o.status === "struggling" || o.status === "untested")).map((g) => g.activity);
+      return (blockLecs || []).filter((lec) =>
+        lectureGroups.some(
+          (g) =>
+            g.matchedLec?.id === lec.id &&
+            g.objectives.some((o) => o.status === "struggling" || o.status === "untested")
+        )
+      ).map((l) => l.id);
     }
-    return lectureGroups.map((g) => g.activity);
-  }, [lectureGroups, mode]);
+    return (blockLecs || []).map((l) => l.id);
+  }, [lectureGroups, mode, blockLecs]);
 
-  const [selectedLectures, setSelectedLectures] = useState(defaultSelected);
+  const [selectedLecIds, setSelectedLecIds] = useState(defaultLecIds);
+  const [selectedSubtopics, setSelectedSubtopics] = useState([]);
   const [questionCount, setQuestionCount] = useState(20);
   const [focusMode, setFocusMode] = useState(mode === "weak" ? "weak" : "all");
 
   useEffect(() => {
-    setSelectedLectures(defaultSelected);
+    setSelectedLecIds(defaultLecIds);
+    setSelectedSubtopics([]);
     setFocusMode(mode === "weak" ? "weak" : "all");
-  }, [mode, defaultSelected]);
+  }, [mode, defaultLecIds]);
 
-  const toggleLecture = (activity) => {
-    setSelectedLectures((prev) => (prev.includes(activity) ? prev.filter((a) => a !== activity) : [...prev, activity]));
-  };
-
-  const selectedGroups = lectureGroups.filter((g) => selectedLectures.includes(g.activity));
+  const selectedGroups = lectureGroups.filter((g) => g.matchedLec && selectedLecIds.includes(g.matchedLec.id));
   const totalObjs = selectedGroups.flatMap((g) => g.objectives);
   const weakObjs = totalObjs.filter((o) => o.status === "struggling" || o.status === "untested");
   const masteredObjs = totalObjs.filter((o) => o.status === "mastered");
   const hasUploadedQs = selectedGroups.some((g) => g.uploadedQCount > 0);
   const hasUploadedLecs = selectedGroups.some((g) => g.matchedLec);
   const totalUploadedQs = selectedGroups.reduce((a, g) => a + g.uploadedQCount, 0);
+
+  const aiContext = useMemo(() => {
+    if (!buildQuestionContext || !blockId) return null;
+    const selectedLecIds = selectedGroups.filter((g) => g.matchedLec).map((g) => g.matchedLec.id);
+    return buildQuestionContext(blockId, selectedGroups.length === 1 ? selectedGroups[0]?.matchedLec?.id : null, questionBanksByFile, "exam", { selectedLecIds });
+  }, [buildQuestionContext, blockId, selectedGroups, questionBanksByFile]);
 
   const avgDifficulty = (() => {
     const diffs = selectedGroups.map((g) => (g.perfKey ? performanceHistory[g.perfKey]?.currentDifficulty : null)).filter(Boolean);
@@ -2904,6 +5209,25 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
               <span>50 — full block</span>
             </div>
           </div>
+          {updateStylePref && (
+            <div style={{ padding: 14, background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10 }}>
+              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 10 }}>STYLE PREFERENCES</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 20px" }}>
+                {[
+                  { key: "longStems", label: "Long stems" },
+                  { key: "hardDistractors", label: "Hard distractors" },
+                  { key: "labValues", label: "Include lab values" },
+                  { key: "firstAid", label: "First Aid references" },
+                  { key: "explainWrong", label: "Explain wrong answers" },
+                ].map(({ key, label }) => (
+                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: MONO, fontSize: 12, color: T.text2, cursor: "pointer" }}>
+                    <input type="checkbox" checked={!!stylePrefs[key]} onChange={(e) => updateStylePref(key, e.target.checked)} />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div>
             <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>QUESTION FOCUS</div>
@@ -2936,67 +5260,179 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
 
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>SELECT LECTURES ({selectedLectures.length}/{lectureGroups.length})</span>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={() => setSelectedLectures(lectureGroups.map((g) => g.activity))} style={{ fontFamily: MONO, fontSize: 11, color: tc, background: "none", border: "none", cursor: "pointer" }}>All</button>
-                <button onClick={() => setSelectedLectures(lectureGroups.filter((g) => g.objectives.some((o) => o.status === "struggling" || o.status === "untested")).map((g) => g.activity))} style={{ fontFamily: MONO, fontSize: 11, color: T.red, background: "none", border: "none", cursor: "pointer" }}>Weak only</button>
-                <button onClick={() => setSelectedLectures([])} style={{ fontFamily: MONO, fontSize: 11, color: T.text3, background: "none", border: "none", cursor: "pointer" }}>None</button>
-              </div>
+              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>SELECT LECTURES ({selectedLecIds.length}/{(blockLecs || []).length})</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-              {lectureGroups.map((group) => {
-                const selected = selectedLectures.includes(group.activity);
-                const groupWeak = group.objectives.filter((o) => o.status === "struggling" || o.status === "untested").length;
-                const groupTotal = group.objectives.length;
-                const groupPct = Math.round((group.objectives.filter((o) => o.status === "mastered").length / groupTotal) * 100) || 0;
-                const perf = group.perfKey ? performanceHistory[group.perfKey] : null;
-                const diff = perf?.currentDifficulty;
-                const diffC = { easy: "#10b981", medium: "#f59e0b", hard: "#ef4444", expert: "#a78bfa" }[diff || "medium"];
-                return (
-                  <div
-                    key={group.activity}
-                    onClick={() => toggleLecture(group.activity)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "10px 12px",
-                      borderRadius: 9,
-                      cursor: "pointer",
-                      transition: "all 0.12s",
-                      border: "1px solid " + (selected ? tc + "60" : T.border1),
-                      background: selected ? tc + "0e" : T.inputBg,
-                    }}
-                  >
-                    <div style={{ width: 18, height: 18, borderRadius: 4, flexShrink: 0, border: "2px solid " + (selected ? tc : T.border1), background: selected ? tc : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{selected && <span style={{ color: "#fff", fontSize: 13 }}>✓</span>}</div>
-                    <span style={{ fontFamily: MONO, color: selected ? tc : T.text3, fontSize: 12, fontWeight: 700, minWidth: 44, flexShrink: 0 }}>{group.activity}</span>
-                    <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10, background: T.pillBg, padding: "1px 6px", borderRadius: 3, flexShrink: 0 }}>{group.discipline}</span>
-                    <span style={{ fontFamily: MONO, color: T.text1, fontSize: 13, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.lectureTitle}</span>
-                    {groupWeak > 0 && <span style={{ fontFamily: MONO, color: T.red, fontSize: 11, flexShrink: 0 }}>⚠{groupWeak}</span>}
-                    <div style={{ width: 36, height: 5, background: T.border1, borderRadius: 2, flexShrink: 0 }}>
-                      <div style={{ width: groupPct + "%", height: "100%", background: groupPct === 100 ? T.green : tc, borderRadius: 2 }} />
-                    </div>
-                    {diff && <span style={{ fontFamily: MONO, color: diffC, fontSize: 10, fontWeight: 700, flexShrink: 0, minWidth: 34 }}>{(diff || "").toUpperCase()}</span>}
-                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                      {group.matchedLec ? (
-                        <span title="Lecture uploaded + objectives linked" style={{ fontFamily: MONO, color: T.green, fontSize: 11 }}>📖 linked</span>
-                      ) : (
-                        <span title="No lecture uploaded for these objectives" style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>📭 upload needed</span>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <button
+                onClick={() => setSelectedLecIds((blockLecs || []).map((l) => l.id))}
+                style={{ fontFamily: MONO, fontSize: 11, color: tc, background: tc + "12", border: "1px solid " + tc + "40", padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
+              >
+                Select All
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedLecIds([]);
+                  setSelectedSubtopics([]);
+                }}
+                style={{ fontFamily: MONO, fontSize: 11, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
+              >
+                Clear
+              </button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {(() => {
+                const blockLecsList = blockLecs || [];
+                return blockLecsList.map((lec) => {
+                  const subtopics = lec.subtopics || [];
+                  const isSelected = selectedLecIds.includes(lec.id);
+                  const allSubSel = subtopics.every((_, i) => selectedSubtopics.includes(lec.id + "_sub_" + i));
+                  const someSubSel = subtopics.some((_, i) => selectedSubtopics.includes(lec.id + "_sub_" + i));
+
+                  return (
+                    <div key={lec.id} style={{ marginBottom: 8 }}>
+                      {/* Parent lecture row */}
+                      <div
+                        onClick={() => {
+                          if (isSelected) {
+                            setSelectedLecIds((prev) => prev.filter((id) => id !== lec.id));
+                            setSelectedSubtopics((prev) => prev.filter((s) => !s.startsWith(lec.id + "_sub_")));
+                          } else {
+                            setSelectedLecIds((prev) => [...prev, lec.id]);
+                          }
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "12px 14px",
+                          borderRadius: subtopics.length > 0 ? "10px 10px 0 0" : 10,
+                          background: isSelected ? tc + "12" : T.inputBg,
+                          borderTop: "1px solid " + (isSelected ? tc + "60" : T.border1),
+                          borderRight: "1px solid " + (isSelected ? tc + "60" : T.border1),
+                          borderBottom: subtopics.length > 0 ? "none" : "1px solid " + (isSelected ? tc + "60" : T.border1),
+                          borderLeft: "1px solid " + (isSelected ? tc + "60" : T.border1),
+                          cursor: "pointer",
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 20,
+                            height: 20,
+                            borderRadius: 5,
+                            flexShrink: 0,
+                            border: "2px solid " + (isSelected ? tc : T.border1),
+                            background: isSelected ? tc : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                        >
+                          {isSelected && <span style={{ color: "#fff", fontSize: 12 }}>✓</span>}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                            {lecTypeBadge(lec.lectureType || "LEC")}
+                            {lec.extractionMethod === "mistral-ocr" && (
+                              <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
+                            )}
+                            <span style={{ fontFamily: MONO, color: T.text1, fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {lec.lectureTitle || lec.fileName}
+                            </span>
+                          </div>
+                          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 2 }}>
+                            {lec.lectureType || "LEC"}{lec.lectureNumber}
+                            {subtopics.length > 0 && ` · ${subtopics.length} subtopics`}
+                          </div>
+                        </div>
+                        {(() => {
+                          const lecObjs = (blockObjs || []).filter(
+                            (o) => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+                          );
+                          return lecObjs.length > 0 ? (
+                            <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, flexShrink: 0 }}>📖 {lecObjs.length} obj</span>
+                          ) : (
+                            <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10, flexShrink: 0 }}>📭 no obj</span>
+                          );
+                        })()}
+                      </div>
+                      {/* Subtopics nested below */}
+                      {subtopics.length > 0 && (
+                        <div
+                          style={{
+                            borderTop: "1px solid " + T.border2,
+                            borderRight: "1px solid " + (isSelected ? tc + "60" : T.border1),
+                            borderBottom: "1px solid " + (isSelected ? tc + "60" : T.border1),
+                            borderLeft: "1px solid " + (isSelected ? tc + "60" : T.border1),
+                            borderRadius: "0 0 10px 10px",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {subtopics.map((sub, si) => {
+                            const subKey = lec.id + "_sub_" + si;
+                            const subSel = selectedSubtopics.includes(subKey);
+                            return (
+                              <div
+                                key={subKey}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSubtopics((prev) => (subSel ? prev.filter((s) => s !== subKey) : [...prev, subKey]));
+                                  if (!isSelected && !subSel) {
+                                    setSelectedLecIds((prev) => [...prev, lec.id]);
+                                  }
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 12,
+                                  padding: "9px 14px 9px 42px",
+                                  background: subSel ? tc + "0a" : T.cardBg,
+                                  borderBottom: si < subtopics.length - 1 ? "1px solid " + T.border2 : "none",
+                                  cursor: "pointer",
+                                  transition: "background 0.15s",
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = subSel ? tc + "14" : (T.hoverBg ?? T.inputBg))}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = subSel ? tc + "0a" : T.cardBg)}
+                              >
+                                <div
+                                  style={{
+                                    width: 16,
+                                    height: 16,
+                                    borderRadius: 4,
+                                    flexShrink: 0,
+                                    border: "2px solid " + (subSel ? tc : T.border1),
+                                    background: subSel ? tc : "transparent",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  {subSel && <span style={{ color: "#fff", fontSize: 10 }}>✓</span>}
+                                </div>
+                                <span style={{ fontFamily: MONO, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {sub}
+                                </span>
+                                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9 }}>subtopic</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       )}
-                      {group.uploadedQCount > 0 && <span title={group.uploadedQCount + " uploaded questions"} style={{ fontFamily: MONO, color: T.green, fontSize: 11 }}>+{group.uploadedQCount}Q</span>}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           </div>
+
+          {aiContext && <AIContextBadge context={aiContext} T={T} MONO={MONO} />}
 
           <div style={{ background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "12px 16px" }}>
             <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SESSION PREVIEW</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
               {[
                 { label: "Questions", val: questionCount },
-                { label: "Lectures", val: selectedLectures.length },
+                { label: "Lectures", val: selectedLecIds.length },
                 { label: "Objectives", val: focusMode === "weak" ? weakObjs.length : focusMode === "untested" ? totalObjs.filter((o) => o.status === "untested").length : totalObjs.length },
                 { label: "Difficulty", val: avgDifficulty.toUpperCase(), color: diffColor },
               ].map((s) => (
@@ -3007,38 +5443,40 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
               ))}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: hasUploadedLecs ? T.green : T.text3, background: hasUploadedLecs ? T.greenBg : T.pillBg, border: "1px solid " + (hasUploadedLecs ? T.greenBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedLecs ? "📖 Using lecture slides" : "📭 No slides uploaded"}</span>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: hasUploadedQs ? T.green : T.text3, background: hasUploadedQs ? T.greenBg : T.pillBg, border: "1px solid " + (hasUploadedQs ? T.greenBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedQs ? "📝 " + totalUploadedQs + " uploaded questions as style guide" : "📝 No uploaded questions"}</span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: hasUploadedLecs ? T.statusGood : T.text3, background: hasUploadedLecs ? T.statusGoodBg : T.pillBg, border: "1px solid " + (hasUploadedLecs ? T.statusGoodBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedLecs ? "📖 Using lecture slides" : "📭 No slides uploaded"}</span>
+              <span style={{ fontFamily: MONO, fontSize: 11, color: hasUploadedQs ? T.statusGood : T.text3, background: hasUploadedQs ? T.statusGoodBg : T.pillBg, border: "1px solid " + (hasUploadedQs ? T.statusGoodBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedQs ? "📝 " + totalUploadedQs + " uploaded questions as style guide" : "📝 No uploaded questions"}</span>
               <span style={{ fontFamily: MONO, fontSize: 11, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, padding: "2px 8px", borderRadius: 4 }}>🎯 {focusMode === "weak" ? weakObjs.length + " weak objectives targeted" : totalObjs.length + " objectives targeted"}</span>
             </div>
           </div>
 
           <button
-            disabled={selectedLectures.length === 0}
+            disabled={selectedLecIds.length === 0}
             onClick={() =>
               onStart({
                 mode,
                 questionCount,
                 focusMode,
-                selectedActivities: selectedLectures,
+                selectedActivities: selectedGroups.map((g) => g.activity),
                 selectedGroups,
+                selectedLecIds,
+                selectedSubtopics,
                 targetObjectives: focusMode === "weak" ? weakObjs : focusMode === "untested" ? totalObjs.filter((o) => o.status === "untested") : focusMode === "mastered" ? masteredObjs : totalObjs,
                 blockId,
               })
             }
             style={{
-              background: selectedLectures.length === 0 ? T.border1 : tc,
+              background: selectedLecIds.length === 0 ? T.border1 : tc,
               border: "none",
               color: "#fff",
               padding: "14px 0",
               borderRadius: 11,
-              cursor: selectedLectures.length === 0 ? "not-allowed" : "pointer",
+              cursor: selectedLecIds.length === 0 ? "not-allowed" : "pointer",
               fontFamily: SERIF,
               fontSize: 18,
               fontWeight: 900,
               transition: "opacity 0.15s",
             }}
-            onMouseEnter={(e) => { if (selectedLectures.length > 0) e.currentTarget.style.opacity = "0.88"; }}
+            onMouseEnter={(e) => { if (selectedLecIds.length > 0) e.currentTarget.style.opacity = "0.88"; }}
             onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
           >
             Generate {questionCount} Questions →
@@ -3399,7 +5837,7 @@ function ObjectivesImporter({ blockId, onImport, T, tc }) {
             page {currentPage}/{totalPages}
           </span>
         )}
-        <div style={{ background: importing ? (tc || T.red) + "22" : (T.greenBg || T.inputBg), border: "1px solid " + (importing ? (tc || T.red) : (T.green || "#10b981")), borderRadius: 6, padding: "2px 10px" }}>
+        <div style={{ background: importing ? (tc || T.statusBad) + "22" : (T.statusGoodBg || T.inputBg), border: "1px solid " + (importing ? (tc || T.statusBad) : (T.statusGood || "#2563eb")), borderRadius: 6, padding: "2px 10px" }}>
           <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 13, color: importing ? (tc || T.red) : (T.green || "#10b981") }}>
             {liveObjectives.length} found
           </span>
@@ -3503,6 +5941,7 @@ export default function App() {
   });
   const [tab,     setTab]     = useState("lectures");
   const [studyCfg, setStudyCfg] = useState(null);
+  const [ankiLogTarget, setAnkiLogTarget] = useState(null);
   const [trackerKey, setTrackerKey] = useState(0);
   const [performanceHistory, setPerformanceHistory] = useState(() => {
     try {
@@ -3511,9 +5950,42 @@ export default function App() {
       return {};
     }
   });
+  const [trackerRows, setTrackerRowsState] = useState(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("rxt-tracker-v2") || "[]");
+      return deduplicateTrackerRows(raw);
+    } catch {
+      return [];
+    }
+  });
+  const setTrackerRows = useCallback((updaterOrValue) => {
+    setTrackerRowsState((prev) => {
+      const next = typeof updaterOrValue === "function" ? updaterOrValue(prev) : updaterOrValue;
+      try {
+        localStorage.setItem("rxt-tracker-v2", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+  const sessionSaveInProgress = useRef(false);
+  const [examDates, setExamDates] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-exam-dates") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const saveExamDate = (blockId, date) => {
+    setExamDates((prev) => {
+      const updated = { ...prev, [blockId]: date };
+      localStorage.setItem("rxt-exam-dates", JSON.stringify(updated));
+      return updated;
+    });
+  };
   const [perfToast, setPerfToast] = useState(null);
   const [currentSessionMeta, setCurrentSessionMeta] = useState(null);
   const [sessionSummary, setSessionSummary] = useState(null);
+  const [pendingConfidence, setPendingConfidence] = useState(null);
 
   const [uploading, setUploading] = useState(false);
   const [upMsg, setUpMsg]         = useState("");
@@ -3542,6 +6014,23 @@ export default function App() {
   const [mergeMode, setMergeMode] = useState(false);
   const [mergeSelected, setMergeSelected] = useState([]);
   const [mergeConfig, setMergeConfig] = useState({ open: false, lectures: [] });
+
+  const [stylePrefs, setStylePrefs] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-style-prefs") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const updateStylePref = (key, val) => {
+    setStylePrefs((prev) => {
+      const updated = { ...prev, [key]: val };
+      try {
+        localStorage.setItem("rxt-style-prefs", JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
 
   const [blockObjectives, setBlockObjectives] = useState(() => {
     try {
@@ -3583,6 +6072,770 @@ export default function App() {
       seen.add(key);
       return true;
     });
+  };
+
+  useEffect(() => {
+    setBlockObjectives((prev) => {
+      let changed = false;
+      const updated = { ...prev };
+      const blockLecsByBid = {};
+      lectures.forEach((l) => {
+        const bid = l.blockId;
+        if (!blockLecsByBid[bid]) blockLecsByBid[bid] = [];
+        blockLecsByBid[bid].push(l);
+      });
+      Object.keys(updated).forEach((blockId) => {
+        const data = updated[blockId];
+        if (!data) return;
+        const lecsInBlock = blockLecsByBid[blockId] || [];
+        const enrich = (obj) => {
+          if (obj.bloom_level) return obj;
+          changed = true;
+          const lec = lecsInBlock.find(
+            (l) => l.id === obj.linkedLecId || String(l.lectureNumber) === String(obj.lectureNumber)
+          );
+          return enrichObjectiveWithBloom(obj, lec?.lectureType || "LEC");
+        };
+        const imported = (data.imported || []).map(enrich);
+        const extracted = (data.extracted || []).map(enrich);
+        updated[blockId] = { ...data, imported, extracted };
+      });
+      if (changed) {
+        try {
+          localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+        } catch {}
+      }
+      return changed ? updated : prev;
+    });
+  }, [lectures.length]);
+
+  useEffect(() => {
+    const allLecIds = new Set(lectures.map((l) => l.id));
+    Object.entries(performanceHistory || {}).forEach(([key, entry]) => {
+      const lecId = key.split("__")[0];
+      if (lecId !== "block" && !allLecIds.has(lecId)) {
+        console.warn(`🔴 Orphaned performance key: ${key} — lecture ${lecId} no longer exists`);
+      }
+    });
+  }, [lectures.length]);
+
+  const makeTopicKey = (lectureId, blockId) =>
+    lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`;
+
+  const makeSubtopicKey = (lecId, subtopicIndex, blockId) =>
+    `${lecId}__sub${subtopicIndex}__${blockId}`;
+
+  useEffect(() => {
+    const cleanupVersion = "cleanup_v3";
+    if (localStorage.getItem(cleanupVersion)) return;
+    if (lectures.length === 0) return;
+
+    console.log("🧹 Running session bleed cleanup...");
+
+    setPerformanceHistory((prev) => {
+      const cleaned = {};
+      let removed = 0;
+
+      Object.entries(prev || {}).forEach(([key, entry]) => {
+        const lecId = key.split("__")[0];
+
+        if (lecId === "block") {
+          cleaned[key] = entry;
+          return;
+        }
+
+        const lecExists = lectures.some((l) => l.id === lecId);
+        if (lecExists) {
+          const cleanedSessions = (entry.sessions || []).filter(
+            (s) => !s.lectureId || s.lectureId === lecId
+          );
+          cleaned[key] = { ...entry, sessions: cleanedSessions };
+        } else {
+          removed++;
+          console.log(`🗑 Removed orphaned key: ${key}`);
+        }
+      });
+
+      console.log(`✅ Cleanup done. Removed ${removed} orphaned keys.`);
+      try {
+        localStorage.setItem("rxt-performance", JSON.stringify(cleaned));
+      } catch {}
+      return cleaned;
+    });
+
+    localStorage.setItem(cleanupVersion, "done");
+  }, [lectures.length]);
+
+  const resolveTopicLabel = useCallback(
+    (topicKey, sessionRecord, blockId) => {
+      const lecs = lectures;
+      const blocksArr = (terms || []).flatMap((t) => t.blocks || []);
+      const lecId =
+        sessionRecord?.lectureId ||
+        (typeof topicKey === "string" ? topicKey.split("__")[0] : null);
+
+      if (lecId && lecId !== "block") {
+        const lec = lecs.find((l) => l.id === lecId);
+        if (lec) {
+          const typeLabel = `${lec.lectureType || "LEC"}${lec.lectureNumber ?? ""}`;
+          const title = lec.lectureTitle || lec.fileName || "";
+          const sessionType = (sessionRecord?.sessionType || "").toLowerCase();
+          const typeSuffix =
+            sessionType === "anki"
+              ? " — Anki"
+              : sessionType === "deeplearn"
+                ? " — Deep Learn"
+                : sessionType === "quiz" || sessionType === "objectivequiz"
+                  ? " — Quiz"
+                  : sessionType === "blockexam"
+                    ? " — Block Exam"
+                    : "";
+          return `${typeLabel} — ${title}${typeSuffix}`.trim();
+        }
+      }
+
+      if (
+        (typeof topicKey === "string" && topicKey.startsWith("block__")) ||
+        lecId === "block"
+      ) {
+        const block = blocksArr.find(
+          (b) => b.id === blockId || (typeof topicKey === "string" && topicKey.includes(b.id))
+        );
+        const sessionType = (sessionRecord?.sessionType || "").toLowerCase();
+        const blockName = block?.name || "Block";
+        return sessionType === "blockexam"
+          ? `${blockName} — Block Exam`
+          : `${blockName} — ${sessionRecord?.topic || "Review"}`;
+      }
+
+      if (topicKey) {
+        const key = String(topicKey);
+        return key
+          .replace(/__full__/g, " — Full Lecture")
+          .replace(/__weak__/g, " — Weak Areas")
+          .replace(/__/g, " — ")
+          .replace(/^block /i, "Block Exam: ")
+          .trim();
+      }
+
+      return (
+        sessionRecord?.topic ||
+        sessionRecord?.lectureTitle ||
+        sessionRecord?.title ||
+        "Study Session"
+      );
+    },
+    [lectures, terms]
+  );
+
+  const syncTrackerRow = useCallback(
+    (lectureId, blockId, sessionRecord) => {
+      if (!lectureId) {
+        console.warn("syncTrackerRow called without lectureId — skipping");
+        return;
+      }
+      const lec = lectures.find((l) => l.id === lectureId);
+      if (!lec) {
+        console.warn("syncTrackerRow: no lecture found for id", lectureId);
+        return;
+      }
+      const blockName = (terms || []).flatMap((t) => t.blocks || []).find((b) => b.id === blockId)?.name || "";
+      const topicKey = sessionRecord?.topicKey ?? makeTopicKey(lectureId, blockId);
+      const topicLabel = (lec.lectureTitle || lec.fileName || "").trim() || resolveTopicLabel(topicKey, sessionRecord, blockId);
+
+      setTrackerRows((prev) => {
+        // Match ONLY by lectureId — never by topic string.
+        const existingIdx = prev.findIndex((r) => r.lectureId === lectureId);
+
+        const confidenceNum =
+          sessionRecord.confidenceLevel === "High"
+            ? 5
+            : sessionRecord.confidenceLevel === "Medium"
+              ? 3
+              : sessionRecord.confidenceLevel === "Low"
+                ? 1
+                : null;
+
+        const preRead = sessionRecord.sessionType === "anki";
+        const lecture = sessionRecord.sessionType === "deepLearn";
+        const postReview =
+          sessionRecord.sessionType === "quiz" || sessionRecord.sessionType === "objectiveQuiz";
+        const anki = sessionRecord.sessionType === "blockExam";
+
+        const dateStr = sessionRecord.date?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+
+        const updatedRow =
+          existingIdx >= 0
+            ? {
+                ...prev[existingIdx],
+                topic: topicLabel,
+                lastStudied: dateStr,
+                reps: (prev[existingIdx].reps || 0) + 1,
+                scores: [...(prev[existingIdx].scores || []), sessionRecord.score].filter((s) => s != null),
+                confidence: confidenceNum ?? prev[existingIdx].confidence,
+                ankiDate:
+                  sessionRecord.sessionType === "anki" ? dateStr : prev[existingIdx].ankiDate,
+                preRead: prev[existingIdx].preRead || preRead,
+                lecture: prev[existingIdx].lecture || lecture,
+                postReview: prev[existingIdx].postReview || postReview,
+                anki: prev[existingIdx].anki || anki,
+              }
+            : {
+                id: `auto_${lectureId}_${Date.now()}`,
+                lectureId,
+                blockId,
+                block: blockName,
+                subject: lec.subject || lec.discipline || "",
+                topic: topicLabel,
+                lectureDate: "",
+                lastStudied: dateStr,
+                ankiDate: sessionRecord.sessionType === "anki" ? dateStr : "",
+                preRead,
+                lecture,
+                postReview,
+                anki,
+                confidence: confidenceNum,
+                scores: sessionRecord.score != null ? [sessionRecord.score] : [],
+                notes: "",
+                reps: 1,
+                autoGenerated: true,
+              };
+
+        const updated =
+          existingIdx >= 0 ? prev.map((r, i) => (i === existingIdx ? updatedRow : r)) : [...prev, updatedRow];
+        return deduplicateTrackerRows(updated);
+      });
+    },
+    [lectures, terms, setTrackerRows, resolveTopicLabel, makeTopicKey]
+  );
+
+  const handleDeepLearnStart = ({ selectedTopics, blockId: bId }) => {
+    const bid = bId ?? activeBlock?.id ?? blockId;
+    setStudyCfg({
+      blockId: bid,
+      lecs: lectures.filter((l) => l.blockId === bid),
+      blockObjectives: getBlockObjectives(bid),
+      preselectedLecId: selectedTopics?.[0]?.lecId,
+    });
+    setView("deeplearn");
+  };
+
+  const handleAnkiLog = (sessionData) => {
+    if (!ankiLogTarget) return;
+    const lec = ankiLogTarget;
+    const bid = lec.blockId || activeBlock?.id || blockId;
+    const isCurrentBlock = bid === activeBlock?.id;
+    const firstSessionDate = Object.values(performanceHistory)
+      .flatMap((p) => p.sessions || [])
+      .filter((s) => s.blockId === bid)
+      .map((s) => s.date)
+      .filter(Boolean)
+      .sort()[0];
+    const blockAgeMonths = firstSessionDate
+      ? (Date.now() - new Date(firstSessionDate)) / (1000 * 60 * 60 * 24 * 30)
+      : 0;
+    const nextReview = getReviewInterval(sessionData.confidenceLevel, isCurrentBlock, blockAgeMonths);
+    const fakeCount = sessionData.cardCount || 10;
+    const correctCount = Math.round((sessionData.score / 100) * fakeCount);
+    handleSessionComplete(
+      Array(fakeCount).fill(null).map((_, i) => ({
+        correct: i < correctCount,
+        score: sessionData.score,
+        topic: lec.lectureTitle,
+        lectureId: lec.id,
+        sessionType: "anki",
+      })),
+      {
+        blockId: bid,
+        lectureId: lec.id,
+        topicKey: makeTopicKey(lec.id, bid),
+        sessionType: "anki",
+        confidenceLevel: sessionData.confidenceLevel,
+        difficulty: "medium",
+        targetObjectives: (getBlockObjectives(bid) || []).filter((o) => o.linkedLecId === lec.id),
+        nextReview,
+        ...sessionData,
+      }
+    );
+    setAnkiLogTarget(null);
+  };
+
+  const buildStudySchedule = (blockId) => {
+    const examDate = examDates[blockId];
+    if (!examDate) return null;
+
+    const exam = new Date(examDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysLeft = Math.ceil((exam - today) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 0) return null;
+
+    const blockLecs = lectures.filter((l) => l.blockId === blockId);
+    const blockObjs = getBlockObjectives(blockId) || [];
+    const perf = performanceHistory;
+
+    const lecturePlans = blockLecs.map((lec) => {
+      const lecObjs = blockObjs.filter(
+        (o) =>
+          String(o.lectureNumber) === String(lec.lectureNumber) ||
+          o.linkedLecId === lec.id
+      );
+      const struggling = lecObjs.filter((o) => o.status === "struggling").length;
+      const untested = lecObjs.filter((o) => o.status === "untested").length;
+      const mastered = lecObjs.filter((o) => o.status === "mastered").length;
+      const total = lecObjs.length;
+
+      const lecPerfKey = Object.keys(perf).find((k) => k.startsWith(lec.id));
+      const lecPerf = lecPerfKey ? perf[lecPerfKey] : null;
+      const lastScore = lecPerf?.sessions?.slice(-1)[0]?.score ?? null;
+      const sessionsDone = lecPerf?.sessions?.length || 0;
+      const confidence = lecPerf?.confidenceLevel || "Low";
+
+      const isStruggling = struggling > 0 || (lastScore !== null && lastScore < 60);
+      const requiredReps = isStruggling ? 5 : confidence === "High" ? 3 : 4;
+      const repsRemaining = Math.max(0, requiredReps - sessionsDone);
+
+      const baseIntervals = isStruggling
+        ? [1, 2, 4, 7, 12]
+        : [1, 3, 7, 14, 21];
+
+      const studyMode = detectStudyMode(lec, lecObjs);
+
+      return {
+        lec,
+        lecObjs,
+        struggling,
+        untested,
+        mastered,
+        total,
+        lastScore,
+        sessionsDone,
+        confidence,
+        isStruggling,
+        requiredReps,
+        repsRemaining,
+        baseIntervals,
+        studyMode,
+        priority:
+          isStruggling
+            ? "critical"
+            : untested > total * 0.5
+              ? "high"
+              : confidence === "Low"
+                ? "high"
+                : "normal",
+      };
+    });
+
+    const MAX_PER_DAY = 3;
+    const schedule = {};
+
+    const addToDay = (dateObj, item) => {
+      const key = dateObj.toISOString().slice(0, 10);
+      if (!schedule[key]) schedule[key] = [];
+      if (schedule[key].length < MAX_PER_DAY) {
+        schedule[key].push(item);
+        return true;
+      }
+      const next = new Date(dateObj);
+      next.setDate(next.getDate() + 1);
+      if (next < exam) {
+        const nextKey = next.toISOString().slice(0, 10);
+        if (!schedule[nextKey]) schedule[nextKey] = [];
+        if (schedule[nextKey].length < MAX_PER_DAY) {
+          schedule[nextKey].push(item);
+          return true;
+        }
+      }
+      return false;
+    };
+
+    lecturePlans.forEach((plan) => {
+      if (plan.repsRemaining <= 0) return;
+
+      let intervals = plan.baseIntervals.slice(0, plan.repsRemaining);
+
+      if (daysLeft < intervals[intervals.length - 1]) {
+        const scale = daysLeft / intervals[intervals.length - 1];
+        intervals = intervals.map((d, i) =>
+          i === 0 ? 1 : Math.max(i + 1, Math.round(d * scale))
+        );
+      }
+
+      intervals.forEach((dayOffset, repIdx) => {
+        const sessionDate = new Date(today);
+        sessionDate.setDate(today.getDate() + dayOffset);
+
+        if (sessionDate >= exam) return;
+
+        addToDay(sessionDate, {
+          lectureId: plan.lec.id,
+          lectureTitle: plan.lec.lectureTitle || plan.lec.fileName,
+          lectureType: plan.lec.lectureType || "Lec",
+          lectureNum: plan.lec.lectureNumber,
+          repNumber: plan.sessionsDone + repIdx + 1,
+          totalReps: plan.requiredReps,
+          isStruggling: plan.isStruggling,
+          priority: plan.priority,
+          studyMode: plan.studyMode,
+          objectives: plan.lecObjs,
+          blockId,
+        });
+      });
+    });
+
+    const sortedDays = Object.entries(schedule).sort(([a], [b]) =>
+      a.localeCompare(b)
+    );
+
+    return {
+      examDate,
+      daysLeft,
+      totalSessions: Object.values(schedule).flat().length,
+      criticalCount: lecturePlans.filter((p) => p.priority === "critical").length,
+      lecturePlans,
+      schedule: sortedDays,
+    };
+  };
+
+  const generateDailySchedule = (blockId, examDate) => {
+    if (!examDate) return null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exam = new Date(examDate);
+    exam.setHours(0, 0, 0, 0);
+    const daysLeft = Math.ceil((exam - today) / (1000 * 60 * 60 * 24));
+    if (daysLeft <= 0) return { schedule: [], daysLeft: 0, lecScores: [], upcoming: [], undated: [], needsBlockStart: false };
+
+    const blockLecs = lectures.filter((l) => l.blockId === blockId);
+    const blockObjs = getBlockObjectives(blockId) || [];
+    const blocks = terms.flatMap((t) => t.blocks || []);
+    const block = blocks.find((b) => b.id === blockId);
+    const blockStart = block?.startDate
+      ? (() => {
+          const d = new Date(block.startDate);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        })()
+      : null;
+
+    const getAvailableDate = (lec) => {
+      if (lec.lectureDate) {
+        const d = new Date(lec.lectureDate);
+        d.setHours(0, 0, 0, 0);
+        return { date: d, source: "explicit" };
+      }
+      if (lec.weekNumber && lec.dayOfWeek && blockStart) {
+        const DOW = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
+        const startDay = blockStart.getDay();
+        const toMonday = startDay === 0 ? -6 : 1 - startDay;
+        const weekOneMon = new Date(blockStart);
+        weekOneMon.setDate(blockStart.getDate() + toMonday);
+        const targetDow = DOW[lec.dayOfWeek] ?? 1;
+        const derived = new Date(weekOneMon);
+        derived.setDate(
+          weekOneMon.getDate() +
+            (lec.weekNumber - 1) * 7 +
+            (targetDow === 0 ? 6 : targetDow - 1)
+        );
+        derived.setHours(0, 0, 0, 0);
+        return { date: derived, source: "derived" };
+      }
+      if (lec.weekNumber && blockStart) {
+        const derived = new Date(blockStart);
+        derived.setDate(blockStart.getDate() + (lec.weekNumber - 1) * 7);
+        derived.setHours(0, 0, 0, 0);
+        return { date: derived, source: "week-only" };
+      }
+      return { date: null, source: "unknown" };
+    };
+
+    const lecScores = blockLecs.map((lec) => {
+      const { date: availableDate } = getAvailableDate(lec);
+
+      const isAvailableToday = availableDate && availableDate <= today;
+      const isFuture = availableDate && availableDate > today;
+      const daysUntilAvailable = availableDate
+        ? Math.max(0, Math.ceil((availableDate - today) / (1000 * 60 * 60 * 24)))
+        : null;
+      const hasNoDate = !availableDate;
+
+      const perf = getLecPerf(lec, blockId);
+      const lecObjs = blockObjs.filter(
+        (o) =>
+          o.linkedLecId === lec.id ||
+          String(o.lectureNumber) === String(lec.lectureNumber)
+      );
+      const struggling = lecObjs.filter((o) => o.status === "struggling").length;
+      const untested = lecObjs.filter((o) => o.status === "untested").length;
+      const mastered = lecObjs.filter((o) => o.status === "mastered").length;
+      const total = lecObjs.length;
+      const avgBloom =
+        total > 0
+          ? lecObjs.reduce((s, o) => s + (o.bloom_level ?? 2), 0) / total
+          : 2;
+      const lastScore = perf?.lastScore ?? null;
+      const confidence = perf?.confidenceLevel || "Low";
+      const nextReview = perf?.nextReview ? new Date(perf.nextReview) : null;
+      const sessions = perf?.sessions?.length || 0;
+
+      let urgency = 0;
+      urgency += struggling * 10;
+      urgency += untested * 3;
+      urgency += avgBloom * 2;
+      if (lastScore !== null && lastScore < 60) urgency += 15;
+      if (lastScore !== null && lastScore < 80) urgency += 5;
+      if (confidence === "Low") urgency += 8;
+      if (confidence === "Medium") urgency += 3;
+      if (sessions === 0) urgency += 12;
+      if (nextReview && nextReview <= today) urgency += 20;
+
+      const recommendedSessions = [];
+      if (sessions === 0) {
+        recommendedSessions.push({
+          type: "deepLearn",
+          label: "🧠 First Deep Learn",
+          reason: "Never studied",
+          duration: 45,
+        });
+        recommendedSessions.push({
+          type: "anki",
+          label: "📇 Unsuspend Anki Cards",
+          reason: "First pass — unsuspend and review",
+          duration: 20,
+        });
+      } else if (struggling > 0) {
+        recommendedSessions.push({
+          type: "quiz",
+          label: "⚠ Quiz Weak Objectives",
+          reason: `${struggling} struggling objective${struggling > 1 ? "s" : ""}`,
+          duration: 20,
+        });
+      } else if (nextReview && nextReview <= today) {
+        recommendedSessions.push({
+          type: "anki",
+          label: "📇 Anki Review Due",
+          reason: "Spaced rep due today",
+          duration: 15,
+        });
+        if (lastScore < 80) {
+          recommendedSessions.push({
+            type: "quiz",
+            label: "✅ Quiz Full Lecture",
+            reason: `Last score ${lastScore}% — needs review`,
+            duration: 20,
+          });
+        }
+      } else if (untested > 0 && total > 0) {
+        recommendedSessions.push({
+          type: "quiz",
+          label: "○ Quiz Untested Objectives",
+          reason: `${untested} objectives not yet tested`,
+          duration: 15,
+        });
+      }
+
+      return {
+        lec,
+        urgency,
+        struggling,
+        untested,
+        mastered,
+        total,
+        avgBloom,
+        lastScore,
+        confidence,
+        nextReview,
+        sessions,
+        recommendedSessions,
+        availableDate,
+        isAvailableToday,
+        isFuture,
+        daysUntilAvailable,
+        hasNoDate,
+      };
+    });
+
+    lecScores.sort((a, b) => b.urgency - a.urgency);
+
+    const schedule = [];
+    const MAX_PER_DAY = 6;
+    const scheduled = new Set();
+
+    for (let d = 0; d < daysLeft; d++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + d);
+      date.setHours(0, 0, 0, 0);
+      const dateStr = date.toISOString().slice(0, 10);
+
+      const dayTasks = [];
+
+      for (const ls of lecScores) {
+        if (dayTasks.length >= MAX_PER_DAY) break;
+        if (scheduled.has(ls.lec.id)) continue;
+        if (!ls.availableDate) continue;
+
+        const lecDateStr = ls.availableDate.toISOString().slice(0, 10);
+        if (lecDateStr === dateStr) {
+          dayTasks.push({ ...ls, dateStr, matchReason: "scheduled-day" });
+          scheduled.add(ls.lec.id);
+        }
+      }
+
+      for (const ls of lecScores) {
+        if (dayTasks.length >= MAX_PER_DAY) break;
+        if (scheduled.has(ls.lec.id)) continue;
+        if (!ls.isAvailableToday && d === 0) continue;
+        if (ls.availableDate > date) continue;
+
+        const isOverdue = ls.nextReview && ls.nextReview < today;
+        const isDue =
+          ls.nextReview &&
+          ls.nextReview.toISOString().slice(0, 10) === dateStr;
+
+        if (isOverdue || isDue) {
+          dayTasks.push({ ...ls, dateStr, matchReason: "spaced-rep-due" });
+          scheduled.add(ls.lec.id);
+        }
+      }
+
+      for (const ls of lecScores) {
+        if (dayTasks.length >= MAX_PER_DAY) break;
+        if (scheduled.has(ls.lec.id)) continue;
+        if (!ls.availableDate || ls.availableDate > date) continue;
+        if (ls.recommendedSessions.length === 0) continue;
+
+        const scheduleOnDay = Math.floor(
+          (lecScores.indexOf(ls) / lecScores.length) * daysLeft
+        );
+        if (scheduleOnDay <= d) {
+          dayTasks.push({ ...ls, dateStr, matchReason: "urgency" });
+          scheduled.add(ls.lec.id);
+        }
+      }
+
+      if (dayTasks.length > 0) {
+        schedule.push({
+          date,
+          dateStr,
+          daysFromNow: d,
+          dayLabel:
+            d === 0
+              ? "Today"
+              : d === 1
+                ? "Tomorrow"
+                : date.toLocaleDateString("en-US", {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric",
+                  }),
+          tasks: dayTasks,
+        });
+      }
+    }
+
+    const upcoming = lecScores
+      .filter((ls) => ls.lec.lectureDate && ls.isFuture)
+      .sort((a, b) => a.availableDate - b.availableDate)
+      .slice(0, 8);
+
+    const undated = lecScores
+      .filter(
+        (ls) =>
+          !ls.lec.lectureDate &&
+          !ls.lec.weekNumber &&
+          !ls.lec.dayOfWeek
+      )
+      .sort((a, b) => (a.lec.lectureNumber || 0) - (b.lec.lectureNumber || 0));
+
+    const needsBlockStart = lecScores.some(
+      (ls) =>
+        (ls.lec.weekNumber || ls.lec.dayOfWeek) &&
+        !ls.lec.lectureDate &&
+        !block?.startDate
+    );
+
+    return { schedule, daysLeft, lecScores, upcoming, undated, needsBlockStart };
+  };
+
+  const buildQuestionContext = (blockId, lectureId, questionBanksByFileArg, mode = "quiz", options = {}) => {
+    const blockLecs = lectures.filter((l) => l.blockId === blockId);
+    const blockObjs = getBlockObjectives(blockId) || [];
+    const allUploaded = Object.entries(questionBanksByFileArg || {});
+    const relevantQs = allUploaded
+      .flatMap(([fname, questions]) => (questions || []).map((q) => ({ ...q, sourceFile: fname })))
+      .filter((q) => {
+        if (!lectureId) return true;
+        const lec = lectures.find((l) => l.id === lectureId);
+        if (!lec) return true;
+        const fname = (q.sourceFile || "").toLowerCase();
+        const topic = (q.topic || q.subject || "").toLowerCase();
+        const lecTitle = (lec.lectureTitle || "").toLowerCase().slice(0, 20);
+        const lecNum = String(lec.lectureNumber || "");
+        return fname.includes(lecNum) || topic.includes(lecTitle) || fname.includes(lecTitle.slice(0, 10));
+      });
+
+    const selectedLecIds = options.selectedLecIds || (lectureId ? [lectureId] : []);
+    let lectureChunks = "";
+    let anyMistralOcr = false;
+    if (selectedLecIds.length > 0) {
+      const lecsUsed = selectedLecIds.map((id) => lectures.find((l) => l.id === id)).filter(Boolean);
+      anyMistralOcr = lecsUsed.some((l) => l.extractionMethod === "mistral-ocr");
+      lectureChunks = lecsUsed
+        .flatMap((lec) => (lec.chunks || []).map((c) => c.text || c.content || ""))
+        .join("\n")
+        .slice(0, 6000);
+    } else if (lectureId) {
+      const lec = lectures.find((l) => l.id === lectureId);
+      anyMistralOcr = lec?.extractionMethod === "mistral-ocr";
+      lectureChunks = (lec?.chunks || []).map((c) => c.text || c.content || "").join("\n").slice(0, 6000);
+    }
+    const contentNote = anyMistralOcr
+      ? "The following lecture content has been extracted with high-fidelity OCR, preserving tables, headings, and document structure as markdown. Use the structure to identify high-yield topics.\n\n"
+      : "";
+    if (lectureChunks) lectureChunks = contentNote + lectureChunks;
+
+    const lec = lectures.find((l) => l.id === lectureId);
+    const objectives = blockObjs.filter(
+      (o) =>
+        !lectureId ||
+        o.linkedLecId === lectureId ||
+        String(o.lectureNumber) === String(lec?.lectureNumber)
+    );
+
+    const styleAnalysis =
+      relevantQs.length > 0
+        ? {
+            avgStemLength: Math.round(relevantQs.reduce((a, q) => a + (q.stem || "").length, 0) / relevantQs.length),
+            hasClinicalCases: relevantQs.filter((q) => /year.old|presents|patient/i.test(q.stem || "")).length,
+            hasCalculations: relevantQs.filter((q) => /calculate|how many|what is the dose/i.test(q.stem || "")).length,
+            hasMechanisms: relevantQs.filter((q) => /mechanism|pathway|why|how does/i.test(q.stem || "")).length,
+            sourceFiles: [...new Set(relevantQs.map((q) => q.sourceFile))],
+            totalQuestions: relevantQs.length,
+          }
+        : null;
+
+    const context = {
+      relevantQs: relevantQs.slice(0, 8),
+      lectureChunks,
+      objectives: objectives.slice(0, 20),
+      styleAnalysis,
+      hasLectureContent: lectureChunks.length > 100,
+      hasUploadedQs: relevantQs.length > 0,
+      hasObjectives: objectives.length > 0,
+      stylePrefs,
+    };
+
+    console.log("📚 Question context built:", {
+      uploadedQsUsed: context.relevantQs.length,
+      fromFiles: styleAnalysis?.sourceFiles || [],
+      lectureCharsUsed: lectureChunks.length,
+      objectivesUsed: objectives.length,
+      stylePatterns: styleAnalysis,
+    });
+
+    return context;
   };
 
   const saveBlockObjectives = (bid, patch) => {
@@ -3630,86 +6883,42 @@ export default function App() {
     });
   };
 
-  const syncSessionToObjectives = (sessionResults, blockId, targetObjectives) => {
+  // ONLY update objective statuses for the target lecture — never by lecture number or topic string.
+  const syncSessionToObjectives = (sessionResults, blockId, targetObjectives, targetLecId) => {
+    const targetLecIdResolved =
+      targetLecId ?? targetObjectives?.[0]?.linkedLecId;
+    if (!targetLecIdResolved) {
+      console.warn("syncSessionToObjectives: no targetLecId — skipping");
+      return { updatedCount: 0, masteredCount: 0, strugglingCount: 0, updates: [] };
+    }
     if (!blockId || !sessionResults?.length) return { updatedCount: 0, masteredCount: 0, strugglingCount: 0, updates: [] };
 
+    const blockObjs = getBlockObjectives(blockId) || [];
     const updatesRef = { current: [] };
     let updatedCount = 0;
     let masteredCount = 0;
     let strugglingCount = 0;
 
-    setBlockObjectives((prev) => {
-      const blockData = prev[blockId];
-      if (!blockData) return prev;
-
-      const imported = [...(blockData.imported || [])];
-      const extracted = [...(blockData.extracted || [])];
-
-      const resultMap = {};
-      sessionResults.forEach((r) => {
-        if (r.objectiveId) resultMap[r.objectiveId] = r;
-      });
-
-      const updateObjectiveInArray = (arr) =>
-        arr.map((obj) => {
-          const result =
-            resultMap[obj.id] ||
-            resultMap[obj.code] ||
-            sessionResults.find(
-              (r) =>
-                r.topic?.toLowerCase().includes((obj.lectureTitle || "").slice(0, 15).toLowerCase()) ||
-                r.lectureRef === obj.activity ||
-                (r.objectiveCovered && obj.objective?.toLowerCase().includes(r.objectiveCovered.toLowerCase().slice(0, 20)))
-            );
-
-          const wasTargeted = targetObjectives?.some((o) => o.id === obj.id || o.code === obj.code);
-
-          if (!result && !wasTargeted) return obj;
-
-          const correct = result?.correct ?? result?.isCorrect ?? null;
-          const current = obj.status;
-
-          let newStatus = current;
-          if (correct === true) {
-            newStatus =
-              current === "struggling" ? "inprogress" : current === "inprogress" ? "mastered" : "mastered";
-          } else if (correct === false) {
-            newStatus = current === "mastered" ? "inprogress" : "struggling";
-          } else if (wasTargeted && current === "untested") {
-            newStatus = "inprogress";
-          }
-
-          if (newStatus !== current) {
-            updatedCount++;
-            updatesRef.current.push({
-              id: obj.id,
-              objective: (obj.objective || "").slice(0, 60),
-              oldStatus: current,
-              newStatus,
-            });
-          }
-          if (newStatus === "mastered") masteredCount++;
-          if (newStatus === "struggling") strugglingCount++;
-
-          return {
-            ...obj,
-            status: newStatus,
-            lastTested: new Date().toISOString(),
-            quizScore: result?.score ?? obj.quizScore,
-          };
+    sessionResults.forEach((result) => {
+      const obj = blockObjs.find(
+        (o) =>
+          o.linkedLecId === targetLecIdResolved &&
+          (result.objectiveCovered || result.topic || "")
+            .toLowerCase()
+            .includes((o.objective || "").toLowerCase().slice(0, 20))
+      );
+      if (obj) {
+        const newStatus = result.correct ? "mastered" : "struggling";
+        updateObjective(blockId, obj.id, {
+          status: newStatus,
+          lastTested: new Date().toISOString(),
+          quizScore: result?.score ?? obj.quizScore,
         });
-
-      const updatedImported = updateObjectiveInArray(imported);
-      const updatedExtracted = updateObjectiveInArray(extracted);
-
-      const updated = {
-        ...prev,
-        [blockId]: { imported: updatedImported, extracted: updatedExtracted },
-      };
-      try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
-      } catch {}
-      return updated;
+        updatedCount++;
+        if (newStatus === "mastered") masteredCount++;
+        if (newStatus === "struggling") strugglingCount++;
+        updatesRef.current.push({ id: obj.id, objective: (obj.objective || "").slice(0, 60), newStatus });
+      }
     });
 
     return { updatedCount, masteredCount, strugglingCount, updates: updatesRef.current };
@@ -3773,70 +6982,8 @@ export default function App() {
     });
   }, [blockId, terms, lectures.length]);
 
-  const updatePerformance = (topicKey, score, difficulty, questionCount, objectivesCovered = []) => {
-    setPerformanceHistory((prev) => {
-      const existing = prev[topicKey] || {
-        sessions: [],
-        currentDifficulty: "medium",
-        streak: 0,
-        bestScore: 0,
-        trend: "stable",
-      };
-      const newSession = {
-        date: new Date().toISOString(),
-        score,
-        difficulty: difficulty || existing.currentDifficulty,
-        questionCount,
-        objectivesCovered,
-      };
-      const sessions = [...existing.sessions, newSession].slice(-20);
-      const recentScores = sessions.slice(-5).map((s) => s.score);
-      let streak = 0;
-      for (let i = sessions.length - 1; i >= 0; i--) {
-        if (sessions[i].score >= 80) streak++;
-        else break;
-      }
-      const currentIdx = DIFFICULTY_LADDER.indexOf(existing.currentDifficulty);
-      let newIdx = currentIdx;
-      if (score >= 80 && streak >= 2) {
-        newIdx = Math.min(DIFFICULTY_LADDER.length - 1, currentIdx + 1);
-      } else if (score < 50) {
-        newIdx = Math.max(0, currentIdx - 1);
-      }
-      const newDifficulty = DIFFICULTY_LADDER[newIdx];
-      const upgraded = newIdx > currentIdx;
-      const downgraded = newIdx < currentIdx;
-      let trend = "stable";
-      if (sessions.length >= 6) {
-        const recent3 = sessions.slice(-3).map((s) => s.score);
-        const prev3 = sessions.slice(-6, -3).map((s) => s.score);
-        const recentAvg = recent3.reduce((a, b) => a + b, 0) / 3;
-        const prevAvg = prev3.reduce((a, b) => a + b, 0) / 3;
-        if (recentAvg - prevAvg > 8) trend = "improving";
-        else if (prevAvg - recentAvg > 8) trend = "declining";
-      } else if (sessions.length >= 2) {
-        const last = sessions[sessions.length - 1].score;
-        const prev = sessions[sessions.length - 2].score;
-        if (last - prev > 10) trend = "improving";
-        else if (prev - last > 10) trend = "declining";
-      }
-      const updated = {
-        ...prev,
-        [topicKey]: {
-          sessions,
-          currentDifficulty: newDifficulty,
-          streak,
-          bestScore: Math.max(existing.bestScore || 0, score),
-          trend,
-          lastUpgraded: upgraded ? new Date().toISOString() : existing.lastUpgraded,
-          lastDowngraded: downgraded ? new Date().toISOString() : existing.lastDowngraded,
-        },
-      };
-      try {
-        localStorage.setItem("rxt-performance", JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
+  const updatePerformance = (_topicKey, _score, _difficulty, _questionCount, _objectivesCovered = []) => {
+    // Session data is written only in finalizeSession — no other writes
   };
 
   const getTopicDifficulty = (topicKey) => {
@@ -3897,8 +7044,10 @@ export default function App() {
         getTopicDifficulty,
         sessions,
         performanceHistory,
+        makeTopicKey,
+        stylePrefs,
       }),
-    [lectures, getBlockObjectives, getTopicDifficulty, sessions, performanceHistory]
+    [lectures, getBlockObjectives, getTopicDifficulty, sessions, performanceHistory, makeTopicKey, stylePrefs]
   );
 
   const showPerformanceFeedback = (topicKey, score, justUpgraded = false) => {
@@ -3964,6 +7113,38 @@ export default function App() {
     })();
   }, []);
 
+  // One-time repair: re-detect lectureType/lectureNumber/weekNumber for already-uploaded lectures.
+  // dayOfWeek is preserved (user-set only, not overwritten).
+  const lectureRepairDoneRef = useRef(false);
+  useEffect(() => {
+    if (!ready || lectureRepairDoneRef.current) return;
+    lectureRepairDoneRef.current = true;
+    setLecs((prev) => {
+      if (!prev?.length) return prev;
+      let changed = false;
+      const next = prev.map((lec) => {
+        const fileName = lec.fileName || lec.filename || "";
+        const title = lec.lectureTitle || "";
+        const detectedType = detectLectureType(fileName, title);
+        const detectedNum = detectLectureNumber(fileName, title, detectedType);
+        const detectedWeek = lec.weekNumber ?? detectWeekNumber(fileName, title);
+        const current = (lec.lectureType || "LEC").toUpperCase();
+        const currentNorm = current === "LECTURE" || current.startsWith("LECT") ? "LEC" : current.slice(0, 4);
+        if (detectedType !== currentNorm || (detectedNum != null && detectedNum !== lec.lectureNumber) || (detectedWeek != null && detectedWeek !== lec.weekNumber)) {
+          changed = true;
+          return {
+            ...lec,
+            lectureType: detectedType,
+            lectureNumber: detectedNum ?? lec.lectureNumber,
+            weekNumber: detectedWeek ?? lec.weekNumber,
+          };
+        }
+        return lec;
+      });
+      return changed ? next : prev;
+    });
+  }, [ready]);
+
   // Sync blockId/termId when terms load: ensure blockId exists in terms
   useEffect(() => {
     if (!ready || !terms?.length) return;
@@ -4023,7 +7204,7 @@ export default function App() {
   // ── Derived ────────────────────────────────
   const activeTerm  = terms.find(t => t.id === termId);
   const activeBlock = activeTerm?.blocks.find(b => b.id === blockId);
-  const blockLecs   = lectures.filter(l => l.blockId === blockId);
+  const blockLecs   = lectures.filter(l => l.blockId === (activeBlock?.id ?? blockId));
   const sortedLecs = [...blockLecs].sort((a, b) => {
     if (lecSort === "number") {
       if (a.lectureNumber == null && b.lectureNumber == null) return 0;
@@ -4047,6 +7228,15 @@ export default function App() {
     }
     return 0;
   });
+  const groupedByWeek = blockLecs.reduce((acc, lec) => {
+    const wk = lec.weekNumber ?? 0;
+    if (!acc[wk]) acc[wk] = [];
+    acc[wk].push(lec);
+    return acc;
+  }, {});
+  const sortedWeeks = Object.keys(groupedByWeek)
+    .map(Number)
+    .sort((a, b) => (a === 0 ? 1 : b === 0 ? -1 : a - b));
   const tc          = activeTerm?.color || "#ef4444";
 
   const bScore = (bid) => {
@@ -4087,6 +7277,17 @@ export default function App() {
     setLecs(p => p.filter(l => l.blockId !== bid));
     if (blockId === bid) { setBlockId(null); setView("overview"); }
   };
+  const updateBlock = (bid, patch) => {
+    setTerms((p) =>
+      p.map((t) => ({
+        ...t,
+        blocks: (t.blocks || []).map((b) =>
+          b.id === bid ? { ...b, ...patch } : b
+        ),
+      }))
+    );
+  };
+
   const setStatus = (tid, bid, status) => {
     setTerms((p) => {
       const updated = p.map((t) =>
@@ -4116,6 +7317,187 @@ export default function App() {
       return updated;
     });
   };
+
+  const getLecPerf = useCallback(
+    (lec, bid) => {
+      // ONLY use exact key match — never fall back to lecture number matching.
+      // Lecture number matching causes LEC1 from one session to bleed into
+      // a newly uploaded LEC1.
+      const exactKey = makeTopicKey(lec.id, bid);
+      if (performanceHistory[exactKey]) return performanceHistory[exactKey];
+      // Secondary: startsWith lec.id — catches old key formats for THIS lecture
+      const byId = Object.keys(performanceHistory || {}).find((k) =>
+        k.startsWith(lec.id + "__")
+      );
+      if (byId) return performanceHistory[byId];
+      // STOP HERE — do not fall back to lecture number matching.
+      // A new upload with the same lecture number must start fresh.
+      return null;
+    },
+    [makeTopicKey, performanceHistory]
+  );
+
+  const getLectureSubtopicCompletion = useCallback(
+    (lec, bid) => {
+      if (!lec?.subtopics?.length) {
+        const perf = getLecPerf(lec, bid);
+        const sessions = perf?.sessions?.length || 0;
+        return Math.min(100, sessions * 33);
+      }
+      const subCompletions = (lec.subtopics || []).map((_, si) => {
+        const subKey = makeSubtopicKey(lec.id, si, bid);
+        return performanceHistory[subKey]?.completion || 0;
+      });
+      if (!subCompletions.length) return 0;
+      return Math.round(subCompletions.reduce((a, b) => a + b, 0) / subCompletions.length);
+    },
+    [getLecPerf, makeSubtopicKey, performanceHistory]
+  );
+
+  const getLecCompletion = useCallback(
+    (lec, blockId) => {
+      const blockObjs = getBlockObjectives(blockId) || [];
+      const lecObjs = blockObjs.filter(
+        (o) =>
+          o.linkedLecId === lec.id ||
+          String(o.lectureNumber) === String(lec.lectureNumber)
+      );
+      if (lecObjs.length === 0) {
+        const perf = getLecPerf(lec, blockId);
+        const sessions = perf?.sessions?.length || 0;
+        return Math.min(100, sessions * 33);
+      }
+      const mastered = lecObjs.filter((o) => o.status === "mastered").length;
+      const inProgress = lecObjs.filter((o) => o.status === "inprogress").length;
+      const total = lecObjs.length;
+      return Math.round(((mastered + inProgress * 0.5) / total) * 100);
+    },
+    [getBlockObjectives, getLecPerf]
+  );
+
+  const getSubtopicCompletion = useCallback(
+    (lec, si, subName, blockId) => {
+      const blockObjs = getBlockObjectives(blockId) || [];
+      const lecObjs = blockObjs.filter(
+        (o) =>
+          o.linkedLecId === lec.id ||
+          String(o.lectureNumber) === String(lec.lectureNumber)
+      );
+      if (lecObjs.length === 0) {
+        return { pct: 0, mastered: 0, total: 0, sessions: 0, weakness: null };
+      }
+      const subWords = subName
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((w) => w.length > 3);
+      const subObjs = lecObjs.filter((o) => {
+        const objText = (o.objective || "").toLowerCase();
+        return subWords.some((w) => objText.includes(w));
+      });
+      const totalSubs = lec.subtopics?.length || 1;
+      const objsToUse =
+        subObjs.length > 0
+          ? subObjs
+          : lecObjs.slice(
+              Math.floor((si / totalSubs) * lecObjs.length),
+              Math.floor(((si + 1) / totalSubs) * lecObjs.length)
+            );
+      if (objsToUse.length === 0) {
+        const lecPct = getLecCompletion(lec, blockId);
+        return {
+          pct: lecPct,
+          mastered: 0,
+          total: 0,
+          sessions: 0,
+          weakness: null,
+        };
+      }
+      const mastered = objsToUse.filter((o) => o.status === "mastered").length;
+      const inProgress = objsToUse.filter((o) => o.status === "inprogress").length;
+      const struggling = objsToUse.filter((o) => o.status === "struggling").length;
+      const untested = objsToUse.filter((o) => o.status === "untested").length;
+      const total = objsToUse.length;
+      const pct = Math.round(((mastered + inProgress * 0.5) / total) * 100);
+      const weakness =
+        struggling > 0
+          ? "critical"
+          : pct < 50 && untested > 0
+            ? "weak"
+            : pct < 80 && total > 0
+              ? "review"
+              : null;
+      const subKey = makeSubtopicKey(lec.id, si, blockId);
+      const subPerf = performanceHistory[subKey];
+      const sessions = subPerf?.sessions?.length || 0;
+      return {
+        pct,
+        mastered,
+        total,
+        sessions,
+        lastScore: subPerf?.lastScore,
+        weakness,
+      };
+    },
+    [getBlockObjectives, getLecCompletion, makeSubtopicKey, performanceHistory]
+  );
+
+  const currentWeek = useMemo(() => {
+    const bid = activeBlock?.id ?? blockId;
+    const plan = buildStudySchedule(bid);
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const todaySessions = plan?.schedule.find(([d]) => d === todayKey)?.[1] || [];
+    if (todaySessions.length > 0) {
+      const todayLecId = todaySessions[0]?.lectureId;
+      const todayLec = lectures.find((l) => l.id === todayLecId);
+      if (todayLec?.weekNumber) return todayLec.weekNumber;
+    }
+    const blockLecsForWeek = lectures.filter((l) => l.blockId === bid);
+    const weekScores = {};
+    blockLecsForWeek.forEach((l) => {
+      if (!l.weekNumber) return;
+      const perf = getLecPerf(l, bid);
+      const last = perf?.sessions?.slice(-1)[0];
+      if (last) {
+        if (!weekScores[l.weekNumber] || new Date(last.date) > new Date(weekScores[l.weekNumber])) {
+          weekScores[l.weekNumber] = last.date;
+        }
+      }
+    });
+    const mostRecent = Object.entries(weekScores).sort(
+      (a, b) => new Date(b[1]) - new Date(a[1])
+    )[0];
+    if (mostRecent) return parseInt(mostRecent[0], 10);
+    const untestedByWeek = {};
+    blockLecsForWeek.forEach((l) => {
+      if (!l.weekNumber) return;
+      const objs = (getBlockObjectives(bid) || []).filter(
+        (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+      );
+      const untested = objs.filter((o) => o.status === "untested").length;
+      untestedByWeek[l.weekNumber] = (untestedByWeek[l.weekNumber] || 0) + untested;
+    });
+    const mostUntested = Object.entries(untestedByWeek).sort((a, b) => b[1] - a[1])[0];
+    return mostUntested ? parseInt(mostUntested[0], 10) : 1;
+  }, [activeBlock?.id, blockId, lectures, performanceHistory, buildStudySchedule, getBlockObjectives, getLecPerf]);
+
+  const [bulkWeekTarget, setBulkWeekTarget] = useState(null);
+  const [collapsedCardWeeks, setCollapsedCardWeeks] = useState(() => new Set());
+  const toggleCardWeek = useCallback((wk) => {
+    setCollapsedCardWeeks((prev) => {
+      const next = new Set(prev);
+      if (next.has(wk)) next.delete(wk);
+      else next.add(wk);
+      return next;
+    });
+  }, []);
+  useEffect(() => {
+    const unassigned = lectures.filter((l) => l.blockId === (activeBlock?.id ?? blockId) && !l.weekNumber);
+    if (unassigned.length === 0) setBulkWeekTarget(null);
+  }, [lectures, activeBlock?.id, blockId]);
+  useEffect(() => {
+    const toCollapse = new Set(sortedWeeks.filter((wk) => wk !== currentWeek && wk !== 0));
+    setCollapsedCardWeeks(toCollapse);
+  }, [currentWeek, sortedWeeks.join(",")]);
   const delLec = (id) => {
     setLecs(prev => {
       const next = prev.filter(l => l.id !== id);
@@ -4242,8 +7624,29 @@ export default function App() {
 
       try {
         if (isPdf) {
-          setUpMsg("📖 Parsing lecture content...");
-          const contentResult = await parseExamPDF(file, (msg) => setUpMsg(msg));
+          let contentResult;
+          if (import.meta.env.VITE_MISTRAL_API_KEY) {
+            setUpMsg("🔍 Running OCR...");
+            const mistralResult = await extractPDFWithMistralSafe(file);
+            if (mistralResult?.markdown?.trim()) {
+              contentResult = {
+                fullText: mistralResult.markdown.slice(0, 12000),
+                chunks: (mistralResult.pages || []).map((p) => ({ text: (p.header ? p.header + "\n\n" : "") + (p.markdown || "") })),
+                extractionMethod: "mistral-ocr",
+                pageCount: mistralResult.pageCount,
+              };
+              console.log("✅ Mistral OCR: " + mistralResult.pageCount + " pages extracted");
+            }
+          }
+          if (!contentResult) {
+            setUpMsg("📖 Parsing lecture content...");
+            const parsed = await parseExamPDF(file, (msg) => setUpMsg(msg));
+            contentResult = {
+              ...parsed,
+              extractionMethod: "pdfplumber",
+              pageCount: (parsed.chunks || []).length,
+            };
+          }
           if (contentResult.chunks?.length > 0) {
             console.log("Chunk sample keys:", Object.keys(contentResult.chunks[0]));
             console.log("Chunk sample:", JSON.stringify(contentResult.chunks[0]).slice(0, 300));
@@ -4251,29 +7654,33 @@ export default function App() {
           setUpMsg("🎯 Extracting learning objectives...");
           const extractedObjectives = await extractObjectivesFromLecture(file);
 
-          const lecNum =
-            contentResult.lectureNumber ??
-            extractedObjectives[0]?.lectureNumber ??
-            extractLecNumberFromFilename(file.name);
           const lecTitle =
             contentResult.lectureTitle ??
             extractedObjectives[0]?.lectureTitle ??
             file.name.replace(/\.[^.]+$/, "");
+          const lectureType = detectLectureType(file.name, lecTitle);
+          const lecNum =
+            contentResult.lectureNumber ??
+            extractedObjectives[0]?.lectureNumber ??
+            detectLectureNumber(file.name, lecTitle, lectureType);
 
           const newLec = {
-            id: uid(),
+            id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
             blockId: bid,
             termId: tid,
             filename: file.name,
             lectureNumber: lecNum,
             lectureTitle: lecTitle,
-            lectureType: contentResult.lectureType || "Lecture",
+            lectureType,
+            weekNumber: detectWeekNumber(file.name, lecTitle) || null,
             subject: contentResult.subject || contentResult.discipline || "",
             chunks: contentResult.chunks || contentResult.sections || [],
             subtopics: contentResult.subtopics || contentResult.topics || contentResult.subtopicList || [],
             keyTerms: contentResult.keyTerms || contentResult.terms || contentResult.keywords || [],
             summary: contentResult.summary || "",
             fullText: (contentResult.fullText || "").slice(0, 12000),
+            extractionMethod: contentResult.extractionMethod || "pdfplumber",
+            pageCount: contentResult.pageCount ?? (contentResult.chunks || []).length,
             uploadedAt: new Date().toISOString(),
           };
 
@@ -4384,9 +7791,11 @@ export default function App() {
               const existingKeys = new Set(
                 existing.map((o) => (o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
               );
-              const newOnes = extractedObjectives.filter(
-                (o) => !existingKeys.has((o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
-              );
+              const newOnes = extractedObjectives
+                .filter(
+                  (o) => !existingKeys.has((o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
+                )
+                .map((o) => enrichObjectiveWithBloom(o, newLec.lectureType || "LEC"));
               const updatedExtracted = [...existing, ...newOnes];
               const allLectures = [...lectures.filter((l) => l.blockId === bid), newLec];
               const alignedImported = alignObjectivesToLectures(bid, blockData.imported || [], allLectures);
@@ -4441,10 +7850,10 @@ export default function App() {
           if (["Medicine", "Unknown", "General", ""].includes(rawSubject)) {
             meta = { ...meta, subject: "Unassigned" };
           }
-          const lectureNumber = extractLecNumberFromFilename(file.name) ?? meta.lectureNumber ?? null;
-          const lectureType = meta.lectureType || "Lecture";
+          const lectureType = detectLectureType(file.name, meta.lectureTitle || "");
+          const lectureNumber = detectLectureNumber(file.name, meta.lectureTitle || "", lectureType) ?? meta.lectureNumber ?? null;
           const lec = {
-            id: uid(),
+            id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
             blockId: bid,
             termId: tid,
             filename: file.name,
@@ -4453,6 +7862,7 @@ export default function App() {
             ...meta,
             lectureNumber,
             lectureType,
+            weekNumber: detectWeekNumber(file.name, meta.lectureTitle || "") || null,
           };
           setLecs((p) => [...p.filter((l) => !(l.blockId === bid && l.filename === file.name)), lec]);
           setBlockObjectives((prev) => {
@@ -4572,23 +7982,8 @@ export default function App() {
       questionBanksByFile = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
     } catch {}
 
-    const allContent = (selectedGroups || [])
-      .filter((g) => g.matchedLec)
-      .flatMap((g) => (g.matchedLec.chunks || []).map((c) => c.text || c.content || ""))
-      .join("\n")
-      .slice(0, 10000);
-
-    const allUploadedQs = (selectedGroups || [])
-      .flatMap((g) =>
-        Object.values(questionBanksByFile || {})
-          .flat()
-          .filter(
-            (q) =>
-              (q.topic || "").toLowerCase().includes((g.lectureTitle || "").slice(0, 15).toLowerCase()) ||
-              (g.lectureNumber != null && (q.topic || "").includes(String(g.lectureNumber)))
-          )
-      )
-      .slice(0, 10);
+    const selectedLecIds = (selectedGroups || []).filter((g) => g.matchedLec).map((g) => g.matchedLec.id);
+    const examContext = buildQuestionContext(bid, selectedGroups?.length === 1 ? selectedGroups[0]?.matchedLec?.id : null, questionBanksByFile, "exam", { selectedLecIds });
 
     setBlockExamLoading(true);
     const topicKey = "block__" + bid;
@@ -4616,7 +8011,7 @@ export default function App() {
           .slice(batch * 8, batch * 8 + 15)
           .concat(targetObjs.slice(0, 3));
 
-        const prompt = buildExamPrompt(batchCount, batchObjs, allContent, allUploadedQs, mode, blockDiff);
+        const prompt = buildExamPromptFromContext(batchCount, batchObjs, { ...examContext, stylePrefs }, blockDiff);
 
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
@@ -4642,6 +8037,7 @@ export default function App() {
           topic: q.topic ?? q.objectiveCovered ?? q.lectureRef ?? "Block Review",
           objectiveId: q.objectiveId || null,
           difficulty: q.difficulty || blockDiff || "medium",
+          usedUploadedStyle: !!q.usedUploadedStyle || !!examContext.hasUploadedQs,
         }));
         allQuestions.push(...qs);
 
@@ -4649,7 +8045,7 @@ export default function App() {
           console.log(`Batch ${batch + 1} only got ${qs.length}/${batchSize} — retrying for remainder`);
           const retryCount = Math.min(batchSize - qs.length, questionCount - allQuestions.length);
           try {
-            const retryPrompt = buildExamPrompt(retryCount, batchObjs.slice(3), allContent, allUploadedQs, mode, blockDiff);
+            const retryPrompt = buildExamPromptFromContext(retryCount, batchObjs.slice(3), { ...examContext, stylePrefs }, blockDiff);
             const retryRes = await fetch(
               `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
               {
@@ -4674,6 +8070,7 @@ export default function App() {
               topic: q.topic ?? q.objectiveCovered ?? q.lectureRef ?? "Block Review",
               objectiveId: q.objectiveId || null,
               difficulty: q.difficulty || blockDiff || "medium",
+              usedUploadedStyle: !!q.usedUploadedStyle,
             }));
             allQuestions.push(...retryQs);
           } catch (e) {
@@ -4702,7 +8099,7 @@ export default function App() {
         termColor: tc,
         objectiveBlockId: bid,
       });
-      setView("study");
+    setView("study");
     } catch (e) {
       console.error("Block exam generation failed:", e);
       alert("Exam generation failed: " + (e.message || String(e)));
@@ -4711,7 +8108,7 @@ export default function App() {
     }
   };
 
-  const startObjectiveQuiz = async (objectives, lectureTitle, optionalBlockId) => {
+  const startObjectiveQuiz = async (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
     if (!objectives?.length) return;
     const bid = optionalBlockId ?? blockId;
     const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
@@ -4727,39 +8124,19 @@ export default function App() {
     try {
       questionBanksByFile = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
     } catch {}
-    const styleExamples = Object.values(questionBanksByFile || {})
-      .flat()
-      .filter((q) =>
-        (q.topic || "").toLowerCase().includes((lectureTitle || "").slice(0, 15).toLowerCase())
-      )
-      .slice(0, 4);
-    const objList = objectives
-      .slice(0, 20)
-      .map((o, i) => `${i + 1}. ${o.objective}`)
-      .join("\n");
-    const styleRef =
-      styleExamples.length > 0
-        ? "\n\nEXAM STYLE REFERENCE (match this format exactly):\n" +
-          styleExamples
-            .map(
-              (q) =>
-                `Q: ${q.stem}\nA: ${q.choices?.A}  B: ${q.choices?.B}  C: ${q.choices?.C}  D: ${q.choices?.D}\nCorrect: ${q.correct}`
-            )
-            .join("\n\n")
-        : "";
+    const lecForQuiz = lectures.find(
+      (l) =>
+        l.blockId === bid &&
+        (l.lectureTitle || l.fileName || "")
+          .toLowerCase()
+          .includes((lectureTitle || "").slice(0, 20).toLowerCase())
+    );
+    const lectureIdForContext = lecForQuiz?.id ?? null;
+    const quizContext = buildQuestionContext(bid, lectureIdForContext, questionBanksByFile, "quiz");
+    const count = Math.min(objectives.length, 10);
     const prompt =
-      `Generate ${Math.min(objectives.length, 10)} USMLE Step 1 clinical vignette questions for: ${lectureTitle}\n\n` +
-      `Difficulty: ${difficulty.toUpperCase()}\n\n` +
-      `LEARNING OBJECTIVES — every question must test one of these:\n${objList}\n` +
-      styleRef +
-      `\n\nCRITICAL RULES:\n` +
-      `- Every stem MUST end with a question sentence ending in "?"\n` +
-      `- Format: [Clinical scenario]. [Question ending in ?]\n` +
-      `- Each question maps to exactly one objective from the list above\n` +
-      `- Keep explanations under 60 words\n` +
-      `- Vary patient demographics and clinical settings\n\n` +
-      `Return ONLY complete valid JSON:\n` +
-      `{"questions":[{"stem":"A 45-year-old male presents with... Which of the following is most likely?","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"","objectiveCovered":"objective text this tests","topic":"${(lectureTitle || "").replace(/"/g, '\\"')}","difficulty":"${difficulty}"}]}`;
+      `Generate ${count} USMLE Step 1 clinical vignette questions for: ${lectureTitle}\n\n` +
+      buildExamPromptFromContext(count, objectives, { ...quizContext, stylePrefs }, difficulty).replace(/^Generate exactly \d+ questions\.\n/, "");
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
@@ -4791,6 +8168,7 @@ export default function App() {
         num: i + 1,
         difficulty: q.difficulty || difficulty || "medium",
         topic: q.topic || lectureTitle,
+        usedUploadedStyle: !!q.usedUploadedStyle || !!quizContext.hasUploadedQs,
         objectiveId:
           q.objectiveId ||
           objectives.find((o) =>
@@ -4800,12 +8178,16 @@ export default function App() {
       }));
       const validated = validateAndFixQuestions(questions);
       setBlockExamLoading(null);
+      const lectureIdForMeta = objectives?.[0]?.linkedLecId ?? extraMeta?.lectureId ?? null;
       setCurrentSessionMeta({
         blockId: bid,
-        topicKey: bid ? "block__" + bid + "__objectives" : topicKey,
+        topicKey: makeTopicKey(lectureIdForMeta, bid),
         difficulty,
         targetObjectives: objectives,
         lectureTitle,
+        lectureId: lectureIdForMeta,
+        sessionType: "quiz",
+        ...extraMeta,
       });
       setStudyCfg({
         mode: "objectives",
@@ -4841,28 +8223,91 @@ export default function App() {
     });
   };
 
-  const handleSessionComplete = (payload) => {
-    const { correct, total, date, results: objectiveResults = [] } = payload;
-    const meta = currentSessionMeta;
-    const bid = meta?.blockId ?? blockId;
-    const targetObjectives = meta?.targetObjectives ?? [];
+  const distributeResultsToSubtopics = (_results, _lec, _blockId) => {
+    // Session data is written only in finalizeSession — no separate subtopic writes
+  };
 
-    const syncStats = syncSessionToObjectives(
-      Array.isArray(objectiveResults) ? objectiveResults : [],
-      bid,
-      targetObjectives
-    );
+  const finalizeSession = (results, meta) => {
+    const sessionMeta = meta || currentSessionMeta;
+    const bid = sessionMeta?.blockId ?? blockId;
+    const targetLecId =
+      sessionMeta?.lectureId ??
+      sessionMeta?.targetObjectives?.[0]?.linkedLecId ??
+      (studyCfg?.mode === "lecture" ? studyCfg?.lecture?.id : null);
 
-    const score = total > 0 ? pct(correct, total) : 0;
-    const difficulty = meta?.difficulty ?? studyCfg?.difficulty ?? getTopicDifficulty("block__" + blockId);
-    const topicKey =
-      meta?.topicKey ?? (studyCfg?.mode === "lecture" && studyCfg?.lecture
-        ? studyCfg.lecture.id + "__" + (studyCfg.subtopic || "full")
-        : "block__" + bid);
-    const blockKey = "block__" + bid;
+    if (!targetLecId) {
+      console.warn("⚠️ finalizeSession called without lectureId — session not saved");
+      return;
+    }
 
-    updatePerformance(topicKey, score, difficulty, total, objectiveResults?.map((r) => r.objectiveId).filter(Boolean) || []);
-    updatePerformance(blockKey, score, difficulty, total, []);
+    const targetObjectives = sessionMeta?.targetObjectives ?? [];
+    const syncStats = syncSessionToObjectives(results, bid, targetObjectives, targetLecId);
+
+    const topicKey = makeTopicKey(targetLecId, bid);
+    const now = new Date().toISOString();
+    const date = now;
+    const correct = results.filter((r) => r.correct).length;
+    const total = results.length;
+
+    const sessionRecord = {
+      score: Math.round((correct / Math.max(total, 1)) * 100),
+      date: now,
+      startedAt: sessionMeta?.startedAt || now,
+      completedAt: now,
+      questionCount: total,
+      difficulty: sessionMeta?.difficulty || "medium",
+      sessionType: sessionMeta?.sessionType || "quiz",
+      lectureId: targetLecId,
+      blockId: bid,
+      topicKey,
+      preSAQScore: sessionMeta?.preSAQScore ?? null,
+      postMCQScore: sessionMeta?.postMCQScore ?? null,
+      confidenceLevel: sessionMeta?.confidenceLevel ?? null,
+      nextReview: sessionMeta?.nextReview ?? null,
+      ...(sessionMeta?.sessionType === "anki" && {
+        cardCount: sessionMeta.cardCount ?? null,
+        newCards: sessionMeta.newCards ?? null,
+        reviewCards: sessionMeta.reviewCards ?? null,
+        retention: sessionMeta.retention ?? null,
+        timeSpent: sessionMeta.timeSpent ?? null,
+        notes: sessionMeta.notes ?? null,
+      }),
+    };
+
+    setPerformanceHistory((prev) => {
+      const existing = prev[topicKey] || { sessions: [] };
+      const updated = {
+        ...existing,
+        sessions: [...(existing.sessions || []), sessionRecord].slice(-50),
+        lastStudied: now,
+        firstStudied: existing.firstStudied || now,
+        lastScore: sessionRecord.score,
+        lectureId: targetLecId,
+        blockId: bid,
+        confidenceLevel: sessionRecord.confidenceLevel ?? existing.confidenceLevel,
+        nextReview: sessionMeta?.nextReview
+          ? (() => {
+              const d = new Date();
+              d.setDate(d.getDate() + sessionMeta.nextReview);
+              return d.toISOString();
+            })()
+          : existing.nextReview,
+        currentDifficulty: sessionMeta?.difficulty || existing.currentDifficulty || "medium",
+      };
+      const newState = { ...prev, [topicKey]: updated };
+      try {
+        localStorage.setItem("rxt-performance", JSON.stringify(newState));
+      } catch {}
+      console.log("✅ Session saved:", topicKey, sessionRecord);
+      return newState;
+    });
+
+    syncTrackerRow(targetLecId, bid, sessionRecord);
+
+    const targetLec = targetLecId ? lectures.find((l) => l.id === targetLecId) : null;
+    if (targetLec) {
+      distributeResultsToSubtopics(results, targetLec, bid);
+    }
 
     if (syncStats?.updatedCount > 0) {
       setPerfToast({
@@ -4875,7 +8320,7 @@ export default function App() {
         color: syncStats.masteredCount > 0 ? "#10b981" : "#f59e0b",
       });
     } else {
-      showPerformanceFeedback(topicKey, score);
+      showPerformanceFeedback(topicKey, sessionRecord.score);
     }
 
     const base = { id: uid(), blockId: bid, termId, correct, total, date };
@@ -4899,18 +8344,137 @@ export default function App() {
     setLearningProfile(nextProfile);
     saveProfile(nextProfile);
 
-    setSessionSummary({
-      correct,
-      total,
-      updates: syncStats?.updates ?? [],
-    });
+    setSessionSummary({ correct, total, updates: syncStats?.updates ?? [] });
     setCurrentSessionMeta(null);
     setStudyCfg(null);
     const areas = computeWeakAreas(bid);
     setWeakAreas(areas);
   };
 
+  const handleSessionComplete = (arg1, arg2) => {
+    if (sessionSaveInProgress.current) {
+      console.warn("handleSessionComplete called while already in progress — skipping");
+      return;
+    }
+    sessionSaveInProgress.current = true;
+    try {
+      let payload;
+      if (Array.isArray(arg1) && arg2 && typeof arg2 === "object") {
+        const dlResults = arg1;
+        const dlMeta = arg2;
+        const correct = dlResults.filter((r) => r.correct).length;
+        const total = dlResults.length;
+        payload = { correct, total, date: new Date().toISOString(), results: dlResults, meta: dlMeta };
+      } else {
+        payload = arg1 || {};
+      }
+
+      const { correct = 0, total = 0, results = [], meta } = payload;
+      const sessionMeta = meta || currentSessionMeta;
+      const score = total > 0 ? Math.round((results.filter((r) => r.correct).length / total) * 100) : 0;
+      const lec = lectures.find(
+        (l) => l.id === (sessionMeta?.lectureId ?? sessionMeta?.targetObjectives?.[0]?.linkedLecId)
+      );
+      const sessionType = sessionMeta?.sessionType || "quiz";
+
+      if (!["anki", "deepLearn"].includes(sessionType)) {
+        setPendingConfidence({
+          results,
+          meta,
+          lectureName: lec?.lectureTitle || lec?.fileName || sessionMeta?.lectureTitle || "Study Session",
+          score,
+          sessionType,
+        });
+        return;
+      }
+
+      finalizeSession(results, meta);
+    } finally {
+      setTimeout(() => {
+        sessionSaveInProgress.current = false;
+      }, 500);
+    }
+  };
+
+  const handleConfidenceRated = (confidenceLevel) => {
+    if (!pendingConfidence) return;
+    const { results, meta } = pendingConfidence;
+    const bid = meta?.blockId ?? blockId;
+    const isCurrentBlock = bid === activeBlock?.id;
+    const firstSessionDate = Object.values(performanceHistory)
+      .flatMap((p) => p.sessions || [])
+      .filter((s) => s.blockId === bid)
+      .map((s) => s.date)
+      .filter(Boolean)
+      .sort()[0];
+    const blockAgeMonths = firstSessionDate
+      ? (Date.now() - new Date(firstSessionDate)) / (1000 * 60 * 60 * 24 * 30)
+      : 0;
+    const nextReview = getReviewInterval(confidenceLevel, isCurrentBlock, blockAgeMonths);
+    finalizeSession(results, { ...meta, confidenceLevel, nextReview });
+    setPendingConfidence(null);
+    setView("block");
+  };
+
   const onSessionDone = handleSessionComplete;
+
+  useEffect(() => {
+    setPerformanceHistory((prev) => {
+      let changed = false;
+      const migrated = { ...prev };
+      Object.entries(prev).forEach(([key, val]) => {
+        if (key.includes("__full") || key.includes("__weak")) {
+          const lecId = key.split("__")[0];
+          const lec = lectures.find((l) => l.id === lecId);
+          if (lec) {
+            const newKey = makeTopicKey(lecId, lec.blockId);
+            if (!migrated[newKey]) {
+              migrated[newKey] = val;
+              changed = true;
+              console.log("Migrated key:", key, "→", newKey);
+            }
+          }
+        }
+      });
+      if (changed) {
+        try {
+          localStorage.setItem("rxt-performance", JSON.stringify(migrated));
+        } catch {}
+      }
+      return changed ? migrated : prev;
+    });
+  }, [lectures.length]);
+
+  useEffect(() => {
+    setPerformanceHistory((prev) => {
+      let changed = false;
+      const updated = {};
+      Object.entries(prev).forEach(([key, entry]) => {
+        if (entry?.sessions) {
+          const migratedSessions = entry.sessions.map((s) => {
+            const raw = (s.topic || "").toString();
+            if (raw.includes("__full__") || raw.includes("__weak__")) {
+              changed = true;
+              return {
+                ...s,
+                topic: resolveTopicLabel(s.topicKey || key, s, s.blockId),
+              };
+            }
+            return s;
+          });
+          updated[key] = { ...entry, sessions: migratedSessions };
+        } else {
+          updated[key] = entry;
+        }
+      });
+      if (changed) {
+        try {
+          localStorage.setItem("rxt-performance", JSON.stringify(updated));
+        } catch {}
+      }
+      return changed ? updated : prev;
+    });
+  }, [resolveTopicLabel]);
 
   const runAnalysis = async () => {
     setALoading(true);
@@ -5089,8 +8653,31 @@ export default function App() {
         performanceHistory={performanceHistory}
         T={t}
         tc={tc}
+        buildQuestionContext={buildQuestionContext}
+        stylePrefs={stylePrefs}
+        updateStylePref={updateStylePref}
         onCancel={() => setExamConfigModal(null)}
         onStart={(cfg) => { setExamConfigModal(null); startBlockExam(cfg); }}
+      />
+    )}
+    {pendingConfidence && (
+      <ConfidenceModal
+        lectureName={pendingConfidence.lectureName}
+        score={pendingConfidence.score}
+        sessionType={pendingConfidence.sessionType}
+        onRate={handleConfidenceRated}
+        T={t}
+        tc={tc}
+      />
+    )}
+    {ankiLogTarget && (
+      <AnkiLogModal
+        lec={ankiLogTarget}
+        blockId={activeBlock?.id ?? blockId}
+        onSave={handleAnkiLog}
+        onClose={() => setAnkiLogTarget(null)}
+        T={t}
+        tc={tc}
       />
     )}
     <div style={{ minHeight:"100vh", background:t.appBg, color:t.text1, display:"flex", flexDirection:"column" }}>
@@ -5266,14 +8853,15 @@ export default function App() {
                 termColor={tc}
                 getTopicDifficulty={getTopicDifficulty}
                 performanceHistory={performanceHistory}
+                makeTopicKey={makeTopicKey}
                 onBack={() => setView("block")}
                 onStart={(finalCfg) => {
                   const bid = finalCfg.blockId ?? blockId;
                   setCurrentSessionMeta({
                     blockId: bid,
-                    topicKey: "block__" + bid,
-                    difficulty: finalCfg.difficulty ?? getTopicDifficulty("block__" + blockId),
-                    targetObjectives: [],
+                    topicKey: makeTopicKey(finalCfg.lecture?.id ?? null, bid),
+                    difficulty: finalCfg.difficulty ?? getTopicDifficulty(makeTopicKey(null, blockId)),
+                    targetObjectives: finalCfg.targetObjectives || [],
                   });
                   setStudyCfg(finalCfg);
                   setView("study");
@@ -5292,7 +8880,53 @@ export default function App() {
           {/* TRACKER */}
           {view==="tracker" && (
             <div style={{ padding:"30px 32px", display:"flex", flexDirection:"column", gap:20, height:"100%" }}>
-              <Tracker key={trackerKey} />
+              <Tracker
+                key={trackerKey}
+                trackerRows={trackerRows}
+                setTrackerRows={setTrackerRows}
+                blocks={Object.fromEntries(
+                  (terms || []).flatMap((term) =>
+                    (term.blocks || []).map((b) => [b.id, { ...b, termColor: term.color }])
+                  )
+                )}
+                lecs={lectures}
+                resolveTopicLabel={resolveTopicLabel}
+                performanceHistory={performanceHistory}
+                getBlockObjectives={getBlockObjectives}
+                computeWeakAreas={computeWeakAreas}
+                activeBlock={activeBlock}
+                termColor={tc}
+                examDates={examDates}
+                buildStudySchedule={buildStudySchedule}
+                generateDailySchedule={generateDailySchedule}
+                makeTopicKey={makeTopicKey}
+                lecTypeBadge={lecTypeBadge}
+                saveExamDate={saveExamDate}
+                startObjectiveQuiz={startObjectiveQuiz}
+                handleDeepLearnStart={handleDeepLearnStart}
+                setAnkiLogTarget={setAnkiLogTarget}
+                LEVEL_COLORS={LEVEL_COLORS}
+                LEVEL_BG={LEVEL_BG}
+                updateBlock={updateBlock}
+                onStartScheduleSession={(session) => {
+                  setStudyCfg({
+                    blockId: session.blockId,
+                    lecs: lectures.filter((l) => l.blockId === session.blockId),
+                    blockObjectives: getBlockObjectives(session.blockId),
+                  });
+                  setView("deeplearn");
+                }}
+                onOpenBlockSchedule={(bid) => setView("tracker")}
+                onStudyWeak={(bid, activity) => {
+                  selectBlock(bid);
+                  setExamConfigModal({
+                    open: true,
+                    mode: "weak",
+                    blockId: bid,
+                    preselectedActivity: activity,
+                  });
+                }}
+              />
             </div>
           )}
 
@@ -5304,14 +8938,18 @@ export default function App() {
                 onProfileUpdate={(p) => { setLearningProfile(p); saveProfile(p); }}
                 sessions={sessions}
                 lectures={lectures}
+                blocks={terms?.flatMap((t) => t.blocks || []) ?? []}
                 blockId={blockId}
                 onObjectivesExtracted={(filename, extractedObjectives, bid) => {
                   if (!extractedObjectives?.length || !bid) return;
+                  const lec = lectures.find((l) => l.blockId === bid && (l.filename === filename || l.fileName === filename));
                   setBlockObjectives((prev) => {
                     const blockData = prev[bid] || { imported: [], extracted: [] };
                     const existing = blockData.extracted || [];
                     const existingKeys = new Set(existing.map((o) => (o.objective || "").slice(0, 60).toLowerCase()));
-                    const newOnes = extractedObjectives.filter((o) => !existingKeys.has((o.objective || "").slice(0, 60).toLowerCase()));
+                    const newOnes = extractedObjectives
+                      .filter((o) => !existingKeys.has((o.objective || "").slice(0, 60).toLowerCase()))
+                      .map((o) => enrichObjectiveWithBloom(o, lec?.lectureType || "LEC"));
                     const updated = { ...prev, [bid]: { ...blockData, extracted: [...existing, ...newOnes] } };
                     try { localStorage.setItem("rxt-block-objectives", JSON.stringify(updated)); } catch {}
                     return updated;
@@ -5324,9 +8962,9 @@ export default function App() {
           {/* DEEP LEARN */}
           {view === "deeplearn" && (
             <DeepLearn
-              blockId={studyCfg?.blockId}
-              lecs={studyCfg?.lecs ?? []}
-              blockObjectives={studyCfg?.blockObjectives ?? []}
+              blockId={activeBlock?.id ?? blockId}
+              lecs={lectures.filter((l) => l.blockId === (activeBlock?.id ?? blockId))}
+              blockObjectives={getBlockObjectives(activeBlock?.id ?? blockId) || []}
               questionBanksByFile={(() => {
                 try {
                   return JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
@@ -5334,11 +8972,20 @@ export default function App() {
                   return {};
                 }
               })()}
+              buildQuestionContext={buildQuestionContext}
+              detectStudyMode={detectStudyMode}
               termColor={tc}
-              onBack={() => setView("block")}
+              makeTopicKey={makeTopicKey}
+              onBack={(results, meta) => {
+                if (Array.isArray(results) && meta) {
+                  handleSessionComplete(results, meta);
+                }
+                setView("block");
+              }}
             />
           )}
 
+          {/* ANATOMY FLASHCARDS */}
           {/* OVERVIEW */}
           {view==="overview" && (
             <div style={{ padding:"30px 32px", display:"flex", flexDirection:"column", gap:26 }}>
@@ -5451,6 +9098,25 @@ export default function App() {
                       <span key={l} style={{ fontFamily:MONO, color:t.text5, fontSize:11 }}><span style={{ color:t.text3, fontWeight:600 }}>{v}</span> {l}</span>
                     ))}
                   </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:10 }}>
+                    <span style={{ fontFamily:MONO, color:t.text3, fontSize:11 }}>
+                      Block start date:
+                    </span>
+                    <input
+                      type="date"
+                      value={activeBlock?.startDate || ""}
+                      onChange={(e) => updateBlock(activeBlock.id, { startDate: e.target.value })}
+                      style={{
+                        background: t.inputBg,
+                        border: "1px solid " + t.border1,
+                        borderRadius: 7,
+                        padding: "5px 10px",
+                        color: t.text1,
+                        fontFamily: MONO,
+                        fontSize: 11,
+                      }}
+                    />
+                  </div>
                 </div>
                 <Ring score={bScore(blockId)} size={80} tint={tc} />
               </div>
@@ -5473,26 +9139,39 @@ export default function App() {
                     const pct = total > 0 ? Math.round(mastered / total * 100) : 0;
                     if (total === 0) return null;
                     return (
-                      <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:8 }}>
-                        <div style={{ height:8, background:t.border1, borderRadius:3 }}>
-                          <div style={{ height:"100%", borderRadius:3, width:pct+"%", background:pct===100?t.green:pct>60?t.amber:t.red, transition:"width 0.5s" }} />
+                      <>
+                        <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:8 }}>
+                          <div style={{ height:8, background:t.border1, borderRadius:3 }}>
+                            <div style={{ height:"100%", borderRadius:3, width:pct+"%", background:pct===100?t.statusGood:pct>60?t.statusWarn:t.statusBad, transition:"width 0.5s" }} />
+                          </div>
+                          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
+                            {[
+                              { label:"Mastered", val:mastered, color:t.statusGood },
+                              { label:"In Progress", val:inprogress, color:t.statusProgress },
+                              { label:"Struggling", val:struggling, color:t.statusBad },
+                              { label:"Untested", val:untested, color:t.statusNeutral },
+                            ].filter(s => s.val > 0).map(s => (
+                              <div key={s.label} style={{ display:"flex", alignItems:"center", gap:5 }}>
+                                <div style={{ width:7, height:7, borderRadius:"50%", background:s.color }} />
+                                <span style={{ fontFamily:MONO, color:s.color, fontSize:10, fontWeight:700 }}>{s.val}</span>
+                                <span style={{ fontFamily:MONO, color:t.text3, fontSize:9 }}>{s.label}</span>
+                              </div>
+                            ))}
+                            <span style={{ fontFamily:MONO, color:t.text3, fontSize:9, marginLeft:"auto" }}>{pct}% objective coverage</span>
+                          </div>
                         </div>
-                        <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-                          {[
-                            { label:"Mastered", val:mastered, color:t.green },
-                            { label:"In Progress", val:inprogress, color:t.amber },
-                            { label:"Struggling", val:struggling, color:t.red },
-                            { label:"Untested", val:untested, color:t.text3 },
-                          ].filter(s => s.val > 0).map(s => (
-                            <div key={s.label} style={{ display:"flex", alignItems:"center", gap:5 }}>
-                              <div style={{ width:7, height:7, borderRadius:"50%", background:s.color }} />
-                              <span style={{ fontFamily:MONO, color:s.color, fontSize:10, fontWeight:700 }}>{s.val}</span>
-                              <span style={{ fontFamily:MONO, color:t.text3, fontSize:9 }}>{s.label}</span>
-                            </div>
-                          ))}
-                          <span style={{ fontFamily:MONO, color:t.text3, fontSize:9, marginLeft:"auto" }}>{pct}% objective coverage</span>
-                        </div>
-                      </div>
+                        <BlockWeakObjectivesBreakdown
+                          blockObjs={blockObjs}
+                          lecs={blockLecs}
+                          blockId={blockId}
+                          currentBlock={activeBlock}
+                          T={t}
+                          tc={tc}
+                          startObjectiveQuiz={startObjectiveQuiz}
+                          updateObjective={updateObjective}
+                          lecTypeBadge={lecTypeBadge}
+                        />
+                      </>
                     );
                   })()}
                 </div>
@@ -5510,9 +9189,9 @@ export default function App() {
                       onClick={() => {
                         const weakObjs = getBlockObjectives(blockId).filter(o => o.status === "struggling" || o.status === "untested");
                         if (weakObjs.length === 0) return;
-                        startObjectiveQuiz(weakObjs, "Weak & Untested Objectives");
+                        startObjectiveQuiz(weakObjs, "Weak & Untested Objectives", blockId);
                       }}
-                      style={{ background:t.red, border:"none", color:"#fff", padding:"6px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:10, fontWeight:700 }}
+                      style={{ background:t.statusBad, border:"none", color:"#fff", padding:"6px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:10, fontWeight:700 }}
                     >
                       ⚠ Quiz Weak Objectives ({getBlockObjectives(blockId).filter(o=>o.status!=="mastered").length})
                     </button>
@@ -5629,6 +9308,41 @@ export default function App() {
                         Targeting {getBlockObjectives(blockId).filter(o=>o.status==="struggling"||o.status==="untested").length} weak/untested objectives
                       </div>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allLecIds = new Set(lectures.map((l) => l.id));
+                        setPerformanceHistory((prev) => {
+                          const cleaned = {};
+                          Object.entries(prev || {}).forEach(([key, entry]) => {
+                            const lecId = key.split("__")[0];
+                            if (lecId === "block" || allLecIds.has(lecId)) {
+                              cleaned[key] = entry;
+                            } else {
+                              console.log(`🗑 Removed orphaned key: ${key}`);
+                            }
+                          });
+                          try {
+                            localStorage.setItem("rxt-performance", JSON.stringify(cleaned));
+                          } catch {}
+                          return cleaned;
+                        });
+                      }}
+                      style={{
+                        background: t.statusBad,
+                        border: "none",
+                        color: "#fff",
+                        padding: "6px 14px",
+                        borderRadius: 7,
+                        cursor: "pointer",
+                        fontFamily: MONO,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        marginTop: 8,
+                      }}
+                    >
+                      🗑 Clear Orphaned Sessions
+                    </button>
                   </div>
                 </div>
               </div>
@@ -5656,7 +9370,7 @@ export default function App() {
 
               {/* Tabs */}
               <div style={{ display:"flex", borderBottom:"1px solid " + t.border2, background:t.panelBg }}>
-                {[["lectures","Lectures ("+blockLecs.length+")"],["heatmap","Heatmap"],["analysis","AI Analysis"],["objectives","🎯 Objectives"],["progress","📈 Progress"]].map(([tKey,label])=>(
+                {[["lectures","Lectures ("+blockLecs.length+")"],["heatmap","Heatmap"],["analysis","AI Analysis"],["objectives","🎯 Objectives"]].map(([tKey,label])=>(
                   <button
                     key={tKey}
                     onClick={()=>setTab(tKey)}
@@ -5706,48 +9420,330 @@ export default function App() {
                       )}
                     </div>
                   )}
+                  {(() => {
+                    const unassigned = blockLecs.filter((l) => !l.weekNumber);
+                    if (unassigned.length === 0) return null;
+                    return (
+                      <div style={{ background: t.amberBg, border: "1px solid " + t.amberBorder, borderRadius: 12, padding: "14px 16px", marginBottom: 16, marginLeft: 24, marginRight: 24 }}>
+                        <div style={{ fontFamily: MONO, color: t.amber, fontSize: 10, letterSpacing: 1.5, marginBottom: 8 }}>
+                          △ {unassigned.length} LECTURES NOT YET ASSIGNED TO A WEEK
+                        </div>
+                        <div style={{ fontFamily: MONO, color: t.text2, fontSize: 11, marginBottom: 12 }}>
+                          Assign each lecture to the week it was taught. Use the <strong>Wk</strong> dropdown on each card, or bulk-assign below.
+                        </div>
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                          {[1, 2, 3, 4, 5, 6, 7, 8].map((wk) => (
+                            <button
+                              key={wk}
+                              type="button"
+                              onClick={() => setBulkWeekTarget((prev) => (prev === wk ? null : wk))}
+                              style={{
+                                padding: "6px 14px",
+                                borderRadius: 7,
+                                fontFamily: MONO,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: "pointer",
+                                background: bulkWeekTarget === wk ? tc : t.inputBg,
+                                border: "1px solid " + (bulkWeekTarget === wk ? tc : t.border1),
+                                color: bulkWeekTarget === wk ? "#fff" : t.text2,
+                                transition: "all 0.15s",
+                              }}
+                            >
+                              Wk {wk}
+                            </button>
+                          ))}
+                          {bulkWeekTarget != null && (
+                            <span style={{ fontFamily: MONO, color: tc, fontSize: 11, alignSelf: "center", marginLeft: 4 }}>
+                              ← now click lectures to assign to Week {bulkWeekTarget}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                   {lecView === "list" ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 24px 24px" }}>
-                      {sortedLecs.map((lec, i) => (
-                        <LecListRow
-                          key={lec.id}
-                          lec={lec}
-                          index={i}
-                          tc={tc}
-                          T={t}
-                          sessions={sessions}
-                          onOpen={() => setExpandedLec(lec.id)}
-                          isExpanded={expandedLec === lec.id}
-                          onClose={() => setExpandedLec(null)}
-                          onStart={startTopic}
-                          onUpdateLec={updateLec}
-                          mergeMode={mergeMode}
-                          mergeSelected={mergeSelected}
-                          onMergeToggle={onMergeToggle}
-                          allObjectives={getBlockObjectives(blockId)}
-                          allBlockObjectives={getBlockObjectives(activeBlock?.id ?? blockId)}
-                          updateObjective={updateObjective}
-                          currentBlock={activeBlock}
-                          startObjectiveQuiz={startObjectiveQuiz}
-                          onDeepLearn={() => {
-                            setStudyCfg({ blockId, lecs: lectures.filter((l) => l.blockId === blockId), blockObjectives: getBlockObjectives(blockId) });
+                      {(() => {
+                        const bid = activeBlock?.id ?? blockId;
+                        const blockObjs = getBlockObjectives(bid) || [];
+
+                        const lecRowProps = {
+                          tc,
+                          T: t,
+                          sessions,
+                          onStart: startTopic,
+                          onUpdateLec: updateLec,
+                          mergeMode,
+                          mergeSelected,
+                          onMergeToggle,
+                          bulkWeekTarget,
+                          allObjectives: getBlockObjectives(blockId),
+                          allBlockObjectives: getBlockObjectives(activeBlock?.id ?? blockId),
+                          getBlockObjectives,
+                          updateObjective,
+                          currentBlock: activeBlock,
+                          startObjectiveQuiz,
+                          detectStudyMode,
+                          setAnkiLogTarget,
+                          handleDeepLearnStart,
+                          getLectureSubtopicCompletion,
+                          getLecCompletion,
+                          makeSubtopicKey,
+                          performanceHistory,
+                          onDeepLearn: () => {
+                            setStudyCfg({ blockId: bid, lecs: lectures.filter((l) => l.blockId === bid), blockObjectives: getBlockObjectives(bid) });
                             setView("deeplearn");
-                          }}
-                        />
-                  ))}
-                </div>
+                          },
+                        };
+
+                        return sortedWeeks.map((wk) => {
+                          const weekLecs = groupedByWeek[wk] || [];
+                          const weekLabel = wk === 0 ? "Unassigned" : `Week ${wk}`;
+                          const isCurrentWk = wk !== 0 && currentWeek === wk;
+                          const weekObjs = weekLecs.flatMap((l) =>
+                            blockObjs.filter(
+                              (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+                            )
+                          );
+                          const mastered = weekObjs.filter((o) => o.status === "mastered").length;
+                          const inProgress = weekObjs.filter((o) => o.status === "inprogress").length;
+                          const struggling = weekObjs.filter((o) => o.status === "struggling").length;
+                          const total = weekObjs.length;
+                          const pct =
+                            total > 0 ? Math.round(((mastered + inProgress * 0.5) / total) * 100) : 0;
+                          const weekSessions = weekLecs.flatMap((l) => {
+                            const perf = getLecPerf(l, bid);
+                            return perf?.sessions || [];
+                          });
+                          const avgScore =
+                            weekSessions.length > 0
+                              ? Math.round(weekSessions.reduce((a, s) => a + (s.score ?? 0), 0) / weekSessions.length)
+                              : null;
+
+                          return (
+                            <WeekGroup
+                              key={wk}
+                              weekLabel={weekLabel}
+                              weekNumber={wk}
+                              lecs={weekLecs}
+                              isCurrentWeek={isCurrentWk}
+                              mastered={mastered}
+                              struggling={struggling}
+                              total={total}
+                              pct={pct}
+                              avgScore={avgScore}
+                              sessionCount={weekSessions.length}
+                              defaultOpen={isCurrentWk || wk === 0 || sortedWeeks.length === 1}
+                              expandedLec={expandedLec}
+                              setExpandedLec={setExpandedLec}
+                              {...lecRowProps}
+                            />
+                          );
+                        });
+                      })()}
+                    </div>
                   ) : (
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(300px,1fr))", gap: 14 }}>
-                      {sortedLecs.map((lec, li) => (
-                        <LecCard key={lec.id} lec={lec} sessions={sessions} accent={PALETTE[li % PALETTE.length]} tint={tc} onStudy={startTopic} onDelete={delLec} onUpdateLec={updateLec} mergeMode={mergeMode} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle} allObjectives={getBlockObjectives(blockId)} onDeepLearn={() => { setStudyCfg({ blockId, lecs: lectures.filter((l) => l.blockId === blockId), blockObjectives: getBlockObjectives(blockId) }); setView("deeplearn"); }} />
-                      ))}
+                    <div style={{ padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 0 }}>
+                      {(() => {
+                        const bid = activeBlock?.id ?? blockId;
+                        const subjectsInBlock = [...new Set(blockLecs.map((l) => l.subject || l.discipline).filter(Boolean))];
+                        const showSubjectOnCards = subjectsInBlock.length > 1;
+                        const todayDow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
+                        const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+                        let cardIndex = 0;
+                        const cardProps = (lec) => ({
+                          lec,
+                          sessions,
+                          accent: PALETTE[cardIndex++ % PALETTE.length],
+                          tint: tc,
+                          onStudy: startTopic,
+                          onDelete: delLec,
+                          onUpdateLec: updateLec,
+                          mergeMode,
+                          mergeSelected,
+                          onMergeToggle,
+                          bulkWeekTarget,
+                          allObjectives: getBlockObjectives(blockId),
+                          showSubjectLabel: showSubjectOnCards,
+                          setAnkiLogTarget,
+                          getBlockObjectives,
+                          currentBlock: activeBlock,
+                          startObjectiveQuiz,
+                          detectStudyMode,
+                          handleDeepLearnStart,
+                          getLectureSubtopicCompletion,
+                          getLecCompletion,
+                          getSubtopicCompletion,
+                          getLecPerf,
+                          onDeepLearn: () => { setStudyCfg({ blockId: bid, lecs: lectures.filter((l) => l.blockId === bid), blockObjectives: getBlockObjectives(bid) }); setView("deeplearn"); },
+                        });
+                        return sortedWeeks.map((wk) => {
+                          const weekLecs = groupedByWeek[wk] || [];
+                          const isCurrentWeek = wk !== 0 && currentWeek === wk;
+                          const isCollapsed = collapsedCardWeeks.has(wk);
+                          const byDay = DOW_ORDER_CARD.reduce((acc, day) => {
+                            const dayLecs = weekLecs.filter((l) => l.dayOfWeek === day);
+                            if (dayLecs.length > 0) acc[day] = dayLecs;
+                            return acc;
+                          }, {});
+                          const unassigned = weekLecs.filter((l) => !l.dayOfWeek);
+                          const blockObjsForWeek = getBlockObjectives(activeBlock?.id ?? blockId) || [];
+                          const weekPct = (() => {
+                            const allObjs = weekLecs.flatMap((l) =>
+                              blockObjsForWeek.filter(
+                                (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+                              )
+                            );
+                            const mastered = allObjs.filter((o) => o.status === "mastered").length;
+                            const inProg = allObjs.filter((o) => o.status === "inprogress").length;
+                            const total = allObjs.length;
+                            return total > 0 ? Math.round(((mastered + inProg * 0.5) / total) * 100) : 0;
+                          })();
+                          const struggling = weekLecs.reduce((sum, l) => {
+                            const objs = blockObjsForWeek.filter(
+                              (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+                            );
+                            return sum + objs.filter((o) => o.status === "struggling").length;
+                          }, 0);
+                          return (
+                            <div key={wk} style={{ marginBottom: 16 }}>
+                              <div
+                                onClick={() => toggleCardWeek(wk)}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 10,
+                                  padding: "12px 16px",
+                                  borderRadius: isCollapsed ? 10 : "10px 10px 0 0",
+                                  cursor: "pointer",
+                                  userSelect: "none",
+                                  background: isCurrentWeek ? tc + "12" : t.inputBg,
+                                  border: "2px solid " + (isCurrentWeek ? tc : t.border1),
+                                  transition: "all 0.15s",
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = isCurrentWeek ? tc + "18" : t.hoverBg)}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = isCurrentWeek ? tc + "12" : t.inputBg)}
+                              >
+                                <span
+                                  style={{
+                                    fontFamily: MONO,
+                                    color: isCurrentWeek ? tc : t.text3,
+                                    fontSize: 12,
+                                    display: "inline-block",
+                                    transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
+                                    transition: "transform 0.2s",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  ▶
+                                </span>
+                                <span style={{ fontFamily: SERIF, color: isCurrentWeek ? tc : t.text1, fontSize: 15, fontWeight: 900 }}>
+                                  {wk === 0 ? "Unassigned" : `Week ${wk}`}
+                                </span>
+                                {isCurrentWeek && (
+                                  <span style={{ fontFamily: MONO, fontSize: 8, color: "#fff", background: tc, padding: "2px 7px", borderRadius: 3, fontWeight: 700, flexShrink: 0 }}>CURRENT</span>
+                                )}
+                                {struggling > 0 && (
+                                  <span style={{ fontFamily: MONO, fontSize: 9, color: t.statusBad, fontWeight: 700, flexShrink: 0 }}>⚠ {struggling} struggling</span>
+                                )}
+                                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
+                                    {weekLecs.length} lecture{weekLecs.length !== 1 ? "s" : ""}
+                                  </span>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <div style={{ width: 60, height: 4, background: t.border1, borderRadius: 2 }}>
+                                      <div
+                                        style={{
+                                          height: "100%",
+                                          borderRadius: 2,
+                                          width: weekPct + "%",
+                                          background: weekPct >= 80 ? t.statusGood : weekPct >= 50 ? t.statusProgress : weekPct > 0 ? t.statusWarn : t.statusNeutral,
+                                          transition: "width 0.4s",
+                                        }}
+                                      />
+                                    </div>
+                                    <span
+                                      style={{
+                                        fontFamily: MONO,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: weekPct >= 80 ? t.statusGood : weekPct >= 50 ? t.statusProgress : weekPct > 0 ? t.statusWarn : t.statusNeutral,
+                                      }}
+                                    >
+                                      {weekPct}%
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                              {!isCollapsed && (
+                                <div
+                                  style={{
+                                    border: "2px solid " + (isCurrentWeek ? tc : t.border1),
+                                    borderTop: "none",
+                                    borderRadius: "0 0 10px 10px",
+                                    padding: 16,
+                                    background: t.cardBg,
+                                  }}
+                                >
+                                  {DOW_ORDER_CARD.filter((d) => byDay[d]).map((day) => {
+                                    const isToday = day === todayDow;
+                                    return (
+                                      <div key={day} style={{ marginBottom: 16 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                          <div style={{ width: 12, height: 1, background: isToday ? tc : t.border1 }} />
+                                          <span style={{ fontFamily: MONO, color: isToday ? tc : t.text3, fontSize: isToday ? 11 : 10, fontWeight: isToday ? 700 : 400, letterSpacing: 1 }}>{day.toUpperCase()}</span>
+                                          {isToday && (
+                                            <span style={{ fontFamily: MONO, fontSize: 8, color: "#fff", background: tc, padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>TODAY</span>
+                                          )}
+                                          <div style={{ flex: 1, height: 1, background: isToday ? tc + "40" : t.border2 }} />
+                                        </div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+                                          {byDay[day].map((lec) => (
+                                            <LecCard key={lec.id} {...cardProps(lec)} />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                  {unassigned.length > 0 && (
+                                    <div>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                        <div style={{ flex: 1, height: 1, background: t.border2 }} />
+                                        <span style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1 }}>UNSCHEDULED</span>
+                                        <div style={{ flex: 1, height: 1, background: t.border2 }} />
+                                      </div>
+                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
+                                        {unassigned.map((lec) => (
+                                          <LecCard key={lec.id} {...cardProps(lec)} />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        });
+                      })()}
                     </div>
                   )}
                 </>
               ))}
 
               {/* Heatmap */}
-              {tab==="heatmap" && <Heatmap lectures={blockLecs} sessions={sessions} onStudy={startTopic} />}
+              {tab === "heatmap" && (
+                <Heatmap
+                  lectures={blockLecs}
+                  getLecCompletion={getLecCompletion}
+                  getSubtopicCompletion={getSubtopicCompletion}
+                  getBlockObjectives={getBlockObjectives}
+                  startObjectiveQuiz={startObjectiveQuiz}
+                  currentBlock={activeBlock}
+                  lecTypeBadge={lecTypeBadge}
+                  tc={tc}
+                />
+              )}
 
               {/* Analysis */}
               {tab==="objectives" && (
@@ -5863,9 +9859,233 @@ export default function App() {
                       <p style={{ fontFamily:MONO, color:t.text4, fontSize:12 }}>Complete sessions, then run analysis for a personalized study plan.</p>
                     </div>
                   )}
+                  <div style={{ marginBottom: 24, padding: 16, background: t.inputBg, border: "1px solid " + t.border1, borderRadius: 10 }}>
+                    <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 10 }}>QUESTION STYLE PREFERENCES</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 20px" }}>
+                      {[
+                        { key: "longStems", label: "Long stems" },
+                        { key: "hardDistractors", label: "Hard distractors" },
+                        { key: "labValues", label: "Include lab values" },
+                        { key: "firstAid", label: "First Aid references" },
+                        { key: "explainWrong", label: "Explain wrong answers" },
+                      ].map(({ key, label }) => (
+                        <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: MONO, fontSize: 12, color: t.text2, cursor: "pointer" }}>
+                          <input type="checkbox" checked={!!stylePrefs[key]} onChange={(e) => updateStylePref(key, e.target.checked)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  {(() => {
+                    const blockLecs = lectures.filter((l) => l.blockId === (activeBlock?.id ?? blockId));
+                    const lecData = blockLecs.map((lec) => {
+                      const perf = getLecPerf(lec, activeBlock?.id ?? blockId);
+                      const blockObjs = getBlockObjectives(activeBlock?.id ?? blockId) || [];
+                      const lecObjs = blockObjs.filter(
+                        (o) =>
+                          o.linkedLecId === lec.id ||
+                          String(o.lectureNumber) === String(lec.lectureNumber)
+                      );
+                      const mastered = lecObjs.filter((o) => o.status === "mastered").length;
+                      const struggling = lecObjs.filter((o) => o.status === "struggling").length;
+                      const untested = lecObjs.filter((o) => o.status === "untested").length;
+                      const total = lecObjs.length;
+                      const pct = getLecCompletion(lec, activeBlock?.id ?? blockId);
+                      const sessions = perf?.sessions?.length || 0;
+                      const lastScore = perf?.lastScore ?? perf?.sessions?.slice(-1)[0]?.score ?? null;
+                      const lastStudied = perf?.lastStudied ?? perf?.sessions?.slice(-1)[0]?.date ?? null;
+                      const status =
+                        struggling > 0
+                          ? "struggling"
+                          : pct === 100
+                            ? "mastered"
+                            : sessions === 0
+                              ? "untested"
+                              : pct >= 70
+                                ? "ok"
+                                : "weak";
+                      return {
+                        lec,
+                        pct,
+                        mastered,
+                        struggling,
+                        untested,
+                        total,
+                        sessions,
+                        lastScore,
+                        lastStudied,
+                        status,
+                      };
+                    }).sort((a, b) => {
+                      const order = { struggling: 0, weak: 1, untested: 2, ok: 3, mastered: 4 };
+                      return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+                    });
+
+                    return (
+                      <div style={{ marginBottom: 24 }}>
+                        <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 12 }}>
+                          LECTURE PERFORMANCE
+                        </div>
+                        {lecData.map(({ lec, pct, mastered, struggling, untested, total, sessions, lastScore, lastStudied, status }) => (
+                          <div
+                            key={lec.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 12,
+                              padding: "12px 14px",
+                              borderRadius: 10,
+                              marginBottom: 6,
+                              background:
+                                status === "struggling"
+                                  ? t.statusBadBg
+                                  : status === "weak"
+                                    ? t.statusWarnBg
+                                    : status === "mastered"
+                                      ? t.statusGoodBg
+                                      : t.inputBg,
+                              border:
+                                "1px solid " +
+                                (status === "struggling"
+                                  ? t.statusBadBorder
+                                  : status === "weak"
+                                    ? t.statusWarnBorder
+                                    : status === "mastered"
+                                      ? t.statusGoodBorder
+                                      : t.border1),
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: 32,
+                                height: 32,
+                                borderRadius: "50%",
+                                flexShrink: 0,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background:
+                                  status === "struggling"
+                                    ? t.statusBad
+                                    : status === "weak"
+                                      ? t.statusWarn
+                                      : status === "mastered"
+                                        ? t.statusGood
+                                        : status === "untested"
+                                          ? t.statusNeutral
+                                          : t.statusProgress,
+                                color: "#fff",
+                                fontSize: 14,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {status === "struggling"
+                                ? "⚠"
+                                : status === "mastered"
+                                  ? "✓"
+                                  : status === "untested"
+                                    ? "○"
+                                    : status === "weak"
+                                      ? "△"
+                                      : "◑"}
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                {lecTypeBadge(lec.lectureType || "LEC")}
+                                <span
+                                  style={{
+                                    fontFamily: MONO,
+                                    color: t.text1,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                >
+                                  {lec.lectureTitle || lec.fileName}
+                                </span>
+                              </div>
+                              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                                {total > 0 && (
+                                  <>
+                                    <span style={{ fontFamily: MONO, color: t.statusGood, fontSize: 10 }}>✓ {mastered}/{total} obj</span>
+                                    {struggling > 0 && (
+                                      <span style={{ fontFamily: MONO, color: t.statusBad, fontSize: 10 }}>⚠ {struggling} struggling</span>
+                                    )}
+                                    {untested > 0 && (
+                                      <span style={{ fontFamily: MONO, color: t.statusNeutral, fontSize: 10 }}>○ {untested} untested</span>
+                                    )}
+                                  </>
+                                )}
+                                {sessions > 0 && (
+                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
+                                    {sessions} session{sessions !== 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                {lastStudied && (
+                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
+                                    last {new Date(lastStudied).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: "right", flexShrink: 0 }}>
+                              {lastScore != null && (
+                                <div
+                                  style={{
+                                    fontFamily: MONO,
+                                    fontWeight: 900,
+                                    fontSize: 16,
+                                    color:
+                                      lastScore >= 80
+                                        ? t.statusGood
+                                        : lastScore >= 60
+                                          ? t.statusProgress
+                                          : lastScore >= 40
+                                            ? t.statusWarn
+                                            : t.statusBad,
+                                  }}
+                                >
+                                  {lastScore}%
+                                </div>
+                              )}
+                              <div
+                                style={{
+                                  width: 60,
+                                  height: 4,
+                                  background: t.border1,
+                                  borderRadius: 2,
+                                  marginTop: 4,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    height: "100%",
+                                    borderRadius: 2,
+                                    width: pct + "%",
+                                    background:
+                                      pct >= 80
+                                        ? t.statusGood
+                                        : pct >= 50
+                                          ? t.statusProgress
+                                          : pct >= 30
+                                            ? t.statusWarn
+                                            : t.statusBad,
+                                    transition: "width 0.4s",
+                                  }}
+                                />
+                              </div>
+                              <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, marginTop: 2 }}>{pct}% done</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
-              {tab==="progress" && (() => {
+              {true && (() => {
                 const currentBlock = activeBlock;
                 const blockObjs = getBlockObjectives(currentBlock?.id ?? blockId) || [];
                 const blockLecsForProgress = lectures.filter((l) => l.blockId === (currentBlock?.id ?? blockId));
@@ -5884,16 +10104,48 @@ export default function App() {
                 const currentLevel = blockPerf?.currentDifficulty || "medium";
                 const blockKeyForLog = "block__" + (currentBlock?.id ?? blockId);
                 const studyLog = Object.entries(performanceHistory)
-                  .filter(([k]) => k === blockKeyForLog || k.startsWith((currentBlock?.id ?? blockId) + "__") || blockLecsForProgress.some((l) => k.startsWith(l.id)))
+                  .filter(([k]) =>
+                    k === blockKeyForLog ||
+                    k.startsWith((currentBlock?.id ?? blockId) + "__") ||
+                    blockLecsForProgress.some((l) => k.startsWith(l.id))
+                  )
                   .flatMap(([key, perf]) =>
                     (perf.sessions || []).map((s) => ({
                       ...s,
                       topicKey: key,
-                      label: key === blockKeyForLog ? "Full Block Exam" : blockLecsForProgress.find((l) => key.startsWith(l.id))?.lectureTitle || key,
+                      label: resolveTopicLabel(key, s, s.blockId ?? currentBlock?.id ?? blockId),
                     }))
                   )
-                  .sort((a,b) => new Date(b.date) - new Date(a.date))
+                  .sort((a, b) => new Date(b.date) - new Date(a.date))
                   .slice(0, 15);
+
+                const upcomingReviews = Object.entries(performanceHistory)
+                  .filter(([k, v]) => {
+                    if (!v.nextReview) return false;
+                    const inBlock =
+                      k === blockKey ||
+                      k === blockKeyForLog ||
+                      k.startsWith((currentBlock?.id ?? blockId) + "__") ||
+                      blockLecsForProgress.some((lec) => k.startsWith(lec.id));
+                    return inBlock;
+                  })
+                  .map(([key, v]) => {
+                    const next = new Date(v.nextReview);
+                    const diffMs = next.getTime() - Date.now();
+                    const daysUntil = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+                    const lastSession = v.sessions?.slice(-1)?.[0];
+                    return {
+                      key,
+                      label: resolveTopicLabel(key, lastSession, currentBlock?.id ?? blockId),
+                      nextReview: next,
+                      daysUntil,
+                      confidence: v.confidenceLevel,
+                      postScore: v.postMCQScore,
+                    };
+                  })
+                  .filter((r) => !Number.isNaN(r.daysUntil))
+                  .sort((a, b) => a.daysUntil - b.daysUntil)
+                  .slice(0, 5);
                 return (
                   <div style={{ padding:"20px 24px", overflowY:"auto", display:"flex", flexDirection:"column", gap:20 }}>
                     <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
@@ -5933,6 +10185,26 @@ export default function App() {
                         </svg>
                       </div>
                     )}
+                    {upcomingReviews.length > 0 && (
+                      <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
+                        <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>DUE FOR REVIEW (DEEP LEARN)</div>
+                        {upcomingReviews.map((r, i) => (
+                          <div key={r.key} style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 0", borderBottom:i<upcomingReviews.length-1?"1px solid "+t.border2:"none" }}>
+                            <div style={{ flex:1, fontFamily:MONO, color:t.text1, fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                              {r.label}
+                            </div>
+                            <div style={{ fontFamily:MONO, color:t.text3, fontSize:10, minWidth:80, textAlign:"right" }}>
+                              {r.daysUntil <= 0 ? "Today" : r.daysUntil === 1 ? "Tomorrow" : `In ${r.daysUntil} days`}
+                            </div>
+                            {r.postScore != null && (
+                              <div style={{ fontFamily:MONO, fontSize:12, fontWeight:700, minWidth:40, textAlign:"right", color:r.postScore>=80?t.green:r.postScore>=60?t.amber:t.red }}>
+                                {r.postScore}%
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
                         <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5 }}>OBJECTIVE MASTERY</div>
@@ -5953,28 +10225,6 @@ export default function App() {
                         ))}
                       </div>
                     </div>
-                    {areas.length > 0 && (
-                      <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
-                        <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>WEAK AREAS — STUDY THESE NEXT</div>
-                        {areas.slice(0,6).map((area, i) => {
-                          const priorityColor = {critical:t.red,high:t.amber,medium:t.text3}[area.priority];
-                          return (
-                            <div key={area.activity} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 12px", borderRadius:9, marginBottom:6, background:t.inputBg, border:"1px solid "+t.border1 }}>
-                              <div style={{ fontFamily:MONO, color:priorityColor, fontSize:11, fontWeight:700, minWidth:20 }}>{i+1}</div>
-                              <div style={{ flex:1 }}>
-                                <div style={{ fontFamily:MONO, color:t.text1, fontSize:13 }}>{area.lectureTitle || area.activity}</div>
-                                <div style={{ display:"flex", gap:8, marginTop:2 }}>
-                                  {area.struggling>0 && <span style={{fontFamily:MONO,color:t.red,fontSize:10}}>⚠ {area.struggling} struggling</span>}
-                                  {area.untested>0 && <span style={{fontFamily:MONO,color:t.text3,fontSize:10}}>○ {area.untested} untested</span>}
-                                  {area.avgScore!=null && <span style={{fontFamily:MONO,color:area.avgScore<60?t.red:t.amber,fontSize:10}}>avg {Math.round(area.avgScore)}%</span>}
-                                </div>
-                              </div>
-                              <button onClick={() => setExamConfigModal({ mode:"weak", blockId:currentBlock?.id ?? blockId, preselectedActivity: area.activity, open:true })} style={{ background:tc, border:"none", color:"#fff", padding:"7px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:11, fontWeight:700, whiteSpace:"nowrap" }}>Study Now →</button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
                     {studyLog.length > 0 && (
                       <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
                         <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>RECENT STUDY ACTIVITY</div>
@@ -6002,9 +10252,19 @@ export default function App() {
                         const sessCount = lecPerf.length;
                         return (
                           <div key={lec.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid "+t.border2 }}>
-                            <div style={{ fontFamily:MONO, color:tc, fontSize:12, fontWeight:700, minWidth:48 }}>{(lec.lectureType||"Lec")}{lec.lectureNumber}</div>
+                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                              {lecTypeBadge(lec.lectureType)}
+                              {lec.lectureNumber != null && <span style={{ fontFamily:MONO, color:tc, fontSize:12, fontWeight:700 }}>{lec.lectureNumber}</span>}
+                            </div>
                             <div style={{ flex:1 }}>
-                              <div style={{ fontFamily:MONO, color:t.text1, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:220 }}>{lec.lectureTitle || lec.filename}</div>
+                              <div style={{ fontFamily:MONO, color:t.text1, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:220 }}>
+                                {(() => {
+                                  const title = (lec.lectureTitle || "").trim();
+                                  const fileName = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
+                                  if (title && title.toLowerCase() !== fileName.toLowerCase()) return title;
+                                  return title || fileName;
+                                })()}
+                              </div>
                               <div style={{ height:4, background:t.border1, borderRadius:2, marginTop:4 }}>
                                 <div style={{ height:"100%", borderRadius:2, background:pct===100?t.green:tc, width:pct+"%", transition:"width 0.4s" }}/>
                               </div>
