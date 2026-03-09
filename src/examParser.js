@@ -463,7 +463,7 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
 
   await loadPDFJS();
   const arrayBuffer = await pdfFile.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
 
   onProgress?.("🎯 Scanning for learning objectives...");
 
@@ -546,13 +546,37 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
     if (first === -1 || last === -1) return [];
 
     const parsed = JSON.parse(cleaned.slice(first, last + 1));
+    const fileName = (pdfFile.name || "").toLowerCase();
+    const lectureTitle = (parsed.lectureTitle || "").trim();
+    const titleActMatch = lectureTitle.match(/(dla|sg|tbl|lec|l)\s*(\d+)/i);
+    let actType = /dla\b/i.test(fileName)
+      ? "DLA"
+      : /sg\b|small\s*group/i.test(fileName)
+        ? "SG"
+        : /tbl\b/i.test(fileName)
+          ? "TBL"
+          : "LEC";
+    let lectureNum = parsed.lectureNumber != null ? parsed.lectureNumber : null;
+    if (titleActMatch) {
+      const typeFromTitle = titleActMatch[1].toUpperCase().replace(/^LEC$|^L$/, "LEC");
+      if (/DLA/.test(typeFromTitle)) actType = "DLA";
+      else if (/SG/.test(typeFromTitle)) actType = "SG";
+      else if (/TBL/.test(typeFromTitle)) actType = "TBL";
+      else actType = "LEC";
+      lectureNum = parseInt(titleActMatch[2], 10);
+    } else if (lectureNum == null) {
+      const numFromFilename = (pdfFile.name || "").match(/(?:lecture|lec|dla|sg|tbl|l)\s*(\d+)/i)?.[1] || lectureTitle.match(/(?:lecture|lec|dla|sg|tbl|l)\s*(\d+)/i)?.[1];
+      lectureNum = numFromFilename != null ? parseInt(numFromFilename, 10) : null;
+    }
+    const activityStr = lectureNum != null ? `${actType} ${lectureNum}` : "Unknown";
 
     return (parsed.objectives || []).map((obj, i) => ({
       id: "auto_" + Date.now() + "_" + i,
-      activity: parsed.lectureNumber ? "Lec" + parsed.lectureNumber : "Unknown",
+      activity: activityStr,
       discipline: parsed.discipline || "Unknown",
       lectureTitle: parsed.lectureTitle || pdfFile.name,
-      lectureNumber: parsed.lectureNumber || null,
+      lectureNumber: parsed.lectureNumber ?? lectureNum ?? null,
+      lectureType: actType,
       objective: typeof obj === "string" ? obj : obj.text || obj.objective || String(obj),
       status: "untested",
       confidence: 0,
@@ -569,7 +593,7 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
 export async function parseExamPDF(file, onProgress) {
   await loadPDFJS();
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
 
   onProgress?.("📄 Reading " + pdf.numPages + " pages...");
 

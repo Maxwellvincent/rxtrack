@@ -194,7 +194,7 @@ function HistoUpload({ onAdd, termColor, onJobStart, onJobProgress, onJobDone, o
     try {
       await loadPDFJS();
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
       const OPS = window.pdfjsLib.OPS || {};
       let slidesFound = 0;
 

@@ -27,6 +27,51 @@ import {
   LEVEL_BG,
 } from "./bloomsTaxonomy";
 import FTM2_DATA from "./ftm2_objectives_full.json";
+import {
+  getAvailableProviders,
+  setDefaultProvider,
+  DEFAULT_PROVIDER,
+  AI_PROVIDERS,
+  callAIJSON,
+} from "./aiClient";
+
+async function analyzeLecture(lec, extractedText) {
+  const systemPrompt = `You are an expert medical educator analyzing a lecture for a medical student study app.
+Analyze this lecture content and produce a structured teaching map.
+Raw JSON only, no markdown, no backticks:
+{
+  "summary": "<2-3 sentence overview of what this lecture covers>",
+  "clinicalHook": "<a real patient scenario in 2-3 sentences that this entire lecture explains — make it vivid and specific>",
+  "sections": [
+    {
+      "title": "<section title>",
+      "objectives": ["<objective 1>", "<objective 2>"],
+      "coreContent": "<3-5 sentences teaching the key concepts of this section — define terms, explain mechanisms, build from basic science to clinical>",
+      "keyTerms": ["<term>", "<term>", "<term>"],
+      "clinicalRelevance": "<1-2 sentences — how does this section explain or connect to the patient scenario above>",
+      "commonMistakes": "<1 sentence — what do students commonly confuse or miss here>",
+      "anchorQuestion": "<one Socratic reasoning question — not recall, but application>"
+    }
+  ],
+  "bigPicture": "<the single most important clinical takeaway from this entire lecture>"
+}`;
+
+  const userPrompt = `Lecture title: ${lec.title || lec.lectureTitle || ""}
+Lecture type: ${lec.lectureType || ""} ${lec.lectureNumber ?? ""}
+
+Full lecture content:
+${(extractedText || "").slice(0, 6000)}`;
+
+  const fallback = { summary: "", clinicalHook: "", sections: [], bigPicture: "" };
+  try {
+    const result = await callAIJSON(systemPrompt, userPrompt, fallback, 2000);
+    if (result && Array.isArray(result.sections)) return result;
+    return fallback;
+  } catch (e) {
+    console.warn("analyzeLecture failed:", e?.message || e);
+    return fallback;
+  }
+}
 
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
@@ -95,6 +140,23 @@ async function saveLectures(lectures) {
     if (l.fullText) await sSet("rxt-lec-" + l.id, l.fullText);
   }
 }
+function deduplicateLectures(lecs) {
+  const seen = new Map();
+  // Sort newest first so we keep the latest upload
+  const sorted = [...(lecs || [])].sort((a, b) => 
+    new Date(b.uploadDate || b.uploadedAt || 0) - new Date(a.uploadDate || a.uploadedAt || 0)
+  );
+  sorted.forEach(lec => {
+    // Only deduplicate if we have a valid type and number, otherwise use ID so we don't merge unrelated lectures
+    const hasNum = lec.lectureNumber != null && String(lec.lectureNumber).trim() !== "";
+    const key = (lec.lectureType && hasNum)
+      ? `${lec.blockId}__${lec.lectureType.trim()}__${String(lec.lectureNumber).trim()}`
+      : lec.id;
+    if (!seen.has(key)) seen.set(key, lec);
+  });
+  return Array.from(seen.values());
+}
+
 async function loadLectures() {
   const meta = await sGet("rxt-lec-meta");
   if (!meta || !Array.isArray(meta)) return [];
@@ -103,7 +165,14 @@ async function loadLectures() {
     const fullText = (await sGet("rxt-lec-" + m.id)) || "";
     out.push({ ...m, fullText });
   }
-  return out;
+  
+  const deduped = deduplicateLectures(out);
+  if (deduped.length < out.length) {
+    console.log(`Removed ${out.length - deduped.length} duplicate lectures`);
+    await saveLectures(deduped);
+  }
+  
+  return deduped;
 }
 
 // ─────────────────────────────────────────────
@@ -146,31 +215,26 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
   if (!objectives?.length || !lectures?.length) return objectives;
 
   return objectives.map((obj) => {
-    const matched = lectures.find((lec) => {
+    let matched = lectures.find((lec) => {
       let lecType = (lec.lectureType || "LEC").toUpperCase();
       if (lecType === "LECTURE" || lecType.startsWith("LECT")) lecType = "LEC";
       const lecNum = String(lec.lectureNumber || "");
       const objActivity = (obj.activity || "").toUpperCase().replace(/\s+/g, " ").trim();
 
-      if (objActivity && lecNum) {
+      if (objActivity && objActivity !== "UNKNOWN" && lecNum) {
         if (objActivity === lecType + lecNum) return true;
         if (objActivity === lecType + " " + lecNum) return true;
-        const actMatch = objActivity.match(/^([A-Z]+)\s*(\d+)$/);
+        const actMatch = objActivity.replace(/\s/g, "").match(/^([A-Z]+)(\d+)$/);
         if (actMatch && actMatch[1] === lecType && actMatch[2] === lecNum) return true;
       }
-      if (obj.lectureNumber && lec.lectureNumber && String(obj.lectureNumber) === String(lec.lectureNumber)) {
+      if (obj.lectureNumber != null && lec.lectureNumber != null && String(obj.lectureNumber) === String(lec.lectureNumber)) {
         const objType = (obj.lectureType || "LEC").toUpperCase();
         const objTypeNorm = objType === "LECTURE" || objType.startsWith("LECT") ? "LEC" : objType.slice(0, 4);
-        if (!obj.activity || objTypeNorm === lecType) return true;
+        if (objTypeNorm === lecType) return true;
       }
-      if (obj.activity && lec.lectureNumber) {
+      if (obj.activity && lec.lectureNumber != null) {
         const actNum = parseInt((obj.activity || "").replace(/\D/g, ""), 10);
-        if (actNum && actNum === lec.lectureNumber) return true;
-      }
-      if (obj.lectureTitle && (lec.lectureTitle || lec.filename)) {
-        const objTitle = (obj.lectureTitle || "").toLowerCase().slice(0, 25);
-        const lecTitle = (lec.lectureTitle || lec.filename || "").toLowerCase();
-        if (objTitle.length > 5 && lecTitle.includes(objTitle)) return true;
+        if (!Number.isNaN(actNum) && actNum === parseInt(lec.lectureNumber, 10)) return true;
       }
       if (obj.lectureNumber && (lec.filename || lec.fileName)) {
         const fn = (lec.filename || lec.fileName || "").toLowerCase();
@@ -188,6 +252,27 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
       return false;
     });
 
+    // Title match: collect all that match by title, then prefer DLA/type+number when objective title or activity hints at it
+    if (!matched && obj.lectureTitle && obj.lectureTitle.length > 5) {
+      const objTitle = (obj.lectureTitle || "").toLowerCase().slice(0, 50);
+      const objTitleUpper = (obj.lectureTitle || "").toUpperCase();
+      const titleMatches = lectures.filter((lec) => {
+        const lecTitle = (lec.lectureTitle || lec.filename || "").toLowerCase();
+        return lecTitle.includes(objTitle) || objTitle.includes(lecTitle.slice(0, 40));
+      });
+      if (titleMatches.length === 1) matched = titleMatches[0];
+      else if (titleMatches.length > 1) {
+        // Prefer lecture whose type+number appears in objective title/activity (e.g. "DLA 5")
+        const prefer = titleMatches.find((lec) => {
+          const type = (lec.lectureType || "LEC").toUpperCase().replace(/^LECTURE$|^LECT/i, "LEC");
+          const num = String(lec.lectureNumber ?? "");
+          const needle = num ? (type + " " + num).trim() : type;
+          const needleNoSpace = type + num;
+          return objTitleUpper.includes(needle) || objTitleUpper.includes(needleNoSpace) || (obj.activity || "").toUpperCase().includes(needle);
+        });
+        matched = prefer || titleMatches.find((l) => (l.lectureType || "LEC").toUpperCase().includes("DLA")) || titleMatches[0];
+      }
+    }
     // Last resort: match by lecture number within same block
     let finalMatch = matched;
     if (!finalMatch && obj.lectureNumber != null) {
@@ -202,10 +287,16 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
     return {
       ...obj,
       linkedLecId: finalMatch?.id || obj.linkedLecId || null,
+      sourceFile: finalMatch?.id ?? obj.sourceFile ?? null,
       linkedLecName: finalMatch?.lectureTitle || finalMatch?.filename || finalMatch?.fileName || obj.linkedLecName || null,
       hasLecture: !!finalMatch,
     };
   });
+}
+
+// Single source of truth for "objective is linked to an uploaded lecture in this block"
+function isObjectiveLinked(obj, blockLecs) {
+  return !!obj?.linkedLecId && (blockLecs || []).some((l) => l.id === obj.linkedLecId);
 }
 
 // ─────────────────────────────────────────────
@@ -235,7 +326,7 @@ async function getPdf() {
 }
 async function readPDF(file) {
   const lib = await getPdf();
-  const pdf = await lib.getDocument({ data: await file.arrayBuffer() }).promise;
+  const pdf = await lib.getDocument({ data: await file.arrayBuffer(), verbosity: 0 }).promise;
   let text = "";
   for (let i = 1; i <= Math.min(pdf.numPages, 80); i++) {
     const pg = await pdf.getPage(i);
@@ -578,17 +669,18 @@ const detectLectureType = (fileName, title = "") => {
 };
 
 const detectLectureNumber = (fileName, title = "", type = "LEC") => {
-  const text = fileName + " " + title;
-  const patterns = [
-    new RegExp(`\\b${type}\\s*(\\d+)`, "i"),
-    /\b(?:lecture|lec|dla|sg|tbl|lab)\s*(\d+)/i,
-    /\b(\d+)\b/,
-  ];
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match?.[1]) return parseInt(match[1], 10);
-  }
-  return null;
+  const text = (fileName + " " + title).trim();
+  const dlaMatch = text.match(/DLA\s*(\d+)/i);
+  const lecMatch = text.match(/(?:Lecture|Lec)\s*(\d+)/i);
+  const sgMatch = text.match(/SG\s*(\d+)/i);
+  const tblMatch = text.match(/TBL\s*(\d+)/i);
+  if (dlaMatch) return parseInt(dlaMatch[1], 10);
+  if (lecMatch) return parseInt(lecMatch[1], 10);
+  if (sgMatch) return parseInt(sgMatch[1], 10);
+  if (tblMatch) return parseInt(tblMatch[1], 10);
+  const fallbackNum = text.match(/\b(\d{1,3})\b/);
+  if (fallbackNum) return parseInt(fallbackNum[1], 10);
+  return 1;
 };
 
 const detectWeekNumber = (fileName, title = "") => {
@@ -603,7 +695,7 @@ async function extractObjectivesFromLecture(file) {
   try {
     await loadPDFJS();
     const arrayBuffer = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
     const pagesToCheck = Math.min(5, pdf.numPages);
     const images = [];
     for (let i = 1; i <= pagesToCheck; i++) {
@@ -660,26 +752,32 @@ async function extractObjectivesFromLecture(file) {
     const last = cleaned.lastIndexOf("}");
     if (first === -1) return [];
     const parsed = JSON.parse(cleaned.slice(first, last + 1));
-    const lecNum = parsed.lectureNumber ?? null;
+    const lecNum = parsed.lectureNumber ?? detectLectureNumber(file.name, parsed.lectureTitle || "");
     const lecTitle = parsed.lectureTitle || file.name;
     const discipline = parsed.discipline || "Unknown";
+    const lectureType = detectLectureType(file.name, lecTitle);
+    const lectureNumber = lecNum != null ? lecNum : 1;
+    const activityStr = `${lectureType}${lectureNumber}`;
     return (parsed.objectives || [])
       .filter((o) => typeof o === "string" && o.length > 10)
-      .map((obj, i) => ({
-        id: `extracted_${Date.now()}_${i}`,
-        activity: lecNum ? "Lec" + lecNum : "Unknown",
-        lectureNumber: lecNum,
-        lectureType: "Lecture",
-        discipline,
-        lectureTitle: lecTitle,
-        code: null,
-        objective: obj.trim(),
-        status: "untested",
-        confidence: 0,
-        lastTested: null,
-        quizScore: null,
-        source: "extracted",
-      }));
+      .map((obj, i) => {
+        const o = {
+          id: `extracted_${Date.now()}_${i}`,
+          activity: activityStr,
+          lectureNumber: lectureNumber,
+          lectureType,
+          discipline,
+          lectureTitle: lecTitle,
+          code: null,
+          objective: obj.trim(),
+          status: "untested",
+          confidence: 0,
+          lastTested: null,
+          quizScore: null,
+          source: "extracted",
+        };
+        return o;
+      });
   } catch (e) {
     console.warn("extractObjectivesFromLecture failed:", e.message);
     return [];
@@ -754,8 +852,8 @@ function buildLectureContext(lectureId, subtopic, blockId, { lecs, getBlockObjec
   const allObjs = getBlockObjectives ? getBlockObjectives(blockId) || [] : [];
   const lecObjs = allObjs.filter(
     (o) =>
-      o.lectureNumber === lec.lectureNumber ||
-      (o.lectureTitle || "").toLowerCase().includes((lec.lectureTitle || "").toLowerCase().slice(0, 20))
+      o.linkedLecId === lec.id ||
+      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
   );
 
   const questionExamples = uploadedQs.map((q) => ({
@@ -2770,7 +2868,7 @@ function WeekGroup({
 // ─────────────────────────────────────────────
 // LECTURE LIST ROW (compact list view)
 // ─────────────────────────────────────────────
-function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {} }) {
+function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {}, reanalyzeLecture }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const [quizLoading, setQuizLoading] = useState(false);
@@ -2779,11 +2877,10 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
   const sessionCount = lecSessions.length;
   const isMergeSelected = mergeSelected.includes(lec.id);
   const objectivesList = allBlockObjectives ?? allObjectives ?? [];
-  const lecObjs = objectivesList.filter((o) =>
-    o.lectureNumber === lec.lectureNumber ||
-    (o.lectureTitle && lec.lectureTitle && lec.lectureTitle.toLowerCase().includes((o.lectureTitle || "").toLowerCase().slice(0, 15))) ||
-    o.linkedLecId === lec.id ||
-    (o.activity && lec.lectureNumber && (o.activity || "").replace(/\D/g, "") === String(lec.lectureNumber))
+  const lecObjs = objectivesList.filter(
+    (o) =>
+      o.linkedLecId === lec.id ||
+      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
   );
   const masteredObjs = lecObjs.filter((o) => o.status === "mastered").length;
   const strugglingObjs = lecObjs.filter((o) => o.status === "struggling").length;
@@ -2931,6 +3028,20 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
         {lec.extractionMethod === "mistral-ocr" && (
           <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
         )}
+        {((lec.extractedText || lec.fullText)?.length > 0 && !lec.teachingMap && reanalyzeLecture) && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); reanalyzeLecture(lec); }}
+            style={{ fontFamily: MONO, fontSize: 10, color: tc, background: tc + "15", border: "1px solid " + tc + "40", padding: "2px 8px", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
+          >
+            🔍 Analyze with AI
+          </button>
+        )}
+        {lec.teachingMap?.sections?.length > 0 && (
+          <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusProgress ?? tc, flexShrink: 0 }}>
+            ✓ {lec.teachingMap.sections?.length} sections mapped
+          </span>
+        )}
         {lec.subject && lec.subject !== lec.discipline && (
           <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10, flexShrink: 0 }}>{lec.subject}</span>
         )}
@@ -3024,7 +3135,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                   const lecObjs = blockObjs.filter(
                     (o) =>
                       o.linkedLecId === lec.id ||
-                      String(o.lectureNumber) === String(lec.lectureNumber)
+                      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                   );
                   if (lecObjs.length === 0) return { pct: 0, mastered: 0, total: 0, sessions: 0 };
                   const subWords = subName
@@ -3254,7 +3365,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                             const lecObjs = blockObjs.filter(
                               (o) =>
                                 o.linkedLecId === lec.id ||
-                                String(o.lectureNumber) === String(lec.lectureNumber)
+                                (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                             );
                             const subWords = sub.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
                             const matched = lecObjs.filter((o) =>
@@ -3323,9 +3434,8 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
           {(() => {
             const expandedObjs = (allBlockObjectives ?? allObjectives ?? []).filter(
               (o) =>
-                String(o.lectureNumber) === String(lec.lectureNumber) ||
                 o.linkedLecId === lec.id ||
-                (o.activity && lec.lectureNumber && (o.activity || "").replace(/\D/g, "") === String(lec.lectureNumber))
+                (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
             );
             if (!expandedObjs.length) return null;
 
@@ -3508,48 +3618,23 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                   >
                     📇 Log Anki
                   </button>
-                  {!isVisual && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeepLearnStart?.({ selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }], blockId: currentBlock?.id })}
-                      style={{
-                        flex: 1,
-                        background: studyMode.color + "18",
-                        border: "1px solid " + studyMode.color + "50",
-                        color: studyMode.color,
-                        padding: "10px 0",
-                        borderRadius: 8,
-                        cursor: "pointer",
-                        fontFamily: MONO,
-                        fontSize: 12,
-                        fontWeight: 700,
-                      }}
-                    >
-                      {studyMode.icon} Deep Learn
-                    </button>
-                  )}
                   <button
                     type="button"
-                    onClick={async () => {
-                      setQuizLoading(lec.id);
-                      await startObjectiveQuiz?.(lecObjs, lec.lectureTitle, currentBlock?.id);
-                      setQuizLoading(null);
-                    }}
-                    disabled={quizLoading === lec.id}
+                    onClick={() => handleDeepLearnStart?.({ selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }], blockId: currentBlock?.id })}
                     style={{
                       flex: 1,
-                      background: quizLoading === lec.id ? T.inputBg : tc + "18",
-                      border: "1px solid " + (quizLoading === lec.id ? T.border1 : tc + "50"),
-                      color: quizLoading === lec.id ? T.text3 : tc,
-                      padding: "10px 0",
+                      padding: "10px",
+                      background: T.cardBg,
+                      border: "1.5px solid " + tc,
                       borderRadius: 8,
-                      cursor: quizLoading === lec.id ? "not-allowed" : "pointer",
+                      color: tc,
                       fontFamily: MONO,
-                      fontSize: 12,
+                      fontSize: 11,
                       fontWeight: 700,
+                      cursor: "pointer",
                     }}
                   >
-                    {quizLoading === lec.id ? "Generating..." : "🎯 Quiz"}
+                    🧠 Deep Learn
                   </button>
                 </div>
               );
@@ -3581,7 +3666,7 @@ function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, 
   const blockLecs = (lecs || []).filter((l) => !currentBlock?.id || l.blockId === currentBlock?.id);
   const byLecture = {};
   weakObjs.forEach((o) => {
-    const lec =
+    let lec =
       blockLecs.find((l) => l.id === o.linkedLecId) ||
       blockLecs.find(
         (l) =>
@@ -3600,6 +3685,7 @@ function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, 
         const typeNum = `${(l.lectureType || "lec").toLowerCase()}${l.lectureNumber}`;
         return (
           activity &&
+          activity !== "unknown" &&
           (title.includes(activity.slice(0, 15)) ||
             activity.includes(typeNum) ||
             typeNum.includes(activity.replace(/\s+/g, "")))
@@ -3613,6 +3699,17 @@ function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, 
           .filter((w) => w.length > 4);
         return titleWords.some((w) => objText.includes(w));
       });
+    // When still unknown, match by objective's lectureTitle to lecture title (so DLA 4 merged objectives show under DLA 4)
+    if (!lec && ((o.activity || "").trim() === "Unknown" || !(o.activity || "").trim()) && (o.lectureTitle || "").trim().length >= 5) {
+      const objTitle = (o.lectureTitle || "").trim().toLowerCase().slice(0, 50);
+      const titleMatches = blockLecs.filter((l) => {
+        const lecTitle = (l.lectureTitle || l.fileName || "").toLowerCase();
+        return lecTitle.includes(objTitle) || objTitle.includes(lecTitle.slice(0, 50));
+      });
+      if (titleMatches.length === 1) lec = titleMatches[0];
+      else if (titleMatches.length > 1)
+        lec = titleMatches.find((l) => (l.lectureType || "").toUpperCase().includes("DLA")) || titleMatches[0];
+    }
 
     const key = lec?.id || `unknown_${o.activity || o.lectureNumber || "misc"}`;
     const label = lec
@@ -3868,7 +3965,7 @@ function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, 
 // LECTURE CARD
 // ─────────────────────────────────────────────
 const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, onDeepLearn, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, showSubjectLabel = true, setAnkiLogTarget, getBlockObjectives, currentBlock, startObjectiveQuiz, detectStudyMode, handleDeepLearnStart, getLectureSubtopicCompletion, getLecCompletion, getSubtopicCompletion, getLecPerf }) {
+function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, onDeepLearn, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, showSubjectLabel = true, setAnkiLogTarget, getBlockObjectives, currentBlock, setBlockObjectives, startObjectiveQuiz, detectStudyMode, handleDeepLearnStart, getLectureSubtopicCompletion, getLecCompletion, getSubtopicCompletion, getLecPerf, reviewedLectures = {}, setReviewedLectures, markLectureReviewed, unmarkLectureReviewed, reanalyzeLecture }) {
   const { T } = useTheme();
   const tc = tint || accent || "#ef4444";
   const MONO = "'DM Mono','Courier New',monospace";
@@ -3885,7 +3982,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
   const lecObjs = blockObjs.filter(
     (o) =>
       o.linkedLecId === lec.id ||
-      String(o.lectureNumber) === String(lec.lectureNumber)
+      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
   );
   const mastered = lecObjs.filter((o) => o.status === "mastered").length;
   const struggling = lecObjs.filter((o) => o.status === "struggling").length;
@@ -3908,6 +4005,8 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
   const perf = getLecPerf ? getLecPerf(lec, currentBlock?.id) : null;
   const lastScore = perf?.lastScore ?? perf?.sessions?.slice(-1)[0]?.score ?? null;
   const sessionCount = perf?.sessions?.length || 0;
+  const reviewKey = currentBlock?.id ? `${lec.id}__${currentBlock.id}` : null;
+  const isReviewed = reviewKey ? !!reviewedLectures[reviewKey] : false;
 
   const clearConfirmTimeout = () => {
     if (confirmTimeoutRef.current) {
@@ -3972,6 +4071,68 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
         )}
       </div>
 
+      {(() => {
+        const blockId = currentBlock?.id;
+        if (!blockId || !setBlockObjectives || !getBlockObjectives) return null;
+        const lecObjs = (getBlockObjectives(blockId) || []).filter((o) => o.linkedLecId === lec.id);
+        const SHOULDER = /axilla|shoulder|cervicoaxillary|axillary|subclavian/i;
+        const NEURAL = /neural tube|spinal cord|vertebra|neuroectoderm/i;
+        const lecTitle = (lec.lectureTitle || "").toLowerCase();
+        const mismatch = lecObjs.filter(
+          (o) =>
+            (SHOULDER.test(o.objective || "") && NEURAL.test(lecTitle)) ||
+            (NEURAL.test(o.objective || "") && SHOULDER.test(lecTitle))
+        );
+        if (!mismatch.length) return null;
+        const mismatchKey = (o) => o.id || (o.objective || "").slice(0, 80);
+        const mismatchKeys = new Set(mismatch.map(mismatchKey));
+        return (
+          <div
+            style={{
+              background: T.statusBadBg,
+              border: "1px solid " + T.statusBadBorder,
+              borderRadius: 8,
+              padding: "8px 12px",
+              marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+            }}
+          >
+            <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 11, flex: 1 }}>
+              ⚠ {mismatch.length} objectives from wrong lecture detected
+            </span>
+            <button
+              onClick={() => {
+                setBlockObjectives((prev) => {
+                  const data = prev[blockId] || { imported: [], extracted: [] };
+                  const unlink = (o) => (mismatchKeys.has(mismatchKey(o)) ? { ...o, linkedLecId: null } : o);
+                  const imported = (data.imported || []).map(unlink);
+                  const extracted = (data.extracted || []).map(unlink);
+                  const next = { ...prev, [blockId]: { ...data, imported, extracted } };
+                  try {
+                    localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+                  } catch {}
+                  return next;
+                });
+              }}
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                padding: "4px 10px",
+                borderRadius: 5,
+                background: T.statusBad,
+                border: "none",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              ✕ Remove them
+            </button>
+          </div>
+        );
+      })()}
+
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", paddingRight:20 }}>
         <div style={{ flex:1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
@@ -3994,7 +4155,21 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             {lec.extractionMethod === "mistral-ocr" && (
               <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30" }}>OCR✓</span>
             )}
-        </div>
+            {((lec.extractedText || lec.fullText)?.length > 0 && !lec.teachingMap && reanalyzeLecture) && (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); reanalyzeLecture(lec); }}
+                style={{ fontFamily: MONO, fontSize: 10, color: tc, background: tc + "15", border: "1px solid " + tc + "40", padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}
+              >
+                🔍 Analyze with AI
+              </button>
+            )}
+            {lec.teachingMap?.sections?.length > 0 && (
+              <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusProgress ?? tc }}>
+                ✓ {lec.teachingMap.sections?.length} sections mapped
+              </span>
+            )}
+          </div>
           {showSubjectLabel && (lec.subject || lec.discipline) && (
             <div style={{ fontFamily: MONO, color: tc, fontSize: 10, fontWeight: 700, marginBottom: 4 }}>
               <EditableText
@@ -4060,6 +4235,36 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             </span>
           </div>
         </div>
+        {sessionCount === 0 && isReviewed && reviewKey && (unmarkLectureReviewed || setReviewedLectures) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (unmarkLectureReviewed && currentBlock?.id) {
+                unmarkLectureReviewed(lec, currentBlock.id);
+              } else if (setReviewedLectures) {
+                setReviewedLectures((prev) => {
+                  const next = { ...prev };
+                  delete next[reviewKey];
+                  return next;
+                });
+              }
+            }}
+            title="Unmark as reviewed"
+            style={{
+              fontFamily: MONO,
+              fontSize: 9,
+              color: T.statusProgress,
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "2px 6px",
+              flexShrink: 0,
+            }}
+          >
+            ◑ Reviewed
+          </button>
+        )}
       </div>
 
       {/* Week / Day assignment — always visible */}
@@ -4315,7 +4520,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
                     const lo = bo.filter(
                       (o) =>
                         o.linkedLecId === lec.id ||
-                        String(o.lectureNumber) === String(lec.lectureNumber)
+                        (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                     );
                     const sw = sub.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
                     const m = lo.filter((o) =>
@@ -4439,29 +4644,6 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
       >
         📚 Quiz Full Lecture
       </button>
-      {onDeepLearn && (
-        <button
-          type="button"
-          onClick={() => onDeepLearn(lec)}
-          style={{
-            marginTop: 6,
-            width: "100%",
-            background: tc + "12",
-            border: "1px solid " + tc + "40",
-            color: tc,
-            padding: "7px 0",
-            borderRadius: 8,
-            cursor: "pointer",
-            fontFamily: MONO,
-            fontSize: 13,
-            transition: "all 0.15s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = tc + "22")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = tc + "12")}
-        >
-          🧬 Deep Learn
-        </button>
-      )}
       <div style={{ display: "flex", gap: 6, marginTop: 12, paddingTop: 10, borderTop: "1px solid " + T.border2 }}>
         <button
           onClick={e => {
@@ -4473,39 +4655,54 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
           📇 Anki
         </button>
         <button
-          onClick={async e => {
+          type="button"
+          onClick={e => {
             e.stopPropagation();
-            const lecObjs = (getBlockObjectives?.(currentBlock?.id) || []).filter(
-              o => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
-            );
-            await startObjectiveQuiz?.(lecObjs, lec.lectureTitle, currentBlock?.id);
+            handleDeepLearnStart?.({ selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }], blockId: currentBlock?.id });
           }}
-          style={{ flex: 1, background: tc + "18", border: "1px solid " + tc + "50", color: tc, padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 11, fontWeight: 700 }}
+          style={{
+            flex: 1,
+            padding: "10px",
+            background: T.cardBg,
+            border: "1.5px solid " + tc,
+            borderRadius: 8,
+            color: tc,
+            fontFamily: MONO,
+            fontSize: 11,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
         >
-          🎯 Quiz
+          🧠 Deep Learn
         </button>
-        {(() => {
-          const lecObjs = (getBlockObjectives?.(currentBlock?.id) || []).filter(
-            o => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
-          );
-          const studyMode = detectStudyMode ? detectStudyMode(lec, lecObjs) : { mode: "clinical", color: tc, icon: "🧬" };
-          const isVisual = ["anatomy", "histology"].includes(studyMode.mode);
-          if (isVisual) return null;
-          return (
-            <button
-              onClick={e => {
-                e.stopPropagation();
-                handleDeepLearnStart?.({
-                  selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }],
-                  blockId: currentBlock?.id,
-                });
-              }}
-              style={{ flex: 1, background: studyMode.color + "18", border: "1px solid " + studyMode.color + "50", color: studyMode.color, padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 11, fontWeight: 700 }}
-            >
-              {studyMode.icon} Learn
-            </button>
-          );
-        })()}
+        {sessionCount === 0 && !isReviewed && reviewKey && (markLectureReviewed || setReviewedLectures) && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (markLectureReviewed && currentBlock?.id) {
+                markLectureReviewed(lec, currentBlock.id);
+              } else if (setReviewedLectures) {
+                setReviewedLectures((prev) => ({
+                  ...prev,
+                  [reviewKey]: { date: new Date().toISOString(), method: "manual" },
+                }));
+              }
+            }}
+            style={{
+              padding: "6px 10px",
+              background: T.inputBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 6,
+              color: T.text3,
+              fontFamily: MONO,
+              fontSize: 10,
+              cursor: "pointer",
+            }}
+          >
+            ✓ Mark Reviewed
+          </button>
+        )}
       </div>
     </div>
   );
@@ -4610,7 +4807,9 @@ function Heatmap({
                       if (!startObjectiveQuiz || !getBlockObjectives) return;
                       const blockObjs = getBlockObjectives(blockId) || [];
                       const lecObjs = blockObjs.filter(
-                        (o) => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+                        (o) =>
+                          o.linkedLecId === lec.id ||
+                          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                       );
                       const subWords = sub.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
                       const subObjs = lecObjs.filter((o) =>
@@ -4676,7 +4875,9 @@ function Heatmap({
                 (() => {
                   const blockObjs = getBlockObjectives?.(blockId) || [];
                   const lecObjs = blockObjs.filter(
-                    (o) => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+                    (o) =>
+                      o.linkedLecId === lec.id ||
+                      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                   );
                   return (
                     <div
@@ -5347,7 +5548,9 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                         </div>
                         {(() => {
                           const lecObjs = (blockObjs || []).filter(
-                            (o) => o.linkedLecId === lec.id || String(o.lectureNumber) === String(lec.lectureNumber)
+                            (o) =>
+                              o.linkedLecId === lec.id ||
+                              (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                           );
                           return lecObjs.length > 0 ? (
                             <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, flexShrink: 0 }}>📖 {lecObjs.length} obj</span>
@@ -5639,7 +5842,7 @@ function ObjectivesImporter({ blockId, onImport, T, tc }) {
     try {
       await loadPDFJS();
       const arrayBuffer = await file.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
       setTotalPages(pdf.numPages);
 
       const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
@@ -5921,6 +6124,7 @@ export default function App() {
     return localStorage.getItem("rxt-theme") || "dark";
   });
   const isDark = theme === "dark";
+  const [aiProvider, setAiProvider] = useState(DEFAULT_PROVIDER);
 
   const [view,    setView]    = useState("block");
   const [termId,  setTermId]  = useState("term1");
@@ -5939,6 +6143,8 @@ export default function App() {
       return null;
     }
   });
+  const activeTerm  = terms.find(t => t.id === termId);
+  const activeBlock = activeTerm?.blocks.find(b => b.id === blockId);
   const [tab,     setTab]     = useState("lectures");
   const [studyCfg, setStudyCfg] = useState(null);
   const [ankiLogTarget, setAnkiLogTarget] = useState(null);
@@ -6034,7 +6240,9 @@ export default function App() {
 
   const [blockObjectives, setBlockObjectives] = useState(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const raw = localStorage.getItem("rxt-block-objectives") || "{}";
+      const stored = JSON.parse(raw);
+      console.log("Loading objectives from localStorage:", Object.keys(stored || {}).map((k) => ({ blockId: k, imported: (stored[k]?.imported || []).length, extracted: (stored[k]?.extracted || []).length })));
 
       const allBlocks = DEFAULT_TERMS.flatMap((t) => t.blocks || []);
       const ftm2Block = findBlockForObjectives(allBlocks, "FTM 2");
@@ -6062,6 +6270,22 @@ export default function App() {
     }
   });
 
+  const [reviewedLectures, setReviewedLectures] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-reviewed-lecs") || "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  const [activeSessions, setActiveSessions] = useState({});
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("rxt-reviewed-lecs", JSON.stringify(reviewedLectures));
+    } catch {}
+  }, [reviewedLectures]);
+
   const getBlockObjectives = (bid) => {
     const data = blockObjectives[bid] || { imported: [], extracted: [] };
     const all = [...(data.imported || []), ...(data.extracted || [])];
@@ -6073,6 +6297,424 @@ export default function App() {
       return true;
     });
   };
+
+  const handleRealignObjectives = useCallback(
+    (blockId) => {
+      setBlockObjectives((prev) => {
+        const data = prev[blockId] || { imported: [], extracted: [] };
+        const objs = data.imported || [];
+        const blockLecs = lectures.filter((l) => l.blockId === blockId);
+        const aligned = alignObjectivesToLectures(blockId, objs, blockLecs);
+        const next = { ...prev, [blockId]: { ...data, imported: aligned } };
+        try {
+          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    },
+    [lectures]
+  );
+
+  const repairObjectiveAlignmentRepairedRef = useRef(0);
+  const repairObjectiveAlignment = useCallback(
+    (blockId) => {
+      if (!blockId) return 0;
+      const blockLecs = (lectures || []).filter((l) => l.blockId === blockId);
+      if (!blockLecs.length) return 0;
+      let repaired = 0;
+      const data = (blockObjectives || {})[blockId] || { imported: [], extracted: [] };
+      let imported = Array.isArray(data.imported) ? data.imported : [];
+      let extracted = Array.isArray(data.extracted) ? data.extracted : [];
+
+      // One-time migration: objectives with legacy timestamp-style linkedLecId (extracted_...) don't match any lecture
+      const hasLegacyIds = [...imported, ...extracted].some((o) => o?.linkedLecId?.startsWith?.("extracted_"));
+      if (hasLegacyIds) {
+        const migrateLegacy = (obj) => {
+          if (!obj?.linkedLecId?.startsWith("extracted_")) return obj;
+          const match = blockLecs.find(
+            (l) =>
+              String(l.lectureType || "LEC") === String(obj.lectureType || "LEC") &&
+              String(l.lectureNumber) === String(obj.lectureNumber)
+          );
+          if (match) {
+            repaired++;
+            console.log(`Migrating objective from ${obj.linkedLecId} → ${match.id}`);
+            return { ...obj, linkedLecId: match.id, sourceFile: match.id };
+          }
+          return obj;
+        };
+        imported = imported.map(migrateLegacy);
+        extracted = extracted.map(migrateLegacy);
+      }
+
+      const reStamp = (obj) => {
+        if (!obj || typeof obj !== "object") return obj;
+        if (obj.linkedLecId && obj.sourceFile) return obj;
+        const match = blockLecs.find(
+          (l) =>
+            String(l.lectureType || "LEC") === String(obj.lectureType || "LEC") &&
+            String(l.lectureNumber) === String(obj.lectureNumber)
+        );
+        if (match) {
+          repaired++;
+          return { ...obj, linkedLecId: match.id, sourceFile: match.id };
+        }
+        return obj;
+      };
+      const repairOne = (obj) => {
+        if (!obj || typeof obj !== "object") return obj;
+        if (obj.linkedLecId && blockLecs.find((l) => l.id === obj.linkedLecId)) return obj;
+        if (obj.sourceFile) {
+          const matchedLec = blockLecs.find((l) => l.id === obj.sourceFile);
+          if (matchedLec) {
+            repaired++;
+            return { ...obj, linkedLecId: matchedLec.id, lectureType: matchedLec.lectureType, lectureNumber: matchedLec.lectureNumber };
+          }
+        }
+        const activity = String(obj.activity || obj.activityRaw || "").trim();
+        const numMatch = activity.match(/(\d+)/);
+        if (!numMatch) return obj;
+        const actNum = parseInt(numMatch[1], 10);
+        const actLower = activity.toLowerCase();
+        const typeHint = actLower.includes("dla") ? "DLA" : actLower.includes("sg") ? "SG" : actLower.includes("tbl") ? "TBL" : "LEC";
+        const matchedLec = blockLecs.find(
+          (l) =>
+            parseInt(l.lectureNumber, 10) === actNum &&
+            (l.lectureType || "LEC").toUpperCase().replace("SGS", "SG") === typeHint
+        );
+        if (matchedLec) {
+          repaired++;
+          return { ...obj, linkedLecId: matchedLec.id, lectureType: matchedLec.lectureType, lectureNumber: actNum };
+        }
+        return obj;
+      };
+      const updatedImported = imported.map(reStamp).map(repairOne);
+      const updatedExtracted = extracted.map(reStamp).map(repairOne);
+      if (repaired > 0) {
+        repairObjectiveAlignmentRepairedRef.current = repaired;
+        const next = { ...(blockObjectives || {}), [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+        try {
+          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        } catch (e) {
+          console.error(e);
+        }
+        setBlockObjectives(next);
+      }
+      return repaired;
+    },
+    [lectures, blockObjectives]
+  );
+
+  useEffect(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (bid) repairObjectiveAlignment(bid);
+  }, [activeBlock?.id, blockId, lectures.length, repairObjectiveAlignment]);
+
+  const bidForObjectives = activeBlock?.id ?? blockId;
+  const repairedBlockObjs = useMemo(() => {
+    if (!bidForObjectives) return [];
+    const data = blockObjectives[bidForObjectives] || { imported: [], extracted: [] };
+    const allObjs = [...(data.imported || []), ...(data.extracted || [])];
+    const blockLecs = lectures.filter((l) => l.blockId === bidForObjectives);
+    if (!blockLecs.length) return allObjs;
+    const reStamp = (obj) => {
+      if (!obj || typeof obj !== "object") return obj;
+      if (obj.linkedLecId && obj.sourceFile) return obj;
+      const match = blockLecs.find(
+        (l) =>
+          String(l.lectureType || "LEC") === String(obj.lectureType || "LEC") &&
+          String(l.lectureNumber) === String(obj.lectureNumber)
+      );
+      return match ? { ...obj, linkedLecId: match.id, sourceFile: match.id } : obj;
+    };
+    const repairOne = (obj) => {
+      if (!obj || typeof obj !== "object") return obj;
+      if (obj.linkedLecId && blockLecs.find((l) => l.id === obj.linkedLecId)) return obj;
+      if (obj.sourceFile) {
+        const matchedLec = blockLecs.find((l) => l.id === obj.sourceFile);
+        if (matchedLec) return { ...obj, linkedLecId: matchedLec.id, lectureType: matchedLec.lectureType, lectureNumber: matchedLec.lectureNumber };
+      }
+      const activity = String(obj.activity || obj.activityRaw || "").trim();
+      const numMatch = activity.match(/(\d+)/);
+      if (!numMatch) return obj;
+      const actNum = parseInt(numMatch[1], 10);
+      const actLower = activity.toLowerCase();
+      const typeHint = actLower.includes("dla") ? "DLA" : actLower.includes("sg") ? "SG" : actLower.includes("tbl") ? "TBL" : "LEC";
+      const matchedLec = blockLecs.find(
+        (l) =>
+          parseInt(l.lectureNumber, 10) === actNum &&
+          (l.lectureType || "LEC").toUpperCase().replace("SGS", "SG") === typeHint
+      );
+      return matchedLec ? { ...obj, linkedLecId: matchedLec.id, lectureType: matchedLec.lectureType, lectureNumber: actNum } : obj;
+    };
+    const repairedImported = (data.imported || []).map(reStamp).map(repairOne);
+    const repairedExtracted = (data.extracted || []).map(reStamp).map(repairOne);
+    return [...repairedImported, ...repairedExtracted];
+  }, [blockObjectives, bidForObjectives, lectures]);
+
+  useEffect(() => {
+    if (!bidForObjectives || !setBlockObjectives) return;
+    const data = blockObjectives[bidForObjectives] || { imported: [], extracted: [] };
+    const allObjs = [...(data.imported || []), ...(data.extracted || [])];
+    const blockLecs = lectures.filter((l) => l.blockId === bidForObjectives);
+    if (!blockLecs.length) return;
+    const lecIds = new Set(blockLecs.map((l) => l.id));
+    const needsLink = (o) =>
+      !o?.linkedLecId ||
+      !lecIds.has(o.linkedLecId) ||
+      ((o.activity || "").trim() === "Unknown" && !lecIds.has(o.linkedLecId));
+    const anyUnstamped = allObjs.some(needsLink);
+    if (!anyUnstamped) return;
+    const findLecForObj = (obj) => {
+      if (!obj || typeof obj !== "object") return null;
+      const byTypeNum = blockLecs.find(
+        (l) =>
+          String(l.lectureType || "LEC") === String(obj?.lectureType || "LEC") &&
+          String(l.lectureNumber) === String(obj?.lectureNumber)
+      );
+      if (byTypeNum) return byTypeNum;
+      const objTitle = (obj.lectureTitle || "").trim().toLowerCase().slice(0, 40);
+      if (objTitle.length < 5) return null;
+      const titleMatches = blockLecs.filter(
+        (l) => (l.lectureTitle || l.fileName || "").toLowerCase().includes(objTitle) || objTitle.includes((l.lectureTitle || l.fileName || "").toLowerCase().slice(0, 40))
+      );
+      if (titleMatches.length === 0) return null;
+      if (titleMatches.length === 1) return titleMatches[0];
+      const objTitleUpper = (obj.lectureTitle || "").toUpperCase();
+      const prefer = titleMatches.find((l) => {
+        const type = (l.lectureType || "LEC").toUpperCase().replace(/^LECTURE$|^LECT/i, "LEC");
+        const num = String(l.lectureNumber ?? "");
+        const needle = num ? type + " " + num : type;
+        if (objTitleUpper.includes(needle) || objTitleUpper.includes(type + num)) return true;
+        if ((obj.lectureType || "").toUpperCase() === type) return true;
+        if ((obj.activity || "").toUpperCase().replace(/\s/g, "").includes(type + num)) return true;
+        return false;
+      });
+      return prefer || titleMatches.find((l) => (l.lectureType || "").toUpperCase().includes("DLA")) || titleMatches[0];
+    };
+    const repairOne = (obj) => {
+      if (obj?.linkedLecId && lecIds.has(obj.linkedLecId) && (obj.activity || "").trim() !== "Unknown") return obj;
+      const match = findLecForObj(obj);
+      return match ? { ...obj, linkedLecId: match.id, sourceFile: match.id } : obj;
+    };
+    const repairedImported = (data.imported || []).map(repairOne);
+    const repairedExtracted = (data.extracted || []).map(repairOne);
+    const changed =
+      repairedImported.some((o, i) => o.linkedLecId !== (data.imported || [])[i]?.linkedLecId) ||
+      repairedExtracted.some((o, i) => o.linkedLecId !== (data.extracted || [])[i]?.linkedLecId);
+    if (!changed) return;
+    setBlockObjectives((prev) => ({
+      ...prev,
+      [bidForObjectives]: { ...data, imported: repairedImported, extracted: repairedExtracted },
+    }));
+  }, [bidForObjectives, blockObjectives, lectures, setBlockObjectives]);
+
+  // When in Deep Learn view, also run link-by-title for the Deep Learn block so that block gets repaired even if it's not the active block
+  useEffect(() => {
+    const dlBid = view === "deeplearn" && studyCfg?.blockId ? studyCfg.blockId : null;
+    if (!dlBid || !setBlockObjectives || !blockObjectives) return;
+    const data = blockObjectives[dlBid] || { imported: [], extracted: [] };
+    const allObjs = [...(data.imported || []), ...(data.extracted || [])];
+    const blockLecs = (lectures || []).filter((l) => l.blockId === dlBid);
+    if (!blockLecs.length) return;
+    const lecIds = new Set(blockLecs.map((l) => l.id));
+    const needsLink = (o) =>
+      !o?.linkedLecId ||
+      !lecIds.has(o.linkedLecId) ||
+      ((o.activity || "").trim() === "Unknown" && !lecIds.has(o.linkedLecId));
+    if (!allObjs.some(needsLink)) return;
+    const findLec = (obj) => {
+      const byTypeNum = blockLecs.find(
+        (l) =>
+          String(l.lectureType || "LEC") === String(obj?.lectureType || "LEC") &&
+          String(l.lectureNumber) === String(obj?.lectureNumber)
+      );
+      if (byTypeNum) return byTypeNum;
+      const objTitle = (obj.lectureTitle || "").trim().toLowerCase().slice(0, 40);
+      if (objTitle.length < 5) return null;
+      const titleMatches = blockLecs.filter(
+        (l) => (l.lectureTitle || l.fileName || "").toLowerCase().includes(objTitle) || objTitle.includes((l.lectureTitle || l.fileName || "").toLowerCase().slice(0, 40))
+      );
+      if (titleMatches.length === 0) return null;
+      if (titleMatches.length === 1) return titleMatches[0];
+      const objTitleUpper = (obj.lectureTitle || "").toUpperCase();
+      const prefer = titleMatches.find((l) => {
+        const type = (l.lectureType || "LEC").toUpperCase().replace(/^LECTURE$|^LECT/i, "LEC");
+        const num = String(l.lectureNumber ?? "");
+        const needle = num ? type + " " + num : type;
+        if (objTitleUpper.includes(needle) || objTitleUpper.includes(type + num)) return true;
+        if ((obj.lectureType || "").toUpperCase() === type) return true;
+        if ((obj.activity || "").toUpperCase().replace(/\s/g, "").includes(type + num)) return true;
+        return false;
+      });
+      return prefer || titleMatches.find((l) => (l.lectureType || "").toUpperCase().includes("DLA")) || titleMatches[0];
+    };
+    const repairOne = (obj) => {
+      if (obj?.linkedLecId && lecIds.has(obj.linkedLecId) && (obj.activity || "").trim() !== "Unknown") return obj;
+      const match = findLec(obj);
+      return match ? { ...obj, linkedLecId: match.id, sourceFile: match.id } : obj;
+    };
+    const repairedImported = (data.imported || []).map(repairOne);
+    const repairedExtracted = (data.extracted || []).map(repairOne);
+    const changed =
+      repairedImported.some((o, i) => o.linkedLecId !== (data.imported || [])[i]?.linkedLecId) ||
+      repairedExtracted.some((o, i) => o.linkedLecId !== (data.extracted || [])[i]?.linkedLecId);
+    if (!changed) return;
+    setBlockObjectives((prev) => ({
+      ...prev,
+      [dlBid]: { ...data, imported: repairedImported, extracted: repairedExtracted },
+    }));
+  }, [view, studyCfg?.blockId, blockObjectives, lectures, setBlockObjectives]);
+
+  // Repair objectives with activity "Unknown" that are linked to a lecture — set activity from lecture (e.g. "DLA 2")
+  const repairUnknownActivityRef = useRef(false);
+  useEffect(() => {
+    if (repairUnknownActivityRef.current || !setBlockObjectives || !blockObjectives) return;
+    const bids = Object.keys(blockObjectives);
+    let anyChange = false;
+    const next = { ...blockObjectives };
+    bids.forEach((bid) => {
+      const data = next[bid];
+      if (!data) return;
+      const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+      let blockChanged = false;
+      const fixActivity = (obj) => {
+        if (!obj || typeof obj !== "object") return obj;
+        const act = (obj.activity || "").trim();
+        if (act && act !== "Unknown") return obj;
+        if (!obj.linkedLecId) return obj;
+        const lec = blockLecs.find((l) => l.id === obj.linkedLecId);
+        if (!lec) return obj;
+        const newActivity = `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""}`.trim();
+        if (!newActivity) return obj;
+        blockChanged = true;
+        return { ...obj, activity: newActivity };
+      };
+      const imported = (data.imported || []).map(fixActivity);
+      const extracted = (data.extracted || []).map(fixActivity);
+      if (blockChanged) {
+        anyChange = true;
+        next[bid] = { ...data, imported, extracted };
+      }
+    });
+    if (anyChange) {
+      repairUnknownActivityRef.current = true;
+      setBlockObjectives(next);
+      try {
+        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+      } catch {}
+    }
+  }, [blockObjectives, lectures, setBlockObjectives]);
+
+  // One-time repair for existing orphaned objectives (match by lectureType + lectureNumber only)
+  const repairAllBlocksOnMountRef = useRef(false);
+  useEffect(() => {
+    if (repairAllBlocksOnMountRef.current) return;
+    const bids = Object.keys(blockObjectives || {});
+    if (bids.length > 0 && (lectures || []).length > 0) {
+      repairAllBlocksOnMountRef.current = true;
+      bids.forEach((bid) => repairObjectiveAlignment(bid));
+    }
+  }, [blockObjectives, lectures, repairObjectiveAlignment]);
+
+  useEffect(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid) return;
+    const objs = getBlockObjectives(bid) || [];
+    const unlinked = objs.filter(
+      (o) => !o.linkedLecId || !lectures.find((l) => l.id === o.linkedLecId)
+    );
+    if (unlinked.length > 0) {
+      console.log(`${unlinked.length} unlinked objectives — running repair`);
+      const t = setTimeout(() => repairObjectiveAlignment(bid), 100);
+      return () => clearTimeout(t);
+    }
+  }, [activeBlock?.id, blockId, lectures.length, blockObjectives, getBlockObjectives, repairObjectiveAlignment]);
+
+  // One-time migration: unlink obviously misassigned objectives (e.g. shoulder/axilla linked to neural lecture)
+  useEffect(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid || !lectures.length) return;
+    const data = blockObjectives[bid];
+    if (!data) return;
+    const imported = data.imported || [];
+    const extracted = data.extracted || [];
+    if (!imported.length && !extracted.length) return;
+    const SHOULDER_KEYWORDS = /axilla|shoulder|cervicoaxillary|axillary|subclavian|scapula|brachial plexus|rotator cuff|glenohumeral/i;
+    const NEURAL_KEYWORDS = /neural tube|spinal cord|vertebra|neuroectoderm|neural plate|neural crest|somite|notochord|meninges|neurulation/i;
+    let fixed = 0;
+    const clean = (obj) => {
+      if (!obj?.linkedLecId) return obj;
+      const linkedLec = lectures.find((l) => l.id === obj.linkedLecId);
+      if (!linkedLec) return obj;
+      const lecTitle = (linkedLec.lectureTitle || linkedLec.fileName || linkedLec.filename || "").toLowerCase();
+      const objText = (obj.objective || "").toLowerCase();
+      if (SHOULDER_KEYWORDS.test(objText) && NEURAL_KEYWORDS.test(lecTitle)) {
+        fixed++;
+        console.log(`🔧 Removing misassigned obj from ${linkedLec.lectureTitle}:`, obj.objective?.slice(0, 50));
+        return { ...obj, linkedLecId: null };
+      }
+      if (NEURAL_KEYWORDS.test(objText) && SHOULDER_KEYWORDS.test(lecTitle)) {
+        fixed++;
+        return { ...obj, linkedLecId: null };
+      }
+      return obj;
+    };
+    const cleanedImported = imported.map(clean);
+    const cleanedExtracted = extracted.map(clean);
+    if (fixed > 0) {
+      console.log(`🔧 Removed ${fixed} misassigned objectives`);
+      setBlockObjectives((prev) => {
+        const next = { ...prev, [bid]: { ...data, imported: cleanedImported, extracted: cleanedExtracted } };
+        try {
+          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    }
+  }, [activeBlock?.id, blockId, lectures.length, blockObjectives]);
+
+  useEffect(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid) return;
+    try {
+      const blockObjs = getBlockObjectives(bid) || [];
+      const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+      const lec = blockLecs.find(
+        (l) =>
+          (String(l.lectureType || "").toUpperCase().includes("DLA") || (l.lectureType || "").toUpperCase() === "DLA") &&
+          String(l.lectureNumber) === "4"
+      );
+      const dla4ObjsByActivity = blockObjs.filter(
+        (o) =>
+          (o.activity || "").toLowerCase().includes("dla") &&
+          (o.activity || "").includes("4")
+      );
+      const dla4ObjsByLec = lec ? blockObjs.filter((o) => o.linkedLecId === lec.id) : [];
+      console.log("DLA 4 objectives found:", dla4ObjsByActivity.length, "(by activity)", dla4ObjsByLec.length, "(by linkedLecId)");
+      console.log("DLA 4 lec.id:", lec?.id);
+      console.log("All block objectives count:", blockObjs.length);
+      console.log("Sample linkedLecIds:", blockObjs.slice(0, 5).map((o) => o.linkedLecId));
+      console.log("Sample sourceFiles:", blockObjs.slice(0, 5).map((o) => o.sourceFile));
+      const sampleActivities = [...new Set(blockObjs.map((o) => o.activity))].slice(0, 10);
+      console.log("Sample activities:", sampleActivities);
+      const unknownObjs = blockObjs.filter((o) => (o.activity || "").trim() === "Unknown" || !(o.activity || "").trim());
+      if (unknownObjs.length > 0) {
+        console.log(
+          "Objectives with activity 'Unknown' (which file/lecture):",
+          unknownObjs.slice(0, 5).map((o) => ({
+            lectureTitle: o.lectureTitle,
+            sourceFile: o.sourceFile,
+            linkedLecId: o.linkedLecId,
+            objectivePreview: (o.objective || o.text || "").slice(0, 50) + "...",
+          }))
+        );
+        console.log("Total objectives with Unknown activity:", unknownObjs.length);
+      }
+    } catch (e) {
+      console.warn("Objective alignment debug log failed:", e);
+    }
+  }, [activeBlock?.id, blockId, lectures, getBlockObjectives]);
 
   useEffect(() => {
     setBlockObjectives((prev) => {
@@ -6124,6 +6766,198 @@ export default function App() {
 
   const makeSubtopicKey = (lecId, subtopicIndex, blockId) =>
     `${lecId}__sub${subtopicIndex}__${blockId}`;
+
+  const hasOrphanedPerf = useMemo(() => {
+    const bid = activeBlock?.id ?? blockId;
+    const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+    const lecIds = new Set(blockLecs.map((l) => l.id));
+    return Object.keys(performanceHistory || {}).some((key) => {
+      const parts = key.split("__");
+      if (parts.length !== 2) return false; // only lecture-level keys are lecId__blockId
+      const [lecId, keyBlockId] = parts;
+      return keyBlockId === bid && lecId !== "block" && !lecIds.has(lecId);
+    });
+  }, [performanceHistory, lectures, activeBlock?.id, blockId]);
+
+  const [showManualResync, setShowManualResync] = useState(false);
+  const [orphanedSessionsForManual, setOrphanedSessionsForManual] = useState([]);
+
+  const resyncOrphanedPerformance = useCallback(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid) return;
+    const allPerf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+    const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+    const lecIds = new Set(blockLecs.map((l) => l.id));
+
+    const orphanedKeys = Object.keys(allPerf).filter((key) => {
+      const parts = key.split("__");
+      if (parts.length !== 2) return false;
+      const [lecId, keyBlockId] = parts;
+      return keyBlockId === bid && lecId !== "block" && !lecIds.has(lecId);
+    });
+
+    console.log("Orphaned keys:", orphanedKeys);
+    console.log("Sample orphaned session:", orphanedKeys[0] ? allPerf[orphanedKeys[0]] : "none");
+    console.log("Current lec type+numbers:", blockLecs.map((l) => `${l.lectureType}${l.lectureNumber} → ${l.id}`));
+
+    console.log(`Found ${orphanedKeys.length} orphaned performance keys`);
+    if (orphanedKeys.length === 0) {
+      const allOrphaned = Object.keys(allPerf).filter((key) => {
+        const lecId = key.split("__")[0];
+        return lecId !== "block" && !lectures.some((l) => l.id === lecId);
+      });
+      console.log("All orphaned keys across all blocks:", allOrphaned);
+    }
+
+    let migrated = 0;
+    const updatedPerf = { ...allPerf };
+    const unmatched = [];
+
+    orphanedKeys.forEach((oldKey) => {
+      const perfData = allPerf[oldKey];
+      const sessions = Array.isArray(perfData) ? perfData : (perfData?.sessions != null ? perfData.sessions : [perfData]);
+      const sample = sessions[0] ?? perfData ?? {};
+
+      // Try every possible match strategy in order:
+      let match = null;
+
+      // Strategy 1: lectureType + lectureNumber stored on session
+      if (!match && sample.lectureType != null && sample.lectureNumber != null) {
+        match = blockLecs.find(
+          (l) =>
+            (l.lectureType || "LEC") === (sample.lectureType || "LEC") &&
+            String(l.lectureNumber) === String(sample.lectureNumber)
+        );
+      }
+
+      // Strategy 2: lectureName partial match
+      if (!match && sample.lectureName) {
+        const nameLower = String(sample.lectureName).toLowerCase();
+        match = blockLecs.find((l) => {
+          const lecName = (l.lectureTitle || l.filename || l.fileName || "").toLowerCase();
+          return lecName.includes(nameLower.slice(0, 15)) || nameLower.includes(lecName.slice(0, 15));
+        });
+      }
+
+      // Strategy 3: parse lectureType+number from the old lecId string itself
+      // e.g. "extracted_1772945556111_DLA4" or similar patterns
+      if (!match) {
+        const keyStr = oldKey.toUpperCase();
+        match = blockLecs.find((l) => {
+          const pattern = String((l.lectureType || "LEC") + (l.lectureNumber ?? "")).toUpperCase();
+          return pattern.length >= 2 && keyStr.includes(pattern);
+        });
+      }
+
+      // Strategy 4: match by session count / score fingerprint as last resort
+      // (skip — too unreliable)
+
+      if (match) {
+        const newKey = `${match.id}__${bid}`;
+        if (!updatedPerf[newKey]) {
+          updatedPerf[newKey] = perfData;
+          delete updatedPerf[oldKey];
+          migrated++;
+          console.log(`✓ Migrated: ${oldKey} → ${newKey} (${match.lectureTitle || match.filename || match.id})`);
+        } else {
+          const existing = updatedPerf[newKey];
+          const existingSessions = existing?.sessions ?? (existing ? [existing] : []);
+          const incomingSessions = Array.isArray(perfData?.sessions) ? perfData.sessions : (perfData ? [perfData] : []);
+          const merged = [...existingSessions, ...incomingSessions].sort(
+            (a, b) => new Date(a?.date || 0) - new Date(b?.date || 0)
+          );
+          updatedPerf[newKey] = { ...existing, ...perfData, sessions: merged.slice(-50) };
+          delete updatedPerf[oldKey];
+          migrated++;
+          console.log(`✓ Merged: ${oldKey} → ${newKey}`);
+        }
+      } else {
+        unmatched.push({ oldKey, sample });
+        console.warn(`✗ Could not match orphaned key: ${oldKey}`, sample);
+      }
+    });
+
+    if (migrated > 0) {
+      try {
+        localStorage.setItem("rxt-performance", JSON.stringify(updatedPerf));
+      } catch (e) {
+        console.warn("Failed to persist resynced performance", e);
+      }
+      setPerformanceHistory(updatedPerf);
+      setShowManualResync(false);
+      setOrphanedSessionsForManual([]);
+      alert(`✓ Resynced ${migrated} lecture sessions.`);
+    } else {
+      if (unmatched.length > 0) {
+        setOrphanedSessionsForManual(unmatched);
+        setShowManualResync(true);
+      }
+      console.log("Orphaned keys found:", orphanedKeys.length);
+      console.log("Full perf keys:", Object.keys(allPerf));
+      alert(
+        orphanedKeys.length > 0
+          ? "No sessions resynced automatically. Use the manual mapping below to assign each session to a lecture."
+          : "No orphaned sessions found to resync."
+      );
+    }
+  }, [activeBlock?.id, blockId, lectures, setPerformanceHistory]);
+
+  const dismissOrphanedSession = useCallback((oldKey) => {
+    setPerformanceHistory((prev) => {
+      const next = { ...prev };
+      delete next[oldKey];
+      try {
+        localStorage.setItem("rxt-performance", JSON.stringify(next));
+      } catch (e) {
+        console.warn("Failed to persist dismissal", e);
+      }
+      return next;
+    });
+    setOrphanedSessionsForManual((prev) => {
+      const next = prev.filter((o) => o.oldKey !== oldKey);
+      setShowManualResync(next.length > 0);
+      return next;
+    });
+  }, [setPerformanceHistory]);
+
+  const manuallyMapSession = useCallback(
+    (oldKey, newLecId) => {
+      if (!newLecId) return;
+      const bid = activeBlock?.id ?? blockId;
+      const newKey = `${newLecId}__${bid}`;
+      setPerformanceHistory((prev) => {
+        const next = { ...prev };
+        const existing = next[newKey];
+        const incoming = next[oldKey];
+
+        if (existing) {
+          // Merge sessions if both exist
+          const existingSessions = existing?.sessions ?? (existing ? [existing] : []);
+          const incomingSessions = Array.isArray(incoming?.sessions) ? incoming.sessions : (incoming ? [incoming] : []);
+          const merged = [...existingSessions, ...incomingSessions].sort(
+            (a, b) => new Date(a?.date || 0) - new Date(b?.date || 0)
+          );
+          next[newKey] = { ...existing, ...incoming, sessions: merged.slice(-50) };
+        } else {
+          next[newKey] = incoming;
+        }
+
+        delete next[oldKey];
+        try {
+          localStorage.setItem("rxt-performance", JSON.stringify(next));
+        } catch (e) {
+          console.warn("Failed to persist manual mapping", e);
+        }
+        return next;
+      });
+      setOrphanedSessionsForManual((prev) => {
+        const next = prev.filter((o) => o.oldKey !== oldKey);
+        setShowManualResync(next.length > 0);
+        return next;
+      });
+    },
+    [activeBlock?.id, blockId, setPerformanceHistory]
+  );
 
   useEffect(() => {
     const cleanupVersion = "cleanup_v3";
@@ -6228,6 +7062,42 @@ export default function App() {
     [lectures, terms]
   );
 
+  const migratePerformanceOnUpload = useCallback(
+    (newLec, blockId, currentLectures, setPerf) => {
+      if (!newLec?.id || !blockId) return;
+      const allPerf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const blockLecsBefore = (currentLectures || []).filter((l) => l.blockId === blockId);
+      const newType = newLec.lectureType || "LEC";
+      const newNum = String(newLec.lectureNumber ?? "");
+      const oldLec = blockLecsBefore.find(
+        (l) =>
+          (l.lectureType || "LEC") === newType &&
+          String(l.lectureNumber ?? "") === newNum &&
+          l.id !== newLec.id
+      );
+      if (!oldLec) return;
+      const oldKey = `${oldLec.id}__${blockId}`;
+      const newKey = `${newLec.id}__${blockId}`;
+      if (allPerf[oldKey] && !allPerf[newKey]) {
+        console.log(`Migrating performance: ${oldKey} → ${newKey}`);
+        allPerf[newKey] = allPerf[oldKey];
+        delete allPerf[oldKey];
+        try {
+          localStorage.setItem("rxt-performance", JSON.stringify(allPerf));
+        } catch (e) {
+          console.warn("Failed to persist performance migration", e);
+        }
+        setPerf((prev) => {
+          const updated = { ...prev };
+          updated[newKey] = prev[oldKey];
+          delete updated[oldKey];
+          return updated;
+        });
+      }
+    },
+    []
+  );
+
   const syncTrackerRow = useCallback(
     (lectureId, blockId, sessionRecord) => {
       if (!lectureId) {
@@ -6241,10 +7111,12 @@ export default function App() {
       }
       const blockName = (terms || []).flatMap((t) => t.blocks || []).find((b) => b.id === blockId)?.name || "";
       const topicKey = sessionRecord?.topicKey ?? makeTopicKey(lectureId, blockId);
-      const topicLabel = (lec.lectureTitle || lec.fileName || "").trim() || resolveTopicLabel(topicKey, sessionRecord, blockId);
+      const topicLabel =
+        sessionRecord.sessionType === "reviewed"
+          ? "◑ Reviewed"
+          : (lec.lectureTitle || lec.fileName || "").trim() || resolveTopicLabel(topicKey, sessionRecord, blockId);
 
       setTrackerRows((prev) => {
-        // Match ONLY by lectureId — never by topic string.
         const existingIdx = prev.findIndex((r) => r.lectureId === lectureId);
 
         const confidenceNum =
@@ -6257,12 +7129,13 @@ export default function App() {
                 : null;
 
         const preRead = sessionRecord.sessionType === "anki";
-        const lecture = sessionRecord.sessionType === "deepLearn";
+        const lecture = sessionRecord.sessionType === "deepLearn" || sessionRecord.sessionType === "reviewed";
         const postReview =
           sessionRecord.sessionType === "quiz" || sessionRecord.sessionType === "objectiveQuiz";
         const anki = sessionRecord.sessionType === "blockExam";
 
         const dateStr = sessionRecord.date?.slice(0, 10) || new Date().toISOString().slice(0, 10);
+        const sessionType = sessionRecord.sessionType || null;
 
         const updatedRow =
           existingIdx >= 0
@@ -6279,6 +7152,7 @@ export default function App() {
                 lecture: prev[existingIdx].lecture || lecture,
                 postReview: prev[existingIdx].postReview || postReview,
                 anki: prev[existingIdx].anki || anki,
+                sessionType: sessionType ?? prev[existingIdx].sessionType,
               }
             : {
                 id: `auto_${lectureId}_${Date.now()}`,
@@ -6299,6 +7173,7 @@ export default function App() {
                 notes: "",
                 reps: 1,
                 autoGenerated: true,
+                sessionType,
               };
 
         const updated =
@@ -6309,13 +7184,91 @@ export default function App() {
     [lectures, terms, setTrackerRows, resolveTopicLabel, makeTopicKey]
   );
 
-  const handleDeepLearnStart = ({ selectedTopics, blockId: bId }) => {
+  const markLectureReviewed = useCallback(
+    (lec, blockId) => {
+      if (!lec || !blockId) return;
+      const key = `${lec.id}__${blockId}`;
+      setReviewedLectures((prev) => ({
+        ...prev,
+        [key]: { date: new Date().toISOString(), method: "manual" },
+      }));
+      setBlockObjectives((prev) => {
+        const data = prev[blockId] || { imported: [], extracted: [] };
+        const linkedToThisLec = (obj) =>
+          obj.linkedLecId === lec.id ||
+          (Array.isArray(lec.mergedFrom) && lec.mergedFrom.some((m) => m && m.id === obj.linkedLecId));
+        const mapUntestedToInProgress = (obj) =>
+          linkedToThisLec(obj) && obj.status === "untested"
+            ? { ...obj, status: "inprogress" }
+            : obj;
+        const updatedImported = (data.imported || []).map(mapUntestedToInProgress);
+        const updatedExtracted = (data.extracted || []).map(mapUntestedToInProgress);
+        const next = { ...prev, [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+        try {
+          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+      syncTrackerRow(lec.id, blockId, {
+        sessionType: "reviewed",
+        score: null,
+        date: new Date().toISOString(),
+        topicKey: makeTopicKey(lec.id, blockId),
+        note: "Marked as reviewed (attended / Anki unsuspended)",
+      });
+    },
+    [setReviewedLectures, setBlockObjectives, syncTrackerRow, makeTopicKey]
+  );
+
+  const unmarkLectureReviewed = useCallback(
+    (lec, blockId) => {
+      if (!lec || !blockId) return;
+      const key = `${lec.id}__${blockId}`;
+      setReviewedLectures((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      const perfKey = makeTopicKey(lec.id, blockId);
+      const hasSessions = (performanceHistory[perfKey]?.sessions?.length || 0) > 0;
+      if (!hasSessions) {
+        setBlockObjectives((prev) => {
+          const data = prev[blockId] || { imported: [], extracted: [] };
+          const revertInProgressToUntested = (obj) =>
+            obj.linkedLecId === lec.id && obj.status === "inprogress"
+              ? { ...obj, status: "untested" }
+              : obj;
+          const updatedImported = (data.imported || []).map(revertInProgressToUntested);
+          const updatedExtracted = (data.extracted || []).map(revertInProgressToUntested);
+          const next = { ...prev, [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+          try {
+            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+      }
+    },
+    [setReviewedLectures, setBlockObjectives, makeTopicKey, performanceHistory]
+  );
+
+  const handleDeepLearnStart = async ({ selectedTopics, blockId: bId }) => {
     const bid = bId ?? activeBlock?.id ?? blockId;
+    repairObjectiveAlignment(bid);
+    await new Promise((r) => setTimeout(r, 300)); // let setState propagate
+    const lecId = selectedTopics?.[0]?.lecId;
+    const lec = lectures.find((l) => l.id === lecId);
+    const freshObjs = (getBlockObjectives(bid) || []).filter(
+      (o) =>
+        o.linkedLecId === lec?.id || (lec?.mergedFrom || []).includes(o.linkedLecId)
+    );
+    console.log("Fresh objectives after repair:", freshObjs.length);
+    const topicKey = makeTopicKey(lecId, bid);
+    if (topicKey) setActiveSessions((prev) => ({ ...prev, [topicKey]: true }));
     setStudyCfg({
       blockId: bid,
       lecs: lectures.filter((l) => l.blockId === bid),
       blockObjectives: getBlockObjectives(bid),
-      preselectedLecId: selectedTopics?.[0]?.lecId,
+      preselectedLecId: lecId,
     });
     setView("deeplearn");
   };
@@ -6377,8 +7330,8 @@ export default function App() {
     const lecturePlans = blockLecs.map((lec) => {
       const lecObjs = blockObjs.filter(
         (o) =>
-          String(o.lectureNumber) === String(lec.lectureNumber) ||
-          o.linkedLecId === lec.id
+          o.linkedLecId === lec.id ||
+          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
       );
       const struggling = lecObjs.filter((o) => o.status === "struggling").length;
       const untested = lecObjs.filter((o) => o.status === "untested").length;
@@ -6565,7 +7518,7 @@ export default function App() {
       const lecObjs = blockObjs.filter(
         (o) =>
           o.linkedLecId === lec.id ||
-          String(o.lectureNumber) === String(lec.lectureNumber)
+          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
       );
       const struggling = lecObjs.filter((o) => o.status === "struggling").length;
       const untested = lecObjs.filter((o) => o.status === "untested").length;
@@ -6588,7 +7541,9 @@ export default function App() {
       if (lastScore !== null && lastScore < 80) urgency += 5;
       if (confidence === "Low") urgency += 8;
       if (confidence === "Medium") urgency += 3;
-      if (sessions === 0) urgency += 12;
+      if (sessions === 0) {
+        urgency += reviewedLectures[`${lec.id}__${blockId}`] ? 8 : 12;
+      }
       if (nextReview && nextReview <= today) urgency += 20;
 
       const recommendedSessions = [];
@@ -6801,7 +7756,7 @@ export default function App() {
       (o) =>
         !lectureId ||
         o.linkedLecId === lectureId ||
-        String(o.lectureNumber) === String(lec?.lectureNumber)
+        (lec && (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId))
     );
 
     const styleAnalysis =
@@ -6993,10 +7948,31 @@ export default function App() {
   const computeWeakAreas = (blockId) => {
     const objs = getBlockObjectives(blockId) || [];
     const perf = performanceHistory;
+    const blockLecs = (lectures || []).filter((l) => l.blockId === blockId);
+    const resolveActivity = (o) => {
+      if ((o.activity || "").trim() && (o.activity || "").trim() !== "Unknown") return o.activity || "Unknown";
+      const lec =
+        blockLecs.find((l) => l.id === o.linkedLecId) ||
+        blockLecs.find(
+          (l) =>
+            String(l.lectureNumber) === String(o.lectureNumber) &&
+            (l.lectureType || "LEC") === (o.lectureType || l.lectureType || "LEC")
+        ) ||
+        (() => {
+          if ((o.lectureTitle || "").trim().length < 5) return null;
+          const objTitle = (o.lectureTitle || "").trim().toLowerCase().slice(0, 50);
+          const matches = blockLecs.filter((l) => {
+            const lecTitle = (l.lectureTitle || l.fileName || "").toLowerCase();
+            return lecTitle.includes(objTitle) || objTitle.includes(lecTitle.slice(0, 50));
+          });
+          return matches.find((l) => (l.lectureType || "").toUpperCase().includes("DLA")) || matches[0] || null;
+        })();
+      return lec ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""}`.trim() : "Unknown";
+    };
     const weakAreas = [];
     const byLecture = {};
     objs.forEach((o) => {
-      const key = o.activity || "Unknown";
+      const key = resolveActivity(o);
       if (!byLecture[key])
         byLecture[key] = { activity: key, lectureTitle: o.lectureTitle, discipline: o.discipline, objectives: [] };
       byLecture[key].objectives.push(o);
@@ -7141,7 +8117,18 @@ export default function App() {
         }
         return lec;
       });
-      return changed ? next : prev;
+      if (changed) {
+        const deduped = deduplicateLectures(next);
+        saveLectures(deduped);
+        return deduped;
+      }
+      
+      const dedupedPrev = deduplicateLectures(prev);
+      if (dedupedPrev.length < prev.length) {
+        saveLectures(dedupedPrev);
+        return dedupedPrev;
+      }
+      return prev;
     });
   }, [ready]);
 
@@ -7202,8 +8189,6 @@ export default function App() {
   }, []);
 
   // ── Derived ────────────────────────────────
-  const activeTerm  = terms.find(t => t.id === termId);
-  const activeBlock = activeTerm?.blocks.find(b => b.id === blockId);
   const blockLecs   = lectures.filter(l => l.blockId === (activeBlock?.id ?? blockId));
   const sortedLecs = [...blockLecs].sort((a, b) => {
     if (lecSort === "number") {
@@ -7318,6 +8303,61 @@ export default function App() {
     });
   };
 
+  const reanalyzeLecture = useCallback(
+    async (lec) => {
+      const text = lec?.extractedText || lec?.fullText || "";
+      if (!text || text.length < 100) {
+        setUpMsg("No lecture text to analyze — re-upload the PDF first.");
+        setTimeout(() => setUpMsg(""), 3000);
+        return;
+      }
+      try {
+        setUpMsg("Analyzing lecture content with AI...");
+        const teachingMap = await analyzeLecture(lec, text);
+        updateLec(lec.id, {
+          teachingMap: teachingMap || null,
+          teachingMapDate: teachingMap ? new Date().toISOString() : undefined,
+        });
+        if (teachingMap?.sections?.length > 0) {
+          const bid = lec.blockId;
+          setBlockObjectives((prev) => {
+            const data = prev[bid] || { imported: [], extracted: [] };
+            const existingExtracted = (data.extracted || []).filter((o) => o.linkedLecId !== lec.id);
+            const aiObjectives = teachingMap.sections.flatMap((section, si) =>
+              (section.objectives || []).map((objText) => ({
+                id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
+                text: objText,
+                objective: objText,
+                linkedLecId: lec.id,
+                sourceFile: lec.id,
+                lectureType: lec.lectureType,
+                lectureNumber: lec.lectureNumber,
+                sectionIndex: si,
+                status: "untested",
+                bloom_level: 2,
+                bloom_level_name: "Understand",
+              }))
+            );
+            const next = {
+              ...prev,
+              [bid]: { ...data, extracted: [...existingExtracted, ...aiObjectives] },
+            };
+            try {
+              localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+            } catch {}
+            return next;
+          });
+        }
+        setUpMsg("Done ✓");
+      } catch (err) {
+        console.error("Re-analyze failed:", err);
+        setUpMsg("Analysis failed: " + (err?.message || String(err)));
+      }
+      setTimeout(() => setUpMsg(""), 4000);
+    },
+    [updateLec, setBlockObjectives, setUpMsg]
+  );
+
   const getLecPerf = useCallback(
     (lec, bid) => {
       // ONLY use exact key match — never fall back to lecture number matching.
@@ -7360,7 +8400,7 @@ export default function App() {
       const lecObjs = blockObjs.filter(
         (o) =>
           o.linkedLecId === lec.id ||
-          String(o.lectureNumber) === String(lec.lectureNumber)
+          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
       );
       if (lecObjs.length === 0) {
         const perf = getLecPerf(lec, blockId);
@@ -7381,7 +8421,7 @@ export default function App() {
       const lecObjs = blockObjs.filter(
         (o) =>
           o.linkedLecId === lec.id ||
-          String(o.lectureNumber) === String(lec.lectureNumber)
+          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
       );
       if (lecObjs.length === 0) {
         return { pct: 0, mastered: 0, total: 0, sessions: 0, weakness: null };
@@ -7471,7 +8511,9 @@ export default function App() {
     blockLecsForWeek.forEach((l) => {
       if (!l.weekNumber) return;
       const objs = (getBlockObjectives(bid) || []).filter(
-        (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+        (o) =>
+          o.linkedLecId === l.id ||
+          (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
       );
       const untested = objs.filter((o) => o.status === "untested").length;
       untestedByWeek[l.weekNumber] = (untestedByWeek[l.weekNumber] || 0) + untested;
@@ -7560,9 +8602,13 @@ export default function App() {
     const mergedKeyTerms = [...new Set(toMerge.flatMap(l => l.keyTerms || []))];
     const mergedFullText = toMerge.map(l => l.fullText || "").filter(Boolean).join("\n\n---\n\n");
 
+    const mergedId = "merged_" + Date.now();
+    const sourceLecIds = new Set(toMerge.map(l => l.id));
+    const blockId = primary.blockId;
+
     const mergedLec = {
       ...primary,
-      id: "merged_" + Date.now(),
+      id: mergedId,
       lectureTitle: title || primary.lectureTitle,
       subject: subject || primary.subject,
       lectureNumber: lecNum,
@@ -7586,6 +8632,36 @@ export default function App() {
       const updated = [...filtered, mergedLec];
       saveLectures(updated);
       return updated;
+    });
+
+    // Re-link objectives that belonged to either source lecture to the merged lecture; also link unlinked objectives that match merged lecture by type+number or activity
+    const mergedLecTypeNorm = (lecType || "LEC").toString().toUpperCase().replace(/^LECTURE$|^LECT/i, "LEC");
+    const mergedLecNumStr = String(lecNum ?? "");
+    const mergedActivityNorm = mergedLecNumStr ? (mergedLecTypeNorm + mergedLecNumStr) : "";
+    setBlockObjectives(prev => {
+      const data = prev[blockId] || { imported: [], extracted: [] };
+      const relink = (obj) =>
+        sourceLecIds.has(obj.linkedLecId) ? { ...obj, linkedLecId: mergedId, sourceFile: mergedId } : obj;
+      const linkToMergedIfMatch = (obj) => {
+        const afterRelink = relink(obj);
+        if (afterRelink.linkedLecId === mergedId) return afterRelink;
+        const objTypeNorm = (obj.lectureType || "LEC").toString().toUpperCase().replace(/^LECTURE$|^LECT/i, "LEC");
+        const objNumStr = String(obj.lectureNumber ?? "");
+        const matchesTypeNum = objTypeNorm === mergedLecTypeNorm && objNumStr === mergedLecNumStr;
+        const objActNorm = (obj.activity || "").toUpperCase().replace(/\s+/g, "").trim();
+        const matchesActivity = mergedActivityNorm && (objActNorm === mergedActivityNorm || objActNorm === mergedLecTypeNorm + " " + mergedLecNumStr);
+        if (matchesTypeNum || matchesActivity) return { ...afterRelink, linkedLecId: mergedId, sourceFile: mergedId };
+        return afterRelink;
+      };
+      const updatedImported = (data.imported || []).map(linkToMergedIfMatch);
+      const updatedExtracted = (data.extracted || []).map(linkToMergedIfMatch);
+      const next = { ...prev, [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+      try {
+        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+      } catch (e) {
+        console.warn("Failed to persist objectives after merge:", e);
+      }
+      return next;
     });
 
     setMergeConfig({ open: false, lectures: [] });
@@ -7639,7 +8715,7 @@ export default function App() {
             }
           }
           if (!contentResult) {
-            setUpMsg("📖 Parsing lecture content...");
+            setUpMsg("📖 Extracting PDF text...");
             const parsed = await parseExamPDF(file, (msg) => setUpMsg(msg));
             contentResult = {
               ...parsed,
@@ -7663,6 +8739,7 @@ export default function App() {
             contentResult.lectureNumber ??
             extractedObjectives[0]?.lectureNumber ??
             detectLectureNumber(file.name, lecTitle, lectureType);
+          console.log("Detected type/number:", lectureType, lecNum, "from:", file.name);
 
           const newLec = {
             id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
@@ -7682,6 +8759,7 @@ export default function App() {
             extractionMethod: contentResult.extractionMethod || "pdfplumber",
             pageCount: contentResult.pageCount ?? (contentResult.chunks || []).length,
             uploadedAt: new Date().toISOString(),
+            uploadDate: new Date().toISOString(),
           };
 
           if (!newLec.subtopics?.length) {
@@ -7774,10 +8852,99 @@ export default function App() {
             }
           }
 
+          let teachingMap = null;
+          try {
+            setUpMsg("Analyzing lecture content with AI...");
+            teachingMap = await analyzeLecture(newLec, newLec.fullText);
+            console.log("Teaching map generated:", teachingMap?.sections?.length, "sections");
+          } catch (err) {
+            console.error("Teaching map generation failed:", err);
+          }
+
+          const lectureToSave = {
+            ...newLec,
+            teachingMap: teachingMap || null,
+            teachingMapDate: teachingMap ? new Date().toISOString() : undefined,
+          };
+
+          if (teachingMap?.sections?.length > 0) {
+            setUpMsg("Mapping objectives to content...");
+            setBlockObjectives((prev) => {
+              const data = prev[bid] || { imported: [], extracted: [] };
+              const existingExtracted = (data.extracted || []).filter((o) => o.linkedLecId !== lectureToSave.id);
+              const aiObjectives = teachingMap.sections.flatMap((section, si) =>
+                (section.objectives || []).map((objText) => ({
+                  id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
+                  text: objText,
+                  objective: objText,
+                  linkedLecId: lectureToSave.id,
+                  sourceFile: lectureToSave.id,
+                  lectureType: lectureToSave.lectureType,
+                  lectureNumber: lectureToSave.lectureNumber,
+                  sectionIndex: si,
+                  status: "untested",
+                  bloom_level: 2,
+                  bloom_level_name: "Understand",
+                }))
+              );
+              const next = {
+                ...prev,
+                [bid]: {
+                  ...data,
+                  extracted: [...existingExtracted, ...aiObjectives],
+                },
+              };
+              try {
+                localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+              } catch {}
+              return next;
+            });
+          }
+
+          setUpMsg("Saving lecture...");
           setLecs((prev) => {
-            const updated = [...prev.filter((l) => !(l.blockId === bid && l.filename === file.name)), newLec];
+            const hasNum = lectureToSave.lectureNumber != null && String(lectureToSave.lectureNumber).trim() !== "";
+            const filtered = prev.filter(l => {
+              if (hasNum) {
+                return !(l.blockId === bid &&
+                  (l.lectureType || "LEC").trim() === (lectureToSave.lectureType || "LEC").trim() &&
+                  String(l.lectureNumber).trim() === String(lectureToSave.lectureNumber).trim());
+              }
+              return !(l.blockId === bid && l.filename === file.name);
+            });
+            const updated = [...filtered, lectureToSave];
             saveLectures(updated);
             return updated;
+          });
+          migratePerformanceOnUpload(lectureToSave, bid, lectures, setPerformanceHistory);
+          setUpMsg("Done ✓");
+          setTimeout(() => setUpMsg(""), 2000);
+
+          // Re-stamp objectives that match this lecture by type+number but were linked to an old (replaced) lecture id
+          setBlockObjectives((prev) => {
+            const blockData = prev[bid] || { imported: [], extracted: [] };
+            const blockLecs = [...(lectures || []).filter((l) => l.blockId === bid), lectureToSave];
+            let repaired = 0;
+            const repair = (obj) => {
+              const stillLinked = blockLecs.some((l) => l.id === obj.linkedLecId);
+              if (
+                !stillLinked &&
+                String(obj.lectureType) === String(lectureToSave.lectureType) &&
+                String(obj.lectureNumber) === String(lectureToSave.lectureNumber)
+              ) {
+                repaired++;
+                return { ...obj, linkedLecId: lectureToSave.id, sourceFile: lectureToSave.id };
+              }
+              return obj;
+            };
+            const imported = (blockData.imported || []).map(repair);
+            const extracted = (blockData.extracted || []).map(repair);
+            if (repaired === 0) return prev;
+            const next = { ...prev, [bid]: { ...blockData, imported, extracted } };
+            try {
+              localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+            } catch {}
+            return next;
           });
 
           if (contentResult.questions?.length) {
@@ -7785,20 +8952,53 @@ export default function App() {
           }
 
           if (extractedObjectives.length > 0) {
+            const oldLecId = lectures.find((l) => l.blockId === bid && l.filename === file.name)?.id ?? null;
             setBlockObjectives((prev) => {
               const blockData = prev[bid] || { imported: [], extracted: [] };
-              const existing = blockData.extracted || [];
+              const blockLecs = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
+              const isOrphan = (obj) =>
+                String(obj.lectureType) === String(lectureToSave.lectureType) &&
+                String(obj.lectureNumber) === String(lectureToSave.lectureNumber) &&
+                !blockLecs.some((l) => l.id === obj.linkedLecId);
+              const cleanedImported = (blockData.imported || []).filter((obj) => !isOrphan(obj));
+              const cleanedExtracted = (blockData.extracted || []).filter((obj) => !isOrphan(obj));
+              const existing = cleanedExtracted;
+              let existingFiltered = existing;
+              if (oldLecId) {
+                existingFiltered = existing.filter(
+                  (obj) => obj.linkedLecId !== oldLecId && obj.sourceFile !== oldLecId
+                );
+              } else {
+                existingFiltered = existing.filter(
+                  (obj) =>
+                    !(
+                      String(obj.lectureType) === String(lectureToSave.lectureType) &&
+                      String(obj.lectureNumber) === String(lectureToSave.lectureNumber)
+                    )
+                );
+              }
               const existingKeys = new Set(
-                existing.map((o) => (o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
+                existingFiltered.map((o) => (o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
               );
               const newOnes = extractedObjectives
                 .filter(
                   (o) => !existingKeys.has((o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
                 )
-                .map((o) => enrichObjectiveWithBloom(o, newLec.lectureType || "LEC"));
-              const updatedExtracted = [...existing, ...newOnes];
-              const allLectures = [...lectures.filter((l) => l.blockId === bid), newLec];
-              const alignedImported = alignObjectivesToLectures(bid, blockData.imported || [], allLectures);
+                .map((o) => {
+                  const enriched = enrichObjectiveWithBloom(o, lectureToSave.lectureType || "LEC");
+                  return {
+                    ...enriched,
+                    id: enriched.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid()),
+                    linkedLecId: lectureToSave.id,
+                    lectureType: lectureToSave.lectureType,
+                    lectureNumber: lectureToSave.lectureNumber,
+                    activity: `${lectureToSave.lectureType || "LEC"}${lectureToSave.lectureNumber}`,
+                    sourceFile: lectureToSave.id,
+                  };
+                });
+              const updatedExtracted = [...existingFiltered, ...newOnes];
+              const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
+              const alignedImported = alignObjectivesToLectures(bid, cleanedImported, allLectures);
               const updated = {
                 ...prev,
                 [bid]: { imported: alignedImported, extracted: updatedExtracted },
@@ -7812,7 +9012,7 @@ export default function App() {
             setBlockObjectives((prev) => {
               const blockData = prev[bid];
               if (!blockData?.imported?.length) return prev;
-              const allLectures = [...lectures.filter((l) => l.blockId === bid), newLec];
+              const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
               const aligned = alignObjectivesToLectures(bid, blockData.imported, allLectures);
               const updated = { ...prev, [bid]: { ...blockData, imported: aligned } };
               try {
@@ -7825,8 +9025,9 @@ export default function App() {
           const objCount = extractedObjectives.length;
           const qCount = contentResult.questions?.length || 0;
           setUpMsg(
-            "✓ " + file.name + " — " + qCount + " questions" +
-            (objCount > 0 ? " · " + objCount + " objectives extracted" : " · objectives aligned")
+            "Done ✓ — " + file.name +
+            (qCount > 0 ? " · " + qCount + " questions" : "") +
+            (objCount > 0 ? " · " + objCount + " objectives" : " · objectives aligned")
           );
           added++;
           addedInBatch.add(file.name);
@@ -8240,6 +9441,7 @@ export default function App() {
       return;
     }
 
+    const targetLec = lectures.find((l) => l.id === targetLecId);
     const targetObjectives = sessionMeta?.targetObjectives ?? [];
     const syncStats = syncSessionToObjectives(results, bid, targetObjectives, targetLecId);
 
@@ -8260,6 +9462,9 @@ export default function App() {
       lectureId: targetLecId,
       blockId: bid,
       topicKey,
+      lectureType: targetLec?.lectureType ?? null,
+      lectureNumber: targetLec?.lectureNumber ?? null,
+      lectureName: targetLec?.lectureTitle || targetLec?.filename || targetLec?.fileName || null,
       preSAQScore: sessionMeta?.preSAQScore ?? null,
       postMCQScore: sessionMeta?.postMCQScore ?? null,
       confidenceLevel: sessionMeta?.confidenceLevel ?? null,
@@ -8284,6 +9489,9 @@ export default function App() {
         lastScore: sessionRecord.score,
         lectureId: targetLecId,
         blockId: bid,
+        lectureType: sessionRecord.lectureType ?? targetLec?.lectureType ?? existing.lectureType,
+        lectureNumber: sessionRecord.lectureNumber ?? targetLec?.lectureNumber ?? existing.lectureNumber,
+        lectureName: sessionRecord.lectureName ?? (targetLec?.lectureTitle || targetLec?.filename || targetLec?.fileName) ?? existing.lectureName,
         confidenceLevel: sessionRecord.confidenceLevel ?? existing.confidenceLevel,
         nextReview: sessionMeta?.nextReview
           ? (() => {
@@ -8304,7 +9512,6 @@ export default function App() {
 
     syncTrackerRow(targetLecId, bid, sessionRecord);
 
-    const targetLec = targetLecId ? lectures.find((l) => l.id === targetLecId) : null;
     if (targetLec) {
       distributeResultsToSubtopics(results, targetLec, bid);
     }
@@ -8334,6 +9541,11 @@ export default function App() {
     }
     syncSessionToTracker({ correct, total }, studyCfg || {});
     setTrackerKey((k) => k + 1);
+    setActiveSessions((prev) => {
+      const next = { ...prev };
+      delete next[topicKey];
+      return next;
+    });
     let nextProfile = learningProfile;
     for (let i = 0; i < correct; i++) {
       nextProfile = recordAnswer(nextProfile, subject, subtopic, true, "clinicalVignette");
@@ -8724,6 +9936,56 @@ export default function App() {
         )}
 
         <div style={{ marginLeft:"auto", display:"flex", alignItems:"center", gap:8 }}>
+          {(() => {
+            const providers = getAvailableProviders();
+            return (providers.gemini || providers.anthropic) && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: 4 }}>
+                <span style={{ fontFamily: MONO, fontSize: 10, color: t.text3 }}>AI:</span>
+                {providers.gemini && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDefaultProvider(AI_PROVIDERS.GEMINI);
+                      setAiProvider(AI_PROVIDERS.GEMINI);
+                    }}
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 10,
+                      padding: "3px 10px",
+                      borderRadius: 5,
+                      border: "1px solid " + (aiProvider === AI_PROVIDERS.GEMINI ? t.statusProgress : t.border1),
+                      background: aiProvider === AI_PROVIDERS.GEMINI ? t.statusProgressBg : t.cardBg,
+                      color: aiProvider === AI_PROVIDERS.GEMINI ? t.statusProgress : t.text3,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ◆ Gemini
+                  </button>
+                )}
+                {providers.anthropic && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDefaultProvider(AI_PROVIDERS.ANTHROPIC);
+                      setAiProvider(AI_PROVIDERS.ANTHROPIC);
+                    }}
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 10,
+                      padding: "3px 10px",
+                      borderRadius: 5,
+                      border: "1px solid " + (aiProvider === AI_PROVIDERS.ANTHROPIC ? tc : t.border1),
+                      background: aiProvider === AI_PROVIDERS.ANTHROPIC ? tc + "15" : t.cardBg,
+                      color: aiProvider === AI_PROVIDERS.ANTHROPIC ? tc : t.text3,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ◆ Claude
+                  </button>
+                )}
+              </div>
+            );
+          })()}
           {[["overview","Overview"],["tracker","📋 Tracker"],["learn","🧠 Learn"],["deeplearn","🧬 Deep Learn"],["analytics","Analytics"]].map(([v,l]) => (
             <button
               key={v}
@@ -8890,8 +10152,11 @@ export default function App() {
                   )
                 )}
                 lecs={lectures}
-                resolveTopicLabel={resolveTopicLabel}
+                objectives={blockObjectives}
                 performanceHistory={performanceHistory}
+                reviewedLectures={reviewedLectures}
+                activeSessions={activeSessions}
+                resolveTopicLabel={resolveTopicLabel}
                 getBlockObjectives={getBlockObjectives}
                 computeWeakAreas={computeWeakAreas}
                 activeBlock={activeBlock}
@@ -8908,6 +10173,7 @@ export default function App() {
                 LEVEL_COLORS={LEVEL_COLORS}
                 LEVEL_BG={LEVEL_BG}
                 updateBlock={updateBlock}
+                onRealignObjectives={handleRealignObjectives}
                 onStartScheduleSession={(session) => {
                   setStudyCfg({
                     blockId: session.blockId,
@@ -8949,7 +10215,20 @@ export default function App() {
                     const existingKeys = new Set(existing.map((o) => (o.objective || "").slice(0, 60).toLowerCase()));
                     const newOnes = extractedObjectives
                       .filter((o) => !existingKeys.has((o.objective || "").slice(0, 60).toLowerCase()))
-                      .map((o) => enrichObjectiveWithBloom(o, lec?.lectureType || "LEC"));
+                      .map((o) => {
+                        const enriched = enrichObjectiveWithBloom(o, lec?.lectureType || "LEC");
+                        return lec
+                          ? {
+                              ...enriched,
+                              id: enriched.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid()),
+                              linkedLecId: lec.id,
+                              lectureType: lec.lectureType,
+                              lectureNumber: lec.lectureNumber,
+                              activity: `${lec.lectureType || "LEC"}${lec.lectureNumber}`,
+                              sourceFile: lec.id,
+                            }
+                          : enriched;
+                      });
                     const updated = { ...prev, [bid]: { ...blockData, extracted: [...existing, ...newOnes] } };
                     try { localStorage.setItem("rxt-block-objectives", JSON.stringify(updated)); } catch {}
                     return updated;
@@ -8959,12 +10238,39 @@ export default function App() {
             </div>
           )}
 
-          {/* DEEP LEARN */}
-          {view === "deeplearn" && (
+          {/* DEEP LEARN — use studyCfg.blockId so we always use the block that was selected when opening Deep Learn */}
+          {view === "deeplearn" && (() => {
+            const bid = studyCfg?.blockId ?? activeBlock?.id ?? blockId;
+            const blockObjsForDL = getBlockObjectives(bid) || [];
+            const selectedLec = studyCfg?.preselectedLecId
+              ? lectures.find((l) => l.id === studyCfg.preselectedLecId)
+              : null;
+            let lecObjectives =
+              selectedLec
+                ? blockObjsForDL.filter(
+                    (o) =>
+                      o.linkedLecId === selectedLec.id ||
+                      (selectedLec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
+                  )
+                : [];
+            if (selectedLec && lecObjectives.length === 0 && blockObjsForDL.length > 0) {
+              lecObjectives = blockObjsForDL.map((o) =>
+                o.linkedLecId ? o : { ...o, linkedLecId: selectedLec.id, sourceFile: selectedLec.id }
+              );
+              console.log("DeepLearn: no objectives matched lecture — using all block objectives for this session");
+            }
+            if (lecObjectives.length === 0 && blockObjsForDL.length > 0) {
+              lecObjectives = blockObjsForDL;
+              console.log("DeepLearn: no preselected lecture — using all block objectives so session has objectives");
+            }
+
+            return (
             <DeepLearn
-              blockId={activeBlock?.id ?? blockId}
-              lecs={lectures.filter((l) => l.blockId === (activeBlock?.id ?? blockId))}
-              blockObjectives={getBlockObjectives(activeBlock?.id ?? blockId) || []}
+              blockId={bid}
+              lecs={lectures.filter((l) => l.blockId === bid)}
+              blockObjectives={blockObjsForDL}
+              lecObjectives={lecObjectives}
+              getBlockObjectives={getBlockObjectives}
               questionBanksByFile={(() => {
                 try {
                   return JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
@@ -8976,14 +10282,28 @@ export default function App() {
               detectStudyMode={detectStudyMode}
               termColor={tc}
               makeTopicKey={makeTopicKey}
+              performanceHistory={performanceHistory}
               onBack={(results, meta) => {
                 if (Array.isArray(results) && meta) {
                   handleSessionComplete(results, meta);
+                } else {
+                  const topicKey = studyCfg
+                    ? makeTopicKey(studyCfg.preselectedLecId ?? studyCfg.lecture?.id, studyCfg.blockId)
+                    : null;
+                  if (topicKey) {
+                    setActiveSessions((prev) => {
+                      const next = { ...prev };
+                      delete next[topicKey];
+                      return next;
+                    });
+                  }
                 }
+                setStudyCfg(null);
                 setView("block");
               }}
             />
-          )}
+            );
+          })()}
 
           {/* ANATOMY FLASHCARDS */}
           {/* OVERVIEW */}
@@ -9491,6 +10811,7 @@ export default function App() {
                           getLecCompletion,
                           makeSubtopicKey,
                           performanceHistory,
+                          reanalyzeLecture,
                           onDeepLearn: () => {
                             setStudyCfg({ blockId: bid, lecs: lectures.filter((l) => l.blockId === bid), blockObjectives: getBlockObjectives(bid) });
                             setView("deeplearn");
@@ -9503,7 +10824,9 @@ export default function App() {
                           const isCurrentWk = wk !== 0 && currentWeek === wk;
                           const weekObjs = weekLecs.flatMap((l) =>
                             blockObjs.filter(
-                              (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+                              (o) =>
+                                o.linkedLecId === l.id ||
+                                (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                             )
                           );
                           const mastered = weekObjs.filter((o) => o.status === "mastered").length;
@@ -9569,6 +10892,11 @@ export default function App() {
                           setAnkiLogTarget,
                           getBlockObjectives,
                           currentBlock: activeBlock,
+                          setBlockObjectives,
+                          reviewedLectures,
+                          setReviewedLectures,
+                          markLectureReviewed,
+                          unmarkLectureReviewed,
                           startObjectiveQuiz,
                           detectStudyMode,
                           handleDeepLearnStart,
@@ -9576,6 +10904,7 @@ export default function App() {
                           getLecCompletion,
                           getSubtopicCompletion,
                           getLecPerf,
+                          reanalyzeLecture,
                           onDeepLearn: () => { setStudyCfg({ blockId: bid, lecs: lectures.filter((l) => l.blockId === bid), blockObjectives: getBlockObjectives(bid) }); setView("deeplearn"); },
                         });
                         return sortedWeeks.map((wk) => {
@@ -9592,7 +10921,9 @@ export default function App() {
                           const weekPct = (() => {
                             const allObjs = weekLecs.flatMap((l) =>
                               blockObjsForWeek.filter(
-                                (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+                                (o) =>
+                                  o.linkedLecId === l.id ||
+                                  (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                               )
                             );
                             const mastered = allObjs.filter((o) => o.status === "mastered").length;
@@ -9602,7 +10933,9 @@ export default function App() {
                           })();
                           const struggling = weekLecs.reduce((sum, l) => {
                             const objs = blockObjsForWeek.filter(
-                              (o) => o.linkedLecId === l.id || String(o.lectureNumber) === String(l.lectureNumber)
+                              (o) =>
+                                o.linkedLecId === l.id ||
+                                (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                             );
                             return sum + objs.filter((o) => o.status === "struggling").length;
                           }, 0);
@@ -9748,6 +11081,179 @@ export default function App() {
               {/* Analysis */}
               {tab==="objectives" && (
                 <div style={{ position:"relative" }}>
+                  {hasOrphanedPerf && (
+                    <div
+                      style={{
+                        padding: "10px 16px",
+                        background: "#fff8ee",
+                        border: "1.5px solid " + (t.statusWarn || "#f59e0b"),
+                        borderRadius: 10,
+                        marginBottom: 12,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        flexWrap: "wrap",
+                        gap: 10,
+                      }}
+                    >
+                      <span style={{ fontSize: 13, color: t.statusWarn || "#d97706", fontFamily: MONO }}>
+                        △ Previous session data found for re-uploaded lectures
+                      </span>
+                      <button
+                        type="button"
+                        onClick={resyncOrphanedPerformance}
+                        style={{
+                          padding: "6px 14px",
+                          fontSize: 12,
+                          fontFamily: MONO,
+                          background: t.statusProgress || t.tc || "#6366f1",
+                          color: "white",
+                          border: "none",
+                          borderRadius: 8,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ⟳ Resync Now
+                      </button>
+                    </div>
+                  )}
+                  {showManualResync && orphanedSessionsForManual.length > 0 && (() => {
+                    const bid = activeBlock?.id ?? blockId;
+                    const blockLecsForManual = (lectures || []).filter((l) => l.blockId === bid);
+                    return (
+                      <div style={{ marginBottom: 12 }}>
+                        <div style={{ fontSize: 12, fontFamily: MONO, color: t.text3, marginBottom: 8 }}>
+                          Map each orphaned session to a current lecture:
+                        </div>
+                        {orphanedSessionsForManual.map(({ oldKey, sample, sessions }) => {
+                          const allSessions = Array.isArray(sessions) ? sessions : [sample];
+                          const latest = [...allSessions].sort((a, b) => new Date(b?.date || 0) - new Date(a?.date || 0))[0] || sample;
+                          
+                          return (
+                            <div key={oldKey} style={{
+                              padding: "14px 16px",
+                              border: "1.5px solid " + (t.border1 || "#e5e7eb"),
+                              borderRadius: 10, marginBottom: 10,
+                              background: t.cardBg || "white"
+                            }}>
+                              <div style={{ display: "flex", gap: 16, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+                                {sample?.sessionType && (
+                                  <span style={{
+                                    background: t.statusProgressBg || "#f0f7ff", color: t.statusProgress || "#2563eb",
+                                    border: `1px solid ${t.statusProgress || "#2563eb"}`,
+                                    borderRadius: 6, padding: "2px 10px",
+                                    fontSize: 11, fontFamily: MONO, fontWeight: "bold"
+                                  }}>
+                                    {sample.sessionType.toUpperCase()}
+                                  </span>
+                                )}
+
+                                {(sample?.lectureType || sample?.lectureNumber) && (
+                                  <span style={{
+                                    background: t.inputBg || "#f5f5f5", color: t.text2 || "#555",
+                                    borderRadius: 6, padding: "2px 10px",
+                                    fontSize: 11, fontFamily: MONO
+                                  }}>
+                                    {sample.lectureType}{sample.lectureNumber}
+                                  </span>
+                                )}
+
+                                <span style={{
+                                  fontFamily: MONO, fontSize: 12,
+                                  color: sample?.score >= 70 ? (t.statusGood || "#10b981") : (t.statusWarn || "#f59e0b"),
+                                  fontWeight: "bold"
+                                }}>
+                                  {sample?.score != null ? `${sample.score}%` : "No score"}
+                                </span>
+
+                                {latest?.date && (
+                                  <span style={{ fontSize: 12, color: t.text3 || "#888", fontFamily: MONO }}>
+                                    {new Date(latest.date).toLocaleDateString("en-US", { 
+                                      weekday: "short", month: "short", day: "numeric" 
+                                    })} at {new Date(latest.date).toLocaleTimeString("en-US", { 
+                                      hour: "numeric", minute: "2-digit" 
+                                    })}
+                                  </span>
+                                )}
+
+                                {allSessions.length > 1 && (
+                                  <span style={{ fontSize: 12, color: t.text3 || "#888", fontFamily: MONO }}>
+                                    {allSessions.length} sessions
+                                  </span>
+                                )}
+                              </div>
+
+                              {sample?.lectureName && (
+                                <div style={{ 
+                                  fontSize: 13, fontWeight: "bold", 
+                                  color: t.text1 || "#333", marginBottom: 8 
+                                }}>
+                                  {sample.lectureName}
+                                </div>
+                              )}
+
+                              {(sample?.confidenceLevel || sample?.nextReview) && (
+                                <div style={{ 
+                                  fontSize: 12, color: t.text3 || "#888", 
+                                  fontFamily: MONO, marginBottom: 8 
+                                }}>
+                                  {sample.confidenceLevel && `Confidence: ${sample.confidenceLevel}`}
+                                  {sample.confidenceLevel && sample.nextReview && " · "}
+                                  {sample.nextReview && `Next review: ${new Date(sample.nextReview).toLocaleDateString()}`}
+                                </div>
+                              )}
+
+                              <div style={{ 
+                                fontSize: 10, color: t.text3 || "#bbb", 
+                                fontFamily: MONO, marginBottom: 10,
+                                wordBreak: "break-all"
+                              }}>
+                                key: {oldKey.split("__")[0].slice(0, 40)}…
+                              </div>
+
+                              <select
+                                onChange={(e) => e.target.value && manuallyMapSession(oldKey, e.target.value)}
+                                style={{ 
+                                  width: "100%", padding: "8px 10px", 
+                                  borderRadius: 8, border: "1.5px solid " + (t.border1 || "#ddd"),
+                                  fontFamily: MONO, fontSize: 13,
+                                  background: t.inputBg || "white", cursor: "pointer", color: t.text1
+                                }}
+                              >
+                                <option value="">— Select matching lecture —</option>
+                                {[...blockLecsForManual]
+                                  .sort((a, b) => {
+                                    const aMatch = a.lectureType === sample?.lectureType ? 0 : 1;
+                                    const bMatch = b.lectureType === sample?.lectureType ? 0 : 1;
+                                    return aMatch - bMatch || 
+                                      (parseInt(a.lectureNumber) || 0) - (parseInt(b.lectureNumber) || 0);
+                                  })
+                                  .map(l => (
+                                    <option key={l.id} value={l.id}>
+                                      {l.lectureType}{l.lectureNumber} — {l.lectureTitle || l.title || l.filename || l.fileName || l.id}
+                                    </option>
+                                  ))
+                                }
+                              </select>
+
+                              <button
+                                type="button"
+                                onClick={() => dismissOrphanedSession(oldKey)}
+                                style={{
+                                  marginTop: 8, padding: "4px 12px",
+                                  background: "none", border: "none",
+                                  color: t.text3 || "#bbb", fontSize: 11,
+                                  fontFamily: MONO, cursor: "pointer"
+                                }}
+                              >
+                                Skip — discard this session
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   {objectiveQuizLoading && (
                     <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.4)", display:"flex", alignItems:"center", justifyContent:"center", borderRadius:12, zIndex:10 }}>
                       <Spinner msg="Generating objective quiz…" />
@@ -9770,9 +11276,11 @@ export default function App() {
                     }}
                   />
                   {(() => {
-                    const allObjs = getBlockObjectives(activeBlock?.id ?? blockId) || [];
-                    const linked = allObjs.filter((o) => o.hasLecture).length;
-                    const unlinked = allObjs.filter((o) => !o.hasLecture).length;
+                    const bid = activeBlock?.id ?? blockId;
+                    const allObjs = getBlockObjectives(bid) || [];
+                    const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+                    const linked = allObjs.filter((o) => isObjectiveLinked(o, blockLecs)).length;
+                    const unlinked = allObjs.length - linked;
                     if (!allObjs.length) return null;
                     return (
                       <div
@@ -9819,6 +11327,80 @@ export default function App() {
                             All synced ✓
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            repairObjectiveAlignment(activeBlock?.id ?? blockId);
+                            setTimeout(() => {
+                              const count = repairObjectiveAlignmentRepairedRef.current;
+                              alert(
+                                count > 0
+                                  ? `✅ Fixed ${count} objective alignments`
+                                  : "✓ All objectives already correctly aligned"
+                              );
+                            }, 0);
+                          }}
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: 10,
+                            padding: "5px 12px",
+                            borderRadius: 6,
+                            border: "1px solid " + t.border1,
+                            background: t.inputBg,
+                            color: t.text3,
+                            cursor: "pointer",
+                          }}
+                        >
+                          ↻ Fix Objective Alignment
+                        </button>
+                        <button
+                          type="button"
+                          onClick={resyncOrphanedPerformance}
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: 10,
+                            padding: "5px 12px",
+                            borderRadius: 6,
+                            border: "none",
+                            background: t.statusProgress || t.tc,
+                            color: "white",
+                            cursor: "pointer",
+                          }}
+                        >
+                          ⟳ Resync Performance History
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              !confirm(
+                                "This will clear all objectives for this block. " +
+                                  "They will be re-extracted when you re-upload your PDFs. Continue?"
+                              )
+                            )
+                              return;
+                            const bid = activeBlock?.id ?? blockId;
+                            setBlockObjectives((prev) => {
+                              const next = { ...prev, [bid]: { imported: [], extracted: [] } };
+                              try {
+                                localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+                              } catch {}
+                              return next;
+                            });
+                          }}
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: 10,
+                            padding: "5px 12px",
+                            borderRadius: 6,
+                            border: "1px solid " + t.statusBadBorder,
+                            background: t.statusBadBg,
+                            color: t.statusBad,
+                            cursor: "pointer",
+                          }}
+                        >
+                          🗑 Reset objectives (re-upload to fix alignment)
+                        </button>
                       </div>
                     );
                   })()}
@@ -9884,7 +11466,7 @@ export default function App() {
                       const lecObjs = blockObjs.filter(
                         (o) =>
                           o.linkedLecId === lec.id ||
-                          String(o.lectureNumber) === String(lec.lectureNumber)
+                          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                       );
                       const mastered = lecObjs.filter((o) => o.status === "mastered").length;
                       const struggling = lecObjs.filter((o) => o.status === "struggling").length;
@@ -10243,7 +11825,11 @@ export default function App() {
                     <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
                       <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>LECTURE BREAKDOWN</div>
                       {blockLecsForProgress.map(lec => {
-                        const lecObjs = blockObjs.filter(o => String(o.lectureNumber)===String(lec.lectureNumber) || o.linkedLecId===lec.id);
+                        const lecObjs = blockObjs.filter(
+                          (o) =>
+                            o.linkedLecId === lec.id ||
+                            (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
+                        );
                         const lecPerf = Object.entries(performanceHistory).filter(([k])=>k.startsWith(lec.id)).flatMap(([,v])=>v.sessions||[]);
                         const lastScore = lecPerf.slice(-1)[0]?.score;
                         const mastered = lecObjs.filter(o=>o.status==="mastered").length;

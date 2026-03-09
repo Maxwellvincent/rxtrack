@@ -267,27 +267,52 @@ export default function ObjectiveTracker({
 
   const linkedObjectives = useMemo(() => {
     return (objectives || []).map((obj) => {
-      const matchedLec = blockLectures.find(
-        (lec) =>
-          lec.lectureNumber === obj.lectureNumber ||
-          (lec.lectureTitle &&
-            obj.lectureTitle &&
-            lec.lectureTitle.toLowerCase().includes((obj.lectureTitle || "").toLowerCase().slice(0, 20))) ||
-          (obj.activity &&
-            lec.lectureNumber &&
-            (obj.activity.replace(/\D/g, "") === String(lec.lectureNumber)))
-      );
-      return { ...obj, linkedLecId: matchedLec?.id || null, hasLecture: !!matchedLec };
+      let matchedLec = blockLectures.find((l) => l.id === obj.linkedLecId);
+      if (!matchedLec)
+        matchedLec = blockLectures.find(
+          (lec) =>
+            String(lec.lectureNumber) === String(obj.lectureNumber) &&
+            (lec.lectureType || "LEC") === (obj.lectureType || lec.lectureType || "LEC")
+        );
+      if (!matchedLec)
+        matchedLec = blockLectures.find(
+          (lec) =>
+            lec.lectureNumber === obj.lectureNumber ||
+            (lec.lectureTitle &&
+              obj.lectureTitle &&
+              lec.lectureTitle.toLowerCase().includes((obj.lectureTitle || "").toLowerCase().slice(0, 20))) ||
+            (obj.activity &&
+              obj.activity !== "Unknown" &&
+              lec.lectureNumber &&
+              (obj.activity.replace(/\D/g, "") === String(lec.lectureNumber)))
+        );
+      if (!matchedLec && (obj.activity || "").trim() === "Unknown" && (obj.lectureTitle || "").trim().length >= 5) {
+        const objTitle = (obj.lectureTitle || "").trim().toLowerCase().slice(0, 50);
+        const matches = blockLectures.filter((l) => {
+          const lecTitle = (l.lectureTitle || l.fileName || "").toLowerCase();
+          return lecTitle.includes(objTitle) || objTitle.includes(lecTitle.slice(0, 50));
+        });
+        matchedLec = matches.find((l) => (l.lectureType || "").toUpperCase().includes("DLA")) || matches[0];
+      }
+      const resolvedActivity = matchedLec
+        ? `${matchedLec.lectureType || "LEC"} ${matchedLec.lectureNumber ?? ""}`.trim()
+        : (obj.activity || "Other");
+      return {
+        ...obj,
+        linkedLecId: matchedLec?.id ?? obj.linkedLecId ?? null,
+        hasLecture: !!matchedLec,
+        resolvedActivity,
+      };
     });
   }, [objectives, blockLectures]);
 
   const byLecture = useMemo(() => {
     const map = new Map();
     for (const o of linkedObjectives) {
-      const key = o.activity || o.lectureTitle || "Other";
+      const key = o.resolvedActivity || o.activity || o.lectureTitle || "Other";
       if (!map.has(key)) {
         map.set(key, {
-          activity: o.activity || key,
+          activity: key,
           discipline: o.discipline || "",
           lectureTitle: o.lectureTitle || key,
           objectives: [],

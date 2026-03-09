@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useTheme, getScoreColor, getUrgencyColor, URGENCY_LABELS } from "./theme";
 
 // ── Storage ───────────────────────────────────────────────
@@ -591,6 +591,9 @@ export default function Tracker({
   blocks = {},
   lecs = [],
   performanceHistory = {},
+  objectives = {},
+  reviewedLectures = {},
+  activeSessions = {},
   resolveTopicLabel,
   getBlockObjectives = () => [],
   computeWeakAreas = () => [],
@@ -611,6 +614,7 @@ export default function Tracker({
   LEVEL_BG = {},
   updateBlock,
   onStartScheduleSession,
+  onRealignObjectives,
   trackerRows: trackerRowsProp,
   setTrackerRows: setTrackerRowsProp,
 }) {
@@ -627,8 +631,30 @@ export default function Tracker({
   const [expanded, setExpanded] = useState({});
   const [flashLastStudiedRowId, setFlashLastStudiedRowId] = useState(null);
   const [showStudyLog, setShowStudyLog] = useState(false);
+  const [showNotStarted, setShowNotStarted] = useState(false);
+  const [showManualLog, setShowManualLog] = useState(false);
   const [expandedRows, setExpandedRows] = useState(() => new Set());
   const [openStudyLogGroups, setOpenStudyLogGroups] = useState(() => ({}));
+  const todayKeyForSchedule = () => new Date().toISOString().split("T")[0];
+  const [expandedScheduleDays, setExpandedScheduleDays] = useState(() => {
+    const t = new Date().toISOString().split("T")[0];
+    return { [t]: true };
+  });
+  const [collapsedScheduleTasks, setCollapsedScheduleTasks] = useState(() => new Set());
+  const toggleScheduleDay = (dateStr) => {
+    const todayKey = todayKeyForSchedule();
+    setExpandedScheduleDays((prev) => ({
+      ...prev,
+      [dateStr]: !(prev[dateStr] ?? dateStr === todayKey),
+    }));
+  };
+  const toggleScheduleTask = (lecId) => {
+    setCollapsedScheduleTasks((prev) => {
+      const next = new Set(prev);
+      next.has(lecId) ? next.delete(lecId) : next.add(lecId);
+      return next;
+    });
+  };
   const toggleRow = (rowKey) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -766,6 +792,126 @@ export default function Tracker({
     return null;
   };
 
+  const notStartedCount = useMemo(() => {
+    return visibleBlocks.reduce((n, block) => {
+      const blockLecs = (lecs || []).filter(l => l.blockId === block.id);
+      return n + blockLecs.filter(lec => {
+        const p = getLecPerf(lec, block.id);
+        const raw = p?.sessions || [];
+        const sess = raw.filter(s => !s.lectureId || s.lectureId === lec.id);
+        return sess.length === 0;
+      }).length;
+    }, 0);
+  }, [visibleBlocks, lecs, performanceHistory]);
+
+  const getBlockObjsFromProps = (blockId) => {
+    const data = objectives[blockId] || { imported: [], extracted: [] };
+    const all = [...(data.imported || []), ...(data.extracted || [])];
+    const seen = new Set();
+    return all.filter((obj) => {
+      const key = (obj.objective || "").slice(0, 60).toLowerCase().replace(/\W/g, "");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+
+  const lecRowsByBlock = useMemo(() => {
+    const out = {};
+    const perf = performanceHistory || {};
+    const rev = reviewedLectures || {};
+    const active = activeSessions || {};
+    visibleBlocks.forEach((block) => {
+      const blockLecs = (lecs || []).filter((l) => l.blockId === block.id);
+      const blockObjs = getBlockObjsFromProps(block.id);
+      const seenLecIds = new Set();
+      out[block.id] = blockLecs
+        .filter((lec) => {
+          if (seenLecIds.has(lec.id)) return false;
+          seenLecIds.add(lec.id);
+          return true;
+        })
+        .map((lec) => {
+          const lecKey = makeKey(lec.id, block.id);
+          const fallbackKey = Object.keys(perf).find((k) => k.startsWith(lec.id + "__"));
+          const perfEntry = perf[lecKey] || (fallbackKey ? perf[fallbackKey] : null);
+          const rawSessions = perfEntry?.sessions || [];
+          const lecSessions = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
+          const sessionCount = lecSessions.length;
+          const perfEntries = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
+          const avgScore =
+            perfEntries.length > 0
+              ? Math.round(
+                  perfEntries.reduce((a, s) => a + (s.score ?? 0), 0) / perfEntries.length
+                )
+              : null;
+          const isReviewed = !!rev[lecKey];
+          const firstStudiedRaw = perfEntry?.firstStudied
+            ? perfEntry.firstStudied
+            : perfEntries.length > 0
+              ? perfEntries.map((s) => s.date).filter(Boolean).sort()[0]
+              : isReviewed && rev[lecKey]?.date
+                ? rev[lecKey].date
+                : null;
+          const firstStudied = firstStudiedRaw ? new Date(firstStudiedRaw) : null;
+          const lastSession = lecSessions.slice(-1)[0] || null;
+          const lastStudied = perfEntry?.lastStudied
+            ? new Date(perfEntry.lastStudied)
+            : lastSession?.date
+              ? new Date(lastSession.date)
+              : null;
+          const postMCQ = perfEntry?.postMCQScore ?? perfEntry?.lastScore ?? lastSession?.score ?? null;
+          const nextReview = perfEntry?.nextReview ? new Date(perfEntry.nextReview) : null;
+          const daysUntil = nextReview
+            ? Math.ceil((nextReview - new Date()) / (1000 * 60 * 60 * 24))
+            : null;
+          const preSAQ = perfEntry?.preSAQScore ?? null;
+          const lecObjs = blockObjs.filter(
+            (o) =>
+              String(o.lectureNumber) === String(lec.lectureNumber) ||
+              o.linkedLecId === lec.id
+          );
+          const masteredCount = lecObjs.filter((o) => o.status === "mastered").length;
+          const inProgressCount = lecObjs.filter((o) => o.status === "inprogress").length;
+          let status = "untested";
+          if (active[lecKey]) status = "inprogress";
+          else if (sessionCount > 0 && avgScore !== null && avgScore >= 80) status = "ok";
+          else if (sessionCount > 0 && avgScore !== null && avgScore < 60) status = "weak";
+          else if (sessionCount > 0) status = "inprogress";
+          else if (isReviewed) status = "reviewed";
+          else if (inProgressCount > 0) status = "inprogress";
+          let urgency = "untouched";
+          if (status === "ok") urgency = "ok";
+          else if (status === "weak") urgency = "weak";
+          else if (status === "inprogress") urgency = "soon";
+          else if (lastStudied && daysUntil !== null && daysUntil <= 0) urgency = "overdue";
+          else if (lastStudied && daysUntil !== null && daysUntil <= 3) urgency = "soon";
+          else if (lastStudied && postMCQ !== null && postMCQ < 60) urgency = "weak";
+          else if (lastStudied) urgency = "ok";
+          return {
+            lec,
+            perfEntry,
+            lecSessions,
+            lastStudied,
+            firstStudied,
+            nextReview,
+            daysUntil,
+            preSAQ,
+            postMCQ,
+            confidence: perfEntry?.confidenceLevel ?? null,
+            sessionCount,
+            mastered: masteredCount,
+            struggling: lecObjs.filter((o) => o.status === "struggling").length,
+            total: lecObjs.length,
+            status,
+            urgency,
+            isReviewed,
+          };
+        });
+    });
+    return out;
+  }, [visibleBlocks, lecs, performanceHistory, objectives, reviewedLectures, activeSessions, makeKey]);
+
   const globalStudyLog = Object.entries(performanceHistory || {})
     .flatMap(([key, perf]) => {
       const lecId = key.split("__")[0];
@@ -864,6 +1010,25 @@ export default function Tracker({
               style={{ background:"none",border:"none",color:t.text1,fontFamily:MONO,fontSize:13,outline:"none",width:120 }} />
             {search&&<button onClick={()=>setSearch("")} style={{ background:"none",border:"none",color:t.text4,cursor:"pointer",fontSize:13 }}>✕</button>}
           </div>
+
+          {/* Show not started toggle */}
+          <button
+            onClick={() => setShowNotStarted(p => !p)}
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              padding: "5px 12px",
+              borderRadius: 6,
+              border: "1px solid " + t.border1,
+              background: showNotStarted ? t.inputBg : t.cardBg,
+              color: t.text3,
+              cursor: "pointer",
+            }}
+          >
+            {showNotStarted
+              ? "○ Hide not started"
+              : `○ Show all (${notStartedCount} not started)`}
+          </button>
         </>}
 
         {/* Right side */}
@@ -1159,289 +1324,347 @@ export default function Tracker({
                   )}
 
                   {schedule.length > 0 &&
-                    schedule.map((day) => (
-                      <div key={day.dateStr} style={{ marginBottom: 16 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 10,
-                            marginBottom: 8,
-                          }}
-                        >
-                          <div
-                            style={{
-                              fontFamily: MONO,
-                              fontWeight: 900,
-                              fontSize: day.daysFromNow === 0 ? 14 : 12,
-                              color: day.daysFromNow === 0 ? tc : T.text2,
-                            }}
-                          >
-                            {day.dayLabel}
-                          </div>
-                          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
-                            {day.dateStr}
-                          </div>
-                          <div
-                            style={{
-                              flex: 1,
-                              height: 1,
-                              background: day.daysFromNow === 0 ? tc + "40" : T.border2,
-                            }}
-                          />
-                          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
-                            ~
-                            {day.tasks.reduce(
-                              (s, task) =>
-                                s +
-                                (task.recommendedSessions || []).reduce(
-                                  (ss, r) => ss + (r.duration || 0),
-                                  0
-                                ),
-                              0
-                            )}{" "}
-                            min
-                          </div>
-                        </div>
-
-                        {day.tasks.map((task) => (
-                          <div
-                            key={task.lec.id}
-                            style={{
-                              background: T.cardBg,
-                              border:
-                                "1px solid " +
-                                (task.struggling > 0
-                                  ? T.statusBadBorder
-                                  : task.sessions === 0
-                                    ? T.statusWarnBorder
-                                    : T.border1),
-                              borderRadius: 10,
-                              padding: "12px 14px",
-                              marginBottom: 8,
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 8,
-                                marginBottom: 8,
-                              }}
-                            >
-                              {lecTypeBadge &&
-                                lecTypeBadge(task.lec.lectureType || "LEC")}
-                              <span
-                                style={{
-                                  fontFamily: MONO,
-                                  color: T.text1,
-                                  fontSize: 12,
-                                  fontWeight: 700,
-                                  flex: 1,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                }}
-                              >
-                                {task.lec.lectureTitle || task.lec.fileName}
-                              </span>
-                              {task.struggling > 0 && (
-                                <span
-                                  style={{
-                                    fontFamily: MONO,
-                                    fontSize: 9,
-                                    color: T.statusBad,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  ⚠ {task.struggling} struggling
-                                </span>
-                              )}
-                              {task.sessions === 0 && (
-                                <span
-                                  style={{
-                                    fontFamily: MONO,
-                                    fontSize: 9,
-                                    color: T.statusWarn,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  ○ Not started
-                                </span>
-                              )}
-                              {task.matchReason === "scheduled-day" && (
-                                <span
-                                  style={{
-                                    fontFamily: MONO,
-                                    fontSize: 8,
-                                    color: tc,
-                                    background: tc + "18",
-                                    padding: "1px 5px",
-                                    borderRadius: 3,
-                                    border: "1px solid " + tc + "30",
-                                  }}
-                                >
-                                  TODAY'S LECTURE
-                                </span>
-                              )}
-                              {task.matchReason === "spaced-rep-due" && (
-                                <span
-                                  style={{
-                                    fontFamily: MONO,
-                                    fontSize: 8,
-                                    color: T.statusProgress,
-                                    background: T.statusProgressBg,
-                                    padding: "1px 5px",
-                                    borderRadius: 3,
-                                  }}
-                                >
-                                  ⏱ DUE TODAY
-                                </span>
-                              )}
-                              {task.matchReason === "urgency" && (
-                                <span
-                                  style={{
-                                    fontFamily: MONO,
-                                    fontSize: 8,
-                                    color: T.statusWarn,
-                                    background: T.statusWarnBg,
-                                    padding: "1px 5px",
-                                    borderRadius: 3,
-                                  }}
-                                >
-                                  △ WEAK
-                                </span>
-                              )}
-                              {task.avgBloom >= 4 && LEVEL_COLORS && LEVEL_BG && (
-                                <span
-                                  style={{
-                                    fontFamily: MONO,
-                                    fontSize: 9,
-                                    color: LEVEL_COLORS[Math.round(task.avgBloom)],
-                                    background: LEVEL_BG[Math.round(task.avgBloom)],
-                                    padding: "1px 6px",
-                                    borderRadius: 3,
-                                    border:
-                                      "1px solid " +
-                                      (LEVEL_COLORS[Math.round(task.avgBloom)] || "") +
-                                      "30",
-                                  }}
-                                >
-                                  L{Math.round(task.avgBloom)} avg
-                                </span>
-                              )}
-                            </div>
-
-                            <div
-                              style={{
-                                display: "flex",
-                                flexDirection: "column",
-                                gap: 6,
-                              }}
-                            >
-                              {(task.recommendedSessions || []).map((rec, ri) => (
+                    (() => {
+                      const todayKey = todayKeyForSchedule();
+                      return schedule.map((day) => {
+                        const isDayExpanded = expandedScheduleDays[day.dateStr] ?? (day.dateStr === todayKey);
+                        const hasTasks = day.tasks.length > 0;
+                        return (
+                          <div key={day.dateStr} style={{ marginBottom: 16 }}>
+                            {hasTasks ? (
+                              <>
                                 <div
-                                  key={ri}
+                                  onClick={() => toggleScheduleDay(day.dateStr)}
                                   style={{
                                     display: "flex",
                                     alignItems: "center",
                                     gap: 10,
-                                    padding: "8px 10px",
-                                    borderRadius: 7,
-                                    background: T.inputBg,
-                                    border: "1px solid " + T.border1,
+                                    marginBottom: isDayExpanded ? 8 : 0,
+                                    cursor: "pointer",
+                                    userSelect: "none",
+                                    padding: "4px 0",
                                   }}
                                 >
                                   <span
                                     style={{
                                       fontFamily: MONO,
-                                      color: T.text1,
-                                      fontSize: 11,
-                                      fontWeight: 700,
+                                      fontWeight: 900,
+                                      fontSize: day.daysFromNow === 0 ? 14 : 12,
+                                      color: day.daysFromNow === 0 ? tc : T.text2,
+                                    }}
+                                  >
+                                    {day.dayLabel}
+                                  </span>
+                                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+                                    {day.dateStr}
+                                  </span>
+                                  <div
+                                    style={{
                                       flex: 1,
+                                      height: 1,
+                                      background: day.daysFromNow === 0 ? tc + "40" : T.border2,
                                     }}
-                                  >
-                                    {rec.label}
-                                  </span>
+                                  />
+                                  {!isDayExpanded && (
+                                    <span
+                                      style={{
+                                        marginLeft: 8,
+                                        background: T.statusWarn,
+                                        color: "white",
+                                        borderRadius: 10,
+                                        padding: "1px 8px",
+                                        fontSize: 12,
+                                        fontFamily: MONO,
+                                      }}
+                                    >
+                                      {day.tasks.length}
+                                    </span>
+                                  )}
+                                  {isDayExpanded && (
+                                    <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+                                      {day.tasks.length} task{day.tasks.length !== 1 ? "s" : ""}
+                                      {" · "}~
+                                      {day.tasks.reduce(
+                                        (s, t) =>
+                                          s +
+                                          (t.recommendedSessions || []).reduce(
+                                            (ss, r) => ss + (r.duration || 0),
+                                            0
+                                          ),
+                                        0
+                                      )}
+                                      min
+                                    </span>
+                                  )}
                                   <span
                                     style={{
                                       fontFamily: MONO,
                                       color: T.text3,
-                                      fontSize: 10,
+                                      fontSize: 11,
+                                      display: "inline-block",
+                                      transform: isDayExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                                      transition: "transform 0.2s",
+                                      marginLeft: 4,
                                     }}
                                   >
-                                    {rec.reason}
+                                    ▶
                                   </span>
-                                  <span
-                                    style={{
-                                      fontFamily: MONO,
-                                      color: T.text3,
-                                      fontSize: 10,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    ~{rec.duration}m
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (rec.type === "deepLearn" && handleDeepLearnStart) {
-                                        handleDeepLearnStart({
-                                          selectedTopics: [
-                                            {
-                                              id: task.lec.id + "_full",
-                                              label: task.lec.lectureTitle,
-                                              lecId: task.lec.id,
-                                              weak: false,
-                                            },
-                                          ],
-                                          blockId: bid,
-                                        });
-                                      } else if (rec.type === "quiz" && startObjectiveQuiz) {
-                                        const objs =
-                                          (getBlockObjectives(bid) || []).filter(
-                                            (o) => o.linkedLecId === task.lec.id
-                                          );
-                                        const weakObjs =
-                                          task.struggling > 0
-                                            ? objs.filter(
-                                                (o) =>
-                                                  o.status === "struggling" ||
-                                                  o.status === "untested"
-                                              )
-                                            : objs;
-                                        startObjectiveQuiz(
-                                          weakObjs,
-                                          task.lec.lectureTitle || task.lec.fileName,
-                                          bid,
-                                          { lectureId: task.lec.id }
-                                        );
-                                      } else if (rec.type === "anki" && setAnkiLogTarget) {
-                                        setAnkiLogTarget(task.lec);
-                                      }
-                                    }}
-                                    style={{
-                                      background: tc,
-                                      border: "none",
-                                      color: "#fff",
-                                      padding: "5px 12px",
-                                      borderRadius: 6,
-                                      cursor: "pointer",
-                                      fontFamily: MONO,
-                                      fontSize: 10,
-                                      fontWeight: 700,
-                                      flexShrink: 0,
-                                    }}
-                                  >
-                                    Start →
-                                  </button>
                                 </div>
-                              ))}
-                            </div>
+                                {isDayExpanded &&
+                            day.tasks.map((task) => {
+                              const isTaskCollapsed = collapsedScheduleTasks.has(task.lec.id);
+                              return (
+                                <div
+                                  key={task.lec.id}
+                                  style={{
+                                    background: T.cardBg,
+                                    border:
+                                      "1px solid " +
+                                      (task.struggling > 0
+                                        ? T.statusBadBorder
+                                        : task.sessions === 0
+                                          ? T.statusWarnBorder
+                                          : T.border1),
+                                    borderRadius: 10,
+                                    marginBottom: 8,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <div
+                                    onClick={() => toggleScheduleTask(task.lec.id)}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      padding: "12px 14px",
+                                      cursor: "pointer",
+                                      userSelect: "none",
+                                    }}
+                                    onMouseEnter={(e) =>
+                                      (e.currentTarget.style.background = T.hoverBg)
+                                    }
+                                    onMouseLeave={(e) =>
+                                      (e.currentTarget.style.background = "transparent")
+                                    }
+                                  >
+                                    {lecTypeBadge &&
+                                      lecTypeBadge(task.lec.lectureType || "LEC")}
+                                    <span
+                                      style={{
+                                        fontFamily: MONO,
+                                        color: T.text1,
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        flex: 1,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {task.lec.lectureTitle || task.lec.fileName}
+                                    </span>
+                                    {task.matchReason === "scheduled-day" && (
+                                      <span
+                                        style={{
+                                          fontFamily: MONO,
+                                          fontSize: 8,
+                                          color: tc,
+                                          background: tc + "18",
+                                          padding: "1px 5px",
+                                          borderRadius: 3,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        TODAY'S LECTURE
+                                      </span>
+                                    )}
+                                    {task.struggling > 0 && (
+                                      <span
+                                        style={{
+                                          fontFamily: MONO,
+                                          fontSize: 9,
+                                          color: T.statusBad,
+                                          fontWeight: 700,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        ⚠ {task.struggling}
+                                      </span>
+                                    )}
+                                    {task.sessions === 0 && (
+                                      <span
+                                        style={{
+                                          fontFamily: MONO,
+                                          fontSize: 9,
+                                          color: T.statusWarn,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        ○ New
+                                      </span>
+                                    )}
+                                    <span
+                                      style={{
+                                        fontFamily: MONO,
+                                        fontSize: 9,
+                                        color: T.text3,
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      {(task.recommendedSessions || []).length} task
+                                      {(task.recommendedSessions || []).length !== 1 ? "s" : ""}
+                                    </span>
+                                    <span
+                                      style={{
+                                        fontFamily: MONO,
+                                        color: T.text3,
+                                        fontSize: 11,
+                                        display: "inline-block",
+                                        transform: isTaskCollapsed
+                                          ? "rotate(0deg)"
+                                          : "rotate(90deg)",
+                                        transition: "transform 0.2s",
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      ▶
+                                    </span>
+                                  </div>
+
+                                  {!isTaskCollapsed && (
+                                    <div
+                                      style={{
+                                        padding: "0 14px 12px",
+                                        borderTop: "1px solid " + T.border2,
+                                      }}
+                                    >
+                                      {(task.recommendedSessions || []).map((rec, ri) => (
+                                        <div
+                                          key={ri}
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 10,
+                                            padding: "8px 10px",
+                                            marginTop: 8,
+                                            borderRadius: 7,
+                                            background: T.inputBg,
+                                            border: "1px solid " + T.border1,
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              fontFamily: MONO,
+                                              color: T.text1,
+                                              fontSize: 11,
+                                              fontWeight: 700,
+                                              flex: 1,
+                                            }}
+                                          >
+                                            {rec.label}
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontFamily: MONO,
+                                              color: T.text3,
+                                              fontSize: 10,
+                                            }}
+                                          >
+                                            {rec.reason}
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontFamily: MONO,
+                                              color: T.text3,
+                                              fontSize: 10,
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            ~{rec.duration}m
+                                          </span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (rec.type === "deepLearn" && handleDeepLearnStart) {
+                                                handleDeepLearnStart({
+                                                  selectedTopics: [
+                                                    {
+                                                      id: task.lec.id + "_full",
+                                                      label: task.lec.lectureTitle,
+                                                      lecId: task.lec.id,
+                                                      weak: false,
+                                                    },
+                                                  ],
+                                                  blockId: bid,
+                                                });
+                                              } else if (rec.type === "quiz" && startObjectiveQuiz) {
+                                                const objs =
+                                                  (getBlockObjectives(bid) || []).filter(
+                                                    (o) => o.linkedLecId === task.lec.id
+                                                  );
+                                                const weakObjs =
+                                                  task.struggling > 0
+                                                    ? objs.filter(
+                                                        (o) =>
+                                                          o.status === "struggling" ||
+                                                          o.status === "untested"
+                                                      )
+                                                    : objs;
+                                                startObjectiveQuiz(
+                                                  weakObjs,
+                                                  task.lec.lectureTitle || task.lec.fileName,
+                                                  bid,
+                                                  { lectureId: task.lec.id }
+                                                );
+                                              } else if (rec.type === "anki" && setAnkiLogTarget) {
+                                                setAnkiLogTarget(task.lec);
+                                              }
+                                            }}
+                                            style={{
+                                              background: tc,
+                                              border: "none",
+                                              color: "#fff",
+                                              padding: "5px 12px",
+                                              borderRadius: 6,
+                                              cursor: "pointer",
+                                              fontFamily: MONO,
+                                              fontSize: 10,
+                                              fontWeight: 700,
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            Start →
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                                </>
+                              ) : (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    padding: "4px 0",
+                                    marginBottom: 0,
+                                  }}
+                                >
+                                  <span style={{ fontFamily: MONO, fontWeight: 900, fontSize: 12, color: T.text2 }}>
+                                    {day.dayLabel}
+                                  </span>
+                                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>{day.dateStr}</span>
+                                  <div style={{ flex: 1, height: 1, background: T.border2 }} />
+                                </div>
+                              )}
                           </div>
-                        ))}
-                      </div>
-                    ))}
+                        );
+                      });
+                    })()}
 
                   {result?.upcoming?.length > 0 && (
                     <div style={{ marginBottom: 20 }}>
@@ -1567,11 +1790,11 @@ export default function Tracker({
               );
             })()}
 
-            {process.env.NODE_ENV === "development" && (
+            {import.meta.env.DEV && (
               <details style={{ marginBottom: 12, padding: "0 16px" }}>
                 <summary style={{ fontFamily: MONO, color: t.text3,
                   fontSize: 10, cursor: "pointer" }}>
-                  🔍 Debug: Performance Keys ({Object.keys(performanceHistory || {}).length})
+                  🔧 Debug: Performance Keys ({Object.keys(performanceHistory || {}).length})
                 </summary>
                 <div style={{ fontFamily: MONO, fontSize: 9, color: t.text3,
                   padding: 8, background: t.inputBg, borderRadius: 6,
@@ -1617,7 +1840,25 @@ export default function Tracker({
                             {blockLecs.length} lectures · {blockObjs.length} objectives
                         </div>
                       </div>
-                        <div style={{ textAlign:"right" }}>
+                        <div style={{ textAlign:"right", display:"flex", alignItems:"center", gap:8, justifyContent:"flex-end" }}>
+                          {onRealignObjectives && (
+                            <button
+                              type="button"
+                              onClick={() => onRealignObjectives(block.id)}
+                              style={{
+                                fontFamily: MONO,
+                                fontSize: 10,
+                                padding: "4px 10px",
+                                borderRadius: 6,
+                                border: "1px solid " + t.border1,
+                                background: t.inputBg,
+                                color: t.text3,
+                                cursor: "pointer",
+                              }}
+                            >
+                              ↻ Re-align objectives
+                            </button>
+                          )}
                           {block.status === "completed" && (
                             <span
                               style={{
@@ -1658,6 +1899,8 @@ export default function Tracker({
                           weak: t.statusWarn,
                           untouched: t.text3,
                           ok: t.statusGood,
+                          inprogress: t.statusWarn,
+                          reviewed: t.statusGood,
                         };
                         const urgencyLabel = {
                           overdue: "● Overdue",
@@ -1665,71 +1908,13 @@ export default function Tracker({
                           weak: "● Weak",
                           untouched: "○ Not Started",
                           ok: "✓ OK",
+                          inprogress: "◑ In Progress",
+                          reviewed: "✓ Reviewed",
                         };
 
-                        const seenLecIds = new Set();
-                        const tableRows = blockLecs
-                          .filter(lec => {
-                            if (seenLecIds.has(lec.id)) return false;
-                            seenLecIds.add(lec.id);
-                            return true;
-                          })
-                          .map(lec => {
-                          const perfEntry = getLecPerf(lec, block.id);
-                          const rawSessions = perfEntry?.sessions || [];
-                          const lecSessions = rawSessions.filter(
-                            s => !s.lectureId || s.lectureId === lec.id
-                          );
-                          const lastSession = lecSessions.slice(-1)[0] || null;
-                          const lastStudied = perfEntry?.lastStudied
-                            ? new Date(perfEntry.lastStudied)
-                            : (lastSession && lastSession.date ? new Date(lastSession.date) : null);
-                          const postMCQ = perfEntry?.postMCQScore ?? perfEntry?.lastScore ?? lastSession?.score ?? null;
-                          const preSAQ = perfEntry?.preSAQScore ?? null;
-                          const confidence = perfEntry?.confidenceLevel ?? null;
-                          const nextReview = perfEntry?.nextReview ? new Date(perfEntry.nextReview) : null;
-                          const daysUntil = nextReview
-                            ? Math.ceil((nextReview - new Date()) / (1000 * 60 * 60 * 24))
-                            : null;
-                          const sessionCount = lecSessions.length;
-                          const firstStudied = perfEntry?.firstStudied ? new Date(perfEntry.firstStudied) : null;
-
-                          const lecObjs = blockObjs.filter(o =>
-                            String(o.lectureNumber) === String(lec.lectureNumber) ||
-                            o.linkedLecId === lec.id
-                          );
-                          const rowMastered = lecObjs.filter(o => o.status === "mastered").length;
-                          const rowStruggling = lecObjs.filter(o => o.status === "struggling").length;
-                          const rowTotal = lecObjs.length;
-
-                          const urgency = !lastStudied
-                            ? "untouched"
-                            : daysUntil !== null && daysUntil <= 0
-                              ? "overdue"
-                              : daysUntil !== null && daysUntil <= 3
-                                ? "soon"
-                                : postMCQ !== null && postMCQ < 60
-                                  ? "weak"
-                                  : "ok";
-
-                          return {
-                            lec,
-                            perfEntry,
-                            lecSessions,
-                            lastStudied,
-                            firstStudied,
-                            nextReview,
-                            daysUntil,
-                            preSAQ,
-                            postMCQ,
-                            confidence,
-                            sessionCount,
-                            mastered: rowMastered,
-                            struggling: rowStruggling,
-                            total: rowTotal,
-                            urgency,
-                          };
-                        });
+                        const tableRows = lecRowsByBlock[block.id] || [];
+                        const urgencyForDisplay = (row) =>
+                          row.status === "inprogress" ? "inprogress" : row.status === "reviewed" ? "reviewed" : row.urgency;
 
                         const untestedGroups = (computeWeakAreas ? (computeWeakAreas(block.id) || []) : [])
                           .filter(area =>
@@ -1739,8 +1924,27 @@ export default function Tracker({
                             )
                           );
 
+                        const filteredLecRows = showNotStarted
+                          ? tableRows
+                          : tableRows.filter(row => row.urgency !== "untouched");
+
                         return (
                           <div style={{ overflowX: "auto" }}>
+                            {/* Block summary bar */}
+                            <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: t.inputBg, borderRadius: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                              <span style={{ fontFamily: MONO, color: t.statusGood, fontSize: 11 }}>
+                                ✓ {tableRows.filter(r => r.urgency === "ok").length} on track
+                              </span>
+                              <span style={{ fontFamily: MONO, color: t.statusBad, fontSize: 11 }}>
+                                ⚠ {tableRows.filter(r => r.urgency === "weak").length} need work
+                              </span>
+                              <span style={{ fontFamily: MONO, color: t.statusNeutral, fontSize: 11 }}>
+                                ○ {tableRows.filter(r => r.urgency === "untouched").length} not started
+                              </span>
+                              <span style={{ fontFamily: MONO, color: t.statusWarn, fontSize: 11 }}>
+                                ⏰ {tableRows.filter(r => r.urgency === "overdue").length} overdue
+                              </span>
+                            </div>
                             <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                               <colgroup>
                                 <col style={{ width: 28 }} />
@@ -1775,7 +1979,7 @@ export default function Tracker({
                                 </tr>
                               </thead>
                               <tbody>
-                                {tableRows.map(row => {
+                                {filteredLecRows.map(row => {
                                   const rowKey = block.id + "_" + row.lec.id;
                                   const expanded = expandedRows.has(rowKey);
                                   const sessionsByType = {
@@ -1844,7 +2048,7 @@ export default function Tracker({
                                           </div>
                                         </td>
                                         <td style={{ padding: "12px 8px", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: urgencyColor[row.urgency] }}>{urgencyLabel[row.urgency]}</span>
+                                          <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: urgencyColor[urgencyForDisplay(row)] }}>{urgencyLabel[urgencyForDisplay(row)]}</span>
                                         </td>
                                         <td style={{ padding: "12px 8px", whiteSpace: "nowrap", overflow: "hidden" }}>
                                           <div style={{ fontFamily: MONO, color: t.text2, fontSize: 12 }}>
@@ -1958,7 +2162,7 @@ export default function Tracker({
                               </tbody>
                             </table>
 
-                            {tableRows.length === 0 && untestedGroups.length === 0 && (
+                            {filteredLecRows.length === 0 && untestedGroups.length === 0 && (
                               <div
                                 style={{
                                   textAlign: "center",
@@ -2079,14 +2283,43 @@ export default function Tracker({
               </div>
             )}
 
-            {/* ── DIVIDER ── */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "24px 0 16px", padding: "0 16px" }}>
-              <div style={{ flex: 1, height: 1, background: t.border1 }} />
-              <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5 }}>MANUAL STUDY LOG</div>
-              <div style={{ flex: 1, height: 1, background: t.border1 }} />
+            {/* Manual study log toggle */}
+            <div
+              onClick={() => setShowManualLog(p => !p)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "12px 16px",
+                borderTop: "1px solid " + t.border1,
+                cursor: "pointer",
+                userSelect: "none",
+                marginTop: 24,
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = t.hoverBg)}
+              onMouseLeave={e => (e.currentTarget.style.background = "none")}
+            >
+              <span style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5, flex: 1 }}>
+                📋 MANUAL STUDY LOG
+              </span>
+              <span style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>
+                {rows.length} rows
+              </span>
+              <span
+                style={{
+                  fontFamily: MONO,
+                  color: t.text3,
+                  fontSize: 12,
+                  transform: showManualLog ? "rotate(90deg)" : "rotate(0deg)",
+                  display: "inline-block",
+                  transition: "transform 0.2s",
+                }}
+              >
+                ▶
+              </span>
             </div>
 
-            {/* ── Manual Study Log: two-level grouped table ── */}
+            {showManualLog && (
             <div style={{ padding: "0 16px 24px" }}>
               {visible.length === 0 && (
                 <div style={{ padding: "70px 0", textAlign: "center" }}>
@@ -2414,15 +2647,17 @@ export default function Tracker({
                                       <td style={{ padding: "8px 8px 8px 20px", overflow: "hidden" }}>
                                         <div
                                           title={
-                                            row.sessionType === "anki"
-                                              ? "📇 Anki"
-                                              : row.sessionType === "deepLearn"
-                                                ? "🧠 Deep Learn"
-                                                : row.sessionType === "quiz"
-                                                  ? "✅ Quiz"
-                                                  : row.sessionType === "blockExam"
-                                                    ? "📝 Block Exam"
-                                                    : row.topic || "Session"
+                                            row.sessionType === "reviewed"
+                                              ? "◑ Reviewed"
+                                              : row.sessionType === "anki"
+                                                ? "📇 Anki"
+                                                : row.sessionType === "deepLearn"
+                                                  ? "🧠 Deep Learn"
+                                                  : row.sessionType === "quiz"
+                                                    ? "✅ Quiz"
+                                                    : row.sessionType === "blockExam"
+                                                      ? "📝 Block Exam"
+                                                      : row.topic || "Session"
                                           }
                                           style={{
                                             display: "flex",
@@ -2437,7 +2672,7 @@ export default function Tracker({
                                           <span
                                             style={{
                                               fontFamily: MONO,
-                                              color: t.text3,
+                                              color: row.sessionType === "reviewed" ? t.statusProgress : t.text3,
                                               fontSize: 10,
                                               overflow: "hidden",
                                               textOverflow: "ellipsis",
@@ -2445,15 +2680,17 @@ export default function Tracker({
                                               minWidth: 0,
                                             }}
                                           >
-                                            {row.sessionType === "anki"
-                                              ? "📇 Anki"
-                                              : row.sessionType === "deepLearn"
-                                                ? "🧠 Deep Learn"
-                                                : row.sessionType === "quiz"
-                                                  ? "✅ Quiz"
-                                                  : row.sessionType === "blockExam"
-                                                    ? "📝 Block Exam"
-                                                    : row.topic || "Session"}
+                                            {row.sessionType === "reviewed"
+                                              ? "◑ Reviewed"
+                                              : row.sessionType === "anki"
+                                                ? "📇 Anki"
+                                                : row.sessionType === "deepLearn"
+                                                  ? "🧠 Deep Learn"
+                                                  : row.sessionType === "quiz"
+                                                    ? "✅ Quiz"
+                                                    : row.sessionType === "blockExam"
+                                                      ? "📝 Block Exam"
+                                                      : row.topic || "Session"}
                                           </span>
                                           {row.autoGenerated && (
                                             <span
@@ -2628,57 +2865,72 @@ export default function Tracker({
                                             gap: 3,
                                           }}
                                         >
-                                          <input
-                                            type="number"
-                                            min={0}
-                                            max={100}
-                                            value={
-                                              row.scores?.length
-                                                ? row.scores[row.scores.length - 1]
-                                                : ""
-                                            }
-                                            onChange={(e) => {
-                                              const v = e.target.value;
-                                              const num = v === "" ? null : Number(v);
-                                              if (num !== null && !isNaN(num) && num >= 0 && num <= 100) {
-                                                const prev = row.scores || [];
-                                                upd(row.id, {
-                                                  scores:
-                                                    prev.length > 0
-                                                      ? [...prev.slice(0, -1), num]
-                                                      : [num],
-                                                });
-                                              } else if (v === "") {
-                                                upd(row.id, {
-                                                  scores: (row.scores || []).slice(0, -1),
-                                                });
-                                              }
-                                            }}
-                                            placeholder="—"
-                                            style={{
-                                              background: "none",
-                                              border: "none",
-                                              color:
-                                                lastScore != null
-                                                  ? getScoreColor(t, lastScore)
-                                                  : t.text3,
-                                              fontFamily: MONO,
-                                              fontSize: 12,
-                                              fontWeight: 900,
-                                              width: 36,
-                                              outline: "none",
-                                            }}
-                                          />
-                                          {lastScore != null && (
+                                          {row.sessionType === "reviewed" ? (
                                             <span
                                               style={{
                                                 fontFamily: MONO,
                                                 color: t.text3,
-                                                fontSize: 10,
+                                                fontSize: 12,
+                                                fontWeight: 700,
                                               }}
                                             >
-                                              %
+                                              —
                                             </span>
+                                          ) : (
+                                            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                                              <input
+                                                type="number"
+                                                min={0}
+                                                max={100}
+                                                value={
+                                                  row.scores?.length
+                                                    ? row.scores[row.scores.length - 1]
+                                                    : ""
+                                                }
+                                                onChange={(e) => {
+                                                  const v = e.target.value;
+                                                  const num = v === "" ? null : Number(v);
+                                                  if (num !== null && !isNaN(num) && num >= 0 && num <= 100) {
+                                                    const prev = row.scores || [];
+                                                    upd(row.id, {
+                                                      scores:
+                                                        prev.length > 0
+                                                          ? [...prev.slice(0, -1), num]
+                                                          : [num],
+                                                    });
+                                                  } else if (v === "") {
+                                                    upd(row.id, {
+                                                      scores: (row.scores || []).slice(0, -1),
+                                                    });
+                                                  }
+                                                }}
+                                                placeholder="—"
+                                                style={{
+                                                  background: "none",
+                                                  border: "none",
+                                                  color:
+                                                    lastScore != null
+                                                      ? getScoreColor(t, lastScore)
+                                                      : t.text3,
+                                                  fontFamily: MONO,
+                                                  fontSize: 12,
+                                                  fontWeight: 900,
+                                                  width: 36,
+                                                  outline: "none",
+                                                }}
+                                              />
+                                              {lastScore != null && (
+                                                <span
+                                                  style={{
+                                                    fontFamily: MONO,
+                                                    color: t.text3,
+                                                    fontSize: 10,
+                                                  }}
+                                                >
+                                                  %
+                                                </span>
+                                              )}
+                                            </div>
                                           )}
                                         </div>
                                       </td>
@@ -2714,6 +2966,7 @@ export default function Tracker({
                   );
                 })()}
             </div>
+            )}
 
           </div>
         </div>

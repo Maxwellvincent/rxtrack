@@ -7,6 +7,7 @@ import {
 import { useTheme } from "./theme";
 import { parseExamPDF, extractLectureObjectives } from "./examParser";
 import HistoStudy from "./HistoStudy";
+import { callAI } from "./aiClient";
 
 const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
@@ -34,7 +35,7 @@ async function extractPDFText(file) {
   }
 
   const arrayBuffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
   let fullText = "";
 
   for (let i = 1; i <= Math.min(pdf.numPages, 100); i++) {
@@ -759,26 +760,12 @@ function LearningSession({
   );
 }
 
-async function generateVignettesWithClaude(profile, subject, subtopic, count) {
+async function generateVignettesWithGemini(profile, subject, subtopic, count) {
   const systemPrompt = buildSystemPrompt(profile, subject, subtopic, "lecture");
   const userPrompt =
     `Generate exactly ${count} USMLE Step 1-style clinical vignette questions for the subject "${subject}"${subtopic ? `, subtopic "${subtopic}"` : ""}. ` +
     `Return ONLY valid JSON with no markdown: {"vignettes":[{"id":"v1","difficulty":"medium","stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","topic":"...","subtopic":"..."}]}`;
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 6000,
-      temperature: 0.9,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
-    }),
-  });
-  if (!res.ok) throw new Error("API " + res.status);
-  const d = await res.json();
-  const raw = (d.content || []).map((b) => b.text || "").join("");
+  const raw = await callAI(systemPrompt, userPrompt, 6000);
   const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
   const data = JSON.parse(cleaned);
   const list = Array.isArray(data.vignettes) ? data.vignettes : [];
@@ -1027,7 +1014,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
       setSessionLoading(true);
       try {
         const subject = practiceSubject || subjectsFromLectures[0] || "General";
-        const fromAi = aiCount > 0 ? await generateVignettesWithClaude(profile, subject, "", aiCount) : [];
+        const fromAi = aiCount > 0 ? await generateVignettesWithGemini(profile, subject, "", aiCount) : [];
         const combined = [...fromBank, ...fromAi].sort(() => Math.random() - 0.5);
         setSessionVignettes(combined);
       } catch (e) {
@@ -1041,7 +1028,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
     setSessionLoading(true);
     try {
       const subject = practiceSubject || subjectsFromLectures[0] || "General";
-      const vignettes = await generateVignettesWithClaude(profile, subject, "", practiceCount);
+      const vignettes = await generateVignettesWithGemini(profile, subject, "", practiceCount);
       setSessionVignettes(vignettes);
     } catch (e) {
       setSessionError(e.message || "Generation failed");
@@ -1360,40 +1347,6 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
                     {Object.keys(questionBanksByFile).length !== 1 ? "s" : ""} ·{" "}
                     {Object.values(questionBanksByFile).flat().length} questions in style bank
                   </span>
-                </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 16 }}>
-                  {Object.entries(questionBanksByFile || {}).map(([fname, questions]) => {
-                    const qList = Array.isArray(questions) ? questions : [];
-                    const usedInBlocks = (blocks || []).filter((b) =>
-                      (lectures || []).some(
-                        (l) =>
-                          l.blockId === b.id &&
-                          qList.some((q) =>
-                            (q.topic || "").toLowerCase().includes((b.name || "").toLowerCase().slice(0, 6))
-                          )
-                      )
-                    );
-                    return (
-                      <div
-                        key={fname}
-                        style={{
-                          background: T.cardBg,
-                          border: "1px solid " + T.border1,
-                          borderRadius: 10,
-                          padding: "12px 16px",
-                          marginBottom: 8,
-                        }}
-                      >
-                        <div style={{ fontFamily: MONO, color: T.text1, fontSize: 13 }}>{fname}</div>
-                        <div style={{ fontFamily: MONO, color: T.green, fontSize: 11, marginTop: 4 }}>
-                          ✓ {qList.length} questions loaded into AI style bank
-                        </div>
-                        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 2 }}>
-                          Active for: {usedInBlocks.length > 0 ? usedInBlocks.map((b) => b.name).join(", ") : "all blocks"}
-                        </div>
-                      </div>
-                    );
-                  })}
                 </div>
               </>
             )}
