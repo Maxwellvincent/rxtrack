@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useTheme, getScoreColor, getUrgencyColor, URGENCY_LABELS } from "./theme";
+import { recordWrongAnswer } from "./weakConcepts";
 
 // ── Storage ───────────────────────────────────────────────
 function sGet(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } }
@@ -37,6 +38,465 @@ const checkColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#6b7280"];
 // ── Helpers ───────────────────────────────────────────────
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
 const avg = arr => arr.length ? Math.round(arr.reduce((a,b)=>a+b,0)/arr.length) : null;
+
+/** Score chip colors for question sessions (pct 0–100) */
+function questionSessionScoreChipStyle(pct) {
+  if (pct >= 70) return { bg: "#EAF3DE", color: "#27500A" };
+  if (pct >= 50) return { bg: "#FAEEDA", color: "#633806" };
+  return { bg: "#FCEBEB", color: "#A32D2D" };
+}
+
+/** Sync weak lecture to rxt-completion for Today's review queue (used from App drill / quiz). */
+export function addLectureToTodayReview(lec, blockId) {
+  if (!lec || !blockId) return false;
+  try {
+    const completionKey = "rxt-completion";
+    const stored = JSON.parse(localStorage.getItem(completionKey) || "{}");
+    const key = `${lec.id}__${blockId}`;
+    const existing = stored[key] || {
+      lectureId: lec.id,
+      blockId,
+      ankiInRotation: false,
+      firstCompletedDate: null,
+      lastActivityDate: null,
+      lastConfidence: "struggling",
+      reviewDates: [],
+      activityLog: [],
+    };
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayKey = today.toISOString().slice(0, 10);
+    const todayISO = new Date(today).toISOString();
+
+    const alreadyToday = (existing.reviewDates || []).some((d) => {
+      const ds = String(d || "").slice(0, 10);
+      return ds === todayKey;
+    });
+
+    if (!alreadyToday) {
+      existing.reviewDates = [todayKey, ...(existing.reviewDates || [])];
+    }
+    existing.lastConfidence = "struggling";
+    if (!existing.firstCompletedDate) {
+      existing.firstCompletedDate = todayISO;
+    }
+    stored[key] = {
+      ...existing,
+      lectureId: lec.id,
+      blockId,
+    };
+    localStorage.setItem(completionKey, JSON.stringify(stored));
+    window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+    return true;
+  } catch (e) {
+    console.error("addLectureToTodayReview failed:", e);
+    return false;
+  }
+}
+
+/** Post-drill session summary (reads objective statuses from storage after assess). */
+export function buildDrillSummary(drillQueue, drillStats, blockId) {
+  let blockObjs = [];
+  try {
+    const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+    const raw = stored[blockId];
+    if (Array.isArray(raw)) {
+      blockObjs = raw;
+    } else if (raw && typeof raw === "object") {
+      blockObjs = [
+        ...(Array.isArray(raw.imported) ? raw.imported : []),
+        ...(Array.isArray(raw.extracted) ? raw.extracted : []),
+      ];
+    }
+  } catch {
+    blockObjs = [];
+  }
+
+  let lecs = [];
+  try {
+    lecs = JSON.parse(localStorage.getItem("rxt-lecs") || "[]").filter((l) => l && l.blockId === blockId);
+  } catch {
+    lecs = [];
+  }
+
+  const assessedIds = new Set(
+    (drillStats?.assessedIndices || []).map((idx) => drillQueue[idx]?.id).filter(Boolean)
+  );
+
+  const assessedObjs = (drillQueue || []).filter((o) => assessedIds.has(o.id));
+
+  const masteredObjs = [];
+  const okayObjs = [];
+  const strugglingObjs = [];
+
+  assessedObjs.forEach((obj) => {
+    const current = blockObjs.find((o) => o.id === obj.id);
+    const status = current?.status || "untested";
+    if (status === "mastered") masteredObjs.push(obj);
+    else if (status === "inprogress") okayObjs.push(obj);
+    else if (status === "struggling") strugglingObjs.push(obj);
+  });
+
+  const weakByLecture = {};
+  strugglingObjs.forEach((obj) => {
+    const lec = lecs.find((l) => l.id === obj.linkedLecId);
+    const lecId = lec?.id || "unknown";
+    const lecLabel = lec
+      ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.title || lec.filename || ""}`
+      : "Unknown lecture";
+
+    if (!weakByLecture[lecId]) {
+      weakByLecture[lecId] = {
+        lec,
+        lecLabel,
+        lecId,
+        objectives: [],
+      };
+    }
+    weakByLecture[lecId].objectives.push(obj);
+  });
+
+  const weakLectures = Object.values(weakByLecture).sort(
+    (a, b) => b.objectives.length - a.objectives.length
+  );
+
+  const total = assessedObjs.length;
+  const score = total > 0 ? Math.round((masteredObjs.length / total) * 100) : 0;
+
+  return {
+    total,
+    mastered: masteredObjs.length,
+    okay: okayObjs.length,
+    struggling: strugglingObjs.length,
+    skipped: drillStats?.skipped || 0,
+    score,
+    weakLectures,
+    strugglingObjs,
+    sessionDate: new Date().toISOString(),
+  };
+}
+
+/** Today's questions activity with questionScore for Done pill (Today tab) */
+function getTodayQuestionScoreForDonePill(entry, todayStr) {
+  if (!entry?.activityLog || !todayStr) return null;
+  const act = entry.activityLog.find(
+    (a) =>
+      String(a?.date || "").slice(0, 10) === todayStr &&
+      a.activityType === "questions" &&
+      a.questionScore != null
+  );
+  if (!act || act.questionCount == null) return null;
+  return {
+    correct: act.correctCount ?? 0,
+    total: act.questionCount,
+    score: act.questionScore,
+  };
+}
+
+// ── Completion + spaced repetition (rxt-completion) ────────
+// Saturday = day 6
+export function getNextSaturday(fromDate) {
+  const d = new Date(fromDate);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const delta = (6 - day + 7) % 7;
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+
+export function getPressureZone(examDate) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const exam = new Date(examDate);
+  exam.setHours(0, 0, 0, 0);
+  const days = Math.ceil((exam - today) / (1000 * 60 * 60 * 24));
+
+  if (days <= 0) return { zone: "exam", days, label: "Exam day" };
+  if (days <= 3) return { zone: "critical", days, label: "Final push" };
+  if (days <= 7) return { zone: "crunch", days, label: "Exam week" };
+  if (days <= 14) return { zone: "build", days, label: "Building" };
+  return { zone: "normal", days, label: "On schedule" };
+}
+
+export function computeReviewDates(completedDate, confidenceRating, examDate) {
+  const base = new Date(completedDate);
+  base.setHours(0, 0, 0, 0);
+  const exam = examDate ? new Date(examDate) : null;
+  if (exam) exam.setHours(0, 0, 0, 0);
+
+  const addDays = (d, days) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + days);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+
+  const pressure = examDate ? getPressureZone(examDate) : { zone: "normal", days: 999, label: "On schedule" };
+  const zone = pressure.zone;
+  const daysLeft = pressure.days;
+
+  // Base intervals by confidence (days)
+  let intervals =
+    ({
+      good: [2, 7, 14, 30],
+      okay: [1, 5, 10, 21],
+      struggling: [0, 2, 5, 10],
+    }[confidenceRating] || [1, 7, 14, 30]).slice();
+
+  const compressionFactor =
+    ({
+      normal: 1.0,
+      build: 0.75,
+      crunch: 0.5,
+      critical: 0.25,
+      exam: 0,
+    }[zone] ?? 1.0);
+
+  intervals = intervals.map((d) => Math.round(d * compressionFactor));
+
+  // Cap any interval at daysUntilExam - 1 in crunch/critical/exam to avoid > exam
+  if (zone === "crunch" || zone === "critical" || zone === "exam") {
+    intervals = intervals.map((d) => Math.min(d, Math.max(daysLeft - 1, 0)));
+  }
+
+  const dates = [];
+
+  // Always add next Saturday sweep if before exam
+  if (exam) {
+    const nextSat = getNextSaturday(base);
+    if (nextSat < exam) dates.push(nextSat);
+  }
+
+  // Interval-based dates
+  intervals.forEach((d) => {
+    if (d === 0) return; // skip same-day in normal scheduling; activity itself is the "same day"
+    const r = addDays(base, d);
+    if (!exam || r < exam) dates.push(r);
+  });
+
+  // In crunch/critical: add every remaining day until exam
+  if (exam && (zone === "critical" || zone === "crunch")) {
+    for (let d = 1; d < Math.max(daysLeft, 0); d++) {
+      const r = addDays(new Date(), d);
+      if (r < exam) dates.push(r);
+    }
+  }
+
+  // Deduplicate + sort ascending; drop past dates
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const uniq = new Map(dates.map((d) => [d.toDateString(), d]));
+  return Array.from(uniq.values())
+    .filter((d) => d >= today)
+    .sort((a, b) => a.getTime() - b.getTime());
+}
+
+// Pure helper (read-only): summarize lecture activity from localStorage rxt-completion
+function getLectureActivitySummary(lectureId, blockId) {
+  try {
+    const completions = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    const entry = completions[`${lectureId}__${blockId}`];
+    if (!entry || !Array.isArray(entry.activityLog) || entry.activityLog.length === 0) {
+      return { count: 0, recentIcons: [], status: "untouched", confidence: null };
+    }
+    const iconMap = {
+      deep_learn: "🧠",
+      review: "📖",
+      anki: "🃏",
+      questions: "❓",
+      notes: "📝",
+      sg_tbl: "👥",
+      manual: "✏️",
+    };
+    const log = entry.activityLog; // newest-first
+    const recentIcons = log.slice(0, 6).map((a) => iconMap[a?.activityType] || "✏️");
+    const count = log.length;
+    const conf = entry.lastConfidence || null;
+    let status = "building";
+    if (count === 0) status = "untouched";
+    else if (conf === "struggling") status = "needs-work";
+    else if (conf === "okay" && count >= 3) status = "on-track";
+    else if (conf === "good" && count >= 2) status = "strong";
+    return { count, recentIcons, status, confidence: conf };
+  } catch {
+    return { count: 0, recentIcons: [], status: "untouched", confidence: null };
+  }
+}
+
+// Pure: confidence trend from activityLog (read-only). T = theme for colors (optional).
+export function getConfidenceTrend(activityLog, T) {
+  if (!activityLog || activityLog.length < 2) return { trend: "new", arrow: null, color: null };
+  const scoreMap = { good: 3, okay: 2, struggling: 1 };
+  const recent = activityLog
+    .slice(0, 5)
+    .filter((a) => a.confidenceRating)
+    .map((a) => scoreMap[a.confidenceRating] || 0);
+  if (recent.length < 2) return { trend: "new", arrow: null, color: null };
+  const mid = Math.ceil(recent.length / 2);
+  const recentAvg = recent.slice(0, mid).reduce((s, v) => s + v, 0) / mid;
+  const olderAvg = recent.slice(mid).reduce((s, v) => s + v, 0) / (recent.length - mid);
+  const delta = recentAvg - olderAvg;
+  const statusGood = T?.statusGood ?? null;
+  const statusBad = T?.statusBad ?? null;
+  const statusWarn = T?.statusWarn ?? null;
+  if (delta > 0.4) return { trend: "improving", arrow: "↑", color: statusGood };
+  if (delta < -0.4) return { trend: "declining", arrow: "↓", color: statusBad };
+  if (recentAvg >= 2.5) return { trend: "strong", arrow: "→", color: statusGood };
+  if (recentAvg <= 1.4) return { trend: "stuck", arrow: "→", color: statusBad };
+  return { trend: "flat", arrow: "→", color: statusWarn };
+}
+
+function computeWeakClusters(blockId, completions, lectures) {
+  const byWeek = {};
+  (lectures || []).forEach((lec) => {
+    const week = lec.weekNumber ?? "unscheduled";
+    if (!byWeek[week]) byWeek[week] = [];
+    byWeek[week].push(lec);
+  });
+  const clusters = [];
+  Object.entries(byWeek).forEach(([week, lecs]) => {
+    const byType = {};
+    lecs.forEach((lec) => {
+      const type = lec.lectureType || "other";
+      if (!byType[type]) byType[type] = [];
+      byType[type].push(lec);
+    });
+    Object.entries(byType).forEach(([type, typeLecs]) => {
+      if (typeLecs.length === 0) return;
+      const scores = typeLecs.map((lec) => {
+        const entry = (completions || {})[`${lec.id}__${blockId}`];
+        if (!entry || !entry.activityLog || entry.activityLog.length === 0) {
+          return { lec, score: 0, confidence: null, interactions: 0 };
+        }
+        const confMap = { good: 3, okay: 2, struggling: 1 };
+        const conf = confMap[entry.lastConfidence] || 0;
+        return {
+          lec,
+          score: conf,
+          confidence: entry.lastConfidence,
+          interactions: entry.activityLog.length,
+        };
+      });
+      const avgScore = scores.reduce((s, v) => s + v.score, 0) / scores.length;
+      const strugglingCount = scores.filter((s) => s.confidence === "struggling").length;
+      const untouchedCount = scores.filter((s) => s.interactions === 0).length;
+      clusters.push({
+        week,
+        type,
+        lectures: typeLecs,
+        avgScore,
+        strugglingCount,
+        untouchedCount,
+        totalCount: typeLecs.length,
+        level:
+          avgScore < 1.5 || strugglingCount / typeLecs.length > 0.5
+            ? "critical"
+            : avgScore < 2.2
+              ? "weak"
+              : untouchedCount > 0
+                ? "gaps"
+                : "strong",
+      });
+    });
+  });
+  const order = { critical: 0, weak: 1, gaps: 2, strong: 3 };
+  return clusters.sort((a, b) => order[a.level] - order[b.level]);
+}
+
+function getOverdueLectures(blockId, completions) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const todayStr = today.toISOString().split("T")[0];
+
+  return Object.values(completions || {})
+    .filter((entry) => entry && entry.blockId === blockId)
+    .filter((entry) => {
+      const rds = Array.isArray(entry.reviewDates) ? entry.reviewDates : [];
+      if (rds.length === 0) return false;
+
+      const overdueDates = rds
+        .map((d) => {
+          const rd = new Date(d);
+          rd.setHours(0, 0, 0, 0);
+          return rd;
+        })
+        .filter((d) => d < today)
+        .sort((a, b) => a - b);
+      if (overdueDates.length === 0) return false;
+
+      const earliestOverdue = overdueDates[0];
+      const lastActivity = entry.lastActivityDate ? new Date(entry.lastActivityDate) : null;
+      if (!lastActivity) return true;
+      lastActivity.setHours(0, 0, 0, 0);
+      return lastActivity < earliestOverdue;
+    })
+    .map((entry) => {
+      const rds = Array.isArray(entry.reviewDates) ? entry.reviewDates : [];
+      const overdue = rds
+        .map((d) => ({ raw: d, dt: new Date(d) }))
+        .map((x) => {
+          x.dt.setHours(0, 0, 0, 0);
+          return x;
+        })
+        .filter((x) => x.dt < today)
+        .sort((a, b) => a.dt - b.dt);
+      const earliest = overdue[0]?.raw || todayStr;
+      const daysOverdue = Math.ceil((today - new Date(earliest)) / (1000 * 60 * 60 * 24));
+      return {
+        ...entry,
+        overdueSince: earliest,
+        daysOverdue,
+      };
+    })
+    .sort((a, b) => (b.daysOverdue || 0) - (a.daysOverdue || 0));
+}
+
+function getSweepBannerState(blockId, completions, lectures) {
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const hour = now.getHours();
+  const showWindow =
+    (dayOfWeek === 5 && hour >= 16) ||
+    (dayOfWeek === 6) ||
+    (dayOfWeek === 0 && hour < 12);
+  if (!showWindow) return null;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const oneWeekAgo = new Date(today);
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+  const sweepLectures = Object.values(completions || {})
+    .filter((e) => e.blockId === blockId)
+    .filter((e) => {
+      if (!e.lastActivityDate) return false;
+      const last = new Date(e.lastActivityDate);
+      last.setHours(0, 0, 0, 0);
+      if (last < oneWeekAgo) return false;
+      if (dayOfWeek === 0) return last < yesterday;
+      return last < today;
+    });
+
+  const blockLecs = (lectures || []).filter((l) => l.blockId === blockId);
+  const untouchedCount = blockLecs.filter((l) => {
+    const e = (completions || {})[`${l.id}__${blockId}`];
+    return !e || !e.lastActivityDate;
+  }).length;
+
+  return {
+    sweepCount: sweepLectures.length,
+    untouchedCount,
+    dayOfWeek,
+    label:
+      dayOfWeek === 5
+        ? "Tomorrow is your weekly sweep day"
+        : dayOfWeek === 6
+          ? "Today is your weekly sweep day"
+          : "Catch up on this week before it closes",
+  };
+}
 
 function daysSince(dateStr) {
   if (!dateStr) return null;
@@ -296,6 +756,891 @@ function AddModal({ onAdd, onClose }) {
           <button onClick={onClose} style={{ background:T.border1, border:"none", color:T.text5, padding:"9px 20px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:14 }}>Cancel</button>
           <button onClick={submit} disabled={!canSubmit} style={{ background:canSubmit?T.red:T.border1, border:"none", color:canSubmit?T.text1:T.text5, padding:"9px 24px", borderRadius:8, cursor:canSubmit?"pointer":"not-allowed", fontFamily:MONO, fontSize:15, fontWeight:700, opacity:canSubmit?1:0.7 }}>Add Row</button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function newWrongQuestionId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `wq-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function getBlockNameForWeakConcept(blockId) {
+  try {
+    const blocks = JSON.parse(localStorage.getItem("rxt-blocks") || "[]");
+    const arr = Array.isArray(blocks) ? blocks : [];
+    return arr.find((b) => b.id === blockId)?.name || blockId;
+  } catch {
+    return blockId;
+  }
+}
+
+function lectureLabelFromLec(lec) {
+  if (!lec) return "";
+  return `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.title || lec.filename || ""}`.trim();
+}
+
+/** Compact wrong-questions-only panel for done cards (no logActivity). */
+function QuickLogWrongOnlyPanel({ lec, blockId, onCancel, onWrongConceptsLogged, onDone }) {
+  const { T: t } = useTheme();
+  const [wrongQuestions, setWrongQuestions] = useState(() => [
+    { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "" },
+  ]);
+  const [saving, setSaving] = useState(false);
+
+  function addWrongQuestionSlot() {
+    setWrongQuestions((prev) => [
+      ...prev,
+      { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "" },
+    ]);
+  }
+
+  function updateWrongQuestion(id, field, value) {
+    setWrongQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, [field]: value } : q)));
+  }
+
+  function removeWrongQuestion(id) {
+    setWrongQuestions((prev) => prev.filter((q) => q.id !== id));
+  }
+
+  async function handleAdd() {
+    const filled = wrongQuestions.filter((wq) => wq.question.trim().length > 5);
+    if (filled.length === 0 || !lec?.id) return;
+    setSaving(true);
+    try {
+      const lecLabel = lectureLabelFromLec(lec);
+      const blockName = getBlockNameForWeakConcept(blockId);
+      filled.forEach((wq) => {
+        recordWrongAnswer({
+          blockId,
+          blockName,
+          question: wq.question.trim(),
+          wrongAnswer: wq.wrongAnswer.trim() || "Not specified",
+          correctAnswer: wq.correctAnswer.trim() || "Not specified",
+          linkedLecId: lec.id,
+          lectureLabel: lecLabel,
+          source: "manual",
+        }).catch((e) => console.error("recordWrongAnswer failed:", e));
+      });
+      onWrongConceptsLogged?.(filled.length);
+      onDone?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const filledCount = wrongQuestions.filter((wq) => wq.question.trim().length > 5).length;
+
+  return (
+    <div
+      data-quicklog-wrong-only
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        background: t.inputBg,
+        border: "0.5px solid " + t.border2,
+        borderTop: "none",
+        borderRadius: "0 0 10px 10px",
+        padding: "12px 14px",
+        marginBottom: 6,
+        marginTop: -6,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 500,
+          color: "var(--color-text-secondary)",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginBottom: 8,
+        }}
+      >
+        Questions you got wrong
+      </div>
+
+      {wrongQuestions.map((wq, idx) => (
+        <div
+          key={wq.id}
+          style={{
+            background: "var(--color-background-secondary)",
+            border: "0.5px solid var(--color-border-tertiary)",
+            borderRadius: 8,
+            padding: "10px 12px",
+            marginBottom: 8,
+            position: "relative",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => removeWrongQuestion(wq.id)}
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 8,
+              width: 20,
+              height: 20,
+              border: "none",
+              background: "transparent",
+              color: "var(--color-text-tertiary)",
+              cursor: "pointer",
+              fontSize: 13,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: 4,
+            }}
+          >
+            ✕
+          </button>
+
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--color-text-tertiary)",
+              marginBottom: 6,
+            }}
+          >
+            Question {idx + 1}
+          </div>
+
+          <textarea
+            value={wq.question}
+            onChange={(e) => updateWrongQuestion(wq.id, "question", e.target.value)}
+            placeholder="Write the question (or topic/concept you got wrong)..."
+            rows={2}
+            style={{
+              width: "100%",
+              fontSize: 12,
+              lineHeight: 1.5,
+              padding: "6px 8px",
+              border: "0.5px solid var(--color-border-secondary)",
+              borderRadius: 6,
+              background: "var(--color-background-primary)",
+              color: "var(--color-text-primary)",
+              fontFamily: "var(--font-sans)",
+              resize: "vertical",
+              marginBottom: 6,
+            }}
+          />
+
+          <textarea
+            value={wq.wrongAnswer}
+            onChange={(e) => updateWrongQuestion(wq.id, "wrongAnswer", e.target.value)}
+            placeholder="What you answered / what you thought..."
+            rows={1}
+            style={{
+              width: "100%",
+              fontSize: 12,
+              lineHeight: 1.5,
+              padding: "6px 8px",
+              border: "0.5px solid #F09595",
+              borderRadius: 6,
+              background: "#FCEBEB",
+              color: "var(--color-text-primary)",
+              fontFamily: "var(--font-sans)",
+              resize: "vertical",
+              marginBottom: 6,
+            }}
+          />
+
+          <textarea
+            value={wq.correctAnswer}
+            onChange={(e) => updateWrongQuestion(wq.id, "correctAnswer", e.target.value)}
+            placeholder="The correct answer / what it actually is..."
+            rows={1}
+            style={{
+              width: "100%",
+              fontSize: 12,
+              lineHeight: 1.5,
+              padding: "6px 8px",
+              border: "0.5px solid #97C459",
+              borderRadius: 6,
+              background: "#EAF3DE",
+              color: "var(--color-text-primary)",
+              fontFamily: "var(--font-sans)",
+              resize: "vertical",
+            }}
+          />
+        </div>
+      ))}
+
+      <button
+        type="button"
+        onClick={addWrongQuestionSlot}
+        style={{
+          fontSize: 11,
+          padding: "4px 12px",
+          border: "0.5px dashed var(--color-border-secondary)",
+          borderRadius: 6,
+          background: "transparent",
+          color: "var(--color-text-tertiary)",
+          cursor: "pointer",
+          width: "100%",
+          textAlign: "center",
+          marginBottom: 8,
+        }}
+      >
+        + Add another wrong question
+      </button>
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            fontSize: 12,
+            fontFamily: MONO,
+            padding: "5px 12px",
+            border: "0.5px solid " + t.border2,
+            borderRadius: 6,
+            background: "transparent",
+            color: t.text2,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={filledCount === 0 || saving}
+          style={{
+            fontSize: 12,
+            fontFamily: MONO,
+            padding: "5px 12px",
+            border: "none",
+            borderRadius: 6,
+            background: filledCount > 0 && !saving ? "#2563eb" : t.border1,
+            color: filledCount > 0 && !saving ? "#fff" : t.text3,
+            cursor: filledCount > 0 && !saving ? "pointer" : "not-allowed",
+          }}
+        >
+          {saving ? "Adding..." : "Add to Weak Concepts"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Inline quick log for Today tab (Overdue / Today's lectures / Reviews due) */
+function QuickLogFormContent({ lec, blockId, examDate, todayStr, logActivity, onSave, onCancel, onWrongConceptsLogged }) {
+  const { T: t } = useTheme();
+  const [activityType, setActivityType] = useState("review");
+  const [confidenceRating, setConfidenceRating] = useState(null);
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [questionCount, setQuestionCount] = useState("");
+  const [correctCount, setCorrectCount] = useState("");
+  const [showWrongQuestions, setShowWrongQuestions] = useState(false);
+  const [wrongQuestions, setWrongQuestions] = useState([]);
+
+  const activityTypes = [
+    { key: "deep_learn", label: "Deep Learn", icon: "🧠" },
+    { key: "review", label: "Review", icon: "📖" },
+    { key: "anki", label: "Anki", icon: "🃏" },
+    { key: "questions", label: "Questions", icon: "❓" },
+    { key: "notes", label: "Notes", icon: "📝" },
+    { key: "sg_tbl", label: "SG/TBL", icon: "👥" },
+  ];
+
+  useEffect(() => {
+    if (activityType !== "questions") {
+      setQuestionCount("");
+      setCorrectCount("");
+      setShowWrongQuestions(false);
+      setWrongQuestions([]);
+    }
+  }, [activityType]);
+
+  function addWrongQuestionSlot() {
+    setWrongQuestions((prev) => [
+      ...prev,
+      { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "" },
+    ]);
+  }
+
+  function updateWrongQuestion(id, field, value) {
+    setWrongQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, [field]: value } : q)));
+  }
+
+  function removeWrongQuestion(id) {
+    setWrongQuestions((prev) => prev.filter((q) => q.id !== id));
+  }
+
+  async function handleSave() {
+    if (!lec?.id || !blockId || !confidenceRating) return;
+    setSaving(true);
+    try {
+      const options = {
+        note: note.trim() || null,
+        date: todayStr,
+        examDate: examDate || null,
+      };
+
+      if (activityType === "questions" && questionCount) {
+        const total = parseInt(questionCount, 10) || 0;
+        const correct = parseInt(correctCount, 10) || 0;
+        const score = total > 0 ? Math.round((correct / total) * 100) : null;
+
+        if (total > 0) {
+          options.questionCount = total;
+          options.correctCount = correct;
+          options.questionScore = score;
+          options.note = options.note || `${correct}/${total} correct (${score}%)`;
+        }
+      }
+
+      await logActivity(lec.id, blockId, activityType, confidenceRating, options);
+
+      const filledWrongQuestions = wrongQuestions.filter((wq) => wq.question.trim().length > 5);
+
+      if (filledWrongQuestions.length > 0) {
+        const lecLabel = lectureLabelFromLec(lec);
+        const blockName = getBlockNameForWeakConcept(blockId);
+
+        filledWrongQuestions.forEach((wq) => {
+          recordWrongAnswer({
+            blockId,
+            blockName,
+            question: wq.question.trim(),
+            wrongAnswer: wq.wrongAnswer.trim() || "Not specified",
+            correctAnswer: wq.correctAnswer.trim() || "Not specified",
+            linkedLecId: lec.id,
+            lectureLabel: lecLabel,
+            source: "manual",
+          }).catch((e) => console.error("recordWrongAnswer failed:", e));
+        });
+
+        onWrongConceptsLogged?.(filledWrongQuestions.length);
+      }
+
+      onSave?.();
+    } catch (e) {
+      console.error("Quick log save failed:", e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const filledWrongCount = wrongQuestions.filter((wq) => wq.question.trim().length > 5).length;
+
+  return (
+    <div
+      data-quicklog-form
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        background: t.inputBg,
+        border: "0.5px solid " + t.border2,
+        borderTop: "none",
+        borderRadius: "0 0 10px 10px",
+        padding: "12px 14px",
+        marginBottom: 6,
+        marginTop: -6,
+      }}
+    >
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {activityTypes.map((at) => (
+          <button
+            key={at.key}
+            type="button"
+            onClick={() => setActivityType(at.key)}
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              padding: "3px 10px",
+              borderRadius: 20,
+              border: "0.5px solid",
+              cursor: "pointer",
+              background: activityType === at.key ? (t.statusProgress + "22") : "transparent",
+              color: activityType === at.key ? t.statusProgress : t.text2,
+              borderColor: activityType === at.key ? t.statusProgress : t.border1,
+            }}
+          >
+            {at.icon} {at.label}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <button
+          type="button"
+          onClick={() => setConfidenceRating("good")}
+          style={{
+            flex: 1,
+            padding: "8px 0",
+            fontSize: 12,
+            fontFamily: MONO,
+            borderRadius: 6,
+            cursor: "pointer",
+            border: "0.5px solid",
+            background: confidenceRating === "good" ? "#EAF3DE" : "transparent",
+            color: confidenceRating === "good" ? "#27500A" : t.text2,
+            borderColor: confidenceRating === "good" ? "#97C459" : t.border1,
+          }}
+        >
+          ✓ Good
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfidenceRating("okay")}
+          style={{
+            flex: 1,
+            padding: "8px 0",
+            fontSize: 12,
+            fontFamily: MONO,
+            borderRadius: 6,
+            cursor: "pointer",
+            border: "0.5px solid",
+            background: confidenceRating === "okay" ? "#FAEEDA" : "transparent",
+            color: confidenceRating === "okay" ? "#633806" : t.text2,
+            borderColor: confidenceRating === "okay" ? "#EF9F27" : t.border1,
+          }}
+        >
+          △ Okay
+        </button>
+        <button
+          type="button"
+          onClick={() => setConfidenceRating("struggling")}
+          style={{
+            flex: 1,
+            padding: "8px 0",
+            fontSize: 12,
+            fontFamily: MONO,
+            borderRadius: 6,
+            cursor: "pointer",
+            border: "0.5px solid",
+            background: confidenceRating === "struggling" ? "#FCEBEB" : "transparent",
+            color: confidenceRating === "struggling" ? "#A32D2D" : t.text2,
+            borderColor: confidenceRating === "struggling" ? "#F09595" : t.border1,
+          }}
+        >
+          ⚠ Struggling
+        </button>
+      </div>
+
+      {activityType === "questions" && (
+        <div
+          style={{
+            marginTop: 8,
+            padding: "8px 10px",
+            background: "var(--color-background-secondary)",
+            borderRadius: "var(--border-radius-md)",
+            border: "0.5px solid var(--color-border-tertiary)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--color-text-tertiary)",
+              textTransform: "uppercase",
+              letterSpacing: "0.06em",
+              marginBottom: 8,
+            }}
+          >
+            Question session details
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              alignItems: "center",
+            }}
+          >
+            <div style={{ flex: 1 }}>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--color-text-secondary)",
+                  display: "block",
+                  marginBottom: 3,
+                }}
+              >
+                Questions done
+              </label>
+              <input
+                type="number"
+                min="1"
+                max="999"
+                value={questionCount}
+                onChange={(e) => {
+                  setQuestionCount(e.target.value);
+                  if (correctCount && parseInt(e.target.value, 10) < parseInt(correctCount, 10)) {
+                    setCorrectCount("");
+                  }
+                }}
+                placeholder="e.g. 40"
+                style={{
+                  width: "100%",
+                  fontSize: 13,
+                  padding: "6px 8px",
+                  border: "0.5px solid var(--color-border-secondary)",
+                  borderRadius: 6,
+                  background: "var(--color-background-primary)",
+                  color: "var(--color-text-primary)",
+                  textAlign: "center",
+                }}
+              />
+            </div>
+
+            <div
+              style={{
+                fontSize: 16,
+                color: "var(--color-text-tertiary)",
+                paddingTop: 18,
+                flexShrink: 0,
+              }}
+            >
+              /
+            </div>
+
+            <div style={{ flex: 1 }}>
+              <label
+                style={{
+                  fontSize: 11,
+                  color: "var(--color-text-secondary)",
+                  display: "block",
+                  marginBottom: 3,
+                }}
+              >
+                Correct
+              </label>
+              <input
+                type="number"
+                min="0"
+                max={questionCount || 999}
+                value={correctCount}
+                onChange={(e) => setCorrectCount(e.target.value)}
+                placeholder="e.g. 32"
+                style={{
+                  width: "100%",
+                  fontSize: 13,
+                  padding: "6px 8px",
+                  border: "0.5px solid var(--color-border-secondary)",
+                  borderRadius: 6,
+                  background: "var(--color-background-primary)",
+                  color: "var(--color-text-primary)",
+                  textAlign: "center",
+                }}
+              />
+            </div>
+
+            {questionCount && correctCount && (
+              <div
+                style={{
+                  flexShrink: 0,
+                  paddingTop: 18,
+                  minWidth: 44,
+                  textAlign: "center",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 500,
+                    fontFamily: "var(--font-mono)",
+                    color: (() => {
+                      const pct = Math.round(
+                        (parseInt(correctCount, 10) / parseInt(questionCount, 10)) * 100
+                      );
+                      return pct >= 70 ? "#639922" : pct >= 50 ? "#BA7517" : "#E24B4A";
+                    })(),
+                  }}
+                >
+                  {Math.round((parseInt(correctCount, 10) / parseInt(questionCount, 10)) * 100)}%
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            {!showWrongQuestions ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowWrongQuestions(true);
+                  addWrongQuestionSlot();
+                }}
+                style={{
+                  fontSize: 11,
+                  padding: "4px 12px",
+                  border: "0.5px solid var(--color-border-secondary)",
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  cursor: "pointer",
+                  width: "100%",
+                  textAlign: "left",
+                }}
+              >
+                + Log questions you got wrong (optional)
+              </button>
+            ) : (
+              <div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: "var(--color-text-secondary)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                    marginBottom: 8,
+                  }}
+                >
+                  Questions you got wrong
+                </div>
+
+                {wrongQuestions.map((wq, idx) => (
+                  <div
+                    key={wq.id}
+                    style={{
+                      background: "var(--color-background-secondary)",
+                      border: "0.5px solid var(--color-border-tertiary)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      marginBottom: 8,
+                      position: "relative",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => removeWrongQuestion(wq.id)}
+                      style={{
+                        position: "absolute",
+                        top: 8,
+                        right: 8,
+                        width: 20,
+                        height: 20,
+                        border: "none",
+                        background: "transparent",
+                        color: "var(--color-text-tertiary)",
+                        cursor: "pointer",
+                        fontSize: 13,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: 4,
+                      }}
+                    >
+                      ✕
+                    </button>
+
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--color-text-tertiary)",
+                        marginBottom: 6,
+                      }}
+                    >
+                      Question {idx + 1}
+                    </div>
+
+                    <textarea
+                      value={wq.question}
+                      onChange={(e) => updateWrongQuestion(wq.id, "question", e.target.value)}
+                      placeholder="Write the question (or topic/concept you got wrong)..."
+                      rows={2}
+                      style={{
+                        width: "100%",
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        padding: "6px 8px",
+                        border: "0.5px solid var(--color-border-secondary)",
+                        borderRadius: 6,
+                        background: "var(--color-background-primary)",
+                        color: "var(--color-text-primary)",
+                        fontFamily: "var(--font-sans)",
+                        resize: "vertical",
+                        marginBottom: 6,
+                      }}
+                    />
+
+                    <textarea
+                      value={wq.wrongAnswer}
+                      onChange={(e) => updateWrongQuestion(wq.id, "wrongAnswer", e.target.value)}
+                      placeholder="What you answered / what you thought..."
+                      rows={1}
+                      style={{
+                        width: "100%",
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        padding: "6px 8px",
+                        border: "0.5px solid #F09595",
+                        borderRadius: 6,
+                        background: "#FCEBEB",
+                        color: "var(--color-text-primary)",
+                        fontFamily: "var(--font-sans)",
+                        resize: "vertical",
+                        marginBottom: 6,
+                      }}
+                    />
+
+                    <textarea
+                      value={wq.correctAnswer}
+                      onChange={(e) => updateWrongQuestion(wq.id, "correctAnswer", e.target.value)}
+                      placeholder="The correct answer / what it actually is..."
+                      rows={1}
+                      style={{
+                        width: "100%",
+                        fontSize: 12,
+                        lineHeight: 1.5,
+                        padding: "6px 8px",
+                        border: "0.5px solid #97C459",
+                        borderRadius: 6,
+                        background: "#EAF3DE",
+                        color: "var(--color-text-primary)",
+                        fontFamily: "var(--font-sans)",
+                        resize: "vertical",
+                      }}
+                    />
+                  </div>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={addWrongQuestionSlot}
+                  style={{
+                    fontSize: 11,
+                    padding: "4px 12px",
+                    border: "0.5px dashed var(--color-border-secondary)",
+                    borderRadius: 6,
+                    background: "transparent",
+                    color: "var(--color-text-tertiary)",
+                    cursor: "pointer",
+                    width: "100%",
+                    textAlign: "center",
+                    marginBottom: 6,
+                  }}
+                >
+                  + Add another wrong question
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowWrongQuestions(false);
+                    setWrongQuestions([]);
+                  }}
+                  style={{
+                    fontSize: 11,
+                    border: "none",
+                    background: "transparent",
+                    color: "var(--color-text-tertiary)",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  Hide this section
+                </button>
+              </div>
+            )}
+          </div>
+
+          {questionCount &&
+            correctCount &&
+            (() => {
+              const pct = Math.round(
+                (parseInt(correctCount, 10) / parseInt(questionCount, 10)) * 100
+              );
+              const suggested = pct >= 70 ? "good" : pct >= 50 ? "okay" : "struggling";
+
+              if (!confidenceRating) {
+                return (
+                  <div
+                    style={{
+                      marginTop: 6,
+                      fontSize: 11,
+                      color: "var(--color-text-tertiary)",
+                      textAlign: "center",
+                    }}
+                  >
+                    Suggested:{" "}
+                    {suggested === "good" ? "✓ Good" : suggested === "okay" ? "△ Okay" : "⚠ Struggling"} based on{" "}
+                    {pct}%
+                    <button
+                      type="button"
+                      onClick={() => setConfidenceRating(suggested)}
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 11,
+                        padding: "1px 8px",
+                        border: "0.5px solid var(--color-border-secondary)",
+                        borderRadius: 4,
+                        background: "transparent",
+                        color: "var(--color-text-secondary)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      Apply
+                    </button>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+        </div>
+      )}
+
+      <input
+        type="text"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Quick note (optional)"
+        style={{
+          width: "100%",
+          fontSize: 12,
+          fontFamily: MONO,
+          padding: "6px 8px",
+          border: "0.5px solid " + t.border1,
+          borderRadius: 6,
+          background: t.cardBg,
+          color: t.text1,
+          marginBottom: 8,
+          marginTop: 6,
+          boxSizing: "border-box",
+        }}
+      />
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            fontSize: 12,
+            fontFamily: MONO,
+            padding: "5px 12px",
+            border: "0.5px solid " + t.border2,
+            borderRadius: 6,
+            background: "transparent",
+            color: t.text2,
+            cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!confidenceRating || saving}
+          style={{
+            fontSize: 12,
+            fontFamily: MONO,
+            padding: "5px 12px",
+            border: "none",
+            borderRadius: 6,
+            background: confidenceRating ? "#2563eb" : t.border1,
+            color: confidenceRating ? "#fff" : t.text3,
+            cursor: confidenceRating && !saving ? "pointer" : "not-allowed",
+          }}
+        >
+          {saving
+            ? "Saving..."
+            : filledWrongCount > 0
+              ? `Save + log ${filledWrongCount} wrong question${filledWrongCount > 1 ? "s" : ""}`
+              : "Save"}
+        </button>
       </div>
     </div>
   );
@@ -587,6 +1932,980 @@ function deduplicateTrackerRows(rows) {
   return merged;
 }
 
+// Lectures tab content — extracted so hooks run only when tab is active
+function LecturesTabContent({
+  blockId: bid,
+  examDate: examDateForBlock,
+  todayISO,
+  completion,
+  setCompletion,
+  lecs,
+  completionKey,
+  getCompletion,
+  markLectureComplete,
+  logActivity,
+  updateAnkiCounts,
+  logReview,
+  computeReviewDates,
+  getLectureActivitySummary,
+  getConfidenceTrend,
+  theme: t,
+  MONO,
+}) {
+  const loadBlockLecs = () => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("rxt-lecs") || "[]");
+      if (Array.isArray(raw) && raw.length) return raw;
+    } catch {}
+    return lecs || [];
+  };
+
+  const allLecs = loadBlockLecs();
+  const blockLecs = (allLecs || []).filter((l) => l && l.blockId === bid);
+  const completions = completion || {};
+
+  function buildLectureGroups(blockLecsIn, completionsIn, blockId) {
+    const groupsMap = {};
+    blockLecsIn.forEach((lec) => {
+      const week = lec.weekNumber ?? "unscheduled";
+      const type = (lec.lectureType ?? "other").toUpperCase();
+      const key = `${week}__${type}`;
+      if (!groupsMap[key]) groupsMap[key] = { week, type, lectures: [] };
+      groupsMap[key].lectures.push(lec);
+    });
+    return Object.values(groupsMap).map((g) => {
+      const entries = g.lectures.map((lec) => ({
+        lec,
+        entry: completionsIn[`${lec.id}__${blockId}`] || null,
+      }));
+      const tracked = entries.filter((e) => e.entry?.activityLog?.length > 0).length;
+      const struggling = entries.filter((e) => e.entry?.lastConfidence === "struggling").length;
+      const okay = entries.filter((e) => e.entry?.lastConfidence === "okay").length;
+      const good = entries.filter((e) => e.entry?.lastConfidence === "good").length;
+      const untouched = entries.filter((e) => !e.entry || !e.entry.activityLog?.length).length;
+      const level =
+        struggling > 0 ? "critical"
+        : okay > 0 && okay >= g.lectures.length / 2 ? "weak"
+        : untouched > 0 ? "gaps"
+        : "strong";
+      const avgConf = entries.length
+        ? entries.reduce((sum, e) => {
+            const m = { good: 3, okay: 2, struggling: 1 };
+            return sum + (m[e.entry?.lastConfidence] || 0);
+          }, 0) / entries.length
+        : 0;
+      return {
+        ...g,
+        entries,
+        tracked,
+        struggling,
+        okay,
+        good,
+        untouched,
+        level,
+        avgConf,
+        total: g.lectures.length,
+      };
+    }).sort((a, b) => {
+      const order = { critical: 0, weak: 1, gaps: 2, strong: 3 };
+      if (order[a.level] !== order[b.level]) return order[a.level] - order[b.level];
+      const wa = a.week === "unscheduled" ? 9999 : Number(a.week);
+      const wb = b.week === "unscheduled" ? 9999 : Number(b.week);
+      return wa - wb;
+    });
+  }
+
+  const groups = buildLectureGroups(blockLecs, completions, bid);
+
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedGroups, setExpandedGroups] = useState({});
+  const [expandedLecId, setExpandedLecId] = useState(null);
+  const [openRow, setOpenRow] = useState(null);
+  const [formByLec, setFormByLec] = useState(() => ({}));
+  const [editByLec, setEditByLec] = useState(() => ({}));
+  const [reviewFlowByLec, setReviewFlowByLec] = useState(() => ({}));
+  const [activityFlowByLec, setActivityFlowByLec] = useState(() => ({}));
+  const [ankiCountsByLec, setAnkiCountsByLec] = useState(() => ({}));
+
+  useEffect(() => {
+    setSearchQuery("");
+  }, [typeFilter]);
+
+  const filteredGroups = groups
+    .map((g) => {
+      if (typeFilter !== "all" && g.type !== typeFilter) return null;
+      if (!searchQuery.trim()) return g;
+      const q = searchQuery.toLowerCase();
+      const matchingLecs = g.entries.filter(
+        ({ lec }) =>
+          lec.title?.toLowerCase().includes(q) ||
+          lec.lectureTitle?.toLowerCase().includes(q) ||
+          String(lec.lectureNumber).includes(q) ||
+          (lec.lectureType ?? "").toLowerCase().includes(q)
+      );
+      if (matchingLecs.length === 0) return null;
+      return { ...g, entries: matchingLecs, _searchFiltered: true };
+    })
+    .filter(Boolean);
+
+  const getNextReview = (entry) => {
+    const rd = Array.isArray(entry?.reviewDates) ? entry.reviewDates : [];
+    const done = Array.isArray(entry?.reviewsCompleted) ? entry.reviewsCompleted : [];
+    return rd.find((d) => d >= todayISO && !done.includes(d)) || null;
+  };
+
+  const dueStateForDate = (entry, dateStr) => {
+    const rd = Array.isArray(entry?.reviewDates) ? entry.reviewDates : [];
+    const done = Array.isArray(entry?.reviewsCompleted) ? entry.reviewsCompleted : [];
+    if (done.includes(dateStr)) return "done";
+    if (dateStr <= todayISO && rd.includes(dateStr)) return "due";
+    if (rd.includes(dateStr)) return "upcoming";
+    return "none";
+  };
+
+  const confidenceBadge = (val) => {
+    const v = String(val || "okay");
+    if (v === "good") return { label: "✓ Good", color: t.statusGood };
+    if (v === "struggling") return { label: "⚠ Struggling", color: t.statusBad };
+    return { label: "△ Okay", color: t.statusWarn };
+  };
+
+  const typePillStyle = (type, active) => {
+    const map = { All: { bg: t.inputBg, fg: t.text1 }, DLA: { bg: "#EEEDFE", fg: "#3C3489" }, LEC: { bg: "#E6F1FB", fg: "#0C447C" }, SG: { bg: "#E1F5EE", fg: "#085041" }, TBL: { bg: "#FAEEDA", fg: "#633806" } };
+    const k = type === "all" ? "All" : (type || "LEC").toUpperCase();
+    const c = map[k] || map.LEC;
+    if (active) return { background: c.bg, color: c.fg, border: "none" };
+    return { background: "transparent", color: t.text2, border: "0.5px solid " + t.border2 };
+  };
+
+  const progressFillColor = (level) => ({ critical: "#E24B4A", weak: "#BA7517", gaps: "#888780", strong: "#639922" }[level] || "#888780");
+  const statusPillConfig = (g) => {
+    if (g.level === "critical") return { text: `⚠ ${g.struggling} struggling`, ...t.statusBadBg != null ? { bg: t.statusBadBg, border: t.statusBadBorder, color: t.statusBad } : { bg: t.statusBad + "15", border: t.statusBad, color: t.statusBad } };
+    if (g.level === "weak") return { text: "△ Weak", ...t.statusWarnBg != null ? { bg: t.statusWarnBg, border: t.statusWarnBorder, color: t.statusWarn } : { bg: t.statusWarn + "15", border: t.statusWarn, color: t.statusWarn } };
+    if (g.level === "gaps") return { text: `○ ${g.untouched} untouched`, color: t.text3, bg: "transparent", border: t.border2 };
+    return { text: "✓ Strong", ...t.statusGoodBg != null ? { bg: t.statusGoodBg, border: t.statusGoodBorder, color: t.statusGood } : { bg: t.statusGood + "15", border: t.statusGood, color: t.statusGood } };
+  };
+
+  if (blockLecs.length === 0) {
+    return <div style={{ textAlign: "center", color: t.text3, padding: 24 }}>No lectures uploaded for this block yet.</div>;
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        {["all", "DLA", "LEC", "SG", "TBL"].map((type) => {
+          const active = typeFilter === type;
+          const style = { fontSize: 12, padding: "4px 10px", borderRadius: 20, cursor: "pointer", boxShadow: "none", fontFamily: MONO, ...typePillStyle(type, active) };
+          return (
+            <button key={type} type="button" onClick={() => setTypeFilter(type)} style={style}>
+              {type === "all" ? "All" : type}
+            </button>
+          );
+        })}
+        <input
+          type="text"
+          placeholder="Search lectures..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{ marginLeft: "auto", width: 180, background: t.inputBg, border: "0.5px solid " + t.border2, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 12, outline: "none" }}
+        />
+      </div>
+
+      {filteredGroups.length === 0 ? (
+        <div style={{ textAlign: "center", color: t.text3, padding: 24 }}>
+          No lectures match your filter.
+          <button type="button" onClick={() => { setTypeFilter("all"); setSearchQuery(""); }} style={{ marginLeft: 8, color: t.statusProgress, background: "none", border: "none", cursor: "pointer", fontFamily: MONO, fontSize: 12, textDecoration: "underline" }}>Clear filters</button>
+        </div>
+      ) : (
+        filteredGroups.map((g) => {
+          const groupKey = `${g.week}__${g.type}`;
+          const isGroupExpanded = searchQuery.trim() ? true : (expandedGroups[groupKey] !== undefined ? expandedGroups[groupKey] : (g.level === "critical" || g.level === "weak"));
+          const statusCfg = statusPillConfig(g);
+          return (
+            <div key={groupKey} style={{ background: t.cardBg, border: "0.5px solid " + t.border2, borderRadius: 12, overflow: "hidden", marginBottom: 8 }}>
+              <div
+                onClick={() => setExpandedGroups((prev) => ({ ...prev, [groupKey]: !isGroupExpanded }))}
+                style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: t.inputBg, cursor: "pointer" }}
+              >
+                <span style={{ fontSize: 10, color: t.text3 }}>{isGroupExpanded ? "▾" : "▸"}</span>
+                <span style={{ fontFamily: MONO, fontSize: 12, padding: "4px 10px", borderRadius: 20, ...typePillStyle(g.type, true) }}>{g.type}</span>
+                <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{g.week === "unscheduled" ? "Unscheduled" : `Week ${g.week}`}</span>
+                <span style={{ fontSize: 11, color: t.text3 }}>{g.entries.length} / {g.total} lectures</span>
+                <span style={{ fontFamily: MONO, fontSize: 11, padding: "3px 8px", borderRadius: 20, background: statusCfg.bg, border: "1px solid " + (statusCfg.border || t.border2), color: statusCfg.color, fontWeight: 700 }}>{statusCfg.text}</span>
+              </div>
+              <div style={{ height: 4, background: t.border2 }}>
+                <div style={{ width: `${(g.tracked / g.total) * 100}%`, height: "100%", background: progressFillColor(g.level), transition: "width 0.3s ease" }} />
+              </div>
+              {isGroupExpanded && (
+                <div>
+                  {g.entries.map(({ lec, entry }) => {
+                    const isTracked = !!entry?.activityLog?.length;
+                    const isExpanded = expandedLecId === lec.id;
+                    const isOpenUntracked = openRow === lec.id;
+                    const form = formByLec[lec.id] || { completedDate: todayISO, ankiInRotation: false, confidenceRating: "okay" };
+                    const reviewFlow = reviewFlowByLec[lec.id] || null;
+                    const activitySummary = getLectureActivitySummary(lec.id, bid);
+                    const confidenceTrend = getConfidenceTrend(entry?.activityLog || [], t);
+                    const confScore = entry?.lastConfidence === "good" ? 3 : entry?.lastConfidence === "okay" ? 2 : entry?.lastConfidence === "struggling" ? 1 : 0;
+                    const confBarColor = entry?.lastConfidence === "good" ? "#639922" : entry?.lastConfidence === "okay" ? "#BA7517" : entry?.lastConfidence === "struggling" ? "#E24B4A" : "transparent";
+                    const trendColor = confidenceTrend.trend === "improving" ? "#639922" : confidenceTrend.trend === "declining" || confidenceTrend.trend === "stuck" ? "#E24B4A" : confidenceTrend.arrow ? "#BA7517" : t.text3;
+                    const dotColor = entry?.lastConfidence === "good" ? "#639922" : entry?.lastConfidence === "okay" ? "#BA7517" : entry?.lastConfidence === "struggling" ? "#E24B4A" : null;
+                    const interactionCount = entry?.activityLog?.length ?? 0;
+                    const title = lec.lectureTitle || lec.title || lec.filename || "";
+                    return (
+                      <React.Fragment key={lec.id}>
+                        <div
+                          onClick={() => {
+                            if (isTracked) setExpandedLecId(isExpanded ? null : lec.id);
+                            else setOpenRow(isOpenUntracked ? null : lec.id);
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "7px 12px",
+                            borderBottom: "0.5px solid " + t.border2,
+                            cursor: "pointer",
+                            transition: "background 0.15s",
+                            background: isExpanded ? t.inputBg : undefined,
+                            borderLeft: isExpanded ? "3px solid #0891b2" : undefined,
+                          }}
+                          onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.background = t.inputBg; }}
+                          onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.background = ""; }}
+                        >
+                          <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3, minWidth: 40, flexShrink: 0 }}>{(lec.lectureType || "LEC").toUpperCase()} {lec.lectureNumber ?? ""}</span>
+                          <span style={{ flex: 1, fontSize: 13, color: t.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{title}</span>
+                          <div style={{ width: 48, height: 5, borderRadius: 3, background: t.border2, flexShrink: 0, overflow: "hidden" }}>
+                            <div style={{ width: `${(confScore / 3) * 100}%`, height: "100%", background: confBarColor, borderRadius: 3 }} />
+                          </div>
+                          <span style={{ flexShrink: 0, fontSize: 13, minWidth: 16, textAlign: "center", color: trendColor }}>{confidenceTrend.arrow ?? "—"}</span>
+                          <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 11, color: t.text3, minWidth: 28, textAlign: "right" }}>{interactionCount}x</span>
+                          <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: dotColor || "transparent", border: dotColor ? "none" : "1px solid " + t.border2 }} />
+                        </div>
+                        {isTracked && isExpanded && (
+                          <div style={{ padding: "12px 12px 16px 52px", borderBottom: "0.5px solid " + t.border2, background: t.cardBg }}>
+                            {(() => {
+                              const badge = confidenceBadge(entry?.confidenceRating ?? entry?.lastConfidence);
+                              const rd = Array.isArray(entry?.reviewDates) ? entry.reviewDates : [];
+                              const lastActKey = entry?.lastActivityDate ? String(entry.lastActivityDate).slice(0, 10) : null;
+                              const dueTodayOrOver = rd.some((d) => d <= todayISO) && lastActKey !== todayISO;
+                              const ankiTotal = entry?.ankiCardCount ?? null;
+                              const ankiOverdue = entry?.ankiCardsOverdue ?? null;
+                              const ankiLine = (() => {
+                                if (!entry?.ankiInRotation) return null;
+                                if (ankiTotal == null && ankiOverdue == null) return null;
+                                const total = ankiTotal ?? 0;
+                                const ovd = ankiOverdue ?? 0;
+                                const ratio = total > 0 ? ovd / total : 0;
+                                const col = ratio > 0.5 ? t.statusBad : ovd > 0 ? t.statusWarn : t.statusGood;
+                                const sym = ratio > 0.5 ? "⚠" : ovd > 0 ? "△" : "✓";
+                                return { text: `🃏 ${total} cards in Anki · ${ovd} overdue`, color: col, sym };
+                              })();
+                              const nextReview = getNextReview(entry);
+                              const edit = editByLec[lec.id] || null;
+                              const reviewFlow = reviewFlowByLec[lec.id] || null;
+                              return (
+                                <>
+                                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+                                    <span style={{ fontFamily: MONO, fontSize: 11, color: t.text2 }}>Completed: <b>{entry.completedDate}</b></span>
+                                    <span style={{ fontFamily: MONO, fontSize: 11, color: t.text2 }}>Anki: {entry.ankiInRotation ? "✓ in rotation" : "○ not in rotation"}</span>
+                                    {entry.ankiInRotation && ankiLine && (
+                                      <span style={{ fontFamily: MONO, fontSize: 11, color: ankiLine.color, fontWeight: 900 }}>🃏 {ankiOverdue != null ? `${ankiOverdue} overdue` : "in Anki"}</span>
+                                    )}
+                                    <span style={{ fontFamily: MONO, fontSize: 11, color: badge.color, fontWeight: 900 }}>{badge.label}</span>
+                                    {nextReview && (
+                                      <span style={{ fontFamily: MONO, fontSize: 11, color: dueTodayOrOver ? t.statusWarn : t.text2, fontWeight: dueTodayOrOver ? 900 : 600 }}>
+                                        {dueTodayOrOver ? "△" : "🔁"} Next: {new Date(nextReview + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {entry.ankiInRotation && (
+                                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                                      <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>🃏 Anki cards:</span>
+                                      <input type="number" min="0" placeholder="0" value={ankiCountsByLec[lec.id]?.cardCount ?? ankiTotal ?? ""} onChange={(e) => setAnkiCountsByLec((p) => ({ ...(p || {}), [lec.id]: { ...(p?.[lec.id] || {}), cardCount: e.target.value } }))} style={{ width: 90, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                      <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>Overdue cards:</span>
+                                      <input type="number" min="0" placeholder="0" value={ankiCountsByLec[lec.id]?.overdueCount ?? ankiOverdue ?? ""} onChange={(e) => setAnkiCountsByLec((p) => ({ ...(p || {}), [lec.id]: { ...(p?.[lec.id] || {}), overdueCount: e.target.value } }))} style={{ width: 90, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                      <button type="button" onClick={() => { const ccRaw = ankiCountsByLec[lec.id]?.cardCount; const ocRaw = ankiCountsByLec[lec.id]?.overdueCount; const cc = ccRaw === "" || ccRaw == null ? null : parseInt(String(ccRaw), 10); const oc = ocRaw === "" || ocRaw == null ? null : parseInt(String(ocRaw), 10); updateAnkiCounts(lec.id, bid, Number.isNaN(cc) ? null : cc, Number.isNaN(oc) ? null : oc); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusProgress, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Save</button>
+                                    </div>
+                                  )}
+                                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                                    {rd.map((d) => { const st = dueStateForDate(entry, d); const isDone = st === "done"; const isDue = st === "due"; const border = isDone ? t.statusGood : isDue ? t.statusWarn : (t.statusNeutral || t.border1); const bg = isDone ? t.statusGood : isDue ? t.statusWarn : "transparent"; return <div key={d} title={d} style={{ width: 10, height: 10, borderRadius: 999, border: "1.5px solid " + border, background: bg }} />; })}
+                                  </div>
+                                  {Array.isArray(entry?.activityLog) && entry.activityLog.length > 0 && (
+                                    <div style={{ marginBottom: 10 }}>
+                                      <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 6 }}>Activity log</div>
+                                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                        {entry.activityLog.map((act, ai) => {
+                                          const iconMap = {
+                                            deep_learn: "🧠",
+                                            review: "📖",
+                                            anki: "🃏",
+                                            questions: "❓",
+                                            notes: "📝",
+                                            sg_tbl: "👥",
+                                            manual: "✏️",
+                                          };
+                                          const ic = iconMap[act?.activityType] || "✏️";
+                                          const dateStr = String(act?.date || "").slice(0, 10);
+                                          const badge = confidenceBadge(act?.confidenceRating);
+                                          const showQ =
+                                            act?.activityType === "questions" &&
+                                            act.questionCount != null &&
+                                            Number(act.questionCount) > 0;
+                                          const pct = showQ
+                                            ? act.questionScore != null
+                                              ? act.questionScore
+                                              : Math.round(((act.correctCount ?? 0) / Number(act.questionCount)) * 100)
+                                            : null;
+                                          const chipStyle = pct != null ? questionSessionScoreChipStyle(pct) : null;
+                                          return (
+                                            <div
+                                              key={act?.id || `${dateStr}-${ai}`}
+                                              style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 8,
+                                                flexWrap: "wrap",
+                                              }}
+                                            >
+                                              <span style={{ fontSize: 14 }}>{ic}</span>
+                                              <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>{dateStr}</span>
+                                              {showQ && chipStyle != null && (
+                                                <span
+                                                  style={{
+                                                    fontFamily: MONO,
+                                                    fontSize: 11,
+                                                    padding: "2px 7px",
+                                                    borderRadius: 20,
+                                                    background: chipStyle.bg,
+                                                    color: chipStyle.color,
+                                                  }}
+                                                >
+                                                  {act.correctCount ?? 0}/{act.questionCount} · {pct}%
+                                                </span>
+                                              )}
+                                              <span style={{ fontFamily: MONO, fontSize: 11, color: badge.color, fontWeight: 800 }}>
+                                                {badge.label}
+                                              </span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                  {!reviewFlow && (
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      <button type="button" onClick={() => setReviewFlowByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, confidenceRating: "okay", date: todayISO } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusProgress, color: "#fff", cursor: "pointer", fontWeight: 900 }}>🔁 Log Review</button>
+                                      <button type="button" onClick={() => setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, date: todayISO, activityType: "review", confidenceRating: "okay", durationMinutes: "", note: "" } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, cursor: "pointer", fontWeight: 900 }}>＋ Log Activity</button>
+                                      <button type="button" onClick={() => setEditByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, completedDate: entry.completedDate, ankiInRotation: !!entry.ankiInRotation } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, cursor: "pointer", fontWeight: 800 }}>✎ Edit</button>
+                                    </div>
+                                  )}
+                                  {activityFlowByLec?.[lec.id]?.open && (
+                                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + t.border2 }}>
+                                      {(() => {
+                                        const flow = activityFlowByLec[lec.id];
+                                        const setFlow = (patch) => setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: { ...flow, ...patch } }));
+                                        const selectedDate = flow?.date || todayISO;
+                                        return (
+                                          <>
+                                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                                              <span style={{ fontFamily: MONO, fontSize: 11, color: t.statusNeutral || t.text4 }}>Date completed</span>
+                                              <input type="date" value={selectedDate} max={todayISO} onChange={(e) => setFlow({ date: e.target.value })} style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                            </div>
+                                            <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 8 }}>Activity type</div>
+                                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                                              {[{ v: "review", label: "📖 Review" }, { v: "anki", label: "🃏 Anki" }, { v: "questions", label: "❓ Questions" }, { v: "notes", label: "📝 Notes" }, { v: "sg_tbl", label: "👥 SG/TBL" }, { v: "manual", label: "✏️ Other" }].map((opt) => {
+                                                const active = flow.activityType === opt.v;
+                                                return <button key={opt.v} type="button" onClick={() => setFlow({ activityType: opt.v })} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 999, border: "1px solid " + (active ? t.statusProgress : t.border1), background: active ? (t.statusProgressBg || (t.statusProgress + "18")) : t.cardBg, color: active ? t.statusProgress : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
+                                              })}
+                                            </div>
+                                            <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 8 }}>How did it go?</div>
+                                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                                              {[{ v: "good", label: "✓ Good", color: t.statusGood }, { v: "okay", label: "△ Okay", color: t.statusWarn }, { v: "struggling", label: "⚠ Struggling", color: t.statusBad }].map((opt) => {
+                                                const active = flow.confidenceRating === opt.v;
+                                                return <button key={opt.v} type="button" onClick={() => setFlow({ confidenceRating: opt.v })} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + (active ? opt.color : t.border1), background: active ? opt.color + "18" : t.cardBg, color: active ? opt.color : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
+                                              })}
+                                            </div>
+                                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                                              <input value={flow.durationMinutes ?? ""} onChange={(e) => setFlow({ durationMinutes: e.target.value })} placeholder="Duration (min)" style={{ width: 140, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                              {flow.activityType === "anki" && <input value={flow.ankiOverdueCount ?? ""} onChange={(e) => setFlow({ ankiOverdueCount: e.target.value })} placeholder="Update overdue? (cards)" style={{ width: 190, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />}
+                                              <input value={flow.note ?? ""} onChange={(e) => setFlow({ note: e.target.value })} placeholder="Note (optional)" style={{ flex: 1, minWidth: 200, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                            </div>
+                                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                              <button type="button" onClick={() => { const dur = flow.durationMinutes != null && String(flow.durationMinutes).trim() !== "" ? parseInt(String(flow.durationMinutes), 10) : null; logActivity(lec.id, bid, flow.activityType, flow.confidenceRating, { durationMinutes: Number.isNaN(dur) ? null : dur, note: flow.note ? String(flow.note).trim() : null, date: selectedDate, examDate: examDateForBlock }); if (flow.activityType === "anki" && String(flow.ankiOverdueCount || "").trim() !== "") { const oc = parseInt(String(flow.ankiOverdueCount), 10); if (!Number.isNaN(oc)) updateAnkiCounts(lec.id, bid, null, oc); } setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: null })); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Save ✓</button>
+                                              <button type="button" onClick={() => setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: null }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text3, cursor: "pointer" }}>Cancel</button>
+                                            </div>
+                                          </>
+                                        );
+                                      })()}
+                                    </div>
+                                  )}
+                                  {reviewFlow?.open && (
+                                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + t.border2 }}>
+                                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                                        <span style={{ fontFamily: MONO, fontSize: 11, color: t.statusNeutral || t.text4 }}>Date completed</span>
+                                        <input type="date" value={reviewFlow.date || todayISO} max={todayISO} onChange={(e) => setReviewFlowByLec((p) => ({ ...(p || {}), [lec.id]: { ...reviewFlow, date: e.target.value } }))} style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                      </div>
+                                      <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 8 }}>How did it go?</div>
+                                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                        {[{ v: "good", label: "✓ Good", color: t.statusGood }, { v: "okay", label: "△ Okay", color: t.statusWarn }, { v: "struggling", label: "⚠ Struggling", color: t.statusBad }].map((opt) => {
+                                          const active = reviewFlow.confidenceRating === opt.v;
+                                          return <button key={opt.v} type="button" onClick={() => setReviewFlowByLec((p) => ({ ...(p || {}), [lec.id]: { ...reviewFlow, confidenceRating: opt.v } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + (active ? opt.color : t.border1), background: active ? opt.color + "18" : t.cardBg, color: active ? opt.color : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
+                                        })}
+                                        <button type="button" onClick={() => { logReview(lec.id, bid, reviewFlow.date || todayISO, reviewFlow.confidenceRating, examDateForBlock); setReviewFlowByLec((p) => ({ ...(p || {}), [lec.id]: null })); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Confirm ✓</button>
+                                        <button type="button" onClick={() => setReviewFlowByLec((p) => ({ ...(p || {}), [lec.id]: null }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text3, cursor: "pointer" }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                  {edit?.open && (
+                                    <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + t.border2 }}>
+                                      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                          <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>Completed:</span>
+                                          <input type="date" value={edit.completedDate} onChange={(e) => setEditByLec((p) => ({ ...(p || {}), [lec.id]: { ...edit, completedDate: e.target.value } }))} style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                                        </div>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                          <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>Anki?</span>
+                                          <button type="button" onClick={() => setEditByLec((p) => ({ ...(p || {}), [lec.id]: { ...edit, ankiInRotation: !edit.ankiInRotation } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: edit.ankiInRotation ? t.statusGoodBg : t.cardBg, color: edit.ankiInRotation ? t.statusGood : t.text2, cursor: "pointer" }}>{edit.ankiInRotation ? "✓ Yes" : "○ No"}</button>
+                                        </div>
+                                        <div style={{ flex: 1 }} />
+                                        <button type="button" onClick={() => { setCompletion((prev) => { const k = completionKey(lec.id, bid); const ex = (prev || {})[k]; if (!ex) return prev; const rd2 = computeReviewDates(edit.completedDate, ex.confidenceRating, examDateForBlock || null).map((d) => d.toISOString().slice(0, 10)); return { ...(prev || {}), [k]: { ...ex, completedDate: edit.completedDate, ankiInRotation: !!edit.ankiInRotation, reviewDates: rd2 } }; }); setEditByLec((p) => ({ ...(p || {}), [lec.id]: null })); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Save ✓</button>
+                                        <button type="button" onClick={() => setEditByLec((p) => ({ ...(p || {}), [lec.id]: null }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text3, cursor: "pointer" }}>Cancel</button>
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </div>
+                        )}
+                        {!isTracked && isOpenUntracked && (
+                          <div style={{ padding: "10px 12px 52px", borderBottom: "0.5px solid " + t.border2, background: t.inputBg }}>
+                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>Completed:</span>
+                                <input type="date" value={form.completedDate} onChange={(e) => setFormByLec((p) => ({ ...(p || {}), [lec.id]: { ...form, completedDate: e.target.value } }))} style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>Anki?</span>
+                                <button type="button" onClick={() => setFormByLec((p) => ({ ...(p || {}), [lec.id]: { ...form, ankiInRotation: !form.ankiInRotation } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: form.ankiInRotation ? t.statusGoodBg : t.cardBg, color: form.ankiInRotation ? t.statusGood : t.text2, cursor: "pointer" }}>{form.ankiInRotation ? "✓ Yes" : "○ No"}</button>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>How did it go?</span>
+                                {[{ v: "good", label: "✓ Good", color: t.statusGood }, { v: "okay", label: "△ Okay", color: t.statusWarn }, { v: "struggling", label: "⚠ Struggling", color: t.statusBad }].map((opt) => {
+                                  const active = form.confidenceRating === opt.v;
+                                  return (
+                                    <button key={opt.v} type="button" onClick={() => setFormByLec((p) => ({ ...(p || {}), [lec.id]: { ...form, confidenceRating: opt.v } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + (active ? opt.color : t.border1), background: active ? opt.color + "18" : t.cardBg, color: active ? opt.color : t.text2, cursor: "pointer", fontWeight: 800 }}>{opt.label}</button>
+                                  );
+                                })}
+                              </div>
+                              <div style={{ flex: 1 }} />
+                              <button type="button" onClick={() => { markLectureComplete(lec.id, bid, form.completedDate, form.confidenceRating, form.ankiInRotation, examDateForBlock); setOpenRow(null); }} style={{ fontFamily: MONO, fontSize: 11, padding: "7px 12px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Confirm ✓</button>
+                            </div>
+                          </div>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })
+      )}
+    </div>
+  );
+}
+
+// Calendar tab content — extracted so hooks run only when tab is active
+function CalendarTabContent({
+  blockId: bid,
+  examDate,
+  examDateInputOnChange, // must be the exact handler passed from Tracker
+  completion,
+  lecs,
+  getPressureZone,
+  logActivity,
+  setRefreshKey,
+  theme: t,
+  MONO,
+}) {
+  const loadAllLecs = () => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("rxt-lecs") || "[]");
+      if (Array.isArray(raw) && raw.length) return raw;
+    } catch {}
+    return lecs || [];
+  };
+
+  const allLecs = loadAllLecs();
+  const blockLecs = (allLecs || []).filter((l) => l && l.blockId === bid);
+  const completions = completion || {};
+
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const t0 = new Date();
+    t0.setHours(0, 0, 0, 0);
+    return t0;
+  });
+  const [calendarAnchor, setCalendarAnchor] = useState(() => {
+    const t0 = new Date();
+    t0.setHours(0, 0, 0, 0);
+    t0.setDate(1);
+    return t0;
+  });
+
+  function buildActivityIndex(completionsIn, blockId) {
+    const index = {};
+    Object.values(completionsIn || {})
+      .filter((e) => e && e.blockId === blockId)
+      .forEach((e) => {
+        if (!e.activityLog) return;
+        e.activityLog.forEach((a) => {
+          const day = String(a.date || "").split("T")[0];
+          if (!day) return;
+          if (!index[day]) index[day] = [];
+          index[day].push({
+            ...a,
+            lectureId: e.lectureId,
+            lecTitle: (allLecs.find((l) => l.id === e.lectureId)?.title || allLecs.find((l) => l.id === e.lectureId)?.lectureTitle) || "Unknown lecture",
+          });
+        });
+      });
+    return index;
+  }
+
+  function buildReviewIndex(completionsIn, blockId) {
+    const index = {};
+    Object.values(completionsIn || {})
+      .filter((e) => e && e.blockId === blockId)
+      .forEach((e) => {
+        if (!e.reviewDates) return;
+        e.reviewDates.forEach((d) => {
+          const day = String(d || "").split("T")[0];
+          if (!day) return;
+          if (!index[day]) index[day] = [];
+          index[day].push({
+            lectureId: e.lectureId,
+            lecTitle: (allLecs.find((l) => l.id === e.lectureId)?.title || allLecs.find((l) => l.id === e.lectureId)?.lectureTitle) || "Unknown",
+            lastConfidence: e.lastConfidence,
+          });
+        });
+      });
+    return index;
+  }
+
+  const activityIndex = buildActivityIndex(completions, bid);
+  const reviewIndex = buildReviewIndex(completions, bid);
+
+  function getDayHeat(dateStr, activityIndexIn, reviewIndexIn) {
+    const acts = activityIndexIn[dateStr] || [];
+    const reviews = reviewIndexIn[dateStr] || [];
+    const hasStruggling = acts.some((a) => a.confidenceRating === "struggling");
+    const hasOverdue = (() => {
+      const d = new Date(dateStr);
+      d.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return reviews.length > 0 && d < today && !acts.length;
+    })();
+    if (hasStruggling) return "struggling";
+    if (hasOverdue) return "overdue";
+    if (acts.length >= 4) return "high";
+    if (acts.length >= 2) return "medium";
+    if (acts.length === 1) return "low";
+    if (reviews.length > 0) return "scheduled";
+    return "empty";
+  }
+
+  const iso = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    return x.toISOString().slice(0, 10);
+  };
+
+  const today = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+  const todayStr0 = iso(today);
+  const selectedDateStr = iso(selectedDate);
+  const examDateStr = examDate ? String(examDate).slice(0, 10) : "";
+
+  const pressure = examDate ? getPressureZone(examDate) : null;
+  const countdown = (() => {
+    if (!examDate) return null;
+    const ex = new Date(examDateStr);
+    ex.setHours(0, 0, 0, 0);
+    const days = Math.ceil((ex - today) / (1000 * 60 * 60 * 24));
+    if (days < 0) return { label: "Exam passed", color: t.text3, isPast: true };
+    const zone = pressure?.zone || "normal";
+    const color =
+      zone === "critical" ? t.statusBad
+      : zone === "crunch" ? t.statusWarn
+      : zone === "build" ? t.statusProgress
+      : zone === "exam" ? t.text3
+      : t.statusGood;
+    return { label: `${days} days`, color, isPast: false };
+  })();
+
+  const monthLabel = calendarAnchor.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const isAnchorCurrentMonth = calendarAnchor.getFullYear() === today.getFullYear() && calendarAnchor.getMonth() === today.getMonth();
+
+  const gridDays = useMemo(() => {
+    const firstOfMonth = new Date(calendarAnchor);
+    firstOfMonth.setHours(0, 0, 0, 0);
+    firstOfMonth.setDate(1);
+    const start = new Date(firstOfMonth);
+    start.setDate(start.getDate() - start.getDay()); // back to Sunday
+
+    const lastOfMonth = new Date(firstOfMonth);
+    lastOfMonth.setMonth(lastOfMonth.getMonth() + 1);
+    lastOfMonth.setDate(0); // last day of month
+    lastOfMonth.setHours(0, 0, 0, 0);
+    const end = new Date(lastOfMonth);
+    end.setDate(end.getDate() + (6 - end.getDay())); // forward to Saturday
+
+    const days = [];
+    const cur = new Date(start);
+    while (cur <= end) {
+      days.push(new Date(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+    return days;
+  }, [calendarAnchor]);
+
+  const heatColor = (heat) => {
+    if (heat === "scheduled") return "#D3D1C7";
+    if (heat === "low") return "#C0DD97";
+    if (heat === "medium") return "#639922";
+    if (heat === "high") return "#3B6D11";
+    if (heat === "overdue") return "#EF9F27";
+    if (heat === "struggling") return "#E24B4A";
+    return t.border2;
+  };
+
+  const confPill = (conf) => {
+    const c = String(conf || "okay");
+    const map = {
+      good: { label: "✓ Good", color: t.statusGood, bg: t.statusGoodBg, border: t.statusGoodBorder },
+      okay: { label: "△ Okay", color: t.statusWarn, bg: t.statusWarnBg, border: t.statusWarnBorder },
+      struggling: { label: "⚠ Struggling", color: t.statusBad, bg: t.statusBadBg, border: t.statusBadBorder },
+    };
+    const cfg = map[c] || map.okay;
+    return (
+      <span style={{ fontFamily: MONO, fontSize: 11, padding: "3px 9px", borderRadius: 999, background: cfg.bg, border: "1px solid " + cfg.border, color: cfg.color, fontWeight: 800 }}>
+        {cfg.label}
+      </span>
+    );
+  };
+
+  const actIcon = (activityType) => {
+    const t0 = String(activityType || "");
+    const map = { deep_learn: "🧠", review: "📖", anki: "🃏", questions: "❓", notes: "📝", sg_tbl: "👥", manual: "✏️" };
+    return map[t0] || "✏️";
+  };
+
+  // Quick log (calendar-local; does not touch Today tab state)
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickLectureId, setQuickLectureId] = useState("");
+  const [quickDraft, setQuickDraft] = useState(() => ({ activityType: "review", confidenceRating: "okay", durationMinutes: "", note: "" }));
+
+  const sortedBlockLecs = useMemo(() => {
+    const toNum = (x) => {
+      const n = parseInt(String(x ?? "").replace(/\D/g, ""), 10);
+      return Number.isNaN(n) ? 0 : n;
+    };
+    return [...(blockLecs || [])].sort((a, b) => {
+      const ta = String(a.lectureType || "LEC");
+      const tb = String(b.lectureType || "LEC");
+      if (ta !== tb) return ta.localeCompare(tb);
+      return toNum(a.lectureNumber) - toNum(b.lectureNumber);
+    });
+  }, [bid, blockLecs.length]);
+
+  const selectedActs = activityIndex[selectedDateStr] || [];
+  const selectedReviews = reviewIndex[selectedDateStr] || [];
+
+  const missedForLecture = (lectureId) => {
+    const d = new Date(selectedDateStr);
+    d.setHours(0, 0, 0, 0);
+    if (d >= today) return false;
+    return !selectedActs.some((a) => a.lectureId === lectureId);
+  };
+
+  return (
+    <div style={{ padding: "0 16px 0", marginBottom: 28 }}>
+      {/* Exam date row */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, color: t.text2 }}>Exam date</span>
+        <input
+          type="date"
+          value={examDate}
+          min={new Date().toISOString().slice(0, 10)}
+          onChange={examDateInputOnChange}
+          style={{ background: t.inputBg, border: "1px solid " + t.border1, borderRadius: 7, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 12 }}
+        />
+        <div style={{ flex: 1 }} />
+        {examDate && countdown && (
+          countdown.isPast ? (
+            <span style={{ fontFamily: MONO, fontSize: 12, color: t.text3 }}>Exam passed</span>
+          ) : (
+            <span style={{ fontFamily: MONO, fontSize: 12, padding: "6px 10px", borderRadius: 999, border: "1px solid " + (countdown.color + "40"), background: countdown.color + "15", color: countdown.color, fontWeight: 900 }}>
+              {countdown.label}
+            </span>
+          )
+        )}
+      </div>
+
+      {/* Month navigation row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 10 }}>
+        <button type="button" onClick={() => setCalendarAnchor((prev) => { const d = new Date(prev); d.setMonth(d.getMonth() - 1); return d; })} style={{ fontFamily: MONO, fontSize: 12, padding: "4px 8px", border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, borderRadius: 8, cursor: "pointer" }}>◀</button>
+        <div style={{ fontSize: 14, fontWeight: 500, color: t.text1 }}>{monthLabel}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button type="button" onClick={() => setCalendarAnchor((prev) => { const d = new Date(prev); d.setMonth(d.getMonth() + 1); return d; })} style={{ fontFamily: MONO, fontSize: 12, padding: "4px 8px", border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, borderRadius: 8, cursor: "pointer" }}>▶</button>
+          {!isAnchorCurrentMonth && (
+            <button type="button" onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); const a = new Date(d); a.setDate(1); setCalendarAnchor(a); setSelectedDate(d); }} style={{ fontFamily: MONO, fontSize: 12, padding: "4px 10px", border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, borderRadius: 8, cursor: "pointer" }}>Today</button>
+          )}
+        </div>
+      </div>
+
+      {/* Calendar grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 3 }}>
+        {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+          <div key={d} style={{ fontSize: 10, color: t.text3, textAlign: "center", paddingBottom: 4, fontWeight: 500 }}>{d}</div>
+        ))}
+        {gridDays.map((d) => {
+          const dateStr = iso(d);
+          const inMonth = d.getMonth() === calendarAnchor.getMonth() && d.getFullYear() === calendarAnchor.getFullYear();
+          const isSelected = dateStr === selectedDateStr;
+          const isToday = dateStr === todayStr0;
+          const heat = getDayHeat(dateStr, activityIndex, reviewIndex);
+          const hasReviews = (reviewIndex[dateStr] || []).length > 0;
+          return (
+            <div
+              key={dateStr}
+              onClick={() => setSelectedDate(d)}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                padding: "4px 2px",
+                borderRadius: 4,
+                cursor: "pointer",
+                minHeight: 44,
+                transition: "background 0.1s",
+                background: isSelected ? (t.statusProgressBg || (t.statusProgress + "15")) : "transparent",
+                opacity: inMonth ? 1 : 0.35,
+              }}
+              onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = t.inputBg; }}
+              onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+            >
+              <div style={{ fontSize: 11, marginBottom: 2, fontWeight: isToday && !isSelected ? 500 : 400, color: isSelected ? t.statusProgress : t.text1 }}>
+                {d.getDate()}
+              </div>
+              {isToday && !isSelected && <div style={{ width: 6, height: 2, borderRadius: 2, background: t.text1, marginTop: -2, marginBottom: 2 }} />}
+              <div style={{ width: "100%", height: 16, borderRadius: 3, background: heat === "empty" ? (t.border2 + "80") : heatColor(heat) }} />
+              {hasReviews && (
+                <div title={`${(reviewIndex[dateStr] || []).length} review(s) scheduled`} style={{ width: 3, height: 3, borderRadius: 999, background: "#185FA5", marginTop: 2 }} />
+              )}
+              {examDateStr && dateStr === examDateStr && (
+                <div style={{ marginTop: 2, fontSize: 8, color: "#E24B4A", fontFamily: MONO, fontWeight: 900 }}>EXAM</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Heat legend */}
+      <div style={{ marginTop: 6, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
+        {[
+          { key: "empty", color: t.border2, label: "No activity" },
+          { key: "scheduled", color: "#D3D1C7", label: "Review planned" },
+          { key: "low", color: "#C0DD97", label: "1 session" },
+          { key: "medium", color: "#639922", label: "2–3 sessions" },
+          { key: "high", color: "#3B6D11", label: "4+ sessions" },
+          { key: "overdue", color: "#EF9F27", label: "Missed review" },
+          { key: "struggling", color: "#E24B4A", label: "Struggled" },
+        ].map((it) => (
+          <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: it.color }} />
+            <div style={{ fontSize: 10, color: t.text3 }}>{it.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Selected day detail panel */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", alignItems: "center" }}>
+          <div style={{ fontSize: 14, fontWeight: 500, color: t.text1 }}>
+            {selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+          </div>
+          <div style={{ flex: 1 }} />
+          {selectedDateStr === todayStr0 && (
+            <span style={{ fontFamily: MONO, fontSize: 11, padding: "3px 9px", borderRadius: 999, background: t.statusProgressBg, border: "1px solid " + t.statusProgressBorder, color: t.statusProgress, fontWeight: 900 }}>
+              Today
+            </span>
+          )}
+        </div>
+        <div style={{ borderTop: "0.5px solid " + t.border2, marginTop: 10 }} />
+
+        {selectedActs.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 11, color: t.text3, textTransform: "uppercase", marginBottom: 6, letterSpacing: "0.06em" }}>Logged</div>
+            {selectedActs.map((a, i) => {
+              const showQ =
+                a.activityType === "questions" &&
+                a.questionCount != null &&
+                Number(a.questionCount) > 0;
+              const pct = showQ
+                ? a.questionScore != null
+                  ? a.questionScore
+                  : Math.round(((a.correctCount ?? 0) / Number(a.questionCount)) * 100)
+                : null;
+              const chipStyle = pct != null ? questionSessionScoreChipStyle(pct) : null;
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i === selectedActs.length - 1 ? "none" : "0.5px solid " + t.border2 }}>
+                  <span style={{ fontSize: 14 }}>{actIcon(a.activityType)}</span>
+                  <div style={{ fontSize: 13, color: t.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.lecTitle}</div>
+                  {showQ && chipStyle != null && (
+                    <span
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: 11,
+                        padding: "2px 7px",
+                        borderRadius: 20,
+                        background: chipStyle.bg,
+                        color: chipStyle.color,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {a.correctCount ?? 0}/{a.questionCount} · {pct}%
+                    </span>
+                  )}
+                  {confPill(a.confidenceRating)}
+                  {a.durationMinutes != null && String(a.durationMinutes).trim() !== "" && (
+                    <div style={{ fontSize: 11, color: t.text3, fontFamily: MONO }}>{a.durationMinutes}m</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedReviews.length > 0 && (
+          <div style={{ marginTop: selectedActs.length > 0 ? 12 : 12 }}>
+            <div style={{ fontSize: 11, color: t.text3, textTransform: "uppercase", marginBottom: 6, letterSpacing: "0.06em" }}>Reviews scheduled</div>
+            {selectedReviews.map((r, i) => {
+              const missed = missedForLecture(r.lectureId);
+              return (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i === selectedReviews.length - 1 ? "none" : "0.5px solid " + t.border2 }}>
+                  <div style={{ width: 6, height: 6, borderRadius: 999, background: "#185FA5" }} />
+                  <div style={{ fontSize: 13, color: t.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lecTitle}</div>
+                  {missed ? (
+                    <span style={{ fontFamily: MONO, fontSize: 11, color: t.statusBad, fontWeight: 900 }}>⚠ Missed</span>
+                  ) : r.lastConfidence ? (
+                    confPill(r.lastConfidence)
+                  ) : (
+                    <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>○ First review</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedActs.length === 0 && selectedReviews.length === 0 && (
+          <div style={{ marginTop: 12, color: t.text3, fontSize: 13 }}>
+            {new Date(selectedDateStr) > today ? "Future date — nothing scheduled yet." : "Nothing logged on this day."}
+          </div>
+        )}
+
+        {/* Quick log from calendar */}
+        {new Date(selectedDateStr) <= today && (
+          <div style={{ marginTop: 16 }}>
+            {!quickOpen ? (
+              <button type="button" onClick={() => setQuickOpen(true)} style={{ fontFamily: MONO, fontSize: 12, padding: "7px 10px", borderRadius: 10, border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, cursor: "pointer", fontWeight: 800 }}>
+                ＋ Log activity for this day
+              </button>
+            ) : (
+              <div style={{ marginTop: 10, padding: 10, border: "1px solid " + t.border2, borderRadius: 12, background: t.inputBg }}>
+                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                  <select value={quickLectureId} onChange={(e) => setQuickLectureId(e.target.value)} style={{ minWidth: 220, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }}>
+                    <option value="">Select a lecture...</option>
+                    {sortedBlockLecs.map((lec) => (
+                      <option key={lec.id} value={lec.id}>
+                        {(lec.lectureType || "LEC") + " " + (lec.lectureNumber ?? "") + " — " + (lec.lectureTitle || lec.title || lec.filename || "")}
+                      </option>
+                    ))}
+                  </select>
+                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>Date: {selectedDateStr}</div>
+                  <div style={{ flex: 1 }} />
+                  <button type="button" onClick={() => { setQuickOpen(false); setQuickLectureId(""); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text3, cursor: "pointer" }}>
+                    Cancel
+                  </button>
+                </div>
+
+                {quickLectureId && (
+                  <>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                      {[{ v: "review", label: "📖 Review" }, { v: "anki", label: "🃏 Anki" }, { v: "questions", label: "❓ Questions" }, { v: "notes", label: "📝 Notes" }, { v: "sg_tbl", label: "👥 SG/TBL" }, { v: "manual", label: "✏️ Other" }].map((opt) => {
+                        const active = quickDraft.activityType === opt.v;
+                        return (
+                          <button key={opt.v} type="button" onClick={() => setQuickDraft((p) => ({ ...p, activityType: opt.v }))} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 999, border: "1px solid " + (active ? t.statusProgress : t.border1), background: active ? (t.statusProgressBg || (t.statusProgress + "18")) : t.cardBg, color: active ? t.statusProgress : t.text2, cursor: "pointer", fontWeight: 900 }}>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                      {[{ v: "good", label: "✓ Good", color: t.statusGood }, { v: "okay", label: "△ Okay", color: t.statusWarn }, { v: "struggling", label: "⚠ Struggling", color: t.statusBad }].map((opt) => {
+                        const active = quickDraft.confidenceRating === opt.v;
+                        return (
+                          <button key={opt.v} type="button" onClick={() => setQuickDraft((p) => ({ ...p, confidenceRating: opt.v }))} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + (active ? opt.color : t.border1), background: active ? opt.color + "18" : t.cardBg, color: active ? opt.color : t.text2, cursor: "pointer", fontWeight: 900 }}>
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                      <input value={quickDraft.durationMinutes} onChange={(e) => setQuickDraft((p) => ({ ...p, durationMinutes: e.target.value }))} placeholder="Duration (min)" style={{ width: 140, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                      <input value={quickDraft.note} onChange={(e) => setQuickDraft((p) => ({ ...p, note: e.target.value }))} placeholder="Note (optional)" style={{ flex: 1, minWidth: 200, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                      <div style={{ flex: 1 }} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const dur = quickDraft.durationMinutes != null && String(quickDraft.durationMinutes).trim() !== ""
+                            ? parseInt(String(quickDraft.durationMinutes), 10)
+                            : null;
+                          logActivity(quickLectureId, bid, quickDraft.activityType, quickDraft.confidenceRating, {
+                            durationMinutes: Number.isNaN(dur) ? null : dur,
+                            note: quickDraft.note ? String(quickDraft.note).trim() : null,
+                            date: selectedDateStr,
+                            examDate,
+                          });
+                          setRefreshKey && setRefreshKey((k) => (k || 0) + 1);
+                          setQuickDraft({ activityType: "review", confidenceRating: "okay", durationMinutes: "", note: "" });
+                          setQuickLectureId("");
+                          setQuickOpen(false);
+                        }}
+                        style={{ fontFamily: MONO, fontSize: 11, padding: "7px 12px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}
+                      >
+                        Save ✓
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Tracker({
   blocks = {},
   lecs = [],
@@ -617,15 +2936,30 @@ export default function Tracker({
   onRealignObjectives,
   trackerRows: trackerRowsProp,
   setTrackerRows: setTrackerRowsProp,
+  weakConceptsTabContent = null,
+  weakConceptsBadgeCount = 0,
 }) {
   const [internalRows, setInternalRows] = useState([]);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("tracker");
   const [filter, setFilter] = useState("All");
+  const [trackerBlockId, setTrackerBlockId] = useState(() => {
+    try {
+      if (activeBlock?.id) return activeBlock.id;
+      const storedBlocks = JSON.parse(localStorage.getItem("rxt-blocks") || "[]");
+      const active = (storedBlocks || []).find((b) => b?.status === "inprogress") || storedBlocks?.[0];
+      return active?.id || null;
+    } catch {
+      return activeBlock?.id || null;
+    }
+  });
   const [showFullSchedule, setShowFullSchedule] = useState(false);
   const [urgFilter, setUrgFilter] = useState("All");
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("block");
+  const [todayFilter, setTodayFilter] = useState("all");
+  const [todaySort, setTodaySort] = useState("urgency");
+  const [todaySearch, setTodaySearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [expanded, setExpanded] = useState({});
@@ -641,6 +2975,85 @@ export default function Tracker({
     return { [t]: true };
   });
   const [collapsedScheduleTasks, setCollapsedScheduleTasks] = useState(() => new Set());
+  const [overdueOpen, setOverdueOpen] = useState(() => ({}));
+  const [snoozedToday, setSnoozedToday] = useState(() => ({})); // key -> YYYY-MM-DD
+  const [weakAreaFilter, setWeakAreaFilter] = useState(() => null); // { week, type } | null
+  const [weakAreaSummaryOpen, setWeakAreaSummaryOpen] = useState(false); // collapsed by default
+  const [weakAreaShowStrong, setWeakAreaShowStrong] = useState(false);
+  const [sweepMode, setSweepMode] = useState(false);
+  const sweepModeEnteredDateRef = useRef(null);
+  const [quickLogState, setQuickLogState] = useState(() => ({})); // { [lecId]: { open: boolean, submitting: boolean } }
+  const [flashTaskId, setFlashTaskId] = useState(null); // { lecId, color } | null
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [quickLogNoteOpen, setQuickLogNoteOpen] = useState(() => ({})); // { [lecId]: boolean }
+  const [quickLogDraft, setQuickLogDraft] = useState(() => ({})); // { [lecId]: { activityType, confidenceRating, note } }
+  const [quickLogOpenId, setQuickLogOpenId] = useState(null); // Today tab only (single open at a time)
+  /** `${lectureId}__${blockId}` — optional wrong-questions-only panel on done cards */
+  const [quickLogWrongOnlyKey, setQuickLogWrongOnlyKey] = useState(null);
+  /** Brief flash under ✓ Done after logging weak concepts */
+  const [weakConceptFlash, setWeakConceptFlash] = useState(null); // { key: string, count: number } | null
+  const [hasSeenClickHint, setHasSeenClickHint] = useState(() => {
+    try {
+      return localStorage.getItem("rxt-click-hint-seen") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const markTodayClickHintSeen = useCallback(() => {
+    setHasSeenClickHint(true);
+    try {
+      localStorage.setItem("rxt-click-hint-seen", "1");
+    } catch {}
+  }, []);
+  useEffect(() => {
+    if (!weakConceptFlash) return;
+    const t = setTimeout(() => setWeakConceptFlash(null), 4000);
+    return () => clearTimeout(t);
+  }, [weakConceptFlash]);
+
+  useEffect(() => {
+    if (!quickLogOpenId && !quickLogWrongOnlyKey) return;
+    function handleOutsideClick(e) {
+      if (
+        !e.target.closest("[data-quicklog-form]") &&
+        !e.target.closest("[data-quicklog-wrong-only]")
+      ) {
+        setQuickLogOpenId(null);
+        setQuickLogWrongOnlyKey(null);
+      }
+    }
+    const id = setTimeout(() => {
+      document.addEventListener("click", handleOutsideClick);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener("click", handleOutsideClick);
+    };
+  }, [quickLogOpenId, quickLogWrongOnlyKey]);
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const v = localStorage.getItem("rxt-tracker-tab");
+      return v || "today";
+    } catch {
+      return "today";
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("rxt-tracker-tab", activeTab || "today"); } catch {}
+  }, [activeTab]);
+  useEffect(() => {
+    if (!sweepMode) return;
+    const check = () => {
+      const today = new Date().toISOString().slice(0, 10);
+      if (sweepModeEnteredDateRef.current && sweepModeEnteredDateRef.current !== today) {
+        setSweepMode(false);
+        sweepModeEnteredDateRef.current = null;
+      }
+    };
+    check();
+    const id = setInterval(check, 60 * 1000);
+    return () => clearInterval(id);
+  }, [sweepMode]);
   const toggleScheduleDay = (dateStr) => {
     const todayKey = todayKeyForSchedule();
     setExpandedScheduleDays((prev) => ({
@@ -666,6 +3079,77 @@ export default function Tracker({
   const timerRef = useRef(null);
   const flashTimerRef = useRef(null);
   const { T: t, isDark } = useTheme();
+
+  // ── Completion store (localStorage: rxt-completion) ─────────────
+  // Key: lectureId__blockId
+  const [completion, setCompletion] = useState(() => sGet("rxt-completion") || {});
+  useEffect(() => {
+    try { sSet("rxt-completion", completion || {}); } catch {}
+  }, [completion]);
+
+  // One-time migration: normalize legacy completion entries to activityLog model
+  useEffect(() => {
+    const raw = sGet("rxt-completion") || {};
+    let changed = false;
+    const next = { ...(raw || {}) };
+    Object.keys(next).forEach((k) => {
+      const e = next[k];
+      if (!e || typeof e !== "object") return;
+      if (Array.isArray(e.activityLog)) return;
+      const completed = e.completedDate || e.firstCompletedDate || null;
+      const lastAct = e.lastActivityDate || completed || null;
+      const conf = e.lastConfidence || e.confidenceRating || null;
+      const act = [];
+      if (completed) {
+        act.push({
+          id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : uid(),
+          date: completed,
+          activityType: "manual",
+          confidenceRating: conf || "okay",
+          durationMinutes: null,
+          note: null,
+        });
+      }
+      next[k] = {
+        lectureId: e.lectureId ?? null,
+        blockId: e.blockId ?? null,
+        ankiInRotation: !!e.ankiInRotation,
+        ankiCardCount: e.ankiCardCount ?? null,
+        ankiCardsOverdue: e.ankiCardsOverdue ?? null,
+        lastAnkiLogDate: e.lastAnkiLogDate ?? null,
+        firstCompletedDate: completed,
+        lastActivityDate: lastAct,
+        lastConfidence: conf,
+        reviewDates: Array.isArray(e.reviewDates) ? e.reviewDates : [],
+        activityLog: act,
+        lectureType: e.lectureType ?? null,
+        lectureNumber: e.lectureNumber ?? null,
+      };
+      changed = true;
+    });
+    if (changed) setCompletion(next);
+  }, []);
+
+  const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
+  const getCompletion = (lectureId, blockId) =>
+    (completion || {})[completionKey(lectureId, blockId)] || null;
+
+  const hasLoggedToday = (lectureId, blockId, todayKey) => {
+    const c = getCompletion(lectureId, blockId);
+    if (!c?.activityLog || !Array.isArray(c.activityLog)) return false;
+    return c.activityLog.some((a) => (a.date || "").slice(0, 10) === todayKey);
+  };
+
+  const getTodayActivitySummary = (lectureId, blockId, todayKey) => {
+    const c = getCompletion(lectureId, blockId);
+    if (!c?.activityLog || !Array.isArray(c.activityLog)) return null;
+    const todayActs = c.activityLog.filter((a) => (a.date || "").slice(0, 10) === todayKey);
+    if (todayActs.length === 0) return null;
+    return { activityType: todayActs[0].activityType, confidenceRating: todayActs[0].confidenceRating };
+  };
+
+  // UI drafts for "✓ Completed today" inline controls (per lecture)
+  const [completionDrafts, setCompletionDrafts] = useState(() => ({}));
 
   const isControlled = trackerRowsProp !== undefined && setTrackerRowsProp != null;
   const rows = isControlled ? trackerRowsProp : internalRows;
@@ -693,10 +3177,24 @@ export default function Tracker({
 
   // When navigating to Tracker from a block, select that block's tab
   useEffect(() => {
-    if (activeBlock?.name) {
-      setFilter(activeBlock.name);
+    if (activeBlock?.id) {
+      setTrackerBlockId(activeBlock.id);
+      if (activeBlock?.name) setFilter(activeBlock.name);
     }
   }, [activeBlock?.id]);
+
+  useEffect(() => {
+    const handler = () => setRefreshKey((k) => k + 1);
+    window.addEventListener("rxt-completion-updated", handler);
+    return () => window.removeEventListener("rxt-completion-updated", handler);
+  }, []);
+
+  useEffect(() => {
+    setTodayFilter("all");
+    setTodaySort("urgency");
+    setTodaySearch("");
+    setShowNotStarted(false);
+  }, [trackerBlockId]);
 
   // Save (debounced when uncontrolled; parent persists when controlled)
   const persist = (nr) => {
@@ -728,6 +3226,149 @@ export default function Tracker({
     triggerFlash(id);
   };
   const clrScore = id         => setRows(p=>{ const n=p.map(r=>r.id===id?{...r,scores:[]}:r); persist(n); return n; });
+
+  const mapActivityIcon = (t) =>
+    t === "deep_learn" ? "🧠"
+      : t === "review" ? "📖"
+        : t === "anki" ? "🃏"
+          : t === "questions" ? "❓"
+            : t === "notes" ? "📝"
+              : t === "sg_tbl" ? "👥"
+                : "✏️";
+
+  function updateAnkiCounts(lectureId, blockId, cardCount, overdueCount) {
+    const key = completionKey(lectureId, blockId);
+    setCompletion((prev) => {
+      const ex = (prev || {})[key];
+      if (!ex) return prev;
+      const nextCardCount = cardCount != null ? cardCount : (ex.ankiCardCount ?? null);
+      const nextOverdue = overdueCount != null ? overdueCount : (ex.ankiCardsOverdue ?? null);
+      return {
+        ...(prev || {}),
+        [key]: {
+          ...ex,
+          ankiCardCount: nextCardCount,
+          ankiCardsOverdue: nextOverdue,
+          lastAnkiLogDate: new Date().toISOString(),
+        },
+      };
+    });
+  }
+
+  function logActivity(lectureId, blockId, activityType, confidenceRating, options = {}) {
+    if (!lectureId || !blockId) return;
+    const activityDate = options?.date
+      ? new Date(options.date).toISOString()
+      : new Date().toISOString();
+    const dateKey = activityDate.slice(0, 10);
+    const durationMinutes = options?.durationMinutes ?? null;
+    const note = options?.note ?? null;
+    const examDateStr = options?.examDate || null;
+    const questionCount = options?.questionCount ?? null;
+    const correctCount = options?.correctCount ?? null;
+    const questionScore = options?.questionScore ?? null;
+
+    const key = completionKey(lectureId, blockId);
+    const lec = (lecs || []).find((l) => l.id === lectureId);
+
+    setCompletion((prev) => {
+      const existing = (prev || {})[key] || null;
+      const activity = {
+        id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : uid(),
+        date: activityDate,
+        activityType: activityType || "manual",
+        confidenceRating: confidenceRating || "okay",
+        durationMinutes,
+        note,
+        questionCount: questionCount ?? null,
+        correctCount: correctCount ?? null,
+        questionScore: questionScore ?? null,
+      };
+      const unsorted = [activity, ...(Array.isArray(existing?.activityLog) ? existing.activityLog : [])];
+      const activityLog = [...unsorted].sort((a, b) => new Date(b?.date || 0) - new Date(a?.date || 0)); // newest first
+      const firstCompletedDate = existing?.firstCompletedDate || activityDate;
+      const lastActivityDate = activityLog[0]?.date || activityDate;
+      const lastConfidence = activityLog[0]?.confidenceRating || activity.confidenceRating;
+      const reviewDates = computeReviewDates(lastActivityDate.slice(0, 10), lastConfidence, examDateStr || null).map((d) => d.toISOString().slice(0, 10));
+
+      return {
+        ...(prev || {}),
+        [key]: {
+          lectureId,
+          blockId,
+          ankiInRotation: activity.activityType === "anki" ? true : !!existing?.ankiInRotation,
+          ankiCardCount: existing?.ankiCardCount ?? null,
+          ankiCardsOverdue: existing?.ankiCardsOverdue ?? null,
+          lastAnkiLogDate: existing?.lastAnkiLogDate ?? null,
+          firstCompletedDate,
+          lastActivityDate,
+          lastConfidence,
+          reviewDates,
+          activityLog,
+          lectureType: lec?.lectureType ?? existing?.lectureType ?? null,
+          lectureNumber: lec?.lectureNumber ?? existing?.lectureNumber ?? null,
+        },
+      };
+    });
+
+    // Keep the tracker log rows in sync (best-effort in Tracker)
+    const blockName = Object.values(blocks || {}).find((b) => b.id === blockId)?.name || blockId;
+    const topic = (lec?.lectureTitle || lec?.fileName || lec?.filename || "").trim() || "Lecture";
+
+    setRows((p) => {
+      const idx = (p || []).findIndex((r) => r.lectureId === lectureId);
+      if (idx >= 0) {
+        const n = (p || []).map((r, i) =>
+          i === idx ? { ...r, blockId, block: r.block || blockName, topic: r.topic || topic, lecture: true, lastStudied: dateKey } : r
+        );
+        persist(n);
+        return n;
+      }
+      const row = makeRow({
+        id: uid(),
+        lectureId,
+        blockId,
+        block: blockName,
+        subject: lec?.subject || lec?.discipline || "",
+        topic,
+        lecture: true,
+        lastStudied: dateKey,
+      });
+      const n = [...(p || []), row];
+      persist(n);
+      return n;
+    });
+
+    try {
+      const raw = localStorage.getItem("rxt-weak-areas");
+      const data = raw ? JSON.parse(raw) : null;
+      if (data && data.blockId === blockId) {
+        localStorage.setItem("rxt-weak-areas", JSON.stringify({ ...data, computedAt: 0 }));
+      }
+    } catch {}
+  }
+
+  // Backward-compatible wrapper used by existing UI paths
+  const markLectureComplete = (lectureId, blockId, completedDate, confidenceRating, ankiInRotation, examDateStr) => {
+    logActivity(lectureId, blockId, "manual", confidenceRating, { date: completedDate || todayStr(), examDate: examDateStr, note: null, durationMinutes: null });
+    // Persist entry-level ankiInRotation toggle
+    if (ankiInRotation) {
+      const key = completionKey(lectureId, blockId);
+      setCompletion((prev) => {
+        const ex = (prev || {})[key];
+        if (!ex) return prev;
+        return { ...(prev || {}), [key]: { ...ex, ankiInRotation: true } };
+      });
+    }
+  };
+
+  const markLectureReviewedToday = (lectureId, blockId, confidenceRating = "okay", examDateStr = null) => {
+    logActivity(lectureId, blockId, "review", confidenceRating, { date: todayStr(), examDate: examDateStr });
+  };
+
+  const logReview = (lectureId, blockId, reviewDate, newConfidenceRating, examDateStr) => {
+    logActivity(lectureId, blockId, "review", newConfidenceRating, { date: reviewDate || todayStr(), examDate: examDateStr });
+  };
 
   // Filter
   let visible = rows.filter(r => {
@@ -792,17 +3433,110 @@ export default function Tracker({
     return null;
   };
 
+  const targetBlockIds = useMemo(() => {
+    if (trackerBlockId) return [trackerBlockId];
+    return Object.values(blocks || {}).map((b) => b?.id).filter(Boolean);
+  }, [trackerBlockId, blocks]);
+
+  const getAllTodayItems = useCallback(() => {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const allItems = [];
+    targetBlockIds.forEach((bid) => {
+      if (!bid) return;
+      const examDate = examDates[bid] || "";
+      const result = examDate && generateDailySchedule ? generateDailySchedule(bid, examDate) : null;
+      const todayDay = (result?.schedule || []).find((d) => d?.dateStr === todayISO) || null;
+      const todayTasks = Array.isArray(todayDay?.tasks) ? todayDay.tasks : [];
+      const normalizedTasks = todayTasks.map((t0) => ({
+        ...t0,
+        _matchReason: t0.matchReason === "scheduled-day" ? "TODAY'S LECTURE" : (t0.matchReason || ""),
+      }));
+      const overdueList = getOverdueLectures(bid, completion || {});
+      const overdueItems = overdueList
+        .map((e) => {
+          const lec = (lecs || []).find((l) => l.id === e.lectureId);
+          if (!lec) return null;
+          return {
+            lec,
+            blockId: bid,
+            matchReason: "⏰ OVERDUE",
+            isOverdue: true,
+            urgency: 999,
+            daysOverdue: e.daysOverdue || 0,
+          };
+        })
+        .filter(Boolean);
+      const taskItems = normalizedTasks
+        .filter((t0) => t0?.lec?.id)
+        .map((t0) => ({
+          ...t0,
+          blockId: bid,
+          lec: t0.lec,
+          matchReason: t0._matchReason || t0.matchReason || "",
+          isOverdue: t0.isOverdue === true || String(t0._matchReason || t0.matchReason || "").toUpperCase().includes("OVERDUE"),
+        }));
+      const map = new Map();
+      [...overdueItems, ...taskItems].forEach((item) => {
+        const key = `${item.lec.id}__${bid}`;
+        if (!map.has(key)) map.set(key, item);
+      });
+      allItems.push(...Array.from(map.values()));
+    });
+    return allItems;
+  }, [targetBlockIds, examDates, generateDailySchedule, completion, lecs]);
+
   const notStartedCount = useMemo(() => {
-    return visibleBlocks.reduce((n, block) => {
-      const blockLecs = (lecs || []).filter(l => l.blockId === block.id);
-      return n + blockLecs.filter(lec => {
-        const p = getLecPerf(lec, block.id);
-        const raw = p?.sessions || [];
-        const sess = raw.filter(s => !s.lectureId || s.lectureId === lec.id);
-        return sess.length === 0;
-      }).length;
+    return targetBlockIds.reduce((n, bid) => {
+      const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+      return (
+        n +
+        blockLecs.filter((lec) => {
+          const p = getLecPerf(lec, bid);
+          const raw = p?.sessions || [];
+          const sess = raw.filter((s) => !s.lectureId || s.lectureId === lec.id);
+          const hasCompletion = !!(completion || {})[`${lec.id}__${bid}`];
+          return sess.length === 0 && !hasCompletion;
+        }).length
+      );
     }, 0);
-  }, [visibleBlocks, lecs, performanceHistory]);
+  }, [targetBlockIds, lecs, performanceHistory, completion]);
+
+  const filterCounts = useMemo(() => {
+    const allItems = getAllTodayItems();
+    const twoDaysOut = new Date();
+    twoDaysOut.setDate(twoDaysOut.getDate() + 2);
+    twoDaysOut.setHours(23, 59, 59, 0);
+    const isCritical = (item) => {
+      const key = `${item.lec.id}__${item.blockId}`;
+      const entry = (completion || {})[key];
+      const lastConf = entry?.lastConfidence;
+      const lastScore = getLecPerf(item.lec, item.blockId)?.score || 0;
+      return lastConf === "struggling" || lastScore < 50;
+    };
+    const isSoon = (item) => {
+      const key = `${item.lec.id}__${item.blockId}`;
+      const entry = (completion || {})[key];
+      const reviewDates = entry?.reviewDates || [];
+      return reviewDates.some((d) => {
+        const rd = new Date(d);
+        return rd <= twoDaysOut;
+      });
+    };
+    const isOk = (item) => {
+      const key = `${item.lec.id}__${item.blockId}`;
+      const entry = (completion || {})[key];
+      const lastConf = entry?.lastConfidence;
+      const lastScore = getLecPerf(item.lec, item.blockId)?.score || 0;
+      return lastConf === "good" || lastScore >= 70;
+    };
+    return {
+      all: allItems.length,
+      critical: allItems.filter(isCritical).length,
+      overdue: allItems.filter((i) => i.isOverdue || String(i.matchReason || "").toUpperCase().includes("OVERDUE")).length,
+      soon: allItems.filter(isSoon).length,
+      ok: allItems.filter(isOk).length,
+    };
+  }, [getAllTodayItems, completion, refreshKey]);
 
   const getBlockObjsFromProps = (blockId) => {
     const data = objectives[blockId] || { imported: [], extracted: [] };
@@ -944,15 +3678,101 @@ export default function Tracker({
   return (
     <div style={{ display:"flex", flexDirection:"column", flex:1, minHeight:0, fontFamily:MONO, background:t.appBg, color:t.text1 }}>
 
+      {/* Compact PressureBanner (driven by trackerBlockId) */}
+      {(() => {
+        if (!trackerBlockId) {
+          return (
+            <div style={{ padding: "12px 18px", borderBottom: "1px solid " + t.border2, background: t.subnavBg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ fontFamily: MONO, fontSize: 12, color: t.text3 }}>All blocks</div>
+            </div>
+          );
+        }
+        const bid = trackerBlockId;
+        const examDate = (examDates && examDates[bid]) || "";
+        const p = examDate ? getPressureZone(examDate) : { zone: "normal", days: 0, label: "Set exam date" };
+        const zoneColor =
+          p.zone === "critical" || p.zone === "exam"
+            ? t.statusBad
+            : p.zone === "crunch"
+              ? t.statusWarn
+              : p.zone === "build"
+                ? t.statusProgress
+                : t.statusGood;
+        const desc =
+          p.zone === "normal"
+            ? "Standard spacing active."
+            : p.zone === "build"
+              ? "Intervals tightening."
+              : p.zone === "crunch"
+                ? "Exam week mode."
+                : p.zone === "critical"
+                  ? "Final push."
+                  : "Exam day.";
+        const overdueCount = getOverdueLectures(bid, completion || {}).length;
+        const blockLecs = (lecs || []).filter((l) => l && l.blockId === bid);
+        const trackedCount = Object.values(completion || {}).filter((e) => e && e.blockId === bid).length;
+        return (
+          <div style={{ padding: "10px 18px", borderBottom: "1px solid " + t.border2, background: t.subnavBg, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, flex: 1, minWidth: 240 }}>
+              <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 900, color: zoneColor }}>
+                {p.days > 0 ? p.days : "—"}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 900, color: zoneColor }}>
+                  {p.label || "Pressure"}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>
+                  {examDate ? desc : "Set an exam date to activate pressure zones."}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-end" }}>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: overdueCount > 0 ? t.statusBad : t.text3, fontWeight: 800 }}>
+                {overdueCount} overdue
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, fontWeight: 800 }}>
+                {trackedCount}/{blockLecs.length} tracked
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Toolbar ─────────────────────────────────────── */}
       <div style={{ padding:"10px 18px", borderBottom:"1px solid "+t.border2, background:t.subnavBg,
         display:"flex", alignItems:"center", gap:8, flexWrap:"wrap", flexShrink:0 }}>
 
-        {/* Tab toggles */}
-        <div style={{ display:"flex", gap:2 }}>
-          {[["tracker","📋 Tracker"],["analytics","📊 Analytics"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setTab(v)} style={{ background:tab===v?t.rowHover:"none",border:"none",
-              color:tab===v?t.text1:t.text3,padding:"5px 13px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:15 }}>{l}</button>
+        {/* New tabs (Today / Lectures / Calendar) */}
+        <div style={{ display: "flex", gap: 2 }}>
+          {[
+            ["today", "Today"],
+            ["lectures", "Lectures"],
+            ["calendar", "Calendar"],
+            [
+              "weakConcepts",
+              weakConceptsBadgeCount > 0
+                ? `Weak Concepts (${weakConceptsBadgeCount})`
+                : "Weak Concepts",
+            ],
+          ].map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setActiveTab(v)}
+              style={{
+                background: activeTab === v ? t.cardBg : "transparent",
+                border: "1px solid " + (activeTab === v ? t.border2 : "transparent"),
+                borderBottom: activeTab === v ? "none" : "1px solid transparent",
+                color: activeTab === v ? t.text1 : t.text3,
+                padding: "6px 12px",
+                borderRadius: 8,
+                cursor: "pointer",
+                fontFamily: MONO,
+                fontSize: 13,
+                fontWeight: 900,
+              }}
+            >
+              {l}
+            </button>
           ))}
         </div>
 
@@ -960,27 +3780,34 @@ export default function Tracker({
           {/* Block filters */}
           <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
             {[
-              { key: "All", name: "All" },
+              { key: "all", name: "All", id: null },
               ...Object.values(blocks || {}).filter(b => b?.name).map(b => ({ key: b.id, name: b.name })),
-            ].map(({ key: tabKey, name }) => {
-              const isSelected = filter === name;
-              const block = Object.values(blocks || {}).find(b => b.name === name);
-              const tcBtn = termColor || block?.termColor || (BLOCK_COLORS[name] || t.text4);
+            ].map(({ key: tabKey, name, id }) => {
+              const block = id === null ? null : (Object.values(blocks || {}).find((b) => b.id === tabKey || b.name === name));
+              const bid = block?.id ?? null;
+              const isSelected = trackerBlockId === bid;
+              const examDate = bid ? (examDates?.[bid] || "") : "";
+              const pressure = bid && examDate ? getPressureZone(examDate) : null;
+              const overdueCount = bid ? getOverdueLectures(bid, completion || {}).length : 0;
+              const activeColor = overdueCount > 0 ? (t.statusBad || "#E24B4A") : (pressure?.zone === "crunch" || pressure?.zone === "critical" || pressure?.zone === "exam") ? (t.statusWarn || "#BA7517") : (t.statusGood || "#639922");
               return (
                 <button
                   key={tabKey}
-                  onClick={() => setFilter(name)}
+                  onClick={() => {
+                    setTrackerBlockId(bid);
+                    setFilter(name);
+                  }}
                   style={{
                     padding: "6px 16px",
                     borderRadius: 20,
                     cursor: "pointer",
                     fontFamily: MONO,
                     fontSize: 12,
-                    fontWeight: isSelected ? 700 : 400,
-                    border: "1px solid " + (isSelected ? tcBtn : t.border1),
-                    background: isSelected ? tcBtn + "18" : t.inputBg,
-                    color: isSelected ? tcBtn : t.text3,
-                    transition: "all 0.15s",
+                    fontWeight: isSelected ? 700 : 500,
+                    border: (isSelected ? "2px solid " : "0.5px solid ") + (isSelected ? activeColor : t.border2),
+                    background: isSelected ? activeColor + "18" : "transparent",
+                    color: isSelected ? activeColor : t.text3,
+                    transition: "all 0.15s ease",
                   }}
                 >
                   {name}
@@ -991,24 +3818,46 @@ export default function Tracker({
 
           {/* Urgency filter */}
           <div style={{ display:"flex", gap:3 }}>
-            {[["All","All",t.text4],["critical","⚠ Critical",getUrgencyColor(t,"critical")],["overdue","⏰ Overdue",getUrgencyColor(t,"overdue")],["soon","⏱ Soon",getUrgencyColor(t,"soon")],["ok","✓ OK",getUrgencyColor(t,"ok")]].map(([v,l,c])=>(
-              <button key={v} onClick={()=>setUrgFilter(v)} style={{
-                background:urgFilter===v?c+"22":"none",border:"1px solid "+(urgFilter===v?c:t.border1),
-                color:urgFilter===v?c:t.text3,padding:"3px 9px",borderRadius:6,cursor:"pointer",fontFamily:MONO,fontSize:13 }}>{l}</button>
+            {[
+              ["all", `All (${filterCounts.all})`, { bg: t.inputBg, fg: t.text1, border: t.border1 }, filterCounts.all],
+              ["critical", `△ Critical (${filterCounts.critical})`, { bg: "#FCEBEB", fg: "#A32D2D", border: "#F09595" }, filterCounts.critical],
+              ["overdue", `⏰ Overdue (${filterCounts.overdue})`, { bg: "#FAEEDA", fg: "#633806", border: "#EF9F27" }, filterCounts.overdue],
+              ["soon", `⊙ Soon (${filterCounts.soon})`, { bg: "#E6F1FB", fg: "#0C447C", border: "#85B7EB" }, filterCounts.soon],
+              ["ok", `✓ OK (${filterCounts.ok})`, { bg: "#EAF3DE", fg: "#27500A", border: "#97C459" }, filterCounts.ok],
+            ].map(([v, l, c, count]) => (
+              <button key={v} onClick={() => setTodayFilter(v)} style={{
+                background: todayFilter === v ? c.bg : "transparent",
+                border: "0.5px solid " + (todayFilter === v ? c.border : t.border2),
+                color: todayFilter === v ? c.fg : t.text2,
+                padding: "3px 9px",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontFamily: MONO,
+                fontSize: 13,
+                opacity: count === 0 ? 0.5 : 1,
+                transition: "all 0.15s ease",
+              }}>{l}</button>
             ))}
           </div>
 
           {/* Sort */}
-          <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{ background:t.cardBg,border:"1px solid "+t.border1,color:t.text5,padding:"4px 10px",borderRadius:7,fontFamily:MONO,fontSize:13,outline:"none",cursor:"pointer" }}>
-            {[["block","Sort: Block"],["urgency","Sort: Urgency ↑"],["confidence","Sort: Confidence ↑"],["score","Sort: Score ↑"]].map(([v,l])=><option key={v} value={v}>{l}</option>)}
+          <select value={todaySort} onChange={e=>setTodaySort(e.target.value)} style={{ background:t.cardBg,border:"1px solid "+t.border1,color:t.text5,padding:"4px 10px",borderRadius:7,fontFamily:MONO,fontSize:13,outline:"none",cursor:"pointer" }}>
+            {[
+              ["urgency","Sort: Urgency"],
+              ["score","Sort: Score ↑ (weakest first)"],
+              ["score_desc","Sort: Score ↓ (strongest first)"],
+              ["recent","Sort: Recent activity"],
+              ["name","Sort: Name A-Z"],
+              ["bloom","Sort: Complexity"],
+            ].map(([v,l])=><option key={v} value={v}>{l}</option>)}
           </select>
 
           {/* Search */}
           <div style={{ display:"flex",alignItems:"center",gap:5,background:t.cardBg,border:"1px solid "+t.border1,borderRadius:7,padding:"4px 9px" }}>
             <span style={{ color:t.text4,fontSize:13 }}>🔍</span>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…"
+            <input value={todaySearch} onChange={e=>setTodaySearch(e.target.value)} placeholder="Search…"
               style={{ background:"none",border:"none",color:t.text1,fontFamily:MONO,fontSize:13,outline:"none",width:120 }} />
-            {search&&<button onClick={()=>setSearch("")} style={{ background:"none",border:"none",color:t.text4,cursor:"pointer",fontSize:13 }}>✕</button>}
+            {todaySearch&&<button onClick={()=>setTodaySearch("")} style={{ background:"none",border:"none",color:t.text4,cursor:"pointer",fontSize:13 }}>✕</button>}
           </div>
 
           {/* Show not started toggle */}
@@ -1019,7 +3868,7 @@ export default function Tracker({
               fontSize: 11,
               padding: "5px 12px",
               borderRadius: 6,
-              border: "1px solid " + t.border1,
+              border: "1px solid " + (showNotStarted ? t.border1 : t.border2),
               background: showNotStarted ? t.inputBg : t.cardBg,
               color: t.text3,
               cursor: "pointer",
@@ -1051,8 +3900,879 @@ export default function Tracker({
         <div style={{ flex:1, overflowX:"auto", overflowY:"auto" }}>
           <div style={{ minWidth:1300 }}>
 
+            {/* Lectures tab — grouped by week + type, filter bar, expandable rows */}
+            {activeTab === "lectures" && (() => {
+              const lecturesBid = trackerBlockId || activeBlock?.id;
+              if (!lecturesBid) return null;
+              return (
+                <LecturesTabContent
+                  blockId={lecturesBid}
+                  examDate={examDates[lecturesBid] || ""}
+                  todayISO={todayStr()}
+                  completion={completion}
+                  setCompletion={setCompletion}
+                  lecs={lecs}
+                  completionKey={completionKey}
+                  getCompletion={getCompletion}
+                  markLectureComplete={markLectureComplete}
+                  logActivity={logActivity}
+                  updateAnkiCounts={updateAnkiCounts}
+                  logReview={logReview}
+                  computeReviewDates={computeReviewDates}
+                  getLectureActivitySummary={getLectureActivitySummary}
+                  getConfidenceTrend={getConfidenceTrend}
+                  theme={t}
+                  MONO={MONO}
+                />
+              );
+            })()}
+
+            {/* Today tab (Step B): Overdue / Today's lectures / Reviews due */}
+            {activeTab === "today" && (() => {
+              const bids = targetBlockIds;
+              if (!bids.length) return null;
+              const completions = completion || {};
+              const todayStr = new Date().toISOString().split("T")[0];
+              const loggedToday = (lecId, blockId) => {
+                const entry = completions[`${lecId}__${blockId}`];
+                if (!entry || !entry.activityLog) return false;
+                return entry.activityLog.some((a) => String(a?.date || "").startsWith(todayStr));
+              };
+
+              const allItemsBase = getAllTodayItems();
+              const withNotStarted = (() => {
+                if (!showNotStarted) return allItemsBase;
+                const next = [...allItemsBase];
+                bids.forEach((bid) => {
+                  const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+                  blockLecs.forEach((lec) => {
+                    const p = getLecPerf(lec, bid);
+                    const raw = p?.sessions || [];
+                    const sess = raw.filter((s) => !s.lectureId || s.lectureId === lec.id);
+                    const hasCompletion = !!completions[`${lec.id}__${bid}`];
+                    if (sess.length === 0 && !hasCompletion) {
+                      const key = `${lec.id}__${bid}`;
+                      if (!next.some((i) => `${i.lec?.id}__${i.blockId}` === key)) {
+                        next.push({
+                          lec,
+                          blockId: bid,
+                          matchReason: "○ NOT STARTED",
+                          _matchReason: "○ NOT STARTED",
+                          isNotStarted: true,
+                          urgency: -999,
+                        });
+                      }
+                    }
+                  });
+                });
+                return next;
+              })();
+
+              const applyTodayFilter = (items, f) => {
+                if (f === "all") return items;
+                return items.filter((item) => {
+                  const key = `${item.lec.id}__${item.blockId}`;
+                  const entry = completions[key];
+                  const lastConf = entry?.lastConfidence;
+                  const lastScore = getLecPerf(item.lec, item.blockId)?.score || 0;
+                  switch (f) {
+                    case "critical":
+                      return lastConf === "struggling" || lastScore < 50;
+                    case "overdue":
+                      return String(item.matchReason || "").toUpperCase().includes("OVERDUE") || item.isOverdue === true;
+                    case "soon": {
+                      const reviewDates = entry?.reviewDates || [];
+                      const twoDaysOut = new Date();
+                      twoDaysOut.setDate(twoDaysOut.getDate() + 2);
+                      twoDaysOut.setHours(23, 59, 59, 0);
+                      return reviewDates.some((d) => {
+                        const rd = new Date(d);
+                        return rd <= twoDaysOut;
+                      });
+                    }
+                    case "ok":
+                      return lastConf === "good" || lastScore >= 70;
+                    default:
+                      return true;
+                  }
+                });
+              };
+
+              const applyTodaySort = (items, srt) => {
+                const sorted = [...items];
+                sorted.sort((a, b) => {
+                  if (a.isNotStarted && !b.isNotStarted) return 1;
+                  if (b.isNotStarted && !a.isNotStarted) return -1;
+                  switch (srt) {
+                    case "score": {
+                      const as = getLecPerf(a.lec, a.blockId)?.score || 0;
+                      const bs = getLecPerf(b.lec, b.blockId)?.score || 0;
+                      return as - bs;
+                    }
+                    case "score_desc": {
+                      const as = getLecPerf(a.lec, a.blockId)?.score || 0;
+                      const bs = getLecPerf(b.lec, b.blockId)?.score || 0;
+                      return bs - as;
+                    }
+                    case "recent": {
+                      const ak = `${a.lec.id}__${a.blockId}`;
+                      const bk = `${b.lec.id}__${b.blockId}`;
+                      const ad = completions[ak]?.lastActivityDate || "0";
+                      const bd = completions[bk]?.lastActivityDate || "0";
+                      return String(bd).localeCompare(String(ad));
+                    }
+                    case "name":
+                      return String(a.lec.lectureTitle || a.lec.title || "").localeCompare(String(b.lec.lectureTitle || b.lec.title || ""));
+                    case "bloom": {
+                      const aObjs = (getBlockObjectives?.(a.blockId) || []).filter((o) => o.linkedLecId === a.lec.id);
+                      const bObjs = (getBlockObjectives?.(b.blockId) || []).filter((o) => o.linkedLecId === b.lec.id);
+                      const abloom = aObjs.reduce((m, o) => Math.max(m, o?.bloom_level || 1), 1);
+                      const bbloom = bObjs.reduce((m, o) => Math.max(m, o?.bloom_level || 1), 1);
+                      return bbloom - abloom;
+                    }
+                    default:
+                      return (b.urgency || 0) - (a.urgency || 0);
+                  }
+                });
+                return sorted;
+              };
+
+              const searchedItems = (() => {
+                const filtered = applyTodayFilter(withNotStarted, todayFilter);
+                const sorted = applyTodaySort(filtered, todaySort);
+                const q = todaySearch.toLowerCase().trim();
+                if (!q) return sorted;
+                return sorted.filter((item) => {
+                  const title = String(item.lec?.lectureTitle || item.lec?.title || "").toLowerCase();
+                  const ltype = String(item.lec?.lectureType || "").toLowerCase();
+                  const lnum = String(item.lec?.lectureNumber ?? "");
+                  return title.includes(q) || ltype.includes(q) || lnum.includes(q);
+                });
+              })();
+
+              const overdueList = searchedItems.filter((it) => it.isOverdue || String(it.matchReason || "").toUpperCase().includes("OVERDUE"));
+              const todayLectures = searchedItems.filter((it) => !overdueList.includes(it) && String(it._matchReason || it.matchReason || "") === "TODAY'S LECTURE");
+              const reviewsDue = searchedItems.filter((it) => !overdueList.includes(it) && !todayLectures.includes(it));
+
+              const snoozeReview = (lectureId, blockId) => {
+                const key = `${lectureId}__${blockId}`;
+                if (snoozedToday[key] === todayStr) return;
+                setSnoozedToday((p) => ({ ...(p || {}), [key]: todayStr }));
+                setCompletion((prev) => {
+                  const ex = (prev || {})[key];
+                  if (!ex) return prev;
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const tomorrow = new Date(today);
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+                  const rd = Array.isArray(ex.reviewDates) ? ex.reviewDates : [];
+                  const pushed = rd.map((d) => {
+                    const rd0 = new Date(d);
+                    rd0.setHours(0, 0, 0, 0);
+                    return rd0 < today ? tomorrowKey : d;
+                  });
+                  const deduped = Array.from(new Set(pushed)).sort();
+                  return { ...(prev || {}), [key]: { ...ex, reviewDates: deduped } };
+                });
+              };
+
+              const sectionLabelStyle = {
+                fontFamily: MONO,
+                fontSize: 11,
+                fontWeight: 500,
+                color: t.text3,
+                letterSpacing: "0.06em",
+                marginBottom: 6,
+              };
+              const cardStyle = {
+                height: 44,
+                padding: "8px 12px",
+                background: t.cardBg,
+                border: "0.5px solid " + t.border2,
+                borderRadius: 10,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              };
+              const renderDonePill = (entry) => {
+                const q = getTodayQuestionScoreForDonePill(entry, todayStr);
+                return (
+                  <span
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 11,
+                      padding: "4px 10px",
+                      borderRadius: 999,
+                      background: t.statusGoodBg,
+                      border: "1px solid " + t.statusGoodBorder,
+                      color: t.statusGood,
+                      fontWeight: 900,
+                    }}
+                  >
+                    {q ? `✓ Done · ${q.correct}/${q.total} (${q.score}%)` : "✓ Done"}
+                  </span>
+                );
+              };
+
+              const typePill = (lectureType) => {
+                const lt = String(lectureType || "LEC").toUpperCase();
+                const map = {
+                  DLA: { bg: "#EEEDFE", fg: "#3C3489" },
+                  LEC: { bg: "#E6F1FB", fg: "#0C447C" },
+                  SG: { bg: "#E1F5EE", fg: "#085041" },
+                  TBL: { bg: "#FAEEDA", fg: "#633806" },
+                };
+                const c = map[lt] || map.LEC;
+                return (
+                  <span style={{ fontFamily: MONO, fontSize: 10, padding: "4px 10px", borderRadius: 999, background: c.bg, color: c.fg, fontWeight: 900 }}>
+                    {lt}
+                  </span>
+                );
+              };
+
+              const confPill = (conf) => {
+                const c = String(conf || "");
+                if (c === "good") return { label: "✓ Good", color: t.statusGood, bg: t.statusGoodBg, border: t.statusGoodBorder };
+                if (c === "struggling") return { label: "⚠ Struggling", color: t.statusBad, bg: t.statusBadBg, border: t.statusBadBorder };
+                if (c === "okay") return { label: "△ Okay", color: t.statusWarn, bg: t.statusWarnBg, border: t.statusWarnBorder };
+                return { label: "○ Unseen", color: t.statusNeutral || t.text3, bg: t.inputBg, border: t.border1 };
+              };
+
+              const sortedTodayLectures = [...todayLectures].sort((a, b) => (loggedToday(a.lec.id, a.blockId) ? 1 : 0) - (loggedToday(b.lec.id, b.blockId) ? 1 : 0));
+              const sortedReviewsDue = [...reviewsDue].sort((a, b) => {
+                const aDone = loggedToday(a.lec.id, a.blockId) ? 1 : 0;
+                const bDone = loggedToday(b.lec.id, b.blockId) ? 1 : 0;
+                if (aDone !== bDone) return aDone - bDone;
+                if (a.isNotStarted && !b.isNotStarted) return 1;
+                if (b.isNotStarted && !a.isNotStarted) return -1;
+                return 0;
+              });
+
+              const hasAny = overdueList.length > 0 || todayLectures.length > 0 || reviewsDue.length > 0;
+              if (!hasAny) {
+                return (
+                  <div style={{ padding: "18px 16px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                    <div style={{ fontFamily: MONO, color: t.text3, fontSize: 12, marginBottom: 6 }}>Nothing scheduled today.</div>
+                    <div style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>Add lectures in the Lectures tab to begin tracking.</div>
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ padding: "0 16px 18px" }}>
+                  {!hasSeenClickHint && (
+                    <div style={{ fontSize: 11, color: t.text3, textAlign: "center", padding: "6px 0", marginBottom: 8, fontFamily: MONO }}>
+                      Tap any row to log activity
+                    </div>
+                  )}
+                  {/* OVERDUE */}
+                  {overdueList.length > 0 && (
+                    <div>
+                      <div style={sectionLabelStyle}>OVERDUE</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {overdueList.map((e) => {
+                          const lec = e.lec || null;
+                          const ebid = e.blockId;
+                          const lid = lec?.id;
+                          const done = lid ? loggedToday(lid, ebid) : false;
+                          const entry = completions[`${lec?.id}__${ebid}`] || null;
+                          const lastAct = entry?.activityLog?.[0] || null;
+                          const lastDate = lastAct?.date ? String(lastAct.date).slice(0, 10) : "—";
+                          const lastIcon = lastAct?.activityType ? mapActivityIcon(lastAct.activityType) : "✏️";
+                          const conf = entry?.lastConfidence || null;
+                          const confLine = conf === "good" ? "✓ Good" : conf === "struggling" ? "⚠ Struggling" : conf === "okay" ? "△ Okay" : "○ Unseen";
+                          const late = e.daysOverdue || 0;
+                          const lateIsWarn = late === 1;
+                          const lateColor = lateIsWarn ? t.statusWarn : t.statusBad;
+                          const lateLabel = lateIsWarn ? `△ 1d late` : `⚠ ${late}d late`;
+                          const title = `${lec?.lectureType || "LEC"} ${lec?.lectureNumber ?? ""} — ${lec?.lectureTitle || lec?.title || lec?.filename || lec?.id || ""}`.trim();
+                          const examDateE = examDates[ebid] || "";
+                          const isOpen = quickLogOpenId === lid;
+                          const handleRowToggle = () => {
+                            if (done || !lid) return;
+                            const next = isOpen ? null : lid;
+                            if (next && !hasSeenClickHint) markTodayClickHintSeen();
+                            setQuickLogOpenId(next);
+                          };
+                          const handleRowKeyDown = (ev) => {
+                            if (done || !lid) return;
+                            if (ev.key === "Enter" || ev.key === " ") {
+                              ev.preventDefault();
+                              const next = isOpen ? null : lid;
+                              if (next && !hasSeenClickHint) markTodayClickHintSeen();
+                              setQuickLogOpenId(next);
+                            }
+                          };
+                          return (
+                            <React.Fragment key={`${lid}__${ebid}`}>
+                              <div
+                                tabIndex={done ? -1 : 0}
+                                role={done ? undefined : "button"}
+                                aria-expanded={done ? undefined : isOpen}
+                                onClick={handleRowToggle}
+                                onKeyDown={handleRowKeyDown}
+                                style={{
+                                  ...cardStyle,
+                                  borderLeft: `3px solid ${t.statusBad}`,
+                                  cursor: done ? "default" : "pointer",
+                                  transition: "background 0.1s",
+                                  background: isOpen ? t.inputBg : t.cardBg,
+                                  borderBottom: isOpen ? "none" : "0.5px solid " + t.border2,
+                                  borderRadius: isOpen ? "10px 10px 0 0" : "0 10px 10px 0",
+                                  outline: "none",
+                                  opacity: done ? 0.55 : 1,
+                                }}
+                                onMouseEnter={(ev) => {
+                                  if (done) return;
+                                  ev.currentTarget.style.background = t.inputBg;
+                                }}
+                                onMouseLeave={(ev) => {
+                                  if (done) return;
+                                  ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
+                                }}
+                              >
+                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {title}
+                                  </div>
+                                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    Overdue {late}d · Last: {lastIcon} {lastDate} · {confLine}
+                                  </div>
+                                </div>
+                                <span style={{ fontFamily: MONO, fontSize: 10, padding: "4px 10px", borderRadius: 999, background: lateColor + "18", border: "1px solid " + lateColor, color: lateColor, fontWeight: 900, flexShrink: 0 }}>
+                                  {lateLabel}
+                                </span>
+                                {done ? (
+                                  renderDonePill(entry)
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      title="Snooze 1 day"
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        snoozeReview(lid, ebid);
+                                        if (quickLogOpenId === lid) setQuickLogOpenId(null);
+                                        setRefreshKey((k) => k + 1);
+                                      }}
+                                      style={{
+                                        width: 24,
+                                        height: 24,
+                                        borderRadius: 4,
+                                        border: "0.5px solid " + t.border1,
+                                        background: "transparent",
+                                        color: t.text3,
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        flexShrink: 0,
+                                        padding: 0,
+                                        fontFamily: MONO,
+                                      }}
+                                    >
+                                      ⏱
+                                    </button>
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        color: isOpen ? t.text2 : t.text3,
+                                        marginLeft: "auto",
+                                        flexShrink: 0,
+                                        paddingLeft: 8,
+                                        display: "inline-block",
+                                        transform: isOpen ? "rotate(90deg)" : "none",
+                                      }}
+                                    >
+                                      ›
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              {done && weakConceptFlash?.key === `${lid}__${ebid}` && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "#A32D2D",
+                                    padding: "4px 12px 0",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  ⚠ {weakConceptFlash.count} concept
+                                  {weakConceptFlash.count !== 1 ? "s" : ""} added to Weak Concepts
+                                </div>
+                              )}
+                              {done && (
+                                <button
+                                  type="button"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setQuickLogWrongOnlyKey(`${lid}__${ebid}`);
+                                  }}
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--color-text-tertiary)",
+                                    cursor: "pointer",
+                                    border: "none",
+                                    background: "transparent",
+                                    padding: "4px 12px 0",
+                                    textAlign: "left",
+                                    width: "100%",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  + Log wrong questions from this session
+                                </button>
+                              )}
+                              {done && quickLogWrongOnlyKey === `${lid}__${ebid}` && lec && (
+                                <div
+                                  style={{
+                                    borderRadius: "0 0 10px 10px",
+                                    borderTop: "0.5px solid " + t.border2,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <QuickLogWrongOnlyPanel
+                                    lec={lec}
+                                    blockId={ebid}
+                                    onCancel={() => setQuickLogWrongOnlyKey(null)}
+                                    onWrongConceptsLogged={(n) => {
+                                      if (n > 0) {
+                                        setWeakConceptFlash({
+                                          key: `${lid}__${ebid}`,
+                                          count: n,
+                                        });
+                                      }
+                                    }}
+                                    onDone={() => {
+                                      setQuickLogWrongOnlyKey(null);
+                                      setRefreshKey((k) => k + 1);
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              {!done && isOpen && lec && (
+                                <div
+                                  style={{
+                                    borderRadius: "0 0 10px 10px",
+                                    borderTop: "0.5px solid " + t.border2,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <QuickLogFormContent
+                                    key={lec.id}
+                                    lec={lec}
+                                    blockId={ebid}
+                                    examDate={examDateE}
+                                    todayStr={todayStr}
+                                    logActivity={logActivity}
+                                    onWrongConceptsLogged={(n) => {
+                                      if (n > 0) {
+                                        setWeakConceptFlash({
+                                          key: `${lid}__${ebid}`,
+                                          count: n,
+                                        });
+                                      }
+                                    }}
+                                    onSave={() => {
+                                      setQuickLogOpenId(null);
+                                      setRefreshKey((k) => k + 1);
+                                    }}
+                                    onCancel={() => setQuickLogOpenId(null)}
+                                  />
+                                </div>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TODAY'S LECTURES */}
+                  {todayLectures.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={sectionLabelStyle}>TODAY'S LECTURES</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {sortedTodayLectures.map((t0) => {
+                          const lec = t0.lec;
+                          const lbid = t0.blockId;
+                          const entry = completions[`${lec.id}__${lbid}`] || null;
+                          const sessions = entry?.activityLog?.length || 0;
+                          const done = loggedToday(lec.id, lbid);
+                          const week = lec.weekNumber != null ? `Week ${lec.weekNumber}` : "Week —";
+                          const examDateL = examDates[lbid] || "";
+                          const isOpen = quickLogOpenId === lec.id;
+                          const handleRowToggle = () => {
+                            if (done) return;
+                            const next = isOpen ? null : lec.id;
+                            if (next && !hasSeenClickHint) markTodayClickHintSeen();
+                            setQuickLogOpenId(next);
+                          };
+                          const handleRowKeyDown = (ev) => {
+                            if (done) return;
+                            if (ev.key === "Enter" || ev.key === " ") {
+                              ev.preventDefault();
+                              const next = isOpen ? null : lec.id;
+                              if (next && !hasSeenClickHint) markTodayClickHintSeen();
+                              setQuickLogOpenId(next);
+                            }
+                          };
+                          return (
+                            <React.Fragment key={lec.id}>
+                              <div
+                                tabIndex={done ? -1 : 0}
+                                role={done ? undefined : "button"}
+                                aria-expanded={done ? undefined : isOpen}
+                                onClick={handleRowToggle}
+                                onKeyDown={handleRowKeyDown}
+                                style={{
+                                  ...cardStyle,
+                                  cursor: done ? "default" : "pointer",
+                                  transition: "background 0.1s",
+                                  background: isOpen ? t.inputBg : t.cardBg,
+                                  borderBottom: isOpen ? "none" : "0.5px solid " + t.border2,
+                                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
+                                  outline: "none",
+                                  opacity: done ? 0.55 : 1,
+                                }}
+                                onMouseEnter={(ev) => {
+                                  if (done) return;
+                                  ev.currentTarget.style.background = t.inputBg;
+                                }}
+                                onMouseLeave={(ev) => {
+                                  if (done) return;
+                                  ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
+                                }}
+                              >
+                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {lec.lectureTitle || lec.title || lec.filename}
+                                  </div>
+                                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {week} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                  </div>
+                                </div>
+                                {typePill(lec.lectureType)}
+                                <span style={{ fontFamily: MONO, fontSize: 11, color: sessions === 0 ? t.text3 : t.statusProgress, fontWeight: 900 }}>
+                                  {sessions === 0 ? "○ New" : `◑ ${sessions}x`}
+                                </span>
+                                {done ? (
+                                  renderDonePill(entry)
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontSize: 12,
+                                      color: isOpen ? t.text2 : t.text3,
+                                      marginLeft: "auto",
+                                      flexShrink: 0,
+                                      paddingLeft: 8,
+                                      display: "inline-block",
+                                      transform: isOpen ? "rotate(90deg)" : "none",
+                                    }}
+                                  >
+                                    ›
+                                  </span>
+                                )}
+                              </div>
+                              {done && weakConceptFlash?.key === `${lec.id}__${lbid}` && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "#A32D2D",
+                                    padding: "4px 12px 0",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  ⚠ {weakConceptFlash.count} concept
+                                  {weakConceptFlash.count !== 1 ? "s" : ""} added to Weak Concepts
+                                </div>
+                              )}
+                              {done && (
+                                <button
+                                  type="button"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setQuickLogWrongOnlyKey(`${lec.id}__${lbid}`);
+                                  }}
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--color-text-tertiary)",
+                                    cursor: "pointer",
+                                    border: "none",
+                                    background: "transparent",
+                                    padding: "4px 12px 0",
+                                    textAlign: "left",
+                                    width: "100%",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  + Log wrong questions from this session
+                                </button>
+                              )}
+                              {done && quickLogWrongOnlyKey === `${lec.id}__${lbid}` && (
+                                <div
+                                  style={{
+                                    borderRadius: "0 0 10px 10px",
+                                    borderTop: "0.5px solid " + t.border2,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <QuickLogWrongOnlyPanel
+                                    lec={lec}
+                                    blockId={lbid}
+                                    onCancel={() => setQuickLogWrongOnlyKey(null)}
+                                    onWrongConceptsLogged={(n) => {
+                                      if (n > 0) {
+                                        setWeakConceptFlash({
+                                          key: `${lec.id}__${lbid}`,
+                                          count: n,
+                                        });
+                                      }
+                                    }}
+                                    onDone={() => {
+                                      setQuickLogWrongOnlyKey(null);
+                                      setRefreshKey((k) => k + 1);
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              {!done && isOpen && (
+                                <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
+                                  <QuickLogFormContent
+                                    key={lec.id}
+                                    lec={lec}
+                                    blockId={lbid}
+                                    examDate={examDateL}
+                                    todayStr={todayStr}
+                                    logActivity={logActivity}
+                                    onWrongConceptsLogged={(n) => {
+                                      if (n > 0) {
+                                        setWeakConceptFlash({
+                                          key: `${lec.id}__${lbid}`,
+                                          count: n,
+                                        });
+                                      }
+                                    }}
+                                    onSave={() => {
+                                      setQuickLogOpenId(null);
+                                      setRefreshKey((k) => k + 1);
+                                    }}
+                                    onCancel={() => setQuickLogOpenId(null)}
+                                  />
+                                </div>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* REVIEWS DUE */}
+                  {reviewsDue.length > 0 && (
+                    <div style={{ marginTop: 16 }}>
+                      <div style={sectionLabelStyle}>REVIEWS DUE</div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {sortedReviewsDue.map((t0) => {
+                          const lec = t0.lec;
+                          const lbid = t0.blockId;
+                          const entry = completions[`${lec.id}__${lbid}`] || null;
+                          const sessions = entry?.activityLog?.length || 0;
+                          const done = loggedToday(lec.id, lbid);
+                          const conf = confPill(entry?.lastConfidence || null);
+                          const dots = (entry?.activityLog || []).slice(0, 5).map((a) => a?.confidenceRating || null);
+                          const dotColor = (c) => (c === "good" ? "#639922" : c === "okay" ? "#BA7517" : c === "struggling" ? "#E24B4A" : null);
+                          const padded = [...dots];
+                          while (padded.length < 5) padded.push(null);
+                          const examDateR = examDates[lbid] || "";
+                          const isOpen = quickLogOpenId === lec.id;
+                          const handleRowToggle = () => {
+                            if (done) return;
+                            const next = isOpen ? null : lec.id;
+                            if (next && !hasSeenClickHint) markTodayClickHintSeen();
+                            setQuickLogOpenId(next);
+                          };
+                          const handleRowKeyDown = (ev) => {
+                            if (done) return;
+                            if (ev.key === "Enter" || ev.key === " ") {
+                              ev.preventDefault();
+                              const next = isOpen ? null : lec.id;
+                              if (next && !hasSeenClickHint) markTodayClickHintSeen();
+                              setQuickLogOpenId(next);
+                            }
+                          };
+                          return (
+                            <React.Fragment key={lec.id}>
+                              <div
+                                tabIndex={done ? -1 : 0}
+                                role={done ? undefined : "button"}
+                                aria-expanded={done ? undefined : isOpen}
+                                onClick={handleRowToggle}
+                                onKeyDown={handleRowKeyDown}
+                                style={{
+                                  ...cardStyle,
+                                  cursor: done ? "default" : "pointer",
+                                  transition: "background 0.1s",
+                                  background: isOpen ? t.inputBg : t.cardBg,
+                                  borderBottom: isOpen ? "none" : "0.5px solid " + t.border2,
+                                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
+                                  outline: "none",
+                                  opacity: done ? 0.55 : 1,
+                                }}
+                                onMouseEnter={(ev) => {
+                                  if (done) return;
+                                  ev.currentTarget.style.background = t.inputBg;
+                                }}
+                                onMouseLeave={(ev) => {
+                                  if (done) return;
+                                  ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
+                                }}
+                              >
+                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {lec.lectureTitle || lec.title || lec.filename}
+                                  </div>
+                                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                    {t0._matchReason || "Review"} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                                  {padded.map((c, i) => (
+                                    <div
+                                      key={i}
+                                      style={{
+                                        width: 8,
+                                        height: 8,
+                                        borderRadius: 999,
+                                        background: c ? dotColor(c) : "transparent",
+                                        border: c ? "none" : "1px solid " + t.border2,
+                                      }}
+                                    />
+                                  ))}
+                                </div>
+                                <span style={{ fontFamily: MONO, fontSize: 11, padding: "4px 10px", borderRadius: 999, background: (conf.bg || t.inputBg), border: "1px solid " + (conf.border || t.border1), color: conf.color, fontWeight: 900 }}>
+                                  {conf.label}
+                                </span>
+                                {done ? (
+                                  renderDonePill(entry)
+                                ) : (
+                                  <span
+                                    style={{
+                                      fontSize: 12,
+                                      color: isOpen ? t.text2 : t.text3,
+                                      marginLeft: "auto",
+                                      flexShrink: 0,
+                                      paddingLeft: 8,
+                                      display: "inline-block",
+                                      transform: isOpen ? "rotate(90deg)" : "none",
+                                    }}
+                                  >
+                                    ›
+                                  </span>
+                                )}
+                              </div>
+                              {done && weakConceptFlash?.key === `${lec.id}__${lbid}` && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "#A32D2D",
+                                    padding: "4px 12px 0",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  ⚠ {weakConceptFlash.count} concept
+                                  {weakConceptFlash.count !== 1 ? "s" : ""} added to Weak Concepts
+                                </div>
+                              )}
+                              {done && (
+                                <button
+                                  type="button"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    setQuickLogWrongOnlyKey(`${lec.id}__${lbid}`);
+                                  }}
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--color-text-tertiary)",
+                                    cursor: "pointer",
+                                    border: "none",
+                                    background: "transparent",
+                                    padding: "4px 12px 0",
+                                    textAlign: "left",
+                                    width: "100%",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  + Log wrong questions from this session
+                                </button>
+                              )}
+                              {done && quickLogWrongOnlyKey === `${lec.id}__${lbid}` && (
+                                <div
+                                  style={{
+                                    borderRadius: "0 0 10px 10px",
+                                    borderTop: "0.5px solid " + t.border2,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <QuickLogWrongOnlyPanel
+                                    lec={lec}
+                                    blockId={lbid}
+                                    onCancel={() => setQuickLogWrongOnlyKey(null)}
+                                    onWrongConceptsLogged={(n) => {
+                                      if (n > 0) {
+                                        setWeakConceptFlash({
+                                          key: `${lec.id}__${lbid}`,
+                                          count: n,
+                                        });
+                                      }
+                                    }}
+                                    onDone={() => {
+                                      setQuickLogWrongOnlyKey(null);
+                                      setRefreshKey((k) => k + 1);
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              {!done && isOpen && (
+                                <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
+                                  <QuickLogFormContent
+                                    key={lec.id}
+                                    lec={lec}
+                                    blockId={lbid}
+                                    examDate={examDateR}
+                                    todayStr={todayStr}
+                                    logActivity={logActivity}
+                                    onWrongConceptsLogged={(n) => {
+                                      if (n > 0) {
+                                        setWeakConceptFlash({
+                                          key: `${lec.id}__${lbid}`,
+                                          count: n,
+                                        });
+                                      }
+                                    }}
+                                    onSave={() => {
+                                      setQuickLogOpenId(null);
+                                      setRefreshKey((k) => k + 1);
+                                    }}
+                                    onCancel={() => setQuickLogOpenId(null)}
+                                  />
+                                </div>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* 📅 Schedule — Exam countdown + smart daily study scheduler */}
-            {(() => {
+            {false && (() => {
               const blockId =
                 filter !== "All"
                   ? (Object.values(blocks || {}).find((b) => b.name === filter || b.id === filter)?.id)
@@ -1066,12 +4786,200 @@ export default function Tracker({
               const examDate = examDates[bid] || "";
               const result = examDate && generateDailySchedule ? generateDailySchedule(bid, examDate) : null;
               const daysLeft = result?.daysLeft ?? 0;
-              const schedule = result?.schedule ?? [];
+              const scheduleBase = result?.schedule ?? [];
 
               const countdownColor =
                 daysLeft <= 7 ? t.statusBad : daysLeft <= 14 ? t.statusWarn : t.statusGood;
               const tc = termColor || block?.termColor || t.red;
               const T = t;
+
+              const PressureBanner = ({ examDate }) => {
+                if (!examDate) return null;
+                const p = getPressureZone(examDate);
+                if (p.days <= 0) return null;
+                const color =
+                  p.zone === "critical" || p.zone === "exam"
+                    ? T.statusBad
+                    : p.zone === "crunch"
+                      ? T.statusWarn
+                      : p.zone === "build"
+                        ? T.statusProgress
+                        : T.statusGood;
+                const desc =
+                  p.zone === "normal"
+                    ? "Standard spacing active. Keeping you on track."
+                    : p.zone === "build"
+                      ? "Intervals tightening. Prioritising weak lectures."
+                      : p.zone === "crunch"
+                        ? "Exam week mode. Daily limit raised, weak lectures first."
+                        : p.zone === "critical"
+                          ? "Final push. All struggling and unseen lectures surfaced."
+                          : "Exam day. Showing final review items only.";
+
+                return (
+                  <div
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 12,
+                      border: "1px solid " + (color + "40"),
+                      background: color + "12",
+                      borderLeft: "4px solid " + color,
+                      marginBottom: 12,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ fontFamily: MONO, fontSize: 24, fontWeight: 900, color }}>
+                      {p.days}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ fontFamily: MONO, fontSize: 12, fontWeight: 900, color }}>
+                        {p.label}
+                      </div>
+                      <div style={{ fontFamily: MONO, fontSize: 11, color: T.text2 }}>
+                        {desc}
+                      </div>
+                    </div>
+                  </div>
+                );
+              };
+
+              // Overdue section (dedicated, above schedule)
+              const todayISO = new Date().toISOString().slice(0, 10);
+              const overdueList = getOverdueLectures(bid, completion || {});
+              const overdueIds = new Set(overdueList.map((e) => e.lectureId).filter(Boolean));
+
+              const snoozeReview = (lectureId, blockId) => {
+                const key = `${lectureId}__${blockId}`;
+                if (snoozedToday[key] === todayISO) return;
+                setSnoozedToday((p) => ({ ...(p || {}), [key]: todayISO }));
+                setCompletion((prev) => {
+                  const ex = (prev || {})[key];
+                  if (!ex) return prev;
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const tomorrow = new Date(today);
+                  tomorrow.setDate(tomorrow.getDate() + 1);
+                  const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+                  const rd = Array.isArray(ex.reviewDates) ? ex.reviewDates : [];
+                  const pushed = rd.map((d) => {
+                    const rd0 = new Date(d);
+                    rd0.setHours(0, 0, 0, 0);
+                    return rd0 < today ? tomorrowKey : d;
+                  });
+                  const deduped = Array.from(new Set(pushed)).sort();
+                  return { ...(prev || {}), [key]: { ...ex, reviewDates: deduped } };
+                });
+              };
+
+              // Pass 0 — add review-due + Saturday sweep items (from rxt-completion)
+              // When sweepMode, override entirely with sweep-eligible + untouched list.
+              const schedule = (() => {
+                if (sweepMode) {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  const oneWeekAgo = new Date(today);
+                  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+                  const todayISO = today.toISOString().slice(0, 10);
+                  const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+                  const lecById = new Map(blockLecs.map((l) => [l.id, l]));
+                  const completionsList = Object.values(completion || {}).filter((c) => c && c.blockId === bid);
+                  const sweepEntries = completionsList.filter((c) => {
+                    if (!c.lastActivityDate) return false;
+                    const last = new Date(c.lastActivityDate);
+                    last.setHours(0, 0, 0, 0);
+                    return last >= oneWeekAgo && last < today;
+                  });
+                  const confOrder = { struggling: 0, okay: 1, good: 2 };
+                  const interactionCount = (c) => (Array.isArray(c.activityLog) ? c.activityLog.length : 0);
+                  sweepEntries.sort((a, b) => {
+                    const ac = confOrder[a.lastConfidence] ?? 1;
+                    const bc = confOrder[b.lastConfidence] ?? 1;
+                    if (ac !== bc) return ac - bc;
+                    return interactionCount(a) - interactionCount(b);
+                  });
+                  const sweepTasks = sweepEntries.map((c) => {
+                    const lec = lecById.get(c.lectureId);
+                    return lec ? { lec, matchReason: "🔁 Weekly sweep", sessions: 0, struggling: 0, recommendedSessions: [{ type: "review", label: "Review", reason: "Weekly sweep", duration: 10 }] } : null;
+                  }).filter(Boolean);
+                  const untouchedLecs = blockLecs.filter((l) => {
+                    const e = (completion || {})[`${l.id}__${bid}`];
+                    return !e || !e.lastActivityDate;
+                  });
+                  const untouchedTasks = untouchedLecs.map((lec) => ({ lec, matchReason: "○ Not touched this week", sessions: 0, struggling: 0, recommendedSessions: [{ type: "review", label: "Review", reason: "Not touched this week", duration: 10 }] }));
+                  return [{ dateStr: todayISO, tasks: [...sweepTasks, ...untouchedTasks] }];
+                }
+                const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+                const lecById = new Map(blockLecs.map((l) => [l.id, l]));
+                const weekStartISO = (dateStr) => {
+                  const d = new Date(dateStr + "T00:00:00");
+                  d.setHours(0, 0, 0, 0);
+                  const day = d.getDay(); // 0 Sun ... 6 Sat
+                  const delta = day === 0 ? -6 : 1 - day; // Monday start
+                  d.setDate(d.getDate() + delta);
+                  d.setHours(0, 0, 0, 0);
+                  return d.toISOString().slice(0, 10);
+                };
+
+                return (scheduleBase || []).map((day) => {
+                  const dayStr = day?.dateStr;
+                  if (!dayStr) return day;
+                  const existing = new Set((day.tasks || []).map((t) => t?.lec?.id).filter(Boolean));
+                  const extra = [];
+
+                  // Reviews due today or overdue (any reviewDates <= today) and no activity logged today
+                  Object.values(completion || {}).forEach((c) => {
+                    if (!c || c.blockId !== bid) return;
+                    const rd = Array.isArray(c.reviewDates) ? c.reviewDates : [];
+                    const lastAct = c.lastActivityDate || null;
+                    if (lastAct === dayStr) return; // already did something today
+                    const due = rd.filter((d) => d <= dayStr);
+                    if (due.length === 0) return;
+                    const earliest = due.sort()[0];
+                    const label = earliest === dayStr ? "🔁 DUE TODAY" : "🔁 REVIEW DUE";
+                    const lec = lecById.get(c.lectureId);
+                    if (lec && !existing.has(lec.id) && !overdueIds.has(lec.id)) {
+                      extra.push({
+                        lec,
+                        matchReason: label,
+                        sessions: 0,
+                        struggling: 0,
+                        recommendedSessions: [
+                          { type: "review", label: "Review", reason: label === "🔁 DUE TODAY" ? "Due today" : "Overdue review", duration: 10 },
+                        ],
+                      });
+                    }
+                  });
+
+                  // Saturday sweep: include all lectures with lastActivityDate in past 7 days that have not had any activity logged today
+                  const isSaturday = new Date(dayStr + "T00:00:00").getDay() === 6;
+                  if (isSaturday) {
+                    const wkStart = weekStartISO(dayStr);
+                    Object.values(completion || {}).forEach((c) => {
+                      if (!c || c.blockId !== bid) return;
+                      const lastAct = c.lastActivityDate;
+                      if (!lastAct || lastAct < wkStart || lastAct > dayStr) return;
+                      if (lastAct === dayStr) return;
+                      const lec = lecById.get(c.lectureId);
+                      if (lec && !existing.has(lec.id) && !overdueIds.has(lec.id)) {
+                        extra.push({
+                          lec,
+                          matchReason: "📅 WEEKLY SWEEP",
+                          sessions: 0,
+                          struggling: 0,
+                          recommendedSessions: [
+                            { type: "review", label: "Weekly sweep", reason: "Saturday sweep", duration: 12 },
+                          ],
+                        });
+                      }
+                    });
+                  }
+
+                  return extra.length ? { ...day, tasks: [...extra, ...(day.tasks || [])] } : day;
+                });
+              })();
 
               return (
                 <div style={{ marginBottom: 28, padding: "0 16px 0" }}>
@@ -1137,6 +5045,260 @@ export default function Tracker({
                       </div>
                     )}
                   </div>
+
+                  <PressureBanner examDate={examDate} />
+
+                  {(() => {
+                    const sweepBannerState = getSweepBannerState(bid, completion || {}, lecs || []);
+                    return sweepBannerState && !sweepMode ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "12px 14px",
+                          borderRadius: 12,
+                          border: "1px solid " + ((sweepBannerState.dayOfWeek === 5 ? T.statusProgress : sweepBannerState.dayOfWeek === 6 ? T.statusWarn : T.statusBad) + "40"),
+                          background: (sweepBannerState.dayOfWeek === 5 ? T.statusProgress : sweepBannerState.dayOfWeek === 6 ? T.statusWarn : T.statusBad) + "12",
+                          borderLeft: "4px solid " + (sweepBannerState.dayOfWeek === 5 ? T.statusProgress : sweepBannerState.dayOfWeek === 6 ? T.statusWarn : T.statusBad),
+                          marginBottom: 12,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 900, color: sweepBannerState.dayOfWeek === 5 ? T.statusProgress : sweepBannerState.dayOfWeek === 6 ? T.statusWarn : T.statusBad }}>📅 {sweepBannerState.dayOfWeek === 5 ? "FRI" : sweepBannerState.dayOfWeek === 6 ? "SAT" : "SUN"}</span>
+                        <div style={{ flex: 1, minWidth: 180 }}>
+                          <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 900, color: T.text1 }}>{sweepBannerState.label}</div>
+                          <div style={{ fontFamily: MONO, fontSize: 11, color: T.text2 }}>
+                            [{sweepBannerState.sweepCount}] lectures to sweep · [{sweepBannerState.untouchedCount}] never touched this week
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSweepMode(true);
+                            sweepModeEnteredDateRef.current = new Date().toISOString().slice(0, 10);
+                          }}
+                          style={{ fontFamily: MONO, fontSize: 11, padding: "8px 14px", borderRadius: 8, border: "none", background: sweepBannerState.dayOfWeek === 5 ? T.statusProgress : sweepBannerState.dayOfWeek === 6 ? T.statusWarn : T.statusBad, color: "#fff", cursor: "pointer", fontWeight: 900 }}
+                        >
+                          Start Sweep
+                        </button>
+                      </div>
+                    ) : null;
+                  })()}
+
+                  {sweepMode && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, padding: "8px 12px", background: T.inputBg || (T.border1 + "22"), border: "1px solid " + T.border2, borderRadius: 8 }}>
+                      <span style={{ fontFamily: MONO, fontSize: 11, color: T.text1 }}>Sweep mode — showing this week&apos;s lectures</span>
+                      <button type="button" onClick={() => { setSweepMode(false); sweepModeEnteredDateRef.current = null; }} style={{ fontFamily: MONO, fontSize: 11, padding: "4px 8px", border: "none", background: T.border1, color: T.text2, borderRadius: 6, cursor: "pointer", fontWeight: 800 }}>✕ exit</button>
+                    </div>
+                  )}
+
+                  {(() => {
+                    const blockLectures = (lecs || []).filter((l) => l.blockId === bid);
+                    const cached = (() => {
+                      try {
+                        const raw = localStorage.getItem("rxt-weak-areas");
+                        const data = raw ? JSON.parse(raw) : null;
+                        const tenMin = 10 * 60 * 1000;
+                        if (data && data.blockId === bid && data.computedAt && Date.now() - data.computedAt < tenMin && Array.isArray(data.clusters)) {
+                          return data.clusters;
+                        }
+                      } catch {}
+                      const computed = computeWeakClusters(bid, completion || {}, blockLectures);
+                      try {
+                        localStorage.setItem("rxt-weak-areas", JSON.stringify({ blockId: bid, computedAt: Date.now(), clusters: computed }));
+                      } catch {}
+                      return computed;
+                    })();
+                    const displayClusters = weakAreaShowStrong ? cached : cached.filter((c) => c.level === "critical" || c.level === "weak" || c.level === "gaps");
+                    const levelBarColor = (level) => (level === "critical" ? T.statusBad : level === "weak" ? T.statusWarn : level === "gaps" ? T.statusProgress : T.statusGood);
+                    const levelStatus = (c) => {
+                      if (c.level === "critical") return { label: `⚠ [${c.strugglingCount}] struggling`, color: T.statusBad };
+                      if (c.level === "weak") return { label: "△ Weak cluster", color: T.statusWarn };
+                      if (c.level === "gaps") return { label: `○ [${c.untouchedCount}] not started`, color: T.statusNeutral || T.text4 };
+                      return { label: "✓ Looking good", color: T.statusGood };
+                    };
+                    return (
+                      <div style={{ marginBottom: 14 }}>
+                        <div
+                          onClick={() => setWeakAreaSummaryOpen((o) => !o)}
+                          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontFamily: MONO, fontSize: 12, fontWeight: 900, color: T.text2, marginBottom: 8, userSelect: "none" }}
+                        >
+                          <span style={{ fontSize: 10 }}>{weakAreaSummaryOpen ? "▾" : "▸"}</span>
+                          Block weak area summary
+                        </div>
+                        {weakAreaSummaryOpen && (
+                          <>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); setWeakAreaShowStrong((s) => !s); }}
+                                style={{ fontFamily: MONO, fontSize: 11, padding: "4px 10px", borderRadius: 6, border: "1px solid " + T.border1, background: weakAreaShowStrong ? T.inputBg : "transparent", color: T.text3, cursor: "pointer" }}
+                              >
+                                {weakAreaShowStrong ? "Hide strong areas" : "Show strong areas too"}
+                              </button>
+                            </div>
+                            {displayClusters.map((cluster, idx) => {
+                              const status = levelStatus(cluster);
+                              const barColor = levelBarColor(cluster.level);
+                              const barPct = Math.min(100, (cluster.avgScore / 3) * 100);
+                              const weekLabel = String(cluster.week) === "unscheduled" ? "Unscheduled" : "Week " + cluster.week;
+                              return (
+                                <div
+                                  key={`${cluster.week}-${cluster.type}-${idx}`}
+                                  onClick={() => setWeakAreaFilter({ week: cluster.week, type: cluster.type })}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    padding: "8px 12px",
+                                    marginBottom: 6,
+                                    background: T.cardBg,
+                                    border: "1px solid " + T.border2,
+                                    borderRadius: 8,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  <span style={{ fontFamily: MONO, fontSize: 11, color: T.text1, minWidth: 56 }}>{weekLabel}</span>
+                                  <span style={{ fontFamily: MONO, fontSize: 10, padding: "2px 8px", borderRadius: 999, border: "1px solid " + (T.statusProgress || T.border1), background: (T.statusProgress || T.border1) + "22", color: T.text1 }}>{cluster.type}</span>
+                                  <div style={{ flex: 1, minWidth: 80, height: 18, background: T.inputBg || (T.border1 + "40"), borderRadius: 4, overflow: "hidden" }}>
+                                    <div style={{ width: barPct + "%", height: "100%", background: barColor, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                      <span style={{ fontFamily: MONO, fontSize: 9, color: barPct > 40 ? "#fff" : T.text1 }}>{cluster.totalCount - cluster.untouchedCount}/{cluster.totalCount} lectures</span>
+                                    </div>
+                                  </div>
+                                  <span style={{ fontFamily: MONO, fontSize: 11, color: status.color, fontWeight: 800 }}>{status.label}</span>
+                                </div>
+                              );
+                            })}
+                            {displayClusters.length === 0 && (
+                              <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, padding: 8 }}>No weak clusters in this block</div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+                  {overdueList.length > 0 && (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ marginBottom: 8 }}>
+                        <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 900, color: T.statusBad }}>
+                          ⚠ {overdueList.length} overdue review{overdueList.length !== 1 ? "s" : ""}
+                        </div>
+                        <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>
+                          These were scheduled and missed — log them or reschedule
+                        </div>
+                      </div>
+
+                      {overdueList.map((entry) => {
+                        const lec = (lecs || []).find((l) => l.id === entry.lectureId) || null;
+                        const key = `${entry.lectureId}__${bid}`;
+                        const lastAct = entry.lastActivityDate ? new Date(entry.lastActivityDate) : null;
+                        const lastActLabel = lastAct ? lastAct.toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+                        const lastIcon = entry.activityLog?.[0]?.activityType ? mapActivityIcon(entry.activityLog[0].activityType) : "✏️";
+                        const conf = entry.lastConfidence || "okay";
+                        const confBadge =
+                          conf === "good" ? { label: "✓ Good", color: T.statusGood }
+                            : conf === "struggling" ? { label: "⚠ Struggling", color: T.statusBad }
+                              : { label: "△ Okay", color: T.statusWarn };
+                        const open = !!overdueOpen[key];
+                        const snoozed = snoozedToday[key] === todayISO;
+
+                        return (
+                          <div key={key} style={{ background: T.cardBg, border: "1px solid " + T.statusBadBorder, borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                              <div style={{ fontFamily: MONO, fontSize: 12, color: T.text1, fontWeight: 900, flex: 1, minWidth: 240 }}>
+                                {(lec?.lectureType || "LEC")} {lec?.lectureNumber ?? ""} — {lec?.lectureTitle || lec?.filename || entry.lectureId}
+                              </div>
+                              <div style={{ fontFamily: MONO, fontSize: 11, color: T.statusBad, fontWeight: 900 }}>
+                                ⚠ Overdue by {entry.daysOverdue} day{entry.daysOverdue !== 1 ? "s" : ""}
+                              </div>
+                              <div style={{ fontFamily: MONO, fontSize: 11, color: confBadge.color, fontWeight: 900 }}>
+                                {confBadge.label}
+                              </div>
+                              <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>
+                                {lastIcon} {lastActLabel}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setOverdueOpen((p) => ({ ...(p || {}), [key]: !open }))}
+                                style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: T.statusBad, color: "#fff", cursor: "pointer", fontWeight: 900 }}
+                              >
+                                Log Now
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => snoozeReview(entry.lectureId, bid)}
+                                disabled={snoozed}
+                                style={{
+                                  fontFamily: MONO,
+                                  fontSize: 11,
+                                  padding: "6px 10px",
+                                  borderRadius: 8,
+                                  border: "1px solid " + T.border1,
+                                  background: T.inputBg,
+                                  color: T.text2,
+                                  cursor: snoozed ? "default" : "pointer",
+                                  opacity: snoozed ? 0.6 : 1,
+                                  fontWeight: 900,
+                                }}
+                              >
+                                {snoozed ? "Snoozed" : "Snooze 1 day"}
+                              </button>
+                            </div>
+
+                            {open && (
+                              <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + T.border2 }}>
+                                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 8 }}>
+                                  <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusNeutral || T.text4 }}>Date completed</span>
+                                  <input
+                                    type="date"
+                                    value={(overdueOpen[key]?.date) || todayISO}
+                                    max={todayISO}
+                                    onChange={(e) => setOverdueOpen((p) => ({ ...(p || {}), [key]: { ...(p?.[key] || { open: true }), date: e.target.value, confidenceRating: (p?.[key]?.confidenceRating || "okay") } }))}
+                                    style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "6px 10px", color: T.text1, fontFamily: MONO, fontSize: 11 }}
+                                  />
+                                </div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
+                                  {[
+                                    { v: "good", label: "✓ Good", color: T.statusGood },
+                                    { v: "okay", label: "△ Okay", color: T.statusWarn },
+                                    { v: "struggling", label: "⚠ Struggling", color: T.statusBad },
+                                  ].map((opt) => {
+                                    const cur = overdueOpen[key]?.confidenceRating || "okay";
+                                    const active = cur === opt.v;
+                                    return (
+                                      <button
+                                        key={opt.v}
+                                        type="button"
+                                        onClick={() => setOverdueOpen((p) => ({ ...(p || {}), [key]: { ...(p?.[key] || { open: true }), confidenceRating: opt.v, date: (p?.[key]?.date || todayISO) } }))}
+                                        style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + (active ? opt.color : T.border1), background: active ? opt.color + "18" : T.cardBg, color: active ? opt.color : T.text2, cursor: "pointer", fontWeight: 900 }}
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    );
+                                  })}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const d = overdueOpen[key]?.date || todayISO;
+                                      const c = overdueOpen[key]?.confidenceRating || "okay";
+                                      logActivity(entry.lectureId, bid, "review", c, { date: d, examDate });
+                                      setOverdueOpen((p) => ({ ...(p || {}), [key]: false }));
+                                    }}
+                                    style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: T.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}
+                                  >
+                                    Save ✓
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
                   {result?.needsBlockStart && updateBlock && (
                     <div
@@ -1411,23 +5573,36 @@ export default function Tracker({
                                   </span>
                                 </div>
                                 {isDayExpanded &&
-                            day.tasks.map((task) => {
+                            (() => {
+                              const todayKey = todayKeyForSchedule();
+                              const sortedTasks = [...(day.tasks || [])].sort((a, b) => {
+                                const aLogged = hasLoggedToday(a.lec.id, bid, todayKey);
+                                const bLogged = hasLoggedToday(b.lec.id, bid, todayKey);
+                                if (aLogged === bLogged) return 0;
+                                return aLogged ? 1 : -1;
+                              });
+                              return sortedTasks.map((task) => {
                               const isTaskCollapsed = collapsedScheduleTasks.has(task.lec.id);
+                              const todayKeyInner = todayKeyForSchedule();
+                              const quickOpen = !!quickLogState[task.lec.id]?.open;
+                              const quickSubmitting = !!quickLogState[task.lec.id]?.submitting;
+                              const flash = flashTaskId?.lecId === task.lec.id ? flashTaskId.color : null;
+                              const loggedToday = hasLoggedToday(task.lec.id, bid, todayKeyInner);
+                              const todaySummary = getTodayActivitySummary(task.lec.id, bid, todayKeyInner);
+                              const cardBorderColor = quickOpen ? T.statusProgress : flash || (loggedToday && todaySummary ? (todaySummary.confidenceRating === "good" ? T.statusGood : todaySummary.confidenceRating === "struggling" ? T.statusBad : T.statusWarn) : null);
+                              const baseBorder = task.struggling > 0 ? T.statusBadBorder : task.sessions === 0 ? T.statusWarnBorder : T.border1;
+                              const draft = quickLogDraft[task.lec.id] || { activityType: "review", confidenceRating: "okay", note: "" };
                               return (
                                 <div
                                   key={task.lec.id}
                                   style={{
                                     background: T.cardBg,
-                                    border:
-                                      "1px solid " +
-                                      (task.struggling > 0
-                                        ? T.statusBadBorder
-                                        : task.sessions === 0
-                                          ? T.statusWarnBorder
-                                          : T.border1),
+                                    border: "1px solid " + (cardBorderColor || baseBorder),
+                                    borderLeft: cardBorderColor ? "3px solid " + cardBorderColor : undefined,
                                     borderRadius: 10,
                                     marginBottom: 8,
                                     overflow: "hidden",
+                                    transition: "border-color 0.6s, border-left-color 0.6s",
                                   }}
                                 >
                                   <div
@@ -1463,6 +5638,33 @@ export default function Tracker({
                                     >
                                       {task.lec.lectureTitle || task.lec.fileName}
                                     </span>
+                                    {(() => {
+                                      const c = getCompletion(task.lec.id, bid);
+                                      if (!c?.completedDate) return null;
+                                      const todayKey = todayKeyForSchedule();
+                                      const reviewDates = Array.isArray(c.reviewDates) ? c.reviewDates : [];
+                                      const done = Array.isArray(c.reviewsCompleted) ? c.reviewsCompleted : [];
+                                      const nextReview = reviewDates.find((d) => d >= todayKey && !done.includes(d)) || null;
+                                      if (!nextReview) return null;
+                                      return (
+                                        <span style={{ fontFamily: MONO, fontSize: 9, color: T.text3, flexShrink: 0 }}>
+                                          🔁 Next {new Date(nextReview + "T00:00:00").toLocaleDateString("en-US", { weekday:"short", month:"short", day:"numeric" })}
+                                        </span>
+                                      );
+                                    })()}
+                                    {task.matchReason && task.matchReason !== "scheduled-day" && (
+                                      <span
+                                        style={{
+                                          fontFamily: MONO,
+                                          fontSize: 9,
+                                          color: T.statusProgress,
+                                          fontWeight: 700,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {task.matchReason}
+                                      </span>
+                                    )}
                                     {task.matchReason === "scheduled-day" && (
                                       <span
                                         style={{
@@ -1538,6 +5740,188 @@ export default function Tracker({
                                         borderTop: "1px solid " + T.border2,
                                       }}
                                     >
+                                      {(() => {
+                                        const c = getCompletion(task.lec.id, bid);
+                                        const cKey = completionKey(task.lec.id, bid);
+                                        const draft = completionDrafts?.[cKey] || null;
+                                        const todayKey = todayKeyForSchedule();
+                                        const reviewDates = Array.isArray(c?.reviewDates) ? c.reviewDates : [];
+                                        const done = Array.isArray(c?.reviewsCompleted) ? c.reviewsCompleted : [];
+                                        const nextReview = reviewDates.find((d) => d >= todayKey && !done.includes(d)) || null;
+                                        const completedLabel = c?.completedDate
+                                          ? new Date(c.completedDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                          : null;
+
+                                        const dot = (d) => {
+                                          const filled = done.includes(d);
+                                          return (
+                                            <div
+                                              key={d}
+                                              title={d}
+                                              style={{
+                                                width: 8,
+                                                height: 8,
+                                                borderRadius: 999,
+                                                background: filled ? T.statusGood : "transparent",
+                                                border: "1.5px solid " + (filled ? T.statusGood : T.border1),
+                                              }}
+                                            />
+                                          );
+                                        };
+
+                                        if (!c?.completedDate) {
+                                          return (
+                                            <div style={{ marginTop: 10, marginBottom: 10 }}>
+                                              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                                <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                                                  <input
+                                                    type="checkbox"
+                                                    checked={!!draft?.open}
+                                                    onChange={(e) => {
+                                                      const open = e.target.checked;
+                                                      setCompletionDrafts((prev) => ({
+                                                        ...(prev || {}),
+                                                        [cKey]: open ? { open: true, ankiInRotation: false, confidenceRating: "okay" } : null,
+                                                      }));
+                                                    }}
+                                                  />
+                                                  <span style={{ fontFamily: MONO, fontSize: 12, color: T.text2 }}>
+                                                    ✓ Completed today
+                                                  </span>
+                                                </label>
+
+                                                {draft?.open && (
+                                                  <>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                      <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>Anki in rotation?</span>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                          setCompletionDrafts((prev) => ({
+                                                            ...(prev || {}),
+                                                            [cKey]: { ...draft, ankiInRotation: !draft.ankiInRotation },
+                                                          }))
+                                                        }
+                                                        style={{
+                                                          fontFamily: MONO,
+                                                          fontSize: 11,
+                                                          padding: "4px 10px",
+                                                          borderRadius: 8,
+                                                          border: "1px solid " + T.border1,
+                                                          background: draft.ankiInRotation ? (T.statusGoodBg || T.inputBg) : T.inputBg,
+                                                          color: draft.ankiInRotation ? T.statusGood : T.text2,
+                                                          cursor: "pointer",
+                                                        }}
+                                                      >
+                                                        {draft.ankiInRotation ? "✓ Yes" : "○ No"}
+                                                      </button>
+                                                    </div>
+
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                                      <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>Confidence:</span>
+                                                      {[
+                                                        { v: "good", label: "✓ Good", color: T.statusGood },
+                                                        { v: "okay", label: "△ Okay", color: T.statusWarn },
+                                                        { v: "struggling", label: "⚠ Struggling", color: T.statusBad },
+                                                      ].map((opt) => {
+                                                        const active = draft.confidenceRating === opt.v;
+                                                        return (
+                                                          <button
+                                                            key={opt.v}
+                                                            type="button"
+                                                            onClick={() =>
+                                                              setCompletionDrafts((prev) => ({
+                                                                ...(prev || {}),
+                                                                [cKey]: { ...draft, confidenceRating: opt.v },
+                                                              }))
+                                                            }
+                                                            style={{
+                                                              fontFamily: MONO,
+                                                              fontSize: 11,
+                                                              padding: "4px 10px",
+                                                              borderRadius: 8,
+                                                              border: "1px solid " + (active ? opt.color : T.border1),
+                                                              background: active ? opt.color + "18" : T.inputBg,
+                                                              color: active ? opt.color : T.text2,
+                                                              cursor: "pointer",
+                                                            }}
+                                                          >
+                                                            {opt.label}
+                                                          </button>
+                                                        );
+                                                      })}
+                                                    </div>
+
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        markLectureComplete(task.lec.id, bid, todayStr(), draft.confidenceRating, draft.ankiInRotation, examDate);
+                                                        setCompletionDrafts((prev) => ({ ...(prev || {}), [cKey]: null }));
+                                                      }}
+                                                      style={{
+                                                        background: tc,
+                                                        border: "none",
+                                                        color: "#fff",
+                                                        padding: "6px 12px",
+                                                        borderRadius: 8,
+                                                        cursor: "pointer",
+                                                        fontFamily: MONO,
+                                                        fontSize: 11,
+                                                        fontWeight: 700,
+                                                      }}
+                                                    >
+                                                      Confirm ✓
+                                                    </button>
+                                                  </>
+                                                )}
+                                              </div>
+                                            </div>
+                                          );
+                                        }
+
+                                        return (
+                                          <div style={{ marginTop: 10, marginBottom: 10 }}>
+                                            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                                              <span style={{ fontFamily: MONO, fontSize: 12, color: T.statusGood, fontWeight: 700 }}>
+                                                ✓ Completed {completedLabel}
+                                              </span>
+                                              <span style={{ fontFamily: MONO, fontSize: 11, color: T.text2 }}>
+                                                Anki: {c.ankiInRotation ? "✓ in rotation" : "○ not in rotation"}
+                                              </span>
+                                              <span style={{ fontFamily: MONO, fontSize: 11, color: T.text2 }}>
+                                                Next review:{" "}
+                                                {nextReview
+                                                  ? new Date(nextReview + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+                                                  : "—"}
+                                              </span>
+                                              {(task.matchReason === "🔁 REVIEW DUE" || task.matchReason === "📅 WEEKLY SWEEP") && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => markLectureReviewedToday(task.lec.id, bid)}
+                                                  style={{
+                                                    fontFamily: MONO,
+                                                    fontSize: 10,
+                                                    padding: "5px 10px",
+                                                    borderRadius: 8,
+                                                    border: "1px solid " + T.border1,
+                                                    background: T.inputBg,
+                                                    color: T.text2,
+                                                    cursor: "pointer",
+                                                  }}
+                                                >
+                                                  ✓ Mark reviewed today
+                                                </button>
+                                              )}
+                                            </div>
+                                            {reviewDates.length > 0 && (
+                                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+                                                {reviewDates.map(dot)}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
+
                                       {(task.recommendedSessions || []).map((rec, ri) => (
                                         <div
                                           key={ri}
@@ -1638,11 +6022,122 @@ export default function Tracker({
                                           </button>
                                         </div>
                                       ))}
+
+                                      {/* Quick log inline — Mark done / Logged today */}
+                                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid " + T.border2 }}>
+                                        {!loggedToday && !quickOpen && (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setQuickLogState((p) => ({ ...(p || {}), [task.lec.id]: { open: true, submitting: false } }));
+                                              setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { activityType: "review", confidenceRating: "okay", note: "" } }));
+                                              setQuickLogNoteOpen((p) => ({ ...(p || {}), [task.lec.id]: false }));
+                                            }}
+                                            style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + T.border1, background: T.inputBg, color: T.text2, cursor: "pointer" }}
+                                          >
+                                            ✓ Mark done
+                                          </button>
+                                        )}
+                                        {loggedToday && !quickOpen && (
+                                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                            <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusGood }}>✓ Logged today — {todaySummary ? (mapActivityIcon(todaySummary.activityType) + " ") : ""}{todaySummary?.confidenceRating === "good" ? "✓ Good" : todaySummary?.confidenceRating === "struggling" ? "⚠ Struggling" : "△ Okay"}</span>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                setQuickLogState((p) => ({ ...(p || {}), [task.lec.id]: { open: true, submitting: false } }));
+                                                setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { activityType: "review", confidenceRating: "okay", note: "" } }));
+                                                setQuickLogNoteOpen((p) => ({ ...(p || {}), [task.lec.id]: false }));
+                                              }}
+                                              style={{ fontFamily: MONO, fontSize: 10, border: "none", background: "none", color: T.statusProgress, cursor: "pointer", textDecoration: "underline" }}
+                                            >
+                                              + Log another
+                                            </button>
+                                          </div>
+                                        )}
+                                        {quickOpen && (
+                                          <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6 }}>
+                                            <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 6 }}>Activity type</div>
+                                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                              {[
+                                                { v: "deep_learn", label: "🧠 Deep Learn" },
+                                                { v: "review", label: "📖 Review" },
+                                                { v: "anki", label: "🃏 Anki" },
+                                                { v: "questions", label: "❓ Questions" },
+                                                { v: "notes", label: "📝 Notes" },
+                                                { v: "sg_tbl", label: "👥 SG/TBL" },
+                                              ].map((opt) => (
+                                                <button
+                                                  key={opt.v}
+                                                  type="button"
+                                                  onClick={() => setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { ...draft, activityType: opt.v } }))}
+                                                  style={{ fontFamily: MONO, fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid " + (draft.activityType === opt.v ? T.statusProgress : T.border1), background: draft.activityType === opt.v ? (T.statusProgress + "18") : T.cardBg, color: draft.activityType === opt.v ? T.statusProgress : T.text2, cursor: "pointer" }}
+                                                >
+                                                  {opt.label}
+                                                </button>
+                                              ))}
+                                            </div>
+                                            <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 6 }}>How did it go?</div>
+                                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                              {[
+                                                { v: "good", label: "✓ Good", color: T.statusGood },
+                                                { v: "okay", label: "△ Okay", color: T.statusWarn },
+                                                { v: "struggling", label: "⚠ Struggling", color: T.statusBad },
+                                              ].map((opt) => (
+                                                <button
+                                                  key={opt.v}
+                                                  type="button"
+                                                  onClick={() => setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { ...draft, confidenceRating: opt.v } }))}
+                                                  style={{ fontFamily: MONO, fontSize: 10, padding: "4px 8px", borderRadius: 8, border: "1px solid " + (draft.confidenceRating === opt.v ? opt.color : T.border1), background: draft.confidenceRating === opt.v ? (opt.color + "18") : T.cardBg, color: draft.confidenceRating === opt.v ? opt.color : T.text2, cursor: "pointer" }}
+                                                >
+                                                  {opt.label}
+                                                </button>
+                                              ))}
+                                            </div>
+                                            {quickLogNoteOpen[task.lec.id] ? (
+                                              <input
+                                                type="text"
+                                                placeholder="Quick note (optional)"
+                                                value={draft.note || ""}
+                                                onChange={(e) => setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { ...draft, note: e.target.value } }))}
+                                                style={{ width: "100%", marginBottom: 8, padding: "6px 10px", border: "1px solid " + T.border1, borderRadius: 8, fontFamily: MONO, fontSize: 11, background: T.cardBg, color: T.text1 }}
+                                              />
+                                            ) : (
+                                              <button type="button" onClick={() => setQuickLogNoteOpen((p) => ({ ...(p || {}), [task.lec.id]: true }))} style={{ fontFamily: MONO, fontSize: 10, border: "none", background: "none", color: T.text3, cursor: "pointer", marginBottom: 8, textDecoration: "underline" }}>+ add note</button>
+                                            )}
+                                            <button
+                                              type="button"
+                                              disabled={quickSubmitting}
+                                              onClick={() => {
+                                                setQuickLogState((p) => ({ ...(p || {}), [task.lec.id]: { ...(p || {})[task.lec.id], submitting: true } }));
+                                                const conf = draft.confidenceRating || "okay";
+                                                logActivity(task.lec.id, task.lec.blockId || bid, draft.activityType || "review", conf, { note: draft.note || null, date: todayKeyInner, examDate: examDate || null });
+                                                setQuickLogState((p) => ({ ...(p || {}), [task.lec.id]: { open: false, submitting: false } }));
+                                                setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: undefined }));
+                                                setQuickLogNoteOpen((p) => ({ ...(p || {}), [task.lec.id]: false }));
+                                                setRefreshKey((k) => k + 1);
+                                                if (conf === "struggling") {
+                                                  setFlashTaskId({ lecId: task.lec.id, color: T.statusBad });
+                                                  setTimeout(() => setFlashTaskId(null), 600);
+                                                } else if (conf === "good") {
+                                                  setFlashTaskId({ lecId: task.lec.id, color: T.statusGood });
+                                                  setTimeout(() => setFlashTaskId(null), 600);
+                                                }
+                                              }}
+                                              style={{ fontFamily: MONO, fontSize: 11, padding: "6px 12px", borderRadius: 8, border: "none", background: T.statusProgress, color: "#fff", cursor: quickSubmitting ? "default" : "pointer", fontWeight: 700 }}
+                                            >
+                                              {quickSubmitting ? "Saving…" : "Save"}
+                                            </button>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
                               );
-                            })}
+                            });
+                            })()}
                                 </>
                               ) : (
                                 <div
@@ -1790,1182 +6285,37 @@ export default function Tracker({
               );
             })()}
 
-            {import.meta.env.DEV && (
-              <details style={{ marginBottom: 12, padding: "0 16px" }}>
-                <summary style={{ fontFamily: MONO, color: t.text3,
-                  fontSize: 10, cursor: "pointer" }}>
-                  🔧 Debug: Performance Keys ({Object.keys(performanceHistory || {}).length})
-                </summary>
-                <div style={{ fontFamily: MONO, fontSize: 9, color: t.text3,
-                  padding: 8, background: t.inputBg, borderRadius: 6,
-                  maxHeight: 200, overflowY: "auto" }}>
-                  {Object.entries(performanceHistory || {}).map(([k, v]) => (
-                    <div key={k}>
-                      <strong>{k}</strong> — {v.sessions?.length || 0} sessions,
-                      last: {v.lastStudied ? new Date(v.lastStudied).toLocaleDateString() : "never"},
-                      score: {v.lastScore ?? "—"}%
-                    </div>
-                  ))}
-                </div>
-              </details>
-            )}
+            {/* Calendar tab (Step A): existing exam date selector (unchanged) */}
+            {activeTab === "calendar" && (() => {
+              const blockId = trackerBlockId || activeBlock?.id;
+              const block = blockId
+                ? Object.values(blocks || {}).find((b) => b.id === blockId)
+                : Object.values(blocks || {})[0];
+              const bid = block?.id || blockId;
+              if (!bid) return null;
 
-            {/* Block Overview Cards */}
-            {visibleBlocks.length > 0 && (
-              <div style={{ padding:"12px 16px 4px" }}>
-                {visibleBlocks.map(block => {
-                  const blockObjs  = getBlockObjectives(block.id) || [];
-                  const blockLecs  = (lecs || []).filter(l => l.blockId === block.id);
-                  const isCurrent  = activeBlock && block.id === activeBlock.id;
-                  const tc = termColor || block.termColor || t.red;
-
+              const examDate = examDates[bid] || "";
               return (
-                    <div
-                      key={block.id}
-                      style={{
-                        background:t.cardBg,
-                        border:"1px solid "+(isCurrent?tc:t.border1),
-                        borderRadius:14,
-                        padding:"20px 24px",
-                        marginBottom:16,
-                      }}
-                    >
-                      {/* Block header */}
-                      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:16 }}>
-                        <div>
-                          <div style={{ fontFamily:SERIF, color:t.text1, fontSize:18, fontWeight:900 }}>
-                            {block.name}
-                  </div>
-                          <div style={{ fontFamily:MONO, color:t.text3, fontSize:11, marginTop:2 }}>
-                            {blockLecs.length} lectures · {blockObjs.length} objectives
-                        </div>
-                      </div>
-                        <div style={{ textAlign:"right", display:"flex", alignItems:"center", gap:8, justifyContent:"flex-end" }}>
-                          {onRealignObjectives && (
-                            <button
-                              type="button"
-                              onClick={() => onRealignObjectives(block.id)}
-                              style={{
-                                fontFamily: MONO,
-                                fontSize: 10,
-                                padding: "4px 10px",
-                                borderRadius: 6,
-                                border: "1px solid " + t.border1,
-                                background: t.inputBg,
-                                color: t.text3,
-                                cursor: "pointer",
-                              }}
-                            >
-                              ↻ Re-align objectives
-                            </button>
-                          )}
-                          {block.status === "completed" && (
-                            <span
-                              style={{
-                                fontFamily:MONO,
-                                color:t.statusGood,
-                                fontSize:11,
-                                background:t.statusGoodBg,
-                                padding:"4px 10px",
-                                borderRadius:6,
-                                border:"1px solid "+t.statusGoodBorder,
-                              }}
-                            >
-                              ✓ Complete
-                            </span>
-                          )}
-                          {isCurrent && block.status !== "completed" && (
-                            <span
-                              style={{
-                                fontFamily:MONO,
-                                color:tc,
-                                fontSize:11,
-                                background:tc+"18",
-                                padding:"4px 10px",
-                                borderRadius:6,
-                              }}
-                            >
-                              Current
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Main tracker table: one row per lecture */}
-                      {(() => {
-                        const urgencyColor = {
-                          overdue: t.statusBad,
-                          soon: t.statusWarn,
-                          weak: t.statusWarn,
-                          untouched: t.text3,
-                          ok: t.statusGood,
-                          inprogress: t.statusWarn,
-                          reviewed: t.statusGood,
-                        };
-                        const urgencyLabel = {
-                          overdue: "● Overdue",
-                          soon: "● Due Soon",
-                          weak: "● Weak",
-                          untouched: "○ Not Started",
-                          ok: "✓ OK",
-                          inprogress: "◑ In Progress",
-                          reviewed: "✓ Reviewed",
-                        };
-
-                        const tableRows = lecRowsByBlock[block.id] || [];
-                        const urgencyForDisplay = (row) =>
-                          row.status === "inprogress" ? "inprogress" : row.status === "reviewed" ? "reviewed" : row.urgency;
-
-                        const untestedGroups = (computeWeakAreas ? (computeWeakAreas(block.id) || []) : [])
-                          .filter(area =>
-                            !blockLecs.some(l =>
-                              area.activity === ("Lec" + (l.lectureNumber || "")) ||
-                              area.lectureTitle === l.lectureTitle
-                            )
-                          );
-
-                        const filteredLecRows = showNotStarted
-                          ? tableRows
-                          : tableRows.filter(row => row.urgency !== "untouched");
-
-                        return (
-                          <div style={{ overflowX: "auto" }}>
-                            {/* Block summary bar */}
-                            <div style={{ display: "flex", gap: 16, padding: "12px 16px", background: t.inputBg, borderRadius: 10, marginBottom: 12, flexWrap: "wrap" }}>
-                              <span style={{ fontFamily: MONO, color: t.statusGood, fontSize: 11 }}>
-                                ✓ {tableRows.filter(r => r.urgency === "ok").length} on track
-                              </span>
-                              <span style={{ fontFamily: MONO, color: t.statusBad, fontSize: 11 }}>
-                                ⚠ {tableRows.filter(r => r.urgency === "weak").length} need work
-                              </span>
-                              <span style={{ fontFamily: MONO, color: t.statusNeutral, fontSize: 11 }}>
-                                ○ {tableRows.filter(r => r.urgency === "untouched").length} not started
-                              </span>
-                              <span style={{ fontFamily: MONO, color: t.statusWarn, fontSize: 11 }}>
-                                ⏰ {tableRows.filter(r => r.urgency === "overdue").length} overdue
-                              </span>
-                            </div>
-                            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-                              <colgroup>
-                                <col style={{ width: 28 }} />
-                                <col style={{ width: "35%" }} />
-                                <col style={{ width: 100 }} />
-                                <col style={{ width: 110 }} />
-                                <col style={{ width: 80 }} />
-                                <col style={{ width: 100 }} />
-                                <col style={{ width: 110 }} />
-                                <col style={{ width: 70 }} />
-                              </colgroup>
-                              <thead>
-                                <tr style={{ borderBottom: "2px solid " + t.border1 }}>
-                                  {["", "Lecture", "Status", "First Studied", "Last Score", "Confidence", "Next Review", "Sessions"].map(col => (
-                                    <th
-                                      key={col || "chevron"}
-                                      style={{
-                                        fontFamily: MONO,
-                                        color: t.text3,
-                                        fontSize: 10,
-                                        letterSpacing: 1,
-                                        textAlign: ["", "Last Score", "Confidence", "Sessions"].includes(col) ? "center" : "left",
-                                        padding: "8px 8px",
-                                        fontWeight: 600,
-                                        whiteSpace: "nowrap",
-                                        overflow: "hidden",
-                                      }}
-                                    >
-                                      {col}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {filteredLecRows.map(row => {
-                                  const rowKey = block.id + "_" + row.lec.id;
-                                  const expanded = expandedRows.has(rowKey);
-                                  const sessionsByType = {
-                                    deepLearn: row.lecSessions.filter(s => (s.sessionType || "").toLowerCase() === "deeplearn"),
-                                    flashcards: row.lecSessions.filter(s => (s.sessionType || "").toLowerCase() === "flashcards"),
-                                    quiz: row.lecSessions.filter(s => {
-                                      const st = (s.sessionType || "").toLowerCase();
-                                      return st === "quiz" || st === "objectivequiz";
-                                    }),
-                                    blockExam: row.lecSessions.filter(s => (s.sessionType || "").toLowerCase() === "blockexam"),
-                                    anki: row.lecSessions.filter(s => (s.sessionType || "").toLowerCase() === "anki"),
-                                    other: row.lecSessions.filter(s => !["deeplearn", "flashcards", "quiz", "objectivequiz", "blockexam", "anki"].includes((s.sessionType || "").toLowerCase())),
-                                  };
-                                  const typeLabels = {
-                                    deepLearn: { icon: "🧠", label: "Deep Learn" },
-                                    flashcards: { icon: "🃏", label: "Flashcards" },
-                                    quiz: { icon: "✅", label: "Quiz" },
-                                    blockExam: { icon: "📝", label: "Block Exam" },
-                                    anki: { icon: "📇", label: "Anki" },
-                                    other: { icon: "📖", label: "Other" },
-                                  };
-                                  const bestScore = row.lecSessions.length ? Math.max(...row.lecSessions.map(s => s.score || 0)) : null;
-                                  const lastScore = row.lecSessions.slice(-1)[0]?.score ?? null;
-                                  const totalSessions = row.lecSessions.length;
-
-                                  return (
-                                    <React.Fragment key={row.lec.id}>
-                                      <tr
-                                        onClick={() => totalSessions > 0 && toggleRow(rowKey)}
-                                        style={{
-                                          borderBottom: "1px solid " + t.border2,
-                                          cursor: totalSessions > 0 ? "pointer" : "default",
-                                          background: expanded ? t.inputBg : "transparent",
-                                          transition: "background 0.15s",
-                                        }}
-                                        onMouseEnter={e => (e.currentTarget.style.background = t.hoverBg)}
-                                        onMouseLeave={e => (e.currentTarget.style.background = expanded ? t.inputBg : "transparent")}
-                                      >
-                                        <td style={{ padding: "12px 8px", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          {totalSessions > 0 && (
-                                            <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10, transform: expanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▶</span>
-                                          )}
-                                        </td>
-                                        <td style={{ padding: "12px 8px", overflow: "hidden" }}>
-                                          <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                                            {lecTypeBadge ? lecTypeBadge(row.lec.lectureType || "LEC") : <span style={{ fontFamily: MONO, fontSize: 10, fontWeight: 700, flexShrink: 0 }}>{row.lec.lectureType || "LEC"}</span>}
-                                            <div style={{ minWidth: 0, flex: 1 }}>
-                                              <div style={{ fontFamily: MONO, color: t.text1, fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                {(() => {
-                                                  const title = (row.lec.lectureTitle || "").trim();
-                                                  const fileName = (row.lec.fileName || row.lec.filename || "").replace(/\.pdf$/i, "").trim();
-                                                  if (title && title.toLowerCase() !== fileName.toLowerCase()) return title;
-                                                  return title || fileName;
-                                                })()}
-                                              </div>
-                                              <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                {(row.lec.lectureType || "LEC") + (row.lec.lectureNumber ?? "")}
-                                                {row.total > 0 && ` · ${row.mastered}/${row.total} obj`}
-                                                {row.struggling > 0 && ` · ⚠${row.struggling}`}
-                                                {" "}
-                                                {Object.entries(sessionsByType).map(([type, sessions]) =>
-                                                  sessions.length > 0 ? typeLabels[type].icon : null
-                                                ).filter(Boolean).join(" ")}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </td>
-                                        <td style={{ padding: "12px 8px", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color: urgencyColor[urgencyForDisplay(row)] }}>{urgencyLabel[urgencyForDisplay(row)]}</span>
-                                        </td>
-                                        <td style={{ padding: "12px 8px", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          <div style={{ fontFamily: MONO, color: t.text2, fontSize: 12 }}>
-                                            {row.firstStudied ? row.firstStudied.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : <span style={{ color: t.text3 }}>—</span>}
-                                          </div>
-                                          {row.lastStudied && row.firstStudied && row.lastStudied.getTime() !== row.firstStudied.getTime() && (
-                                            <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>Last: {row.lastStudied.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                                          )}
-                                        </td>
-                                        <td style={{ padding: "12px 8px", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          {lastScore != null ? (
-                                            <div>
-                                              <div style={{ fontFamily: MONO, fontSize: 14, fontWeight: 900, color: getScoreColor(t, lastScore ?? 0) }}>{lastScore}%</div>
-                                              {bestScore !== lastScore && bestScore != null && <div style={{ fontFamily: MONO, color: t.statusGood, fontSize: 9 }}>best {bestScore}%</div>}
-                                            </div>
-                                          ) : <span style={{ color: t.text3, fontSize: 12 }}>—</span>}
-                                        </td>
-                                        <td style={{ padding: "12px 8px", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          <span style={{ fontFamily: MONO, fontSize: 12, color: row.confidence === "High" ? t.statusGood : row.confidence === "Medium" ? t.statusWarn : row.confidence === "Low" ? t.statusBad : t.text3 }}>
-                                            {row.confidence === "High" ? "💪 High" : row.confidence === "Medium" ? "😐 Medium" : row.confidence === "Low" ? "😰 Low" : "—"}
-                                          </span>
-                                        </td>
-                                        <td style={{ padding: "12px 8px", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          {row.nextReview ? (
-                                            <span>
-                                              <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: getUrgencyColor(t, row.daysUntil <= 0 ? "overdue" : row.daysUntil <= 3 ? "soon" : "ok") }}>
-                                                {row.daysUntil <= 0 ? "Today" : row.daysUntil === 1 ? "Tomorrow" : "In " + row.daysUntil + "d"}
-                                                <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, fontWeight: 400 }}>{row.nextReview.toLocaleDateString("en-US", { month: "short", day: "numeric" })}</div>
-                                              </span>
-                                              {!isCurrent && row.daysUntil > 7 && (
-                                                <span style={{ fontFamily: MONO, fontSize: 9, color: t.statusProgress, background: t.statusProgressBg, padding: "2px 6px", borderRadius: 3, border: "1px solid " + t.statusProgressBg, marginLeft: 6, display: "inline-block", marginTop: 4 }}>
-                                                  🔄 Review in {row.daysUntil}d
-                                                </span>
-                                              )}
-                                            </span>
-                                          ) : <span style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>Not scheduled</span>}
-                                        </td>
-                                        <td style={{ padding: "12px 8px", textAlign: "center", whiteSpace: "nowrap", overflow: "hidden" }}>
-                                          <span style={{ fontFamily: MONO, color: t.text2, fontSize: 13, fontWeight: 700 }}>{totalSessions || <span style={{ color: t.text3 }}>0</span>}</span>
-                                        </td>
-                                      </tr>
-                                      {expanded && totalSessions > 0 && (
-                                        <tr>
-                                          <td colSpan={8} style={{ padding: 0 }}>
-                                            <div style={{ background: t.inputBg, borderBottom: "1px solid " + t.border1, padding: "12px 16px 12px 40px" }}>
-                                              {Object.entries(sessionsByType).map(([type, sessions]) => {
-                                                if (!sessions.length) return null;
-                                                const { icon, label } = typeLabels[type];
-                                                const typeAvg = Math.round(sessions.reduce((a, s) => a + (s.score || 0), 0) / sessions.length);
-                                                return (
-                                                  <div key={type} style={{ marginBottom: 10 }}>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                                                      <span style={{ fontSize: 13 }}>{icon}</span>
-                                                      <span style={{ fontFamily: MONO, color: t.text2, fontSize: 11, fontWeight: 700 }}>{label}</span>
-                                                      <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>{sessions.length} session{sessions.length !== 1 ? "s" : ""} · avg {typeAvg}%</span>
-                                                    </div>
-                                                    {[...sessions].sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0)).map((s, si) => (
-                                                      <div key={si} style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 10px", borderRadius: 7, marginBottom: 3, background: t.cardBg, border: "1px solid " + t.border2, overflow: "hidden" }}>
-                                                        <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10, minWidth: 80, flexShrink: 0 }}>{s.date ? new Date(s.date).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—"}</div>
-                                                        <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 900, minWidth: 40, flexShrink: 0, color: getScoreColor(t, s.score ?? 0) }}>{s.score != null ? s.score + "%" : "—"}</div>
-                                                        <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.questionCount ? s.questionCount + " questions" : s.cardCount ? s.cardCount + " cards" : ""}{s.difficulty ? " · " + s.difficulty : ""}</div>
-                                                        {s.sessionType === "anki" && (
-                                                          <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10, display: "flex", gap: 10, flexShrink: 0, whiteSpace: "nowrap" }}>
-                                                            {s.newCards > 0 && <span>+{s.newCards} new</span>}
-                                                            {s.reviewCards > 0 && <span>{s.reviewCards} reviews</span>}
-                                                            {s.retention && <span>{s.retention}% retention</span>}
-                                                            {s.timeSpent && <span>{s.timeSpent} min</span>}
-                                                            {s.notes && <span style={{ color: t.text2, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 120 }}>"{s.notes}"</span>}
-                                                          </div>
-                                                        )}
-                                                        {s.preSAQScore != null && <div style={{ fontFamily: MONO, fontSize: 10, color: t.text3, flexShrink: 0 }}>SAQ {s.preSAQScore}% → MCQ {s.postMCQScore}%</div>}
-                                                        {s.confidenceLevel && <div style={{ fontFamily: MONO, fontSize: 10, color: s.confidenceLevel === "High" ? t.statusGood : s.confidenceLevel === "Medium" ? t.statusWarn : t.statusBad, flexShrink: 0 }}>{s.confidenceLevel === "High" ? "💪" : s.confidenceLevel === "Medium" ? "😐" : "😰"} {s.confidenceLevel}</div>}
-                    </div>
-                  ))}
-                </div>
+                <CalendarTabContent
+                  blockId={bid}
+                  examDate={examDate}
+                  // keep existing onChange handler exactly as-is
+                  examDateInputOnChange={(e) => saveExamDate && saveExamDate(bid, e.target.value)}
+                  completion={completion}
+                  lecs={lecs}
+                  getPressureZone={getPressureZone}
+                  logActivity={logActivity}
+                  setRefreshKey={setRefreshKey}
+                  theme={t}
+                  MONO={MONO}
+                />
               );
-            })}
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      )}
-                                    </React.Fragment>
-                                  );
-                                })}
+            })()}
 
-                                {untestedGroups.slice(0, 3).map(area => (
-                                  <tr
-                                    key={area.activity}
-                                    style={{ borderBottom: "1px solid " + t.border2, opacity: 0.7 }}
-                                  >
-                                    <td style={{ padding: "12px 12px" }}>
-                                      <div style={{ fontFamily: MONO, color: t.text2, fontSize: 13 }}>
-                                        {area.lectureTitle || area.activity}
-                                      </div>
-                                      <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
-                                        No lecture uploaded · {(area.untested ?? 0)} untested objectives
-                                      </div>
-                                    </td>
-                                    <td style={{ padding: "12px 12px" }}>
-                                      <span style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>
-                                        ○ No lecture
-                                      </span>
-                                    </td>
-                                    <td colSpan={6} style={{ padding: "12px 12px" }}>
-                                      <span style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>
-                                        Upload lecture to start tracking
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-
-                            {filteredLecRows.length === 0 && untestedGroups.length === 0 && (
-                              <div
-                                style={{
-                                  textAlign: "center",
-                                  padding: "32px 0",
-                                  fontFamily: MONO,
-                                  color: t.text3,
-                                  fontSize: 13,
-                                }}
-                              >
-                                No lectures uploaded yet for this block.
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  );
-                })}
+            {activeTab === "weakConcepts" && weakConceptsTabContent && (
+              <div style={{ padding: "16px 24px", maxWidth: 960, margin: "0 auto", width: "100%" }}>
+                {weakConceptsTabContent}
               </div>
-            )}
-
-            {/* Study log across all blocks — behind toggle */}
-            {globalStudyLog.length > 0 && (
-              <div style={{ marginTop: 8, marginLeft: 16, marginRight: 16, marginBottom: 12 }}>
-                <button
-                  onClick={() => setShowStudyLog(prev => !prev)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: "pointer",
-                    fontFamily: MONO,
-                    color: t.text3,
-                    fontSize: 11,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: 0,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 10,
-                      transform: showStudyLog ? "rotate(90deg)" : "rotate(0deg)",
-                      transition: "transform 0.2s",
-                      display: "inline-block",
-                    }}
-                  >
-                    ▶
-                  </span>
-                  {showStudyLog ? "Hide" : "Show"} Recent Study Activity
-                </button>
-                {showStudyLog && (
-                  <div
-                    style={{
-                      background: t.cardBg,
-                      border: "1px solid " + t.border1,
-                      borderRadius: 14,
-                      padding: "20px 24px",
-                      marginTop: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontFamily: MONO,
-                        color: t.text3,
-                        fontSize: 9,
-                        letterSpacing: 1.5,
-                        marginBottom: 14,
-                      }}
-                    >
-                      RECENT STUDY ACTIVITY
-                    </div>
-                    {globalStudyLog.map((entry, i) => (
-                      <div
-                        key={i}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 12,
-                          padding: "9px 0",
-                          borderBottom: "1px solid " + t.border2,
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 9,
-                            height: 9,
-                            borderRadius: "50%",
-                            flexShrink: 0,
-                            background: getScoreColor(t, entry.score ?? 0),
-                          }}
-                        />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: MONO, color: t.text1, fontSize: 13 }}>
-                            {entry.label}
-                          </div>
-                          <div style={{ fontFamily: MONO, color: t.text3, fontSize: 10, marginTop: 1 }}>
-                            {new Date(entry.date).toLocaleDateString("en-US",
-                              { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                            {entry.questionCount ? ` · ${entry.questionCount}q` : ""}
-                            {entry.difficulty ? ` · ${entry.difficulty}` : ""}
-                          </div>
-                        </div>
-                        <div
-                          style={{
-                            fontFamily: MONO,
-                            fontWeight: 900,
-                            fontSize: 16,
-                            color: getScoreColor(t, entry.score ?? 0),
-                          }}
-                        >
-                          {Math.round(entry.score)}%
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Manual study log toggle */}
-            <div
-              onClick={() => setShowManualLog(p => !p)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "12px 16px",
-                borderTop: "1px solid " + t.border1,
-                cursor: "pointer",
-                userSelect: "none",
-                marginTop: 24,
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = t.hoverBg)}
-              onMouseLeave={e => (e.currentTarget.style.background = "none")}
-            >
-              <span style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5, flex: 1 }}>
-                📋 MANUAL STUDY LOG
-              </span>
-              <span style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>
-                {rows.length} rows
-              </span>
-              <span
-                style={{
-                  fontFamily: MONO,
-                  color: t.text3,
-                  fontSize: 12,
-                  transform: showManualLog ? "rotate(90deg)" : "rotate(0deg)",
-                  display: "inline-block",
-                  transition: "transform 0.2s",
-                }}
-              >
-                ▶
-              </span>
-            </div>
-
-            {showManualLog && (
-            <div style={{ padding: "0 16px 24px" }}>
-              {visible.length === 0 && (
-                <div style={{ padding: "70px 0", textAlign: "center" }}>
-                  <div style={{ fontSize: 38, marginBottom: 12 }}>📋</div>
-                  <p style={{ color: t.text5, fontSize: 15 }}>No rows found. Adjust filters or add a new row.</p>
-                </div>
-              )}
-              {visible.length > 0 &&
-                (() => {
-                  const blockRows = filter === "All" ? visible : visible.filter((r) => r.block === filter);
-                  const groups = {};
-                  blockRows.forEach((row) => {
-                    const key = row.lectureId || row.topic || row.id;
-                    if (!groups[key]) {
-                      groups[key] = {
-                        key,
-                        lectureId: row.lectureId,
-                        block: row.block,
-                        subject: row.subject,
-                        topic: row.topic,
-                        rows: [],
-                      };
-                    }
-                    groups[key].rows.push(row);
-                  });
-                  const tc = termColor || t.red;
-                  const checkIcons = ["📚", "🎓", "✏️", "👻"];
-                  return (
-                    <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
-                      <colgroup>
-                        <col style={{ width: 24 }} />
-                        <col style={{ width: 70 }} />
-                        <col style={{ width: 100 }} />
-                        <col style={{ width: "30%" }} />
-                        <col style={{ width: 80 }} />
-                        <col style={{ width: 100 }} />
-                        <col style={{ width: 60 }} />
-                        <col style={{ width: 28 }} />
-                        <col style={{ width: 28 }} />
-                        <col style={{ width: 28 }} />
-                        <col style={{ width: 28 }} />
-                        <col style={{ width: 100 }} />
-                        <col style={{ width: 110 }} />
-                        <col style={{ width: 60 }} />
-                        <col style={{ width: 60 }} />
-                        <col style={{ width: 24 }} />
-                      </colgroup>
-                      <thead>
-                        <tr style={{ borderBottom: "2px solid " + t.border1 }}>
-                          {COL_HEADS.map((h, i) => (
-                            <th
-                              key={i}
-                              title={COL_TIPS[i]}
-                              style={{
-                                fontFamily: MONO,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                color: t.text5,
-                                letterSpacing: 1,
-                                textAlign: [0, 7, 8, 9, 10, 12, 13].includes(i) ? "center" : "left",
-                                padding: "8px",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.values(groups).map((group) => {
-                          const open = openStudyLogGroups[group.key] !== false;
-                          const allChecks = group.rows.map((r) => [
-                            r.preRead,
-                            r.lecture,
-                            r.postReview,
-                            r.anki,
-                          ]);
-                          const mergedChecks = [0, 1, 2, 3].map((i) => allChecks.some((c) => c[i]));
-                          const lastStudied = group.rows
-                            .map((r) => r.lastStudied)
-                            .filter(Boolean)
-                            .sort()
-                            .slice(-1)[0];
-                          const allScores = group.rows.flatMap((r) => r.scores || []).filter((s) => typeof s === "number");
-                          const bestScore = allScores.length ? Math.max(...allScores) : null;
-                          const confidence = group.rows.find((r) => r.confidence)?.confidence ?? null;
-                          const confLabel = confidence ? getConf(confidence).label : null;
-                          const sessionCount = group.rows.length;
-                          const daysAgo = lastStudied
-                            ? Math.floor(
-                                (new Date() - new Date(lastStudied)) / (1000 * 60 * 60 * 24)
-                              )
-                            : null;
-                          return (
-                            <React.Fragment key={group.key}>
-                              <tr
-                                onClick={() =>
-                                  setOpenStudyLogGroups((p) => ({ ...p, [group.key]: !(p[group.key] !== false) }))
-                                }
-                                style={{
-                                  cursor: "pointer",
-                                  background: open ? tc + "08" : t.cardBg,
-                                  borderBottom: "1px solid " + t.border1,
-                                  transition: "background 0.15s",
-                                }}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = tc + "10")}
-                                onMouseLeave={(e) =>
-                                  (e.currentTarget.style.background = open ? tc + "08" : t.cardBg)
-                                }
-                              >
-                                <td style={{ padding: "12px 8px", width: 24 }}>
-                                  <span
-                                    style={{
-                                      fontFamily: MONO,
-                                      color: tc,
-                                      fontSize: 11,
-                                      display: "inline-block",
-                                      transform: open ? "rotate(90deg)" : "rotate(0deg)",
-                                      transition: "transform 0.2s",
-                                    }}
-                                  >
-                                    ▶
-                                  </span>
-                                </td>
-                                <td style={{ padding: "12px 8px" }}>
-                                  <span style={{ fontFamily: MONO, color: tc, fontSize: 11, fontWeight: 900 }}>
-                                    {group.block}
-                                  </span>
-                                </td>
-                                <td style={{ padding: "12px 8px", overflow: "hidden" }}>
-                                  <span
-                                    style={{
-                                      fontFamily: MONO,
-                                      color: t.text3,
-                                      fontSize: 11,
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                      display: "block",
-                                    }}
-                                  >
-                                    {group.subject}
-                                  </span>
-                                </td>
-                                <td style={{ padding: "12px 8px", overflow: "hidden" }}>
-                                  <div
-                                    title={group.topic}
-                                    style={{
-                                      fontFamily: MONO,
-                                      color: t.text1,
-                                      fontSize: 13,
-                                      fontWeight: 700,
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {group.topic}
-                                  </div>
-                                  <div
-                                    style={{
-                                      fontFamily: MONO,
-                                      color: t.text3,
-                                      fontSize: 10,
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {sessionCount} session{sessionCount !== 1 ? "s" : ""}
-                                    {bestScore ? ` · best ${bestScore}%` : ""}
-                                  </div>
-                                </td>
-                                <td style={{ padding: "12px 8px" }} />
-                                <td style={{ padding: "12px 8px", whiteSpace: "nowrap" }}>
-                                  <span style={{ fontFamily: MONO, color: t.text2, fontSize: 12 }}>
-                                    {lastStudied || "—"}
-                                  </span>
-                                </td>
-                                <td style={{ padding: "12px 8px", textAlign: "center" }}>
-                                  {daysAgo !== null && (
-                                    <div
-                                      style={{
-                                        fontFamily: MONO,
-                                        fontWeight: 700,
-                                        fontSize: 12,
-                                        color:
-                                          daysAgo <= 1 ? t.statusGood : daysAgo <= 3 ? t.statusWarn : t.statusBad,
-                                      }}
-                                    >
-                                      {daysAgo}d
-                                    </div>
-                                  )}
-                                </td>
-                                {[0, 1, 2, 3].map((i) => (
-                                  <td key={i} style={{ padding: "12px 8px", textAlign: "center" }}>
-                                    <div
-                                      style={{
-                                        width: 24,
-                                        height: 24,
-                                        borderRadius: 5,
-                                        margin: "0 auto",
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        fontSize: 11,
-                                        background: mergedChecks[i]
-                                          ? checkColors[i] + "20"
-                                          : t.inputBg,
-                                        border:
-                                          "1px solid " +
-                                          (mergedChecks[i] ? checkColors[i] : t.border1),
-                                      }}
-                                    >
-                                      {mergedChecks[i] ? (
-                                        <span style={{ color: checkColors[i], fontSize: 12 }}>✓</span>
-                                      ) : (
-                                        <span style={{ color: t.text3, fontSize: 10 }}>
-                                          {checkIcons[i]}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                ))}
-                                <td style={{ padding: "12px 8px" }}>
-                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 11 }}>
-                                    {group.rows.find((r) => r.ankiDate)?.ankiDate || "—"}
-                                  </span>
-                                </td>
-                                <td style={{ padding: "12px 8px" }}>
-                                  {confLabel && (
-                                    <span
-                                      style={{
-                                        fontFamily: MONO,
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        color:
-                                          confidence >= 5
-                                            ? t.statusGood
-                                            : confidence >= 3
-                                              ? t.statusWarn
-                                              : t.statusBad,
-                                      }}
-                                    >
-                                      {confidence >= 5 ? "💪" : confidence >= 3 ? "😐" : "😰"} {confLabel}
-                                    </span>
-                                  )}
-                                </td>
-                                <td style={{ padding: "12px 8px", textAlign: "center" }}>
-                                  <span
-                                    style={{
-                                      fontFamily: MONO,
-                                      color: t.text2,
-                                      fontSize: 13,
-                                      fontWeight: 700,
-                                    }}
-                                  >
-                                    {sessionCount}
-                                  </span>
-                                </td>
-                                <td style={{ padding: "12px 8px" }}>
-                                  {bestScore != null && (
-                                    <span
-                                      style={{
-                                        fontFamily: MONO,
-                                        fontSize: 13,
-                                        fontWeight: 900,
-                                        color:
-                                          bestScore >= 80
-                                            ? t.statusGood
-                                            : bestScore >= 60
-                                              ? t.statusWarn
-                                              : t.statusBad,
-                                      }}
-                                    >
-                                      {bestScore}%
-                                    </span>
-                                  )}
-                                </td>
-                                <td />
-                              </tr>
-                              {open &&
-                                group.rows.map((row) => {
-                                  const rowChecks = [
-                                    row.preRead,
-                                    row.lecture,
-                                    row.postReview,
-                                    row.anki,
-                                  ];
-                                  const lastScore =
-                                    row.scores && row.scores.length
-                                      ? row.scores[row.scores.length - 1]
-                                      : null;
-                                  return (
-                                    <tr
-                                      key={row.id}
-                                      style={{
-                                        background: t.inputBg + "80",
-                                        borderBottom: "1px solid " + t.border2,
-                                      }}
-                                      onMouseEnter={(e) => (e.currentTarget.style.background = t.hoverBg)}
-                                      onMouseLeave={(e) =>
-                                        (e.currentTarget.style.background = t.inputBg + "80")
-                                      }
-                                    >
-                                      <td
-                                        style={{
-                                          padding: "8px 8px",
-                                          borderLeft: "3px solid " + tc + "30",
-                                        }}
-                                      />
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
-                                          {row.block}
-                                        </span>
-                                      </td>
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
-                                          {row.subject}
-                                        </span>
-                                      </td>
-                                      <td style={{ padding: "8px 8px 8px 20px", overflow: "hidden" }}>
-                                        <div
-                                          title={
-                                            row.sessionType === "reviewed"
-                                              ? "◑ Reviewed"
-                                              : row.sessionType === "anki"
-                                                ? "📇 Anki"
-                                                : row.sessionType === "deepLearn"
-                                                  ? "🧠 Deep Learn"
-                                                  : row.sessionType === "quiz"
-                                                    ? "✅ Quiz"
-                                                    : row.sessionType === "blockExam"
-                                                      ? "📝 Block Exam"
-                                                      : row.topic || "Session"
-                                          }
-                                          style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: 6,
-                                            overflow: "hidden",
-                                            textOverflow: "ellipsis",
-                                            whiteSpace: "nowrap",
-                                            minWidth: 0,
-                                          }}
-                                        >
-                                          <span
-                                            style={{
-                                              fontFamily: MONO,
-                                              color: row.sessionType === "reviewed" ? t.statusProgress : t.text3,
-                                              fontSize: 10,
-                                              overflow: "hidden",
-                                              textOverflow: "ellipsis",
-                                              whiteSpace: "nowrap",
-                                              minWidth: 0,
-                                            }}
-                                          >
-                                            {row.sessionType === "reviewed"
-                                              ? "◑ Reviewed"
-                                              : row.sessionType === "anki"
-                                                ? "📇 Anki"
-                                                : row.sessionType === "deepLearn"
-                                                  ? "🧠 Deep Learn"
-                                                  : row.sessionType === "quiz"
-                                                    ? "✅ Quiz"
-                                                    : row.sessionType === "blockExam"
-                                                      ? "📝 Block Exam"
-                                                      : row.topic || "Session"}
-                                          </span>
-                                          {row.autoGenerated && (
-                                            <span
-                                              style={{
-                                                fontFamily: MONO,
-                                                fontSize: 8,
-                                                color: tc,
-                                                background: tc + "18",
-                                                padding: "1px 5px",
-                                                borderRadius: 3,
-                                                border: "1px solid " + tc + "40",
-                                              }}
-                                            >
-                                              AUTO
-                                            </span>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <input
-                                          type="date"
-                                          value={row.lectureDate || ""}
-                                          onChange={(e) => upd(row.id, { lectureDate: e.target.value })}
-                                          style={{
-                                            background: t.inputBg,
-                                            border: "1px solid " + t.border1,
-                                            borderRadius: 6,
-                                            padding: "3px 7px",
-                                            color: t.text1,
-                                            fontFamily: MONO,
-                                            fontSize: 10,
-                                            width: "100%",
-                                            boxSizing: "border-box",
-                                          }}
-                                        />
-                                      </td>
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <input
-                                          type="date"
-                                          value={row.lastStudied || ""}
-                                          onChange={(e) => upd(row.id, { lastStudied: e.target.value })}
-                                          style={{
-                                            background: t.inputBg,
-                                            border: "1px solid " + t.border1,
-                                            borderRadius: 6,
-                                            padding: "3px 7px",
-                                            color: t.text1,
-                                            fontFamily: MONO,
-                                            fontSize: 10,
-                                            width: "100%",
-                                            boxSizing: "border-box",
-                                          }}
-                                        />
-                                      </td>
-                                      <td style={{ padding: "8px 8px", textAlign: "center" }}>
-                                        {row.lastStudied &&
-                                          (() => {
-                                            const d = Math.floor(
-                                              (new Date() - new Date(row.lastStudied)) /
-                                                (1000 * 60 * 60 * 24)
-                                            );
-                                            return (
-                                              <span
-                                                style={{
-                                                  fontFamily: MONO,
-                                                  fontSize: 11,
-                                                  fontWeight: 700,
-                                                  color:
-                                                    d <= 1 ? t.statusGood : d <= 3 ? t.statusWarn : t.statusBad,
-                                                }}
-                                              >
-                                                {d}d
-                                              </span>
-                                            );
-                                          })()}
-                                      </td>
-                                      {[0, 1, 2, 3].map((i) => (
-                                        <td
-                                          key={i}
-                                          style={{ padding: "8px 8px", textAlign: "center" }}
-                                        >
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              const next = [...rowChecks];
-                                              next[i] = !next[i];
-                                              upd(row.id, {
-                                                preRead: next[0],
-                                                lecture: next[1],
-                                                postReview: next[2],
-                                                anki: next[3],
-                                              });
-                                            }}
-                                            style={{
-                                              width: 24,
-                                              height: 24,
-                                              borderRadius: 5,
-                                              margin: "0 auto",
-                                              display: "flex",
-                                              border:
-                                                "1px solid " +
-                                                (rowChecks[i] ? checkColors[i] : t.border1),
-                                              background: rowChecks[i]
-                                                ? checkColors[i] + "20"
-                                                : t.inputBg,
-                                              cursor: "pointer",
-                                              fontSize: 11,
-                                              alignItems: "center",
-                                              justifyContent: "center",
-                                            }}
-                                          >
-                                            {rowChecks[i] ? (
-                                              <span
-                                                style={{
-                                                  color: checkColors[i],
-                                                  fontSize: 11,
-                                                }}
-                                              >
-                                                ✓
-                                              </span>
-                                            ) : (
-                                              <span
-                                                style={{ color: t.text3, fontSize: 9 }}
-                                              >
-                                                {checkIcons[i]}
-                                              </span>
-                                            )}
-                                          </button>
-                                        </td>
-                                      ))}
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <input
-                                          type="date"
-                                          value={row.ankiDate || ""}
-                                          onChange={(e) => upd(row.id, { ankiDate: e.target.value })}
-                                          style={{
-                                            background: t.inputBg,
-                                            border: "1px solid " + t.border1,
-                                            borderRadius: 6,
-                                            padding: "3px 7px",
-                                            color: t.text1,
-                                            fontFamily: MONO,
-                                            fontSize: 10,
-                                            width: "100%",
-                                            boxSizing: "border-box",
-                                          }}
-                                        />
-                                      </td>
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <ConfPicker
-                                          value={row.confidence}
-                                          onChange={(v) => upd(row.id, { confidence: v })}
-                                        />
-                                      </td>
-                                      <td style={{ padding: "8px 8px", textAlign: "center" }}>
-                                        <span
-                                          style={{
-                                            fontFamily: MONO,
-                                            color: t.text2,
-                                            fontSize: 12,
-                                            fontWeight: 700,
-                                          }}
-                                        >
-                                          ×{row.reps || 1}
-                                        </span>
-                                      </td>
-                                      <td style={{ padding: "8px 8px" }}>
-                                        <div
-                                          style={{
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: 3,
-                                          }}
-                                        >
-                                          {row.sessionType === "reviewed" ? (
-                                            <span
-                                              style={{
-                                                fontFamily: MONO,
-                                                color: t.text3,
-                                                fontSize: 12,
-                                                fontWeight: 700,
-                                              }}
-                                            >
-                                              —
-                                            </span>
-                                          ) : (
-                                            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                              <input
-                                                type="number"
-                                                min={0}
-                                                max={100}
-                                                value={
-                                                  row.scores?.length
-                                                    ? row.scores[row.scores.length - 1]
-                                                    : ""
-                                                }
-                                                onChange={(e) => {
-                                                  const v = e.target.value;
-                                                  const num = v === "" ? null : Number(v);
-                                                  if (num !== null && !isNaN(num) && num >= 0 && num <= 100) {
-                                                    const prev = row.scores || [];
-                                                    upd(row.id, {
-                                                      scores:
-                                                        prev.length > 0
-                                                          ? [...prev.slice(0, -1), num]
-                                                          : [num],
-                                                    });
-                                                  } else if (v === "") {
-                                                    upd(row.id, {
-                                                      scores: (row.scores || []).slice(0, -1),
-                                                    });
-                                                  }
-                                                }}
-                                                placeholder="—"
-                                                style={{
-                                                  background: "none",
-                                                  border: "none",
-                                                  color:
-                                                    lastScore != null
-                                                      ? getScoreColor(t, lastScore)
-                                                      : t.text3,
-                                                  fontFamily: MONO,
-                                                  fontSize: 12,
-                                                  fontWeight: 900,
-                                                  width: 36,
-                                                  outline: "none",
-                                                }}
-                                              />
-                                              {lastScore != null && (
-                                                <span
-                                                  style={{
-                                                    fontFamily: MONO,
-                                                    color: t.text3,
-                                                    fontSize: 10,
-                                                  }}
-                                                >
-                                                  %
-                                                </span>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td style={{ padding: "8px 8px", textAlign: "center" }}>
-                                        <button
-                                          type="button"
-                                          onClick={() => delRow(row.id)}
-                                          style={{
-                                            background: "none",
-                                            border: "none",
-                                            color: t.text3,
-                                            cursor: "pointer",
-                                            fontSize: 13,
-                                          }}
-                                          onMouseEnter={(e) =>
-                                            (e.currentTarget.style.color = t.statusBad)
-                                          }
-                                          onMouseLeave={(e) =>
-                                            (e.currentTarget.style.color = t.text3)
-                                          }
-                                        >
-                                          ✕
-                                        </button>
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  );
-                })()}
-            </div>
             )}
 
           </div>

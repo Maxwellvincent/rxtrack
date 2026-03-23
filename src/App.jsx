@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import Tracker from "./Tracker";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import Tracker, { getConfidenceTrend, addLectureToTodayReview as addLectureToTodayReviewFromTracker } from "./Tracker";
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import ObjectiveTracker from "./ObjectiveTracker";
@@ -32,11 +32,669 @@ import {
   setDefaultProvider,
   DEFAULT_PROVIDER,
   AI_PROVIDERS,
-  callAIJSON,
+  callAI,
 } from "./aiClient";
 
+/** Guarded wrapper — avoids errors when drill summary has no resolved lecture. */
+function addLectureToTodayReview(lec, blockId) {
+  if (!lec || !lec.id) {
+    console.warn("addLectureToTodayReview: no lecture to add");
+    return false;
+  }
+  return addLectureToTodayReviewFromTracker(lec, blockId);
+}
+
+/** Lecture body text: prefer chunks [{text}], else legacy fields + fullText. */
+function getLecText(lec) {
+  if (!lec) return "";
+  if (lec.chunks && lec.chunks.length > 0) {
+    return lec.chunks.map((c) => (c && (c.text || c.content)) || "").join("\n");
+  }
+  return (lec.extractedText || lec.content || lec.fullText || "");
+}
+
+/** rxt-block-objectives: read entry for blockId, with "msk" fallback. */
+function getBlockObjectivesStoredRaw(stored, blockId) {
+  if (!stored || typeof stored !== "object") return null;
+  if (stored[blockId] !== undefined) return stored[blockId];
+  if (stored.msk !== undefined) return stored.msk;
+  return null;
+}
+
+/** Key to write block objectives under (preserves existing storage slot). */
+function blockObjectivesStorageKey(stored, blockId) {
+  if (!stored || typeof stored !== "object") return blockId;
+  if (stored[blockId] !== undefined) return blockId;
+  if (stored.msk !== undefined) return "msk";
+  return blockId;
+}
+
+/** React state shape matches localStorage — same fallback as getBlockObjectivesStoredRaw. */
+function pickBlockObjectivesState(state, bid) {
+  if (!state || typeof state !== "object") return { imported: [], extracted: [] };
+  if (state[bid] !== undefined && state[bid] !== null) return state[bid];
+  if (state.msk !== undefined && state.msk !== null) return state.msk;
+  return { imported: [], extracted: [] };
+}
+
+/**
+ * Lectures for the active block: exact blockId match, then name match, then MSK canonical id "msk"
+ * when the block is MSK (fixes meta saved with blockId "msk" vs term block id).
+ */
+function getBlockLecs(allLecs, activeBlock, fallbackBlockId) {
+  const block =
+    activeBlock ??
+    (fallbackBlockId != null && fallbackBlockId !== ""
+      ? { id: fallbackBlockId, name: "" }
+      : null);
+  if (!block?.id) return [];
+  const list = (allLecs || []).filter(Boolean);
+  const bid = block.id;
+  const nameLower = (block.name || "").toLowerCase().trim();
+
+  let lecs = list.filter((l) => l.blockId === bid);
+  if (lecs.length === 0 && nameLower) {
+    lecs = list.filter((l) => String(l.blockId || "").toLowerCase() === nameLower);
+  }
+  if (lecs.length === 0) {
+    const treatAsMsk =
+      bid === "msk" ||
+      nameLower === "msk" ||
+      /(^|\s)msk(\s|$)/i.test(block.name || "");
+    if (treatAsMsk) {
+      lecs = list.filter((l) => l.blockId === "msk" || l.blockId === bid);
+    }
+  }
+
+  return lecs;
+}
+
+/**
+ * Post-drill session summary (App-local).
+ * Broadens lecture lookup: all lectures in storage, then block-first fallback.
+ */
+function buildDrillSummary(drillQueue, drillStats, blockId) {
+  let blockObjs = [];
+  try {
+    const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+    const raw = getBlockObjectivesStoredRaw(stored, blockId);
+    if (Array.isArray(raw)) {
+      blockObjs = raw;
+    } else if (raw && typeof raw === "object") {
+      blockObjs = [
+        ...(Array.isArray(raw.imported) ? raw.imported : []),
+        ...(Array.isArray(raw.extracted) ? raw.extracted : []),
+      ];
+    }
+  } catch {
+    blockObjs = [];
+  }
+
+  let allLecs = [];
+  try {
+    allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter((l) => l);
+  } catch {
+    allLecs = [];
+  }
+  const blockLecs = getBlockLecs(allLecs, { id: blockId });
+  function findLecture(linkedLecId) {
+    if (!linkedLecId) return null;
+    return (
+      blockLecs.find((l) => l.id === linkedLecId) ||
+      allLecs.find((l) => l.id === linkedLecId) ||
+      null
+    );
+  }
+
+  const assessedIds = new Set(
+    (drillStats?.assessedIndices || []).map((idx) => drillQueue[idx]?.id).filter(Boolean)
+  );
+
+  const assessedObjs = (drillQueue || []).filter((o) => assessedIds.has(o.id));
+
+  const masteredObjs = [];
+  const okayObjs = [];
+  const strugglingObjs = [];
+
+  assessedObjs.forEach((obj) => {
+    const current = blockObjs.find((o) => o.id === obj.id);
+    const status = current?.status || "untested";
+    if (status === "mastered") masteredObjs.push(obj);
+    else if (status === "inprogress") okayObjs.push(obj);
+    else if (status === "struggling") strugglingObjs.push(obj);
+  });
+
+  const weakByLecture = {};
+  strugglingObjs.forEach((obj) => {
+    const lec = findLecture(obj.linkedLecId);
+    const lecId = lec?.id || obj.linkedLecId || "unknown";
+    const objSnippet = (obj.objective || obj.text || "").trim();
+    const lecLabel = lec
+      ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.fileName || ""}`.trim()
+      : obj.linkedLecId
+        ? `Lecture (ID: ${String(obj.linkedLecId).slice(0, 8)}...)`
+        : objSnippet
+          ? `Unlinked — ${objSnippet.slice(0, 72)}${objSnippet.length > 72 ? "…" : ""}`
+          : "Unlinked objective";
+
+    if (!weakByLecture[lecId]) {
+      weakByLecture[lecId] = {
+        lec,
+        lecLabel,
+        lecId,
+        objectives: [],
+      };
+    }
+    weakByLecture[lecId].objectives.push(obj);
+  });
+
+  const weakLectures = Object.values(weakByLecture).sort(
+    (a, b) => b.objectives.length - a.objectives.length
+  );
+
+  const total = assessedObjs.length;
+  const score = total > 0 ? Math.round((masteredObjs.length / total) * 100) : 0;
+
+  return {
+    total,
+    mastered: masteredObjs.length,
+    okay: okayObjs.length,
+    struggling: strugglingObjs.length,
+    skipped: drillStats?.skipped || 0,
+    score,
+    weakLectures,
+    strugglingObjs,
+    sessionDate: new Date().toISOString(),
+  };
+}
+
+// ── Weak concepts (cross-block, adaptive MCQ) — rxt-weak-concepts ───────────
+
+function getWeakConcepts(blockId) {
+  try {
+    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    return {
+      block: Array.isArray(stored[blockId]) ? stored[blockId] : [],
+      lifetime: Array.isArray(stored.lifetime) ? stored.lifetime : [],
+    };
+  } catch (e) {
+    return { block: [], lifetime: [] };
+  }
+}
+
+function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
+  try {
+    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    stored[blockId] = blockConcepts;
+    stored.lifetime = lifetimeConcepts;
+    localStorage.setItem("rxt-weak-concepts", JSON.stringify(stored));
+    window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
+  } catch (e) {
+    console.error("saveWeakConcepts failed:", e);
+  }
+}
+
+async function extractWeakConcept(question, wrongAnswer, correctAnswer, lectureContext) {
+  try {
+    const raw = await callAI(
+      `Extract the core medical concept being tested.
+Return JSON only: {"concept":"short concept name","description":"1 sentence what to understand","angle":"anatomy|physiology|clinical|pathology"}
+concept = 2-5 words max, the specific thing missed
+e.g. "radial nerve innervation" not "upper limb anatomy"`,
+      `Question: ${String(question || "").slice(0, 200)}
+Wrong answer: ${String(wrongAnswer || "").slice(0, 100)}
+Correct answer: ${String(correctAnswer || "").slice(0, 100)}
+Lecture: ${String(lectureContext || "")}`,
+      300
+    );
+    const parsed = tryParseJSON(raw);
+    return (
+      parsed || {
+        concept: "Unknown concept",
+        description: "",
+        angle: "general",
+      }
+    );
+  } catch (e) {
+    return { concept: "Unknown concept", description: "", angle: "general" };
+  }
+}
+
+async function recordWrongAnswer({
+  blockId,
+  blockName,
+  question,
+  wrongAnswer,
+  correctAnswer,
+  linkedLecId,
+  lectureLabel,
+  source = "drill",
+}) {
+  try {
+    if (!blockId) return;
+    const conceptData = await extractWeakConcept(question, wrongAnswer, correctAnswer, lectureLabel || "");
+    let { block: blockConcepts, lifetime } = getWeakConcepts(blockId);
+    blockConcepts = [...blockConcepts];
+    lifetime = [...lifetime];
+    const now = new Date().toISOString();
+    const normalizedNew = (conceptData.concept || "unknown").toLowerCase().trim();
+
+    const sourceQ = {
+      question: String(question || "").slice(0, 300),
+      wrongAnswer: String(wrongAnswer || "").slice(0, 200),
+      correctAnswer: String(correctAnswer || "").slice(0, 200),
+      date: now,
+      source,
+    };
+
+    const existingBlockIdx = blockConcepts.findIndex(
+      (c) =>
+        (c.concept || "").toLowerCase() === normalizedNew ||
+        normalizedNew.includes((c.concept || "").toLowerCase()) ||
+        (c.concept || "").toLowerCase().includes(normalizedNew)
+    );
+
+    let blockEntryId = null;
+
+    if (existingBlockIdx !== -1) {
+      const existing = blockConcepts[existingBlockIdx];
+      blockEntryId = existing.id;
+      blockConcepts[existingBlockIdx] = {
+        ...existing,
+        missCount: (existing.missCount || 0) + 1,
+        lastMissed: now,
+        consecutiveCorrect: 0,
+        totalAttempts: (existing.totalAttempts || 0) + 1,
+        masteryLevel: "struggling",
+        description: existing.description || conceptData.description || "",
+        angle: existing.angle || conceptData.angle || "general",
+        sourceQuestions: [sourceQ, ...(existing.sourceQuestions || [])].slice(0, 10),
+        linkedLecIds: [...new Set([...(existing.linkedLecIds || []), linkedLecId].filter(Boolean))],
+        lectureLabels: [...new Set([...(existing.lectureLabels || []), lectureLabel].filter(Boolean))],
+      };
+    } else {
+      const id =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `wc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      blockEntryId = id;
+      blockConcepts.unshift({
+        id,
+        concept: conceptData.concept || "Unknown concept",
+        description: conceptData.description || "",
+        angle: conceptData.angle || "general",
+        blockId,
+        blockName: blockName || "",
+        linkedLecIds: [linkedLecId].filter(Boolean),
+        lectureLabels: [lectureLabel].filter(Boolean),
+        missCount: 1,
+        lastMissed: now,
+        lastCorrect: null,
+        consecutiveCorrect: 0,
+        totalAttempts: 1,
+        masteryLevel: "struggling",
+        questionHistory: [],
+        sourceQuestions: [sourceQ],
+        dateFirstSeen: now,
+        tags: [],
+      });
+    }
+
+    const newBlockEntry = blockConcepts.find((c) => c.id === blockEntryId);
+    const existingLifetimeIdx = lifetime.findIndex(
+      (c) =>
+        (c.concept || "").toLowerCase() === normalizedNew ||
+        normalizedNew.includes((c.concept || "").toLowerCase()) ||
+        (c.concept || "").toLowerCase().includes(normalizedNew)
+    );
+
+    if (existingLifetimeIdx !== -1) {
+      const L = lifetime[existingLifetimeIdx];
+      lifetime[existingLifetimeIdx] = {
+        ...L,
+        missCount: (L.missCount || 0) + 1,
+        lastMissed: now,
+        consecutiveCorrect: 0,
+        masteryLevel: "struggling",
+        linkedLecIds: [...new Set([...(L.linkedLecIds || []), linkedLecId].filter(Boolean))],
+        lectureLabels: [...new Set([...(L.lectureLabels || []), lectureLabel].filter(Boolean))],
+      };
+    } else if (newBlockEntry) {
+      lifetime.push({
+        ...newBlockEntry,
+        id:
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `wl-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+      });
+    }
+
+    saveWeakConcepts(blockId, blockConcepts, lifetime);
+  } catch (e) {
+    console.error("recordWrongAnswer failed:", e);
+  }
+}
+
+function markWeakConceptMastered(blockId, conceptId) {
+  try {
+    if (!blockId || !conceptId) return;
+    let { block: blockConcepts, lifetime } = getWeakConcepts(blockId);
+    blockConcepts = [...blockConcepts];
+    lifetime = [...lifetime];
+    const idx = blockConcepts.findIndex((c) => c.id === conceptId);
+    if (idx === -1) return;
+    const prev = blockConcepts[idx];
+    blockConcepts[idx] = { ...prev, masteryLevel: "mastered", consecutiveCorrect: Math.max(prev.consecutiveCorrect || 0, 4) };
+    const lifeIdx = lifetime.findIndex((c) => (c.concept || "") === (prev.concept || ""));
+    if (lifeIdx !== -1) {
+      lifetime[lifeIdx] = {
+        ...lifetime[lifeIdx],
+        masteryLevel: "mastered",
+        consecutiveCorrect: Math.max(lifetime[lifeIdx].consecutiveCorrect || 0, 4),
+      };
+    }
+    saveWeakConcepts(blockId, blockConcepts, lifetime);
+    try {
+      window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
+    } catch (e2) {}
+  } catch (e) {
+    console.error("markWeakConceptMastered failed:", e);
+  }
+}
+
+function recordConceptCorrect(blockId, conceptId) {
+  try {
+    if (!blockId || !conceptId) return;
+    let { block: blockConcepts, lifetime } = getWeakConcepts(blockId);
+    blockConcepts = [...blockConcepts];
+    lifetime = [...lifetime];
+    const idx = blockConcepts.findIndex((c) => c.id === conceptId);
+    if (idx === -1) return;
+
+    const prev = blockConcepts[idx];
+    const newConsecutive = (prev.consecutiveCorrect || 0) + 1;
+    const masteryLevel =
+      newConsecutive >= 4 ? "mastered" : newConsecutive >= 2 ? "developing" : "struggling";
+
+    blockConcepts[idx] = {
+      ...prev,
+      consecutiveCorrect: newConsecutive,
+      totalAttempts: (prev.totalAttempts || 0) + 1,
+      lastCorrect: new Date().toISOString(),
+      masteryLevel,
+    };
+
+    const lifeIdx = lifetime.findIndex((c) => (c.concept || "") === (prev.concept || ""));
+    if (lifeIdx !== -1) {
+      lifetime[lifeIdx] = {
+        ...lifetime[lifeIdx],
+        consecutiveCorrect: newConsecutive,
+        masteryLevel,
+        lastCorrect: new Date().toISOString(),
+      };
+    }
+
+    saveWeakConcepts(blockId, blockConcepts, lifetime);
+  } catch (e) {
+    console.error("recordConceptCorrect failed:", e);
+  }
+}
+
+function patchWeakConceptQuestionHistoryResult(blockId, conceptId, result, questionLevel) {
+  try {
+    let { block: blockConcepts, lifetime } = getWeakConcepts(blockId);
+    blockConcepts = [...blockConcepts];
+    lifetime = [...lifetime];
+    const idx = blockConcepts.findIndex((c) => c.id === conceptId);
+    if (idx === -1) return;
+    const hist = [...(blockConcepts[idx].questionHistory || [])];
+    const pending = hist.findIndex((h) => h.result === "pending");
+    if (pending !== -1) {
+      hist[pending] = { ...hist[pending], result, questionLevel };
+    } else if (hist.length) {
+      hist[0] = { ...hist[0], result, questionLevel };
+    }
+    blockConcepts[idx] = { ...blockConcepts[idx], questionHistory: hist };
+    saveWeakConcepts(blockId, blockConcepts, lifetime);
+  } catch (e) {
+    console.error("patchWeakConceptQuestionHistoryResult failed:", e);
+  }
+}
+
+/** Robust JSON parse for Gemini / markdown-wrapped model output (shared by analyzeLecture, drill MCQ, etc.) */
+function tryParseJSON(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text.trim());
+  } catch (e) {}
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) {
+    try {
+      return JSON.parse(fence[1].trim());
+    } catch (e) {}
+  }
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch (e) {}
+  }
+  const arrStart = text.indexOf("[");
+  const arrEnd = text.lastIndexOf("]");
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try {
+      return JSON.parse(text.slice(arrStart, arrEnd + 1));
+    } catch (e) {}
+  }
+  return null;
+}
+
+function shuffleArray(arr) {
+  const shuffled = [...(arr || [])];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+/** Progressive MCQ drill difficulty (Bloom-aligned tiers). */
+const QUESTION_LEVELS = {
+  1: {
+    name: "First order",
+    bloomRange: [1, 2],
+    label: "Recall",
+    color: "#185FA5",
+    description: "Direct recall and understanding",
+    promptInstruction: `Generate a FIRST ORDER question.
+This tests direct recall and basic understanding.
+Question style: "What is...?" "Define..." "List..." "Identify..."
+The student should be able to answer from memory alone.
+Keep the question direct and factual.
+Wrong options should be plausible but clearly distinct.`,
+  },
+  2: {
+    name: "Second order",
+    bloomRange: [3, 4],
+    label: "Apply",
+    color: "#854F0B",
+    description: "Application and analysis",
+    promptInstruction: `Generate a SECOND ORDER question.
+This tests application and analysis — NOT just recall.
+Question style: clinical scenarios, comparisons, mechanisms.
+"A patient presents with..." "Which of the following explains..."
+"Compare..." "Why does..."
+The student must UNDERSTAND the concept to answer, not just memorize.
+Wrong options should require understanding to rule out.`,
+  },
+  3: {
+    name: "Third order",
+    bloomRange: [5, 6],
+    label: "Reason",
+    color: "#3C3489",
+    description: "Clinical reasoning and integration",
+    promptInstruction: `Generate a THIRD ORDER question.
+This tests clinical reasoning and integration of concepts.
+Question style: complex clinical scenarios requiring synthesis.
+"Given this patient scenario with multiple findings..."
+"What is the most likely complication and why..."
+"If X were also present, how would management change..."
+The student must synthesize multiple concepts to answer.
+Wrong options should be highly plausible and require careful reasoning.`,
+  },
+};
+
+function levelFromCounters(consecutiveCorrect, drillCount) {
+  const cc = consecutiveCorrect ?? 0;
+  const dc = drillCount ?? 0;
+  if (cc === 0 || dc === 0) return 1;
+  if (cc === 1) return 2;
+  if (cc >= 2) return 3;
+  return 1;
+}
+
+function getQuestionLevel(obj, blockObjs) {
+  const current = blockObjs.find((o) => o.id === obj.id);
+  const drillCount = current?.drillCount || 0;
+  const consecutiveCorrect = current?.consecutiveCorrect || 0;
+  return levelFromCounters(consecutiveCorrect, drillCount);
+}
+
+/** Adaptive MCQ for drill when weak concepts exist or concept focus is set. Returns normalized + optional concept id for history. */
+async function runAdaptiveDrillMcqGeneration({
+  obj,
+  questionLevel,
+  levelConfig,
+  drillBid,
+  lectures,
+  conceptFocus,
+}) {
+  const { block } = getWeakConcepts(drillBid);
+  const relatedConcepts = block.filter(
+    (c) => (c.linkedLecIds || []).includes(obj.linkedLecId) && c.masteryLevel !== "mastered"
+  );
+  const lec = (lectures || []).find((l) => l.id === obj.linkedLecId);
+  const lecTitle = lec ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""}` : "";
+  const objText = (obj.objective || obj.text || "").slice(0, 200);
+  let conceptContext = "";
+  if (relatedConcepts.length > 0) {
+    const topWeak = [...relatedConcepts]
+      .sort((a, b) => (b.missCount || 0) - (a.missCount || 0))
+      .slice(0, 3);
+    conceptContext = `
+STUDENT WEAK AREAS FOR THIS LECTURE:
+${topWeak
+  .map(
+    (c) =>
+      `- "${c.concept}": missed ${c.missCount || 0} times, ${c.consecutiveCorrect || 0} consecutive correct`
+  )
+  .join("\n")}
+
+Previous question angles used (do NOT repeat these):
+${
+  topWeak
+    .flatMap((c) => (c.questionHistory || []).slice(0, 2).map((h) => h.angle))
+    .filter(Boolean)
+    .join(", ") || "none yet"
+}
+
+Generate a question that approaches the weak concept from a DIFFERENT angle than previously used.`;
+  }
+  if (conceptFocus) {
+    conceptContext += `
+
+FOCUS: Generate questions specifically testing "${conceptFocus.concept}" — ${conceptFocus.description || ""}
+Student has missed this ${conceptFocus.missCount || 0} times.`;
+  }
+
+  const systemPrompt = `Return JSON only. No markdown.
+{"q":"question","o":[{"t":"option","c":bool,"e":"explanation"},...],"ex":"explanation","conceptTested":"2-5 word concept name","angle":"anatomy|physiology|clinical|pathology"}
+4 options. 1 correct.`;
+
+  const userPrompt = `Objective: ${objText}
+Lecture: ${lecTitle}
+${levelConfig.promptInstruction}
+${conceptContext}
+
+Generate 1 MCQ. Options max 8 words. Explanations max 15 words.`;
+
+  const raw = await callAI(systemPrompt, userPrompt, 2500);
+  const parsed = tryParseJSON(raw);
+  if (!parsed) return { normalized: null, matchingConceptId: null };
+
+  const rawOptions = parsed.o || parsed.options || [];
+  const question = String(parsed.q || parsed.question || "").trim();
+  const overallExplanation = String(parsed.ex || parsed.overallExplanation || "").trim();
+  const options = rawOptions.slice(0, 4).map((o) => ({
+    text: String(o.t || o.text || o.option || "").trim(),
+    correct:
+      o.c === true ||
+      o.correct === true ||
+      String(o.c) === "true" ||
+      String(o.correct) === "true",
+    explanation: String(o.e || o.explanation || o.reason || "").trim(),
+  }));
+  let numCorrect = options.filter((o) => o.correct).length;
+  if (numCorrect === 0 && options.length > 0) {
+    options[0].correct = true;
+  } else if (numCorrect > 1) {
+    let done = false;
+    options.forEach((o) => {
+      if (o.correct && !done) done = true;
+      else o.correct = false;
+    });
+  }
+
+  const normalized = {
+    question,
+    options,
+    overallExplanation,
+    conceptTested: parsed.conceptTested,
+    angle: parsed.angle,
+  };
+
+  const conceptTested = String(parsed.conceptTested || "").trim();
+  if (conceptTested && relatedConcepts.length > 0) {
+    const matching = relatedConcepts.find(
+      (c) =>
+        (c.concept || "").toLowerCase().includes(conceptTested.toLowerCase()) ||
+        conceptTested.toLowerCase().includes((c.concept || "").toLowerCase())
+    );
+    if (matching) {
+      let { block: bc, lifetime } = getWeakConcepts(drillBid);
+      bc = [...bc];
+      const idx = bc.findIndex((c) => c.id === matching.id);
+      if (idx !== -1) {
+        bc[idx] = {
+          ...bc[idx],
+          questionHistory: [
+            {
+              date: new Date().toISOString(),
+              question: normalized.question,
+              result: "pending",
+              questionLevel: questionLevel || 1,
+              angle: parsed.angle || "general",
+            },
+            ...(bc[idx].questionHistory || []),
+          ].slice(0, 20),
+        };
+        saveWeakConcepts(drillBid, bc, lifetime);
+        return { normalized, matchingConceptId: matching.id };
+      }
+    }
+  }
+
+  return { normalized, matchingConceptId: null };
+}
+
 async function analyzeLecture(lec, extractedText) {
-  const systemPrompt = `You are an expert medical educator analyzing a lecture for a medical student study app.
+  const subtopics = Array.isArray(lec?.subtopics) ? lec.subtopics : [];
+
+  const systemPrompt = `Return only valid JSON. No markdown. No code fences.
+No explanation text. Start with { or [.
+
+You are an expert medical educator analyzing a lecture for a medical student study app.
 Analyze this lecture content and produce a structured teaching map.
 Raw JSON only, no markdown, no backticks:
 {
@@ -56,7 +714,7 @@ Raw JSON only, no markdown, no backticks:
   "bigPicture": "<the single most important clinical takeaway from this entire lecture>"
 }`;
 
-  const userPrompt = `Lecture title: ${lec.title || lec.lectureTitle || ""}
+  const userPrompt = `Lecture title: ${lec.lectureTitle || ""}
 Lecture type: ${lec.lectureType || ""} ${lec.lectureNumber ?? ""}
 
 Full lecture content:
@@ -64,9 +722,52 @@ ${(extractedText || "").slice(0, 6000)}`;
 
   const fallback = { summary: "", clinicalHook: "", sections: [], bigPicture: "" };
   try {
-    const result = await callAIJSON(systemPrompt, userPrompt, fallback, 2000);
-    if (result && Array.isArray(result.sections)) return result;
-    return fallback;
+    const raw = await callAI(systemPrompt, userPrompt, 2500);
+    let result = tryParseJSON(raw) || fallback;
+
+    let sections =
+      (Array.isArray(result?.sections) ? result.sections : null) ||
+      (Array.isArray(result?.map) ? result.map : null) ||
+      (Array.isArray(result?.content) ? result.content : null) ||
+      (Array.isArray(result) ? result : null);
+
+    if (!sections || !Array.isArray(sections) || sections.length === 0) {
+      console.log(
+        "analyzeLecture: subtopic fallback,",
+        "keys:", Object.keys(result || {}).join(", ")
+      );
+      const fallbackSections =
+        subtopics.length > 0
+          ? subtopics.map((topic) => ({
+              title: String(topic),
+              coreContent: `Study the key concepts related to: ${topic}`,
+              objectives: [],
+            }))
+          : [
+              {
+                title: "Overview",
+                coreContent: "Study the key concepts from this lecture using the source material.",
+                objectives: [],
+              },
+            ];
+      return {
+        summary: result?.summary || "",
+        clinicalHook: result?.clinicalHook || "",
+        bigPicture: result?.bigPicture || "",
+        sections: fallbackSections,
+      };
+    }
+
+    if (Array.isArray(result) && !result.sections) {
+      return {
+        summary: "",
+        clinicalHook: "",
+        bigPicture: "",
+        sections,
+      };
+    }
+
+    return { ...result, sections };
   } catch (e) {
     console.warn("analyzeLecture failed:", e?.message || e);
     return fallback;
@@ -155,6 +856,150 @@ function deduplicateLectures(lecs) {
     if (!seen.has(key)) seen.set(key, lec);
   });
   return Array.from(seen.values());
+}
+
+function reconcileCompletionOnUpload(newLec) {
+  try {
+    if (!newLec?.id || !newLec?.blockId) return;
+    const completions = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    const newType = String(newLec.lectureType || "LEC");
+    const newNum = String(newLec.lectureNumber ?? "");
+    if (!newNum) return;
+
+    // Prefer exact placeholder key matches like:
+    // manual-LEC-45__blockId
+    const preferredKey = `manual-${newType}-${newNum}__${newLec.blockId}`;
+    let matchKey = completions[preferredKey] ? preferredKey : null;
+
+    if (!matchKey) {
+      matchKey = Object.keys(completions).find((k) => {
+        const entry = completions[k];
+        if (!entry || typeof entry !== "object") return false;
+        const entryType = String(entry.lectureType || "");
+        const entryNum = String(entry.lectureNumber ?? "");
+        const entryBlock = String(entry.blockId || "");
+        const entryLectureId = entry.lectureId ? String(entry.lectureId) : "";
+        const looksManual = !entryLectureId || entryLectureId.startsWith("manual-") || entryLectureId === "null";
+        return (
+          entryBlock === String(newLec.blockId) &&
+          entryType === newType &&
+          entryNum === newNum &&
+          looksManual
+        );
+      });
+    }
+
+    if (matchKey) {
+      const entry = completions[matchKey] || {};
+      const newKey = `${newLec.id}__${newLec.blockId}`;
+      completions[newKey] = {
+        ...entry,
+        lectureId: newLec.id,
+        blockId: newLec.blockId,
+        lectureType: newType,
+        lectureNumber: newLec.lectureNumber,
+      };
+      delete completions[matchKey];
+      localStorage.setItem("rxt-completion", JSON.stringify(completions));
+      console.log(`Reconciled completion: ${matchKey} → ${newKey}`);
+    }
+  } catch (e) {
+    console.warn("reconcileCompletionOnUpload failed:", e);
+  }
+}
+
+// ── Completion activity log (rxt-completion) ─────────────────────────────
+function getNextSaturday(fromDate) {
+  const d = new Date(fromDate);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const delta = (6 - day + 7) % 7;
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+
+function computeReviewDates(completedDate, confidenceRating, examDate) {
+  const base = new Date(completedDate);
+  base.setHours(0, 0, 0, 0);
+  const exam = examDate ? new Date(examDate) : null;
+  if (exam) exam.setHours(0, 0, 0, 0);
+
+  const addDays = (d, days) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + days);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+
+  const firstIntervalDays =
+    confidenceRating === "good" ? 2 : confidenceRating === "okay" ? 1 : 0;
+  const first = addDays(base, firstIntervalDays);
+  const saturdaySweep = getNextSaturday(first);
+  const oneWeek = addDays(base, 7);
+  const twoWeeks = addDays(base, 14);
+  const oneMonth = addDays(base, 30);
+  const dates = [first, saturdaySweep, oneWeek, twoWeeks, oneMonth];
+
+  if (exam) {
+    let m = new Date(oneMonth);
+    m.setHours(0, 0, 0, 0);
+    while (m <= exam) {
+      dates.push(new Date(m));
+      m.setMonth(m.getMonth() + 1);
+      m.setHours(0, 0, 0, 0);
+    }
+  }
+
+  const uniq = new Map();
+  dates.forEach((d) => {
+    if (!d || Number.isNaN(d.getTime())) return;
+    if (exam && d > exam) return;
+    uniq.set(d.toISOString().slice(0, 10), d);
+  });
+  return Array.from(uniq.values()).sort((a, b) => a.getTime() - b.getTime());
+}
+
+function logActivityToCompletion(lectureId, blockId, activityType, confidenceRating, options = {}) {
+  try {
+    if (!lectureId || !blockId) return;
+    const date = options?.date || new Date().toISOString().slice(0, 10);
+    const examDate = options?.examDate || null;
+    const durationMinutes = options?.durationMinutes ?? null;
+    const note = options?.note ?? null;
+
+    const key = `${lectureId}__${blockId}`;
+    const store = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    const existing = store[key] || null;
+    const activity = {
+      id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : ("act_" + Date.now()),
+      date,
+      activityType: activityType || "manual",
+      confidenceRating: confidenceRating || "okay",
+      durationMinutes,
+      note,
+    };
+    const activityLog = [activity, ...(Array.isArray(existing?.activityLog) ? existing.activityLog : [])];
+    const firstCompletedDate = existing?.firstCompletedDate || date;
+    const lastActivityDate = date;
+    const lastConfidence = activity.confidenceRating;
+    const reviewDates = computeReviewDates(lastActivityDate, lastConfidence, examDate).map((d) => d.toISOString().slice(0, 10));
+
+    store[key] = {
+      lectureId,
+      blockId,
+      ankiInRotation: activity.activityType === "anki" ? true : !!existing?.ankiInRotation,
+      firstCompletedDate,
+      lastActivityDate,
+      lastConfidence,
+      reviewDates,
+      activityLog,
+    };
+    localStorage.setItem("rxt-completion", JSON.stringify(store));
+    window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+    window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+  } catch (e) {
+    console.warn("logActivityToCompletion failed:", e);
+  }
 }
 
 async function loadLectures() {
@@ -294,9 +1139,11 @@ function alignObjectivesToLectures(blockId, objectives, lectures) {
   });
 }
 
-// Single source of truth for "objective is linked to an uploaded lecture in this block"
+// Single source of truth: objective linked to a real uploaded lecture (not placeholder ids)
 function isObjectiveLinked(obj, blockLecs) {
-  return !!obj?.linkedLecId && (blockLecs || []).some((l) => l.id === obj.linkedLecId);
+  const lid = obj?.linkedLecId;
+  if (!lid || lid === "imported" || lid === "unknown") return false;
+  return (blockLecs || []).some((l) => l.id === lid);
 }
 
 // ─────────────────────────────────────────────
@@ -668,7 +1515,68 @@ const detectLectureType = (fileName, title = "") => {
   return "LEC";
 };
 
+/** Part-aware lecture number + type from filename (handles DLA 12a/12b, Part 1/2, etc.) */
+function detectLectureInfo(filename) {
+  const clean = String(filename || "")
+    .replace(/\.pdf$/i, "")
+    .replace(/\.txt$/i, "")
+    .trim();
+
+  let lectureType = null;
+  if (/\bDLA\b/i.test(clean)) lectureType = "DLA";
+  else if (/\bLEC\b/i.test(clean) || /\blecture\b/i.test(clean)) lectureType = "LEC";
+  else if (/\bSG\b/i.test(clean)) lectureType = "SG";
+  else if (/\bTBL\b/i.test(clean)) lectureType = "TBL";
+  else if (/\bLAB\b/i.test(clean)) lectureType = "LAB";
+
+  let lectureNumber = null;
+  let partSuffix = null;
+
+  const letterSuffixMatch = clean.match(/(?:DLA|LEC|lecture|SG|TBL)\s+(\d+)([a-z])\b/i);
+  if (letterSuffixMatch) {
+    lectureNumber = parseInt(letterSuffixMatch[1], 10);
+    partSuffix = letterSuffixMatch[2].toLowerCase();
+  }
+
+  if (!partSuffix) {
+    const partMatch = clean.match(/part\s*(\d+)/i);
+    if (partMatch) {
+      partSuffix = `p${partMatch[1]}`;
+    }
+  }
+
+  if (lectureNumber == null) {
+    const numMatch = clean.match(/(?:DLA|LEC|lecture|SG|TBL|Lecture|Lec)\s+(\d+)/i);
+    if (numMatch) {
+      lectureNumber = parseInt(numMatch[1], 10);
+    }
+  }
+
+  let compositeNumber = lectureNumber;
+  if (lectureNumber != null && partSuffix) {
+    if (partSuffix === "a" || partSuffix === "p1") {
+      compositeNumber = parseFloat(`${lectureNumber}.1`);
+    } else if (partSuffix === "b" || partSuffix === "p2") {
+      compositeNumber = parseFloat(`${lectureNumber}.2`);
+    } else if (partSuffix === "c" || partSuffix === "p3") {
+      compositeNumber = parseFloat(`${lectureNumber}.3`);
+    } else if (/^p\d+$/.test(partSuffix)) {
+      const n = parseInt(partSuffix.slice(1), 10);
+      if (!isNaN(n)) compositeNumber = parseFloat(`${lectureNumber}.${Math.min(n, 9)}`);
+    }
+  }
+
+  return {
+    lectureType,
+    lectureNumber: compositeNumber != null ? compositeNumber : lectureNumber,
+    partSuffix,
+    rawNumber: lectureNumber,
+  };
+}
+
 const detectLectureNumber = (fileName, title = "", type = "LEC") => {
+  const info = detectLectureInfo(`${fileName} ${title || ""}`);
+  if (info.lectureNumber != null && !isNaN(info.lectureNumber)) return info.lectureNumber;
   const text = (fileName + " " + title).trim();
   const dlaMatch = text.match(/DLA\s*(\d+)/i);
   const lecMatch = text.match(/(?:Lecture|Lec)\s*(\d+)/i);
@@ -689,100 +1597,6 @@ const detectWeekNumber = (fileName, title = "") => {
   if (match) return parseInt(match[1], 10);
   return null;
 };
-
-async function extractObjectivesFromLecture(file) {
-  if (!GEMINI_KEY) return [];
-  try {
-    await loadPDFJS();
-    const arrayBuffer = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
-    const pagesToCheck = Math.min(5, pdf.numPages);
-    const images = [];
-    for (let i = 1; i <= pagesToCheck; i++) {
-      const page = await pdf.getPage(i);
-      const vp = page.getViewport({ scale: 1.5 });
-      const canvas = document.createElement("canvas");
-      canvas.width = vp.width;
-      canvas.height = vp.height;
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
-      images.push(canvas.toDataURL("image/jpeg", 0.8).split(",")[1]);
-    }
-    const parts = [
-      ...images.map((img) => ({ inline_data: { mime_type: "image/jpeg", data: img } })),
-      {
-        text:
-          "These are the first pages of a medical school lecture PDF.\n\n" +
-          "Look for a slide titled 'Learning Objectives', 'Objectives', 'Goals', or similar.\n" +
-          "Extract EVERY objective listed — they start with action verbs like Describe, Explain, List, Define, Compare, Identify, Discuss, Analyze, Predict.\n\n" +
-          "Also extract:\n" +
-          "- Lecture number (e.g. Lecture 27 → 27)\n" +
-          "- Lecture title\n" +
-          "- Discipline (BCHM, GNET, HCB, PHAR, PHYS, ANAT, etc.)\n\n" +
-          "If no objectives slide exists, return {\"objectives\":[]}\n\n" +
-          "Return ONLY valid JSON:\n" +
-          '{"lectureNumber":27,"lectureTitle":"Proteoglycans","discipline":"BCHM",' +
-          '"objectives":["Describe the general structure of proteoglycans","Discuss the functions of hyaluronic acid"]}',
-      },
-    ];
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: { maxOutputTokens: 4000, temperature: 0.0 },
-          safetySettings: [
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          ],
-        }),
-      }
-    );
-    const d = await res.json();
-    const raw = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
-    const cleaned = raw
-      .replace(/^```json\s*/i, "")
-      .replace(/^```\s*/i, "")
-      .replace(/\s*```$/, "")
-      .trim();
-    const first = cleaned.indexOf("{");
-    const last = cleaned.lastIndexOf("}");
-    if (first === -1) return [];
-    const parsed = JSON.parse(cleaned.slice(first, last + 1));
-    const lecNum = parsed.lectureNumber ?? detectLectureNumber(file.name, parsed.lectureTitle || "");
-    const lecTitle = parsed.lectureTitle || file.name;
-    const discipline = parsed.discipline || "Unknown";
-    const lectureType = detectLectureType(file.name, lecTitle);
-    const lectureNumber = lecNum != null ? lecNum : 1;
-    const activityStr = `${lectureType}${lectureNumber}`;
-    return (parsed.objectives || [])
-      .filter((o) => typeof o === "string" && o.length > 10)
-      .map((obj, i) => {
-        const o = {
-          id: `extracted_${Date.now()}_${i}`,
-          activity: activityStr,
-          lectureNumber: lectureNumber,
-          lectureType,
-          discipline,
-          lectureTitle: lecTitle,
-          code: null,
-          objective: obj.trim(),
-          status: "untested",
-          confidence: 0,
-          lastTested: null,
-          quizScore: null,
-          source: "extracted",
-        };
-        return o;
-      });
-  } catch (e) {
-    console.warn("extractObjectivesFromLecture failed:", e.message);
-    return [];
-  }
-}
 
 async function detectMeta(text) {
   const prompt =
@@ -829,11 +1643,7 @@ function buildLectureContext(lectureId, subtopic, blockId, { lecs, getBlockObjec
   const lec = (lecs || []).find((l) => l.id === lectureId);
   if (!lec) return { context: "", questionExamples: [], objectives: [], lectureContent: "", patterns: {}, lec: null };
 
-  const fromChunks = (lec.chunks || [])
-    .map((c) => c.text || c.content || "")
-    .join("\n");
-  let lectureContent = (fromChunks || lec.fullText || "")
-    .slice(0, 8000);
+  let lectureContent = getLecText(lec).slice(0, 8000);
   const contentNote = lec.extractionMethod === "mistral-ocr"
     ? "The following lecture content has been extracted with high-fidelity OCR, preserving tables, headings, and document structure as markdown. Use the structure to identify high-yield topics."
     : "The following is extracted lecture text.";
@@ -926,7 +1736,7 @@ function buildTopicVignettesPrompt(n, subject, focusLine, keyTerms, fullText, di
 async function genTopicVignettes(cfg) {
   try {
     const { lecture, subject, subtopic, scope, qCount, difficulty, questionType } = cfg;
-    const fullText = lecture?.fullText || "";
+    const fullText = getLecText(lecture) || lecture?.fullText || "";
     const keyTerms = lecture?.keyTerms || [];
     const count = qCount || 10;
     const diff = difficulty ?? "auto";
@@ -1107,7 +1917,7 @@ async function genTopicVignettesWithContext(cfg, deps) {
 async function genBlockVignettes(blockLecs, count, weakSubs, difficulty, questionType) {
   try {
   const combined = blockLecs
-    .map(l => "=== " + l.lectureTitle + " [" + l.subject + "] ===\n" + l.fullText)
+    .map(l => "=== " + (l.lectureTitle || "") + " [" + l.subject + "] ===\n" + getLecText(l))
     .join("\n\n")
     .slice(0, 10000);
   const weakHint = weakSubs.length
@@ -1317,6 +2127,74 @@ function getAvgScore(lecId, sessions) {
   const s = (sessions || []).filter(x => x.lectureId === lecId);
   if (!s.length) return 0;
   return s.reduce((a, x) => a + (x.total ? (x.correct / x.total) * 100 : 0), 0) / s.length;
+}
+
+function calculateStreak(blockId) {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const activityDates = new Set();
+
+    const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+    Object.entries(perf || {}).forEach(([key, entry]) => {
+      if (blockId && !String(key || "").includes(blockId)) return;
+      if (entry?.date) {
+        const d = new Date(entry.date);
+        d.setHours(0, 0, 0, 0);
+        activityDates.add(d.toISOString().split("T")[0]);
+      }
+      const hist = Array.isArray(entry?.history) ? entry.history : [];
+      hist.forEach((h) => {
+        if (!h?.date) return;
+        const d = new Date(h.date);
+        d.setHours(0, 0, 0, 0);
+        activityDates.add(d.toISOString().split("T")[0]);
+      });
+      const sessions = Array.isArray(entry?.sessions) ? entry.sessions : [];
+      sessions.forEach((s) => {
+        if (!s?.date) return;
+        const d = new Date(s.date);
+        d.setHours(0, 0, 0, 0);
+        activityDates.add(d.toISOString().split("T")[0]);
+      });
+    });
+
+    const completion = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    Object.values(completion || {}).forEach((entry) => {
+      if (blockId && entry?.blockId !== blockId) return;
+      const log = Array.isArray(entry?.activityLog) ? entry.activityLog : [];
+      log.forEach((a) => {
+        if (!a?.date) return;
+        const d = new Date(a.date);
+        d.setHours(0, 0, 0, 0);
+        activityDates.add(d.toISOString().split("T")[0]);
+      });
+    });
+
+    let streak = 0;
+    const cursor = new Date(today);
+    while (true) {
+      const dateStr = cursor.toISOString().split("T")[0];
+      if (activityDates.has(dateStr)) {
+        streak++;
+        cursor.setDate(cursor.getDate() - 1);
+      } else {
+        if (cursor.getTime() === today.getTime()) {
+          cursor.setDate(cursor.getDate() - 1);
+          const prevStr = cursor.toISOString().split("T")[0];
+          if (activityDates.has(prevStr)) {
+            cursor.setDate(cursor.getDate() - 1);
+            continue;
+          }
+        }
+        break;
+      }
+    }
+    return streak;
+  } catch (e) {
+    console.error("calculateStreak failed:", e);
+    return 0;
+  }
 }
 
 function mastery(p, T) {
@@ -1972,9 +2850,880 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
 }
 
 // ─────────────────────────────────────────────
+// WEAK CONCEPTS (Tracker tab) + manual add form
+// ─────────────────────────────────────────────
+function AddWeakConceptForm({ blockId, blockName, onSave, T }) {
+  const [concept, setConcept] = useState("");
+  const [description, setDescription] = useState("");
+  const [wrongAnswer, setWrongAnswer] = useState("");
+  const [correctAnswer, setCorrectAnswer] = useState("");
+  const [selectedLecId, setSelectedLecId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const blockLecs = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter((l) => l && l.blockId === blockId);
+    } catch {
+      return [];
+    }
+  }, [blockId]);
+
+  async function handleSave() {
+    if (!concept.trim() || saving) return;
+    setSaving(true);
+    try {
+      const lec = blockLecs.find((l) => l.id === selectedLecId);
+      const lectureLabel = lec
+        ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || ""}`
+        : "";
+      await recordWrongAnswer({
+        blockId,
+        blockName,
+        question: description || `Manual: ${concept}`,
+        wrongAnswer: wrongAnswer || "Manual entry",
+        correctAnswer: correctAnswer || "",
+        linkedLecId: selectedLecId || null,
+        lectureLabel,
+        source: "manual",
+      });
+      setConcept("");
+      setDescription("");
+      setWrongAnswer("");
+      setCorrectAnswer("");
+      setSelectedLecId("");
+      onSave?.();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div>
+        <label
+          style={{
+            fontSize: 11,
+            color: "var(--color-text-tertiary)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            display: "block",
+            marginBottom: 3,
+          }}
+        >
+          Concept you keep getting wrong ✱
+        </label>
+        <input
+          type="text"
+          value={concept}
+          onChange={(e) => setConcept(e.target.value)}
+          placeholder="e.g. radial nerve, Hesselbach's triangle"
+          style={{ width: "100%", fontSize: 13, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--color-border-tertiary)" }}
+        />
+      </div>
+      <div>
+        <label
+          style={{
+            fontSize: 11,
+            color: "var(--color-text-tertiary)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            display: "block",
+            marginBottom: 3,
+          }}
+        >
+          Lecture
+        </label>
+        <select
+          value={selectedLecId}
+          onChange={(e) => setSelectedLecId(e.target.value)}
+          style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6 }}
+        >
+          <option value="">— Select lecture —</option>
+          {blockLecs
+            .sort((a, b) => (a.lectureNumber || 0) - (b.lectureNumber || 0))
+            .map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.lectureType} {l.lectureNumber} — {(l.lectureTitle || "").slice(0, 40)}
+              </option>
+            ))}
+        </select>
+      </div>
+      <div>
+        <label
+          style={{
+            fontSize: 11,
+            color: "#A32D2D",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            display: "block",
+            marginBottom: 3,
+          }}
+        >
+          What you keep thinking (wrong)
+        </label>
+        <textarea
+          value={wrongAnswer}
+          onChange={(e) => setWrongAnswer(e.target.value)}
+          placeholder="What's the misconception you have?"
+          rows={2}
+          style={{
+            width: "100%",
+            fontSize: 13,
+            lineHeight: 1.5,
+            resize: "vertical",
+            padding: "8px 10px",
+            border: "0.5px solid #F09595",
+            borderRadius: 8,
+            background: "#FCEBEB",
+            color: "var(--color-text-primary)",
+            fontFamily: "var(--font-sans)",
+          }}
+        />
+      </div>
+      <div>
+        <label
+          style={{
+            fontSize: 11,
+            color: "#27500A",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            display: "block",
+            marginBottom: 3,
+          }}
+        >
+          What it actually is (correct)
+        </label>
+        <textarea
+          value={correctAnswer}
+          onChange={(e) => setCorrectAnswer(e.target.value)}
+          placeholder="The correct understanding"
+          rows={2}
+          style={{
+            width: "100%",
+            fontSize: 13,
+            lineHeight: 1.5,
+            resize: "vertical",
+            padding: "8px 10px",
+            border: "0.5px solid #97C459",
+            borderRadius: 8,
+            background: "#EAF3DE",
+            color: "var(--color-text-primary)",
+            fontFamily: "var(--font-sans)",
+          }}
+        />
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={!concept.trim() || saving}
+          style={{
+            fontSize: 13,
+            padding: "7px 16px",
+            border: "none",
+            borderRadius: 8,
+            background: concept.trim() && !saving ? "#2563eb" : "var(--color-background-tertiary)",
+            color: concept.trim() && !saving ? "white" : "var(--color-text-tertiary)",
+            cursor: concept.trim() && !saving ? "pointer" : "not-allowed",
+          }}
+        >
+          {saving ? "Saving…" : "Add to weak concepts"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function WeakConceptsTabPanel({
+  blockId,
+  blockName,
+  T,
+  MONO,
+  lecTypeBadge,
+  refreshKey,
+  lectures,
+  terms,
+  onDrillConcept,
+  onComprehensiveReview,
+  onRefresh,
+}) {
+  const [scope, setScope] = useState("block");
+  const [expanded, setExpanded] = useState({});
+  const [addOpen, setAddOpen] = useState(false);
+
+  const { block: blockConcepts, lifetime: lifetimeConcepts } = useMemo(
+    () => getWeakConcepts(blockId || ""),
+    [blockId, refreshKey, scope]
+  );
+
+  const list = scope === "block" ? blockConcepts : lifetimeConcepts;
+  const sorted = [...list].sort((a, b) => {
+    const order = { struggling: 0, developing: 1, mastered: 2 };
+    const da = order[a.masteryLevel] ?? 0;
+    const db = order[b.masteryLevel] ?? 0;
+    if (da !== db) return da - db;
+    return (b.missCount || 0) - (a.missCount || 0);
+  });
+
+  const strugglingN = list.filter((c) => c.masteryLevel === "struggling").length;
+  const developingN = list.filter((c) => c.masteryLevel === "developing").length;
+  const masteredN = list.filter((c) => c.masteryLevel === "mastered").length;
+
+  const topMissed = [...lifetimeConcepts]
+    .sort((a, b) => (b.missCount || 0) - (a.missCount || 0))
+    .slice(0, 5);
+
+  const blockIdsInApp = useMemo(
+    () => new Set((terms || []).flatMap((t) => (t.blocks || []).map((b) => b.id))),
+    [terms]
+  );
+  const lecBlockIds = useMemo(() => {
+    const m = new Set();
+    (lectures || []).forEach((l) => {
+      if (l.blockId) m.add(l.blockId);
+    });
+    return m;
+  }, [lectures]);
+  const missingBlocks = [...blockIdsInApp].filter((id) => !lecBlockIds.has(id));
+
+  const byBlock =
+    scope === "lifetime"
+      ? (() => {
+          const g = {};
+          sorted.forEach((c) => {
+            const bid = c.blockId || "unknown";
+            if (!g[bid]) g[bid] = [];
+            g[bid].push(c);
+          });
+          return g;
+        })()
+      : { [blockId || "x"]: sorted };
+
+  return (
+    <div style={{ fontFamily: MONO, color: T.text1 }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={() => setScope("block")}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "1px solid " + (scope === "block" ? T.border1 : T.border2),
+            background: scope === "block" ? T.inputBg : "transparent",
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+        >
+          Current block: {blockName || "—"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setScope("lifetime")}
+          style={{
+            padding: "6px 12px",
+            borderRadius: 8,
+            border: "1px solid " + (scope === "lifetime" ? T.border1 : T.border2),
+            background: scope === "lifetime" ? T.inputBg : "transparent",
+            cursor: "pointer",
+            fontSize: 12,
+          }}
+        >
+          All blocks (lifetime)
+        </button>
+      </div>
+
+      {scope === "lifetime" && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: T.text2, lineHeight: 1.5 }}>
+          Across {Object.keys(byBlock).filter((k) => k !== "unknown").length || 1} block(s), you have struggled with{" "}
+          {lifetimeConcepts.length} concept(s) in the lifetime list.
+          {topMissed.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Top missed</div>
+              <ol style={{ margin: 0, paddingLeft: 18 }}>
+                {topMissed.map((c) => (
+                  <li key={c.id}>
+                    {c.concept}{" "}
+                    <span style={{ color: T.text3 }}>({c.blockName || c.blockId})</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          {missingBlocks.length > 0 && (
+            <div style={{ marginTop: 8, color: "#BA7517", fontSize: 11 }}>
+              Load other blocks in the app to include their lectures in comprehensive review.
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={onComprehensiveReview}
+            style={{
+              marginTop: 10,
+              padding: "8px 14px",
+              borderRadius: 8,
+              border: "none",
+              background: "#3C3489",
+              color: "#fff",
+              cursor: "pointer",
+              fontSize: 12,
+            }}
+          >
+            Start comprehensive review
+          </button>
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, background: "#FCEBEB", color: "#A32D2D" }}>
+          ⚠ {strugglingN} struggling
+        </span>
+        <span style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, background: "#FAEEDA", color: "#633806" }}>
+          △ {developingN} developing
+        </span>
+        <span style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, background: "#EAF3DE", color: "#27500A" }}>
+          ✓ {masteredN} mastered
+        </span>
+      </div>
+
+      {scope === "lifetime"
+        ? Object.entries(byBlock).map(([bid, concepts]) => (
+            <div key={bid} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: T.text2 }}>
+                {bid === "unknown" ? "Unknown block" : concepts[0]?.blockName || bid}
+              </div>
+              {concepts.map((c) => (
+                <WeakConceptCard
+                  key={c.id}
+                  c={c}
+                  bid={bid === "unknown" ? blockId : bid}
+                  T={T}
+                  MONO={MONO}
+                  lecTypeBadge={lecTypeBadge}
+                  expanded={!!expanded[c.id]}
+                  onToggle={() => setExpanded((p) => ({ ...p, [c.id]: !p[c.id] }))}
+                  onDrill={() => onDrillConcept(c, bid === "unknown" ? blockId : bid)}
+                  onMarkMastered={() => markWeakConceptMastered(bid === "unknown" ? blockId : bid, c.id)}
+                />
+              ))}
+            </div>
+          ))
+        : sorted.map((c) => (
+            <WeakConceptCard
+              key={c.id}
+              c={c}
+              bid={blockId}
+              T={T}
+              MONO={MONO}
+              lecTypeBadge={lecTypeBadge}
+              expanded={!!expanded[c.id]}
+              onToggle={() => setExpanded((p) => ({ ...p, [c.id]: !p[c.id] }))}
+              onDrill={() => onDrillConcept(c, blockId)}
+              onMarkMastered={() => markWeakConceptMastered(blockId, c.id)}
+            />
+          ))}
+
+      <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border-tertiary)", paddingTop: 12 }}>
+        <button type="button" onClick={() => setAddOpen((o) => !o)} style={{ fontSize: 12, marginBottom: 8, cursor: "pointer" }}>
+          {addOpen ? "▼" : "▸"} Manual add
+        </button>
+        {addOpen && blockId && (
+          <AddWeakConceptForm blockId={blockId} blockName={blockName} onSave={onRefresh} T={T} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function WeakConceptCard({ c, bid, T, MONO, lecTypeBadge, expanded, onToggle, onDrill, onMarkMastered }) {
+  const border =
+    c.masteryLevel === "mastered" ? "#639922" : c.masteryLevel === "developing" ? "#BA7517" : "#E24B4A";
+  const pill =
+    c.masteryLevel === "mastered"
+      ? { t: "✓ Mastered", bg: "#EAF3DE", fg: "#27500A" }
+      : c.masteryLevel === "developing"
+        ? { t: "△ Developing", bg: "#FAEEDA", fg: "#633806" }
+        : { t: "⚠ Struggling", bg: "#FCEBEB", fg: "#A32D2D" };
+  const qh = c.questionHistory || [];
+  const correctN = qh.filter((h) => h.result === "correct").length;
+  return (
+    <div
+      style={{
+        background: "var(--color-background-primary)",
+        border: "0.5px solid var(--color-border-tertiary)",
+        borderLeft: "3px solid " + border,
+        borderRadius: "0 var(--border-radius-lg, 12px) var(--border-radius-lg, 12px) 0",
+        padding: "12px 16px",
+        marginBottom: 8,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ fontSize: 15, fontWeight: 500, flex: 1, minWidth: 0 }}>{c.concept}</div>
+        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, background: pill.bg, color: pill.fg }}>{pill.t}</span>
+        <span style={{ fontSize: 11, color: "#A32D2D", fontFamily: MONO }}>✗ {c.missCount || 0}</span>
+        {(c.consecutiveCorrect || 0) > 0 && (
+          <span style={{ fontSize: 11, color: "#27500A", fontFamily: MONO }}>✓ {c.consecutiveCorrect} in a row</span>
+        )}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
+        {(c.lectureLabels || []).slice(0, 6).map((lab, i) => (
+          <span key={i} style={{ fontSize: 10, padding: "2px 6px", borderRadius: 4, background: T.inputBg, color: T.text2 }}>
+            {lab.slice(0, 48)}
+          </span>
+        ))}
+      </div>
+      {c.description ? (
+        <div style={{ fontSize: 12, color: "var(--color-text-secondary)", marginTop: 6, lineHeight: 1.5 }}>{c.description}</div>
+      ) : null}
+      <button type="button" onClick={onToggle} style={{ marginTop: 6, fontSize: 11, background: "none", border: "none", color: T.text2, cursor: "pointer" }}>
+        {expanded ? "▾" : "▸"} Show history & source questions
+      </button>
+      {expanded && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: T.text3, marginBottom: 4 }}>
+            Where you got this wrong
+          </div>
+          {(c.sourceQuestions || []).slice(0, 3).map((s, i) => (
+            <div key={i} style={{ fontSize: 11, marginBottom: 6, padding: 8, background: T.inputBg, borderRadius: 6 }}>
+              <div>{(s.question || "").slice(0, 80)}{(s.question || "").length > 80 ? "…" : ""}</div>
+              <div style={{ color: "#A32D2D" }}>You: {s.wrongAnswer}</div>
+              <div style={{ color: "#27500A" }}>Correct: {s.correctAnswer}</div>
+              <div style={{ fontSize: 10, color: T.text3 }}>
+                {String(s.date || "").slice(0, 10)} · {s.source}
+              </div>
+            </div>
+          ))}
+          {qh.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: T.text3, margin: "10px 0 4px" }}>
+                Questions you&apos;ve been asked
+              </div>
+              <div style={{ fontSize: 11, color: T.text2 }}>
+                Angles: {qh.map((h) => h.angle).filter(Boolean).join(", ") || "—"} · {correctN} correct out of {qh.length} attempts
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={onDrill}
+          style={{ fontSize: 11, padding: "5px 10px", borderRadius: 6, border: "1px solid #AFA9EC", background: "#EEEDFE", cursor: "pointer" }}
+        >
+          ⚡ Drill this concept
+        </button>
+        <button
+          type="button"
+          onClick={onMarkMastered}
+          disabled={c.masteryLevel === "mastered"}
+          style={{
+            fontSize: 11,
+            padding: "5px 10px",
+            borderRadius: 6,
+            border: "1px solid #97C459",
+            background: c.masteryLevel === "mastered" ? T.inputBg : "#EAF3DE",
+            cursor: c.masteryLevel === "mastered" ? "default" : "pointer",
+            opacity: c.masteryLevel === "mastered" ? 0.5 : 1,
+          }}
+        >
+          ✓ Mark resolved
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// DRILL SESSION SUMMARY (Objectives tab)
+// ─────────────────────────────────────────────
+function DrillSessionSummaryPanel({
+  summary,
+  drillBid,
+  MONO,
+  T,
+  top2AutoCount,
+  onDone,
+  onDrillStrugglingOnly,
+  addLectureToTodayReview: addWeakLec,
+  levelDistribution,
+  onNavigateToObjectivesUnlinked,
+}) {
+  const [expandedWeak, setExpandedWeak] = useState({});
+  const [addedWeakIds, setAddedWeakIds] = useState({});
+  const dt = summary?.sessionDate ? new Date(summary.sessionDate) : new Date();
+  const subtitle = dt.toLocaleString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const total = summary.total || 0;
+  const m = total > 0 ? (summary.mastered / total) * 100 : 0;
+  const o = total > 0 ? (summary.okay / total) * 100 : 0;
+  const s = total > 0 ? (summary.struggling / total) * 100 : 0;
+  const rest = Math.max(0, 100 - m - o - s);
+  const scoreCol =
+    summary.score >= 70 ? "#639922" : summary.score >= 50 ? "#BA7517" : "#E24B4A";
+
+  return (
+    <div style={{ width: "100%", maxWidth: 720, margin: "0 auto", padding: "8px 12px 24px" }}>
+      <div style={{ fontSize: 20, fontWeight: 500, color: T.text1, marginBottom: 4 }}>Session complete</div>
+      <div
+        style={{
+          fontSize: 12,
+          color: "var(--color-text-tertiary, " + T.text3 + ")",
+          marginBottom: 20,
+        }}
+      >
+        {subtitle}
+      </div>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 8,
+          marginBottom: 20,
+        }}
+      >
+        {[
+          { val: summary.mastered, label: "✓ mastered", color: "#639922" },
+          { val: summary.okay, label: "△ getting there", color: "#BA7517" },
+          { val: summary.struggling, label: "⚠ struggling", color: "#E24B4A" },
+          { val: summary.skipped, label: "→ skipped", color: T.text3 },
+        ].map((cell) => (
+          <div
+            key={cell.label}
+            style={{
+              background: "var(--color-background-secondary, " + (T.inputBg || T.cardBg) + ")",
+              borderRadius: "var(--border-radius-md, 8px)",
+              padding: 12,
+              textAlign: "center",
+            }}
+          >
+            <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: cell.color }}>{cell.val}</div>
+            <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + T.text3 + ")", marginTop: 4 }}>
+              {cell.label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {total > 0 && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ height: 6, borderRadius: 3, display: "flex", overflow: "hidden" }}>
+            {m > 0 && <div style={{ width: `${m}%`, background: "#639922", flexShrink: 0 }} />}
+            {o > 0 && <div style={{ width: `${o}%`, background: "#BA7517", flexShrink: 0 }} />}
+            {s > 0 && <div style={{ width: `${s}%`, background: "#E24B4A", flexShrink: 0 }} />}
+            {rest > 0 && (
+              <div style={{ width: `${rest}%`, background: T.border2 || "#ccc", flexShrink: 0 }} />
+            )}
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 12, color: scoreCol, marginTop: 6 }}>
+            {summary.score}% mastered this session
+          </div>
+        </div>
+      )}
+
+      {(levelDistribution?.advanced ?? 0) > 0 && (
+        <div style={{ fontSize: 12, color: "#639922", marginBottom: 12 }}>
+          ↑ {levelDistribution.advanced} advanced to harder questions
+        </div>
+      )}
+
+      <div
+        style={{
+          borderTop: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
+          margin: "16px 0",
+        }}
+      />
+
+      {summary.weakLectures.length > 0 ? (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: T.text1, marginBottom: 4 }}>Study these next</div>
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--color-text-tertiary, " + T.text3 + ")",
+              marginBottom: 12,
+            }}
+          >
+            Based on your struggling objectives
+          </div>
+          {top2AutoCount > 0 && (
+            <div style={{ fontSize: 11, color: "#639922", marginBottom: 10 }}>
+              ✓ Top {top2AutoCount} added to Tracker automatically
+            </div>
+          )}
+          {summary.weakLectures.map((weakLec) => {
+            const lec = weakLec.lec;
+            const n = weakLec.objectives.length;
+            const isExp = !!expandedWeak[weakLec.lecId];
+            const showBtn = lec && !addedWeakIds[weakLec.lecId];
+            return (
+              <div
+                key={weakLec.lecId}
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  padding: "10px 12px",
+                  background: "var(--color-background-primary, " + T.cardBg + ")",
+                  border: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
+                  borderLeft: "3px solid #E24B4A",
+                  borderRadius: "0 var(--border-radius-md, 8px) var(--border-radius-md, 8px) 0",
+                  marginBottom: 6,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  {weakLec.lec ? (
+                    <div>
+                      <div style={{ display: "flex", gap: 6, marginBottom: 4, alignItems: "center", flexWrap: "wrap" }}>
+                        {lecTypeBadge(weakLec.lec.lectureType || "LEC")}
+                        <span
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 11,
+                            color: "var(--color-text-tertiary)",
+                          }}
+                        >
+                          {weakLec.lec.lectureNumber}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: T.text1 }}>
+                        {weakLec.lec.lectureTitle || weakLec.lec.fileName || weakLec.lecLabel}
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 500,
+                          color: "var(--color-text-secondary)",
+                        }}
+                      >
+                        {weakLec.lecLabel}
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--color-text-tertiary)",
+                          marginTop: 2,
+                        }}
+                      >
+                        Go to Overview → Objectives → Unlinked tab
+                      </div>
+                      <div style={{ marginTop: 6 }}>
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => onNavigateToObjectivesUnlinked?.()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              onNavigateToObjectivesUnlinked?.();
+                            }
+                          }}
+                          style={{
+                            fontSize: 11,
+                            color: "#185FA5",
+                            cursor: "pointer",
+                            textDecoration: "underline",
+                            fontFamily: MONO,
+                          }}
+                        >
+                          Go to Objectives → Unlinked tab →
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: "#A32D2D", marginTop: 4 }}>
+                    {n} struggling objective{n !== 1 ? "s" : ""}
+                  </div>
+                  {!weakLec.lec &&
+                    weakLec.objectives.map((obj, i) => {
+                      const text = obj.objective || obj.text || "";
+                      return (
+                        <div
+                          key={obj.id || i}
+                          style={{
+                            fontSize: 12,
+                            color: "var(--color-text-secondary)",
+                            marginTop: 6,
+                            paddingLeft: 8,
+                            borderLeft: "2px solid #F09595",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {text.slice(0, 150)}
+                          {text.length > 150 ? "..." : ""}
+                        </div>
+                      );
+                    })}
+                  {weakLec.lec && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedWeak((p) => ({ ...p, [weakLec.lecId]: !p[weakLec.lecId] }))
+                        }
+                        style={{
+                          marginTop: 6,
+                          fontSize: 11,
+                          background: "none",
+                          border: "none",
+                          color: T.text2,
+                          cursor: "pointer",
+                          padding: 0,
+                          fontFamily: MONO,
+                        }}
+                      >
+                        {isExp ? "▾" : "▸"} Show {n} struggling objective{n !== 1 ? "s" : ""}
+                      </button>
+                      {isExp && (
+                        <ul style={{ margin: "8px 0 0", paddingLeft: 18, maxWidth: "100%" }}>
+                          {weakLec.objectives.map((obj) => (
+                            <li
+                              key={obj.id}
+                              style={{
+                                fontSize: 11,
+                                color: "var(--color-text-secondary, " + T.text2 + ")",
+                                marginBottom: 4,
+                                display: "-webkit-box",
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: "vertical",
+                                overflow: "hidden",
+                              }}
+                            >
+                              {obj.objective || obj.text || ""}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </>
+                  )}
+                </div>
+                {lec && (
+                  <button
+                    type="button"
+                    disabled={!showBtn}
+                    onClick={() => {
+                      const ok = addWeakLec(lec, drillBid);
+                      if (ok) setAddedWeakIds((p) => ({ ...p, [weakLec.lecId]: true }));
+                    }}
+                    style={{
+                      fontSize: 11,
+                      padding: "4px 10px",
+                      background: showBtn ? "#FCEBEB" : "#EAF3DE",
+                      color: showBtn ? "#A32D2D" : "#27500A",
+                      border: showBtn ? "0.5px solid #F09595" : "0.5px solid #97C459",
+                      borderRadius: "var(--border-radius-md, 8px)",
+                      cursor: showBtn ? "pointer" : "default",
+                      flexShrink: 0,
+                      alignSelf: "flex-start",
+                      marginTop: 18,
+                    }}
+                  >
+                    {showBtn ? "Add to today's review" : "✓ Added to Tracker"}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ fontSize: 13, color: "#639922", textAlign: "center", marginBottom: 16 }}>
+          ✓ Strong session — no struggling lectures
+        </div>
+      )}
+
+      {(summary.newConceptsThisSession || []).length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, color: T.text1 }}>Concepts flagged this session</div>
+          {(summary.newConceptsThisSession || []).map((c) => (
+            <div
+              key={c.id}
+              style={{
+                fontSize: 12,
+                padding: "6px 10px",
+                background: "var(--color-background-secondary, " + (T.inputBg || T.cardBg) + ")",
+                borderRadius: 6,
+                marginBottom: 4,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
+              <span style={{ color: "#A32D2D" }}>⚠</span>
+              <span style={{ flex: 1 }}>{c.concept}</span>
+              <span style={{ fontSize: 10, color: "var(--color-text-tertiary, " + T.text3 + ")" }}>{c.missCount}× missed</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        style={{
+          borderTop: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
+          margin: "16px 0",
+        }}
+      />
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        {summary.struggling > 0 && (
+          <button
+            type="button"
+            onClick={onDrillStrugglingOnly}
+            style={{
+              background: "#FCEBEB",
+              color: "#A32D2D",
+              border: "0.5px solid #F09595",
+              padding: "8px 16px",
+              borderRadius: "var(--border-radius-md, 8px)",
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 12,
+            }}
+          >
+            ⚡ Drill struggling only
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onDone}
+          style={{
+            padding: "8px 16px",
+            fontSize: 12,
+            fontFamily: MONO,
+            border: "1px solid " + T.border1,
+            background: T.cardBg,
+            color: T.text1,
+            borderRadius: "var(--border-radius-md, 8px)",
+            cursor: "pointer",
+          }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // VIGNETTE SESSION
 // ─────────────────────────────────────────────
-function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
+function Session({
+  cfg,
+  onDone,
+  onBack,
+  onGenerateTopicVignettes,
+  quizSavedState = null,
+  quizTargetLecture = null,
+  quizBlockId = null,
+  onAddLectureToTodayReview = null,
+}) {
   const { T } = useTheme();
   const hasPreloaded = !!(cfg.vignettes && Array.isArray(cfg.vignettes) && cfg.vignettes.length > 0);
   const [vigs, setVigs]       = useState(hasPreloaded ? cfg.vignettes : []);
@@ -1989,6 +3738,7 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
   const [highlightColor, setHighlightColor] = useState("#fde047");
   const [eliminated, setEliminated] = useState({}); // { [questionId]: ["A","C"] }
   const [reviewMode, setReviewMode] = useState(false);
+  const [quizInlineAdded, setQuizInlineAdded] = useState(false);
   const tc = cfg.termColor || "#ef4444";
 
   function toggleEliminate(questionId, choice) {
@@ -2160,6 +3910,15 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
         total: nr.length,
         date: new Date().toISOString(),
         results: resultsWithObjectives,
+        meta: {
+          sessionType: "quiz",
+          blockId: cfg.objectiveBlockId ?? cfg.blockId ?? null,
+          lectureId:
+            cfg.lectureId ??
+            resultsWithObjectives.find((x) => x?.lectureRef)?.lectureRef ??
+            null,
+          lectureTitle: cfg.subject || null,
+        },
       });
       setResults(nr);
       setDone(true);
@@ -2267,6 +4026,127 @@ function Session({ cfg, onDone, onBack, onGenerateTopicVignettes }) {
             </button>
           )}
         </div>
+        {cfg?.mode === "objectives" && quizSavedState?.saved && (
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 540,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 12px",
+              marginTop: 10,
+              background: "#EAF3DE",
+              border: "0.5px solid #97C459",
+              borderRadius: "var(--border-radius-md, 8px)",
+              boxSizing: "border-box",
+            }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 500, color: "#27500A", flexShrink: 0 }}>✓ Saved</span>
+            <span
+              style={{
+                flex: 1,
+                fontSize: 11,
+                color: "#3B6D11",
+                minWidth: 0,
+              }}
+            >
+              {(quizSavedState.objectiveUpdatedCount != null ? quizSavedState.objectiveUpdatedCount : "—") +
+                " objectives updated · Added to Tracker"}
+            </span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+              <span
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  padding: "5px 9px",
+                  borderRadius: 999,
+                  border:
+                    "1px solid " +
+                    (quizSavedState.score >= 70
+                      ? "#97C459"
+                      : quizSavedState.score >= 50
+                        ? "#D4A574"
+                        : "#E24B4A"),
+                  background:
+                    quizSavedState.score >= 70
+                      ? "rgba(99, 153, 34, 0.18)"
+                      : quizSavedState.score >= 50
+                        ? "rgba(186, 117, 23, 0.2)"
+                        : "rgba(226, 75, 74, 0.15)",
+                  color:
+                    quizSavedState.score >= 70
+                      ? "#27500A"
+                      : quizSavedState.score >= 50
+                        ? "#633806"
+                        : "#A32D2D",
+                }}
+              >
+                {quizSavedState.score}%
+              </span>
+              <button
+                onClick={onBack}
+                style={{
+                  border: "1px solid " + T.border1,
+                  background: T.cardBg,
+                  color: T.text2,
+                  borderRadius: 8,
+                  padding: "6px 12px",
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
+        {cfg?.mode === "objectives" && quizSavedState?.saved && quizTargetLecture && quizBlockId && onAddLectureToTodayReview && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: "8px 12px",
+              background: "var(--color-background-secondary)",
+              borderRadius: "var(--border-radius-md)",
+              fontSize: 12,
+              maxWidth: 540,
+              width: "100%",
+              boxSizing: "border-box",
+            }}
+          >
+            {score >= 70 ? (
+              <span style={{ color: "#27500A" }}>✓ Strong — keep reviewing this lecture</span>
+            ) : score >= 50 ? (
+              <span style={{ color: "#633806" }}>△ Developing — add to Tracker for review</span>
+            ) : (
+              <span style={{ color: "#A32D2D" }}>⚠ Weak — this lecture added to today's Tracker</span>
+            )}
+            {score >= 50 && score < 70 && (
+              <button
+                type="button"
+                disabled={quizInlineAdded}
+                onClick={() => {
+                  const ok = onAddLectureToTodayReview(quizTargetLecture, quizBlockId);
+                  if (ok) setQuizInlineAdded(true);
+                }}
+                style={{
+                  marginLeft: 8,
+                  fontSize: 11,
+                  padding: "2px 8px",
+                  background: quizInlineAdded ? "#EAF3DE" : "#FCEBEB",
+                  color: quizInlineAdded ? "#27500A" : "#A32D2D",
+                  border: quizInlineAdded ? "0.5px solid #97C459" : "0.5px solid #F09595",
+                  borderRadius: 4,
+                  cursor: quizInlineAdded ? "default" : "pointer",
+                }}
+              >
+                {quizInlineAdded ? "✓ Added to Tracker" : "Add to Tracker"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -2868,10 +4748,12 @@ function WeekGroup({
 // ─────────────────────────────────────────────
 // LECTURE LIST ROW (compact list view)
 // ─────────────────────────────────────────────
-function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {}, reanalyzeLecture }) {
+function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, handleRapidFireStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {}, reanalyzeLecture, compactLayout, scheduleEditMode, getLecPerf, hideRow, hideRowDiv, quizLoadingId = null, quizErrorId = null }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const [quizLoading, setQuizLoading] = useState(false);
+  const isLectureQuizLoading = quizLoadingId === lec.id;
+  const isLectureQuizError = quizErrorId === lec.id;
 
   const lecSessions = (sessions || []).filter(s => s.lectureId === lec.id);
   const sessionCount = lecSessions.length;
@@ -2885,19 +4767,146 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
   const masteredObjs = lecObjs.filter((o) => o.status === "mastered").length;
   const strugglingObjs = lecObjs.filter((o) => o.status === "struggling").length;
 
+  const bid = currentBlock?.id;
+  const perf = getLecPerf ? getLecPerf(lec, bid) : null;
+  const compactScore = perf?.lastScore ?? perf?.sessions?.slice(-1)[0]?.score ?? null;
+  const compactSessCount = perf?.sessions?.length ?? 0;
+  const compactScoreColor = compactScore >= 70 ? "#639922" : compactScore >= 50 ? "#BA7517" : compactScore > 0 ? "#E24B4A" : null;
+  let compactTypeKey = (lec.lectureType || "LEC").toUpperCase();
+  if (compactTypeKey === "LECTURE" || compactTypeKey.startsWith("LECT")) compactTypeKey = "LEC";
+  else compactTypeKey = compactTypeKey.slice(0, 4);
+  const COMPACT_PILL = { LEC: { bg: "#FCEBEB", color: "#A32D2D" }, DLA: { bg: "#EEEDFE", color: "#3C3489" }, SG: { bg: "#E1F5EE", color: "#085041" }, TBL: { bg: "#FAEEDA", color: "#633806" }, LAB: { bg: "#F1EFE8", color: "#444441" }, CLIN: { bg: "#E6F1FB", color: "#0C447C" } };
+  const typePillStyle = COMPACT_PILL[compactTypeKey] || COMPACT_PILL.LEC;
+
+  if (compactLayout) {
+    const title = (() => {
+      const t = (lec.lectureTitle || "").trim();
+      const fn = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
+      if (t && t.toLowerCase() !== fn.toLowerCase()) return t;
+      return t || fn;
+    })();
+    return (
+      <div style={{
+        borderRadius: isExpanded ? 12 : 8,
+        border: "1px solid " + (isMergeSelected ? T.amberBorder : isExpanded ? tc : T.border1),
+        background: isMergeSelected ? T.amberBg : (isExpanded ? T.cardBg : "transparent"),
+        transition: "all 0.18s",
+        overflow: "hidden",
+      }}>
+        <div
+          onClick={() => {
+            if (mergeMode) return;
+            if (scheduleEditMode) return;
+            isExpanded ? onClose() : onOpen();
+          }}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "7px 0",
+            minHeight: 36,
+            cursor: scheduleEditMode ? "default" : "pointer",
+            transition: "background 0.12s",
+          }}
+          onMouseEnter={e => !scheduleEditMode && !isExpanded && !isMergeSelected && (e.currentTarget.style.background = T.inputBg)}
+          onMouseLeave={e => !scheduleEditMode && !isExpanded && !isMergeSelected && (e.currentTarget.style.background = "transparent")}
+        >
+          {mergeMode && (
+            <div
+              onClick={e => { e.stopPropagation(); onMergeToggle?.(lec.id); }}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 5,
+                flexShrink: 0,
+                border: "2px solid " + (isMergeSelected ? T.amber : T.border1),
+                background: isMergeSelected ? T.amber : "transparent",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              {isMergeSelected && <span style={{ color: T.text1, fontSize: 14, fontWeight: 700 }}>✓</span>}
+            </div>
+          )}
+          <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 4, flexShrink: 0, background: typePillStyle.bg, color: typePillStyle.color }}>
+            {compactTypeKey}
+          </span>
+          <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3, minWidth: 20, textAlign: "right", flexShrink: 0 }}>
+            {lec.lectureNumber ?? "—"}
+          </span>
+          <span style={{ flex: 1, fontSize: 13, color: T.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
+            {title}
+          </span>
+          {scheduleEditMode && (
+            <>
+              <select
+                value={lec.weekNumber ?? ""}
+                onChange={(e) => { e.stopPropagation(); onUpdateLec(lec.id, { weekNumber: e.target.value ? parseInt(e.target.value, 10) : null }); }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ width: 72, fontSize: 11, fontFamily: MONO, padding: "2px 6px", border: "1px solid " + T.border1, borderRadius: 6, background: T.inputBg, color: T.text1, cursor: "pointer", flexShrink: 0 }}
+              >
+                <option value="">Unscheduled</option>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => <option key={w} value={w}>Week {w}</option>)}
+              </select>
+              <select
+                value={lec.dayOfWeek || ""}
+                onChange={(e) => { e.stopPropagation(); onUpdateLec(lec.id, { dayOfWeek: e.target.value || null }); }}
+                onClick={(e) => e.stopPropagation()}
+                style={{ width: 72, fontSize: 11, fontFamily: MONO, padding: "2px 6px", border: "1px solid " + T.border1, borderRadius: 6, background: T.inputBg, color: T.text1, cursor: "pointer", flexShrink: 0 }}
+              >
+                <option value="">Day</option>
+                {DOW_ORDER.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </>
+          )}
+          <div style={{ width: 56, height: 4, flexShrink: 0, background: T.border1 || T.border2, borderRadius: 2, overflow: "hidden" }}>
+            {compactScore != null && compactScore > 0 && (
+              <div style={{ width: (compactScore / 100 * 100) + "%", height: "100%", background: compactScoreColor || T.border1, borderRadius: 2 }} />
+            )}
+          </div>
+          <span style={{ fontFamily: MONO, fontSize: 11, minWidth: 32, textAlign: "right", flexShrink: 0, color: compactScore != null && compactScore > 0 ? compactScoreColor : T.text3 }}>
+            {compactScore != null && compactScore > 0 ? compactScore + "%" : "—"}
+          </span>
+          <span style={{ fontSize: 10, color: compactSessCount === 0 ? T.text3 : compactSessCount >= 2 ? T.text1 : T.text2, minWidth: 24, textAlign: "right", flexShrink: 0 }}>
+            {compactSessCount}x
+          </span>
+          {scheduleEditMode ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onOpen(); }}
+              style={{ fontSize: 10, padding: "2px 8px", border: "0.5px solid " + (T.border2 || T.border1), borderRadius: 4, color: T.text3, background: "transparent", fontFamily: MONO, cursor: "pointer", flexShrink: 0 }}
+            >
+              ⋯ more
+            </button>
+          ) : (
+            <span style={{ color: T.text3, fontSize: 13, flexShrink: 0, transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.18s" }}>▾</span>
+          )}
+        </div>
+        {isExpanded && (
+          <div style={{ padding: "0 16px 16px", borderTop: "1px solid " + T.border1 }}>
+            <LecListRow lec={lec} index={index} tc={tc} T={T} sessions={sessions} onOpen={onOpen} onClose={onClose} isExpanded={true} onStart={onStart} onDeepLearn={onDeepLearn} handleDeepLearnStart={handleDeepLearnStart} handleRapidFireStart={handleRapidFireStart} setAnkiLogTarget={setAnkiLogTarget} detectStudyMode={detectStudyModeFn} onUpdateLec={onUpdateLec} mergeMode={mergeMode} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle} bulkWeekTarget={bulkWeekTarget} allObjectives={allObjectives} allBlockObjectives={allBlockObjectives} getBlockObjectives={getBlockObjectives} updateObjective={updateObjective} currentBlock={currentBlock} startObjectiveQuiz={startObjectiveQuiz} quizLoadingId={quizLoadingId} quizErrorId={quizErrorId} getLectureSubtopicCompletion={getLectureSubtopicCompletion} getLecCompletion={getLecCompletion} makeSubtopicKey={makeSubtopicKey} performanceHistory={performanceHistory} reanalyzeLecture={reanalyzeLecture} hideRowDiv />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{
-      borderRadius: isExpanded ? 12 : 8,
-      border: "1px solid " + (isMergeSelected ? T.amberBorder : isExpanded ? tc : T.border1),
-      background: isMergeSelected ? T.amberBg : (isExpanded ? T.cardBg : "transparent"),
+      ...(hideRowDiv ? { border: "none", background: "transparent", boxShadow: "none", borderRadius: 0 } : {}),
+      borderRadius: hideRowDiv ? 0 : (isExpanded ? 12 : 8),
+      border: hideRowDiv ? "none" : ("1px solid " + (isMergeSelected ? T.amberBorder : isExpanded ? tc : T.border1)),
+      background: hideRowDiv ? "transparent" : (isMergeSelected ? T.amberBg : (isExpanded ? T.cardBg : "transparent")),
       transition: "all 0.18s",
       overflow: "hidden",
-      boxShadow: isExpanded ? "0 2px 12px rgba(0,0,0,0.08)" : "none",
+      boxShadow: hideRowDiv ? "none" : (isExpanded ? "0 2px 12px rgba(0,0,0,0.08)" : "none"),
     }}>
       <div
         onClick={() => !mergeMode && (isExpanded ? onClose() : onOpen())}
         style={{
-          display: "flex",
+          display: hideRowDiv ? "none" : "flex",
           alignItems: "center",
           gap: 12,
           padding: isExpanded ? "14px 16px" : "10px 14px",
@@ -3028,7 +5037,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
         {lec.extractionMethod === "mistral-ocr" && (
           <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
         )}
-        {((lec.extractedText || lec.fullText)?.length > 0 && !lec.teachingMap && reanalyzeLecture) && (
+        {(getLecText(lec).length > 0 && !lec.teachingMap && reanalyzeLecture) && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); reanalyzeLecture(lec); }}
@@ -3532,23 +5541,25 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                   {startObjectiveQuiz && (
                     <button
                       type="button"
-                      disabled={quizLoading}
+                      disabled={quizLoading || isLectureQuizLoading}
                       onClick={async () => {
                         setQuizLoading(true);
                         try {
-                          await startObjectiveQuiz(expandedObjs, lec.lectureTitle || lec.filename, currentBlock?.id);
+                          await startObjectiveQuiz(expandedObjs, lec.lectureTitle || lec.filename, currentBlock?.id, {
+                            lectureId: lec.id,
+                          });
                         } finally {
                           setQuizLoading(false);
                         }
                       }}
                       style={{
                         flex: 1,
-                        background: quizLoading ? T.inputBg : tc + "18",
-                        border: "1px solid " + (quizLoading ? T.border1 : tc + "50"),
-                        color: quizLoading ? T.text3 : tc,
+                        background: (quizLoading || isLectureQuizLoading) ? T.inputBg : isLectureQuizError ? T.statusWarnBg : tc + "18",
+                        border: "1px solid " + ((quizLoading || isLectureQuizLoading) ? T.border1 : isLectureQuizError ? T.statusWarnBorder : tc + "50"),
+                        color: (quizLoading || isLectureQuizLoading) ? T.text3 : isLectureQuizError ? T.statusWarn : tc,
                         padding: "10px 0",
                         borderRadius: 8,
-                        cursor: quizLoading ? "not-allowed" : "pointer",
+                        cursor: (quizLoading || isLectureQuizLoading) ? "not-allowed" : "pointer",
                         fontFamily: MONO,
                         fontSize: 13,
                         fontWeight: 700,
@@ -3557,17 +5568,21 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                         justifyContent: "center",
                         gap: 8,
                         transition: "all 0.15s",
+                        pointerEvents: isLectureQuizLoading ? "none" : "auto",
+                        opacity: isLectureQuizLoading ? 0.7 : 1,
                       }}
-                      onMouseEnter={(e) => !quizLoading && (e.currentTarget.style.background = tc + "30")}
-                      onMouseLeave={(e) => !quizLoading && (e.currentTarget.style.background = quizLoading ? T.inputBg : tc + "18")}
+                      onMouseEnter={(e) => !(quizLoading || isLectureQuizLoading) && (e.currentTarget.style.background = isLectureQuizError ? T.statusWarnBg : tc + "30")}
+                      onMouseLeave={(e) => !(quizLoading || isLectureQuizLoading) && (e.currentTarget.style.background = (quizLoading || isLectureQuizLoading) ? T.inputBg : isLectureQuizError ? T.statusWarnBg : tc + "18")}
                     >
-                      {quizLoading ? (
+                      {(quizLoading || isLectureQuizLoading) ? (
                         <>
-                          <div style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid " + T.border1, borderTopColor: tc, animation: "rxt-spin 0.7s linear infinite" }} />
+                          <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
                           Generating...
                         </>
+                      ) : isLectureQuizError ? (
+                        "Retry →"
                       ) : (
-                        "🎯 Quiz These Objectives"
+                        "Quiz →"
                       )}
                     </button>
                   )}
@@ -3599,7 +5614,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
               const isVisual = ["anatomy", "histology"].includes(studyMode.mode);
 
               return (
-                <div style={{ display: "flex", gap: 8, flex: 1 }}>
+                <div style={{ display: "flex", gap: 8, flex: 1, flexWrap: "wrap" }}>
                   <button
                     type="button"
                     onClick={() => setAnkiLogTarget?.(lec)}
@@ -3617,6 +5632,27 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                     }}
                   >
                     📇 Log Anki
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleRapidFireStart?.({ selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }], blockId: currentBlock?.id });
+                    }}
+                    style={{
+                      flex: 1,
+                      background: "#FAEEDA",
+                      color: "#633806",
+                      border: "0.5px solid #EF9F27",
+                      borderRadius: "var(--border-radius-md, 8px)",
+                      fontSize: 13,
+                      padding: "8px 16px",
+                      fontFamily: MONO,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    ⚡ Rapid Fire
                   </button>
                   <button
                     type="button"
@@ -3649,7 +5685,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
 // ─────────────────────────────────────────────
 // BLOCK WEAK OBJECTIVES BREAKDOWN (collapsible)
 // ─────────────────────────────────────────────
-function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, T, tc, startObjectiveQuiz, updateObjective, lecTypeBadge }) {
+function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, T, tc, startObjectiveQuiz, updateObjective, lecTypeBadge, quizLoadingId = null, quizErrorId = null }) {
   const [showWeak, setShowWeak] = useState(false);
   const weakObjs = (blockObjs || []).filter(
     (o) => o.status === "struggling" || o.status === "untested"
@@ -3849,19 +5885,30 @@ function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, 
                           { lectureId: group.lec?.id }
                         )
                       }
+                      disabled={quizLoadingId === group.lec?.id}
                       style={{
-                        background: tc,
-                        border: "none",
-                        color: "#fff",
+                        background: quizLoadingId === group.lec?.id ? T.inputBg : quizErrorId === group.lec?.id ? T.statusWarnBg : tc,
+                        border: quizLoadingId === group.lec?.id ? "1px solid " + T.border1 : quizErrorId === group.lec?.id ? "1px solid " + T.statusWarnBorder : "none",
+                        color: quizLoadingId === group.lec?.id ? T.text3 : quizErrorId === group.lec?.id ? T.statusWarn : "#fff",
                         padding: "3px 10px",
                         borderRadius: 5,
-                        cursor: "pointer",
+                        cursor: quizLoadingId === group.lec?.id ? "not-allowed" : "pointer",
                         fontFamily: MONO,
                         fontSize: 10,
                         fontWeight: 700,
+                        pointerEvents: quizLoadingId === group.lec?.id ? "none" : "auto",
+                        opacity: quizLoadingId === group.lec?.id ? 0.7 : 1,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 6,
                       }}
                     >
-                      Quiz →
+                      {quizLoadingId === group.lec?.id ? (
+                        <>
+                          <span style={{ display: "inline-block", width: 12, height: 12, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" }} />
+                          Generating...
+                        </>
+                      ) : quizErrorId === group.lec?.id ? "Retry →" : "Quiz →"}
                     </button>
                   </div>
                 </div>
@@ -4105,11 +6152,12 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             <button
               onClick={() => {
                 setBlockObjectives((prev) => {
-                  const data = prev[blockId] || { imported: [], extracted: [] };
+                  const data = pickBlockObjectivesState(prev, blockId);
+                  const wk = blockObjectivesStorageKey(prev, blockId);
                   const unlink = (o) => (mismatchKeys.has(mismatchKey(o)) ? { ...o, linkedLecId: null } : o);
                   const imported = (data.imported || []).map(unlink);
                   const extracted = (data.extracted || []).map(unlink);
-                  const next = { ...prev, [blockId]: { ...data, imported, extracted } };
+                  const next = { ...prev, [wk]: { ...data, imported, extracted } };
                   try {
                     localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
                   } catch {}
@@ -4155,7 +6203,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             {lec.extractionMethod === "mistral-ocr" && (
               <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30" }}>OCR✓</span>
             )}
-            {((lec.extractedText || lec.fullText)?.length > 0 && !lec.teachingMap && reanalyzeLecture) && (
+            {(getLecText(lec).length > 0 && !lec.teachingMap && reanalyzeLecture) && (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); reanalyzeLecture(lec); }}
@@ -5821,195 +7869,215 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
 // ─────────────────────────────────────────────
 // OBJECTIVES IMPORTER (summary PDF)
 // ─────────────────────────────────────────────
-function ObjectivesImporter({ blockId, onImport, T, tc }) {
-  const [importing, setImporting] = useState(false);
-  const [msg, setMsg] = useState("");
-  const [count, setCount] = useState(0);
+function ObjectivesImporter({
+  blockId,
+  onImport,
+  blockLectures = [],
+  onAfterImport,
+  T,
+  tc,
+  compact = false,
+  hasModuleImport = false,
+}) {
+  const [importStatus, setImportStatus] = useState(null);
+  const [importProgress, setImportProgress] = useState("");
   const [liveObjectives, setLiveObjectives] = useState([]);
-  const [currentPage, setCurrentPage] = useState(0);
-  const [totalPages, setTotalPages] = useState(0);
   const [showLive, setShowLive] = useState(true);
   const liveEndRef = useRef(null);
+  const lastFileRef = useRef(null);
+  const doneClearRef = useRef(null);
   const MONO = "'DM Mono','Courier New',monospace";
+
+  const processing = importStatus === "processing";
+
+  useEffect(() => {
+    if (importStatus !== "done") return;
+    if (doneClearRef.current) clearTimeout(doneClearRef.current);
+    doneClearRef.current = setTimeout(() => {
+      setImportStatus(null);
+      setImportProgress("");
+      doneClearRef.current = null;
+    }, 8000);
+    return () => {
+      if (doneClearRef.current) clearTimeout(doneClearRef.current);
+    };
+  }, [importStatus]);
+
+  const runImport = async (file) => {
+    if (!file || !blockId) return;
+    lastFileRef.current = file;
+    setImportStatus("processing");
+    setImportProgress("Extracting text from PDF...");
+    setLiveObjectives([]);
+
+    try {
+      const pdfText = await extractObjectivesPdfText(file, setImportProgress);
+      setImportProgress("Parsing objectives...");
+
+      const importedRaw = await parseObjectivesFromPDFText(pdfText, (cur, total) => {
+        setImportProgress(`Parsing objectives... chunk ${cur} of ${total}`);
+      });
+
+      if (!importedRaw.length) {
+        throw new Error("No objectives found in PDF");
+      }
+
+      setImportProgress(`Found ${importedRaw.length} raw — merging...`);
+
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const { imported: existingImported = [] } = parseBlockObjectivesRaw(getBlockObjectivesStoredRaw(stored, blockId));
+
+      const { merged, added, updated, skipped } = mergeImportedObjectives(
+        importedRaw,
+        existingImported,
+        blockLectures,
+        blockId
+      );
+
+      const { deduped, removed } = deduplicateObjectives(merged);
+      const shaped = mapMergedObjectivesToAppShape(deduped);
+
+      setLiveObjectives(shaped);
+      const summary = `✓ ${added} added · ${updated} updated · ${removed} duplicates removed · ${skipped} skipped (unlinked)`;
+      setImportStatus("done");
+      setImportProgress(summary);
+      onImport?.(shaped);
+      setTimeout(() => {
+        try {
+          onAfterImport?.(blockId);
+        } catch (e) {
+          console.warn("onAfterImport:", e);
+        }
+      }, 0);
+    } catch (e) {
+      console.error("Objectives PDF import failed:", e);
+      setImportStatus("error");
+      setImportProgress(e?.message || String(e));
+    }
+  };
 
   const handleFile = async (file) => {
     if (!file) return;
-    setImporting(true);
-    setLiveObjectives([]);
-    setMsg("📄 Reading PDF...");
-    setCount(0);
-
-    try {
-      await loadPDFJS();
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
-      setTotalPages(pdf.numPages);
-
-      const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-      const allObjectives = [];
-
-      setMsg("📤 Uploading PDF...");
-      const uploadRes = await fetch(
-        `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: {
-            "X-Goog-Upload-Protocol": "raw",
-            "X-Goog-Upload-Command": "start, upload, finalize",
-            "X-Goog-Upload-Header-Content-Type": "application/pdf",
-            "X-Goog-Upload-Header-Content-Length": String(file.size),
-            "Content-Type": "application/pdf",
-          },
-          body: file,
-        }
-      );
-
-      const uploadData = await uploadRes.json();
-      const fileUri = uploadData?.file?.uri;
-      const fileName = uploadData?.file?.name;
-      if (!fileUri) throw new Error("Upload failed: " + JSON.stringify(uploadData).slice(0, 200));
-
-      const passes = [
-        { label: "pages 1–3", instruction: "Extract ALL objectives from pages 1, 2, and 3 only." },
-        { label: "pages 4–6", instruction: "Extract ALL objectives from pages 4, 5, and 6 only." },
-        { label: "pages 7–9", instruction: "Extract ALL objectives from pages 7, 8, and 9 only." },
-        { label: "final check", instruction: "Extract any remaining objectives not yet captured. Scan every page." },
-      ];
-
-      for (let pi = 0; pi < passes.length; pi++) {
-        const pass = passes[pi];
-        setMsg(`🧠 Pass ${pi + 1}/4 — ${pass.label}...`);
-
-        const seenCodes = new Set(allObjectives.map((o) => o.code).filter(Boolean));
-
-        const prompt =
-          `This PDF is a medical school module objectives document.\n` +
-          `It is a TABLE with 5 columns: Activity | Discipline | Title | Objective Code | Objective Text\n\n` +
-          `CRITICAL TABLE RULE: The table uses MERGED CELLS.\n` +
-          `Only the FIRST row of each lecture group has Activity/Discipline/Title filled in.\n` +
-          `All other rows in that group have BLANK Activity/Discipline/Title cells.\n` +
-          `You MUST forward-fill: when Activity is blank, use the last non-blank Activity above it.\n` +
-          `Same for Discipline and Title.\n\n` +
-          `${pass.instruction}\n\n` +
-          `There are 30-50 objectives per page. Extract EVERY ROW.\n` +
-          (seenCodes.size > 0
-            ? `Already extracted ${allObjectives.length} objectives with codes: ${[...seenCodes].slice(0, 10).join(", ")}...\nDo NOT repeat these.\n\n`
-            : "") +
-          `Normalize Activity: "Lecture 27" → "Lec27", "DLA 16" → "DLA16", "SG 07" → "SG07"\n\n` +
-          `Return ONLY this JSON (no markdown):\n` +
-          `{"objectives":[{"activity":"Lec27","lectureNumber":27,"discipline":"BCHM","lectureTitle":"Proteoglycans and Glycoproteins","code":"SOM.MK.I.BPM1.1.FTM.3.BCHM.0143","objective":"Describe the general structure of proteoglycans"}]}`;
-
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  contents: [
-                    {
-                      parts: [
-                        { file_data: { mime_type: "application/pdf", file_uri: fileUri } },
-                        { text: prompt },
-                      ],
-                    },
-                  ],
-                  generationConfig: { maxOutputTokens: 16000, temperature: 0.0 },
-                  safetySettings: [
-                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                    { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-                  ],
-                }),
-              }
-            );
-
-            const d = await res.json();
-            const raw = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
-            if (!raw) continue;
-
-            const first = raw.indexOf("{");
-            const last = raw.lastIndexOf("}");
-            if (first === -1) continue;
-
-            let parsed;
-            try {
-              parsed = JSON.parse(raw.slice(first, last + 1));
-            } catch {
-              try {
-                parsed = JSON.parse(
-                  raw
-                    .slice(first, last + 1)
-                    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, " ")
-                    .replace(/,\s*([}\]])/g, "$1")
-                );
-              } catch {
-                continue;
-              }
-            }
-
-            const arr =
-              parsed?.objectives ||
-              Object.values(parsed || {}).find((v) => Array.isArray(v) && v.length > 0) ||
-              [];
-
-            const newOnes = arr
-              .filter((o) => (o?.objective || "").length > 10)
-              .filter((o) => !seenCodes.has(o.code))
-              .map((o, i) => ({
-                id: o.code || `imp_${Date.now()}_${i}`,
-                activity: o.activity || "Unknown",
-                lectureNumber: o.lectureNumber || parseInt((o.activity || "").match(/\d+/)?.[0]) || null,
-                discipline: o.discipline || "Unknown",
-                lectureTitle: o.lectureTitle || "",
-                code: o.code || null,
-                objective: o.objective || "",
-                status: "untested",
-                confidence: 0,
-                lastTested: null,
-                quizScore: null,
-                source: "imported",
-              }));
-
-            allObjectives.push(...newOnes);
-            setLiveObjectives([...allObjectives]);
-            setCount(allObjectives.length);
-            setMsg(`✓ Pass ${pi + 1} done — ${allObjectives.length} objectives so far`);
-            break;
-          } catch (e) {
-            await new Promise((r) => setTimeout(r, 800));
-          }
-        }
-
-        await new Promise((r) => setTimeout(r, 400));
-      }
-
-      try {
-        await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${GEMINI_KEY}`,
-          { method: "DELETE" }
-        );
-      } catch {}
-
-      const seen = new Set();
-      const deduped = allObjectives.filter((o) => {
-        const key = (o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, "");
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-
-      setLiveObjectives(deduped);
-      setCount(deduped.length);
-      setMsg(`✓ ${deduped.length} objectives imported`);
-      onImport(deduped);
-    } catch (e) {
-      setMsg("✗ " + e.message);
-    }
-    setImporting(false);
+    await runImport(file);
   };
+
+  if (compact) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {hasModuleImport ? (
+            <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>✓ Module PDF imported</span>
+          ) : (
+            <label
+              style={{
+                background: processing ? T.border1 : tc || T.red,
+                border: "none",
+                color: "#fff",
+                padding: "4px 8px",
+                borderRadius: 6,
+                cursor: processing ? "not-allowed" : "pointer",
+                fontFamily: MONO,
+                fontSize: 11,
+                fontWeight: 600,
+                opacity: processing ? 0.7 : 1,
+              }}
+            >
+              {processing ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      border: "2px solid #fff6",
+                      borderTopColor: "#fff",
+                      animation: "rxtSpin 0.7s linear infinite",
+                      display: "inline-block",
+                    }}
+                  />
+                  Processing...
+                </span>
+              ) : importStatus === "done" ? (
+                <span style={{ color: "#27500A" }}>✓ Import complete</span>
+              ) : importStatus === "error" ? (
+                <span style={{ color: "#A32D2D" }}>⚠ Import failed</span>
+              ) : (
+                "Import objectives PDF"
+              )}
+              <input
+                type="file"
+                accept=".pdf"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleFile(f);
+                  e.target.value = "";
+                }}
+                style={{ display: "none" }}
+                disabled={processing}
+              />
+            </label>
+          )}
+          {importStatus === "error" && lastFileRef.current && (
+            <button
+              type="button"
+              onClick={() => runImport(lastFileRef.current)}
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                padding: "3px 8px",
+                borderRadius: 6,
+                border: "1px solid " + T.border1,
+                background: T.inputBg,
+                cursor: "pointer",
+                color: T.text2,
+              }}
+            >
+              Retry
+            </button>
+          )}
+          <details style={{ fontSize: 10 }}>
+            <summary style={{ fontFamily: MONO, color: T.text3, cursor: "pointer" }}>Import tools</summary>
+            <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+              {!hasModuleImport && (
+                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+                  Upload your module objectives summary PDF (lists all lecture objectives).
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setLiveObjectives([]);
+                  setImportProgress("");
+                  setImportStatus(null);
+                }}
+                style={{
+                  background: "none",
+                  border: "1px solid " + T.border1,
+                  color: T.text3,
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  fontFamily: MONO,
+                  fontSize: 11,
+                  alignSelf: "flex-start",
+                }}
+              >
+                Replace import state
+              </button>
+            </div>
+          </details>
+        </div>
+        {(importProgress || processing) && (
+          <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, maxWidth: 320, textAlign: "right", lineHeight: 1.35 }}>
+            {importProgress}
+          </div>
+        )}
+        <style>{`
+        @keyframes rxtSpin { to { transform: rotate(360deg); } }
+      `}</style>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: T.inputBg, border: "2px dashed " + (tc || T.red) + "50", borderRadius: 12, padding: "16px 20px", marginBottom: 16 }}>
@@ -6018,67 +8086,158 @@ function ObjectivesImporter({ blockId, onImport, T, tc }) {
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: MONO, color: T.text2, fontSize: 13, fontWeight: 600 }}>Import Module Objectives Summary</div>
           <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginTop: 2 }}>
-            {msg || "Upload your school's objectives summary PDF (the one listing ALL lectures). Individual lecture objectives are extracted automatically when you upload lectures above."}
+            {importStatus === "done" ? (
+              <span style={{ color: "#27500A" }}>✓ Import complete</span>
+            ) : importStatus === "error" ? (
+              <span style={{ color: "#A32D2D" }}>⚠ {importProgress}</span>
+            ) : (
+              importProgress ||
+              "Upload your school's objectives summary PDF (the one listing ALL lectures). Individual lecture objectives are extracted automatically when you upload lectures above."
+            )}
           </div>
         </div>
-        <label style={{ background: importing ? T.border1 : (tc || T.red), border: "none", color: "#fff", padding: "8px 18px", borderRadius: 8, cursor: importing ? "not-allowed" : "pointer", fontFamily: MONO, fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-          {importing ? "Importing..." : "📥 Import PDF"}
-          <input type="file" accept=".pdf" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} style={{ display: "none" }} disabled={importing} />
+        <label
+          style={{
+            background: processing ? T.border1 : tc || T.red,
+            border: "none",
+            color: "#fff",
+            padding: "8px 18px",
+            borderRadius: 8,
+            cursor: processing ? "not-allowed" : "pointer",
+            fontFamily: MONO,
+            fontSize: 13,
+            fontWeight: 700,
+            flexShrink: 0,
+            opacity: processing ? 0.7 : 1,
+          }}
+        >
+          {processing ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: "50%",
+                  border: "2px solid #fff6",
+                  borderTopColor: "#fff",
+                  animation: "rxtSpin 0.7s linear infinite",
+                }}
+              />
+              Processing...
+            </span>
+          ) : (
+            "📥 Import PDF"
+          )}
+          <input
+            type="file"
+            accept=".pdf"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleFile(f);
+              e.target.value = "";
+            }}
+            style={{ display: "none" }}
+            disabled={processing}
+          />
         </label>
+        {importStatus === "error" && lastFileRef.current && (
+          <button
+            type="button"
+            onClick={() => runImport(lastFileRef.current)}
+            style={{
+              background: "none",
+              border: "1px solid " + T.border1,
+              color: "#A32D2D",
+              padding: "8px 14px",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 13,
+            }}
+          >
+            Retry
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => { setLiveObjectives([]); setCurrentPage(0); setTotalPages(0); setMsg(""); }}
+          onClick={() => {
+            setLiveObjectives([]);
+            setImportProgress("");
+            setImportStatus(null);
+          }}
           style={{ background: "none", border: "1px solid " + T.border1, color: T.text3, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontFamily: MONO, fontSize: 13 }}
         >
           Replace
         </button>
       </div>
 
+      {importStatus === "done" && importProgress && (
+        <div style={{ fontFamily: MONO, fontSize: 12, color: "#27500A", marginBottom: 10 }}>{importProgress}</div>
+      )}
+
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
-        {importing && totalPages > 0 && (
-          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
-            page {currentPage}/{totalPages}
-          </span>
-        )}
-        <div style={{ background: importing ? (tc || T.statusBad) + "22" : (T.statusGoodBg || T.inputBg), border: "1px solid " + (importing ? (tc || T.statusBad) : (T.statusGood || "#2563eb")), borderRadius: 6, padding: "2px 10px" }}>
-          <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 13, color: importing ? (tc || T.red) : (T.green || "#10b981") }}>
+        <div
+          style={{
+            background: processing ? (tc || T.statusBad) + "22" : T.statusGoodBg || T.inputBg,
+            border: "1px solid " + (processing ? tc || T.statusBad : T.statusGood || "#2563eb"),
+            borderRadius: 6,
+            padding: "2px 10px",
+          }}
+        >
+          <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 13, color: processing ? tc || T.red : T.green || "#10b981" }}>
             {liveObjectives.length} found
           </span>
         </div>
         <button
           type="button"
-          onClick={() => setShowLive(v => !v)}
+          onClick={() => setShowLive((v) => !v)}
           style={{ background: "none", border: "1px solid " + T.border1, color: T.text3, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: MONO, fontSize: 11 }}
         >
           {showLive ? "hide" : "show"}
         </button>
       </div>
 
-      {importing && totalPages > 0 && (
-        <div style={{ height: 5, background: T.border1, borderRadius: 2, marginBottom: 10 }}>
-          <div style={{ height: "100%", background: tc || T.red, borderRadius: 2, width: (currentPage / totalPages * 100) + "%", transition: "width 0.4s ease" }} />
-        </div>
-      )}
-
       {showLive && (
         <div style={{ maxHeight: 320, overflowY: "auto", background: T.cardBg, borderRadius: 10, border: "1px solid " + T.border1, padding: "4px 0" }}>
           {(() => {
             const grouped = {};
-            liveObjectives.forEach(o => {
+            liveObjectives.forEach((o) => {
               const key = o.activity || "Unknown";
               if (!grouped[key]) grouped[key] = { activity: key, discipline: o.discipline, lectureTitle: o.lectureTitle, objectives: [] };
               grouped[key].objectives.push(o);
             });
-            return Object.values(grouped).map(group => (
+            return Object.values(grouped).map((group) => (
               <div key={group.activity}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", position: "sticky", top: 0, background: T.cardBg, borderBottom: "1px solid " + (T.border2 || T.border1), zIndex: 1 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "6px 12px",
+                    position: "sticky",
+                    top: 0,
+                    background: T.cardBg,
+                    borderBottom: "1px solid " + (T.border2 || T.border1),
+                    zIndex: 1,
+                  }}
+                >
                   <span style={{ fontFamily: MONO, color: tc || T.red, fontSize: 12, fontWeight: 700, minWidth: 44 }}>{group.activity}</span>
-                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, background: (T.pillBg || T.inputBg), padding: "1px 6px", borderRadius: 3 }}>{group.discipline}</span>
+                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, background: T.pillBg || T.inputBg, padding: "1px 6px", borderRadius: 3 }}>{group.discipline}</span>
                   <span style={{ fontFamily: MONO, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.lectureTitle}</span>
                   <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>{group.objectives.length} obj</span>
                 </div>
                 {group.objectives.map((obj, i) => (
-                  <div key={obj.id || i} style={{ padding: "5px 12px 5px 20px", borderBottom: "1px solid " + (T.border2 || T.border1) + "40", display: "flex", alignItems: "flex-start", gap: 8, animation: "rxtFadeIn 0.25s ease" }}>
+                  <div
+                    key={obj.id || i}
+                    style={{
+                      padding: "5px 12px 5px 20px",
+                      borderBottom: "1px solid " + (T.border2 || T.border1) + "40",
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 8,
+                      animation: "rxtFadeIn 0.25s ease",
+                    }}
+                  >
                     <span style={{ color: T.green || "#10b981", fontSize: 12, flexShrink: 0, paddingTop: 1 }}>○</span>
                     <span style={{ fontFamily: MONO, color: T.text2, fontSize: 12, lineHeight: 1.5, flex: 1 }}>{obj.objective}</span>
                     {obj.code && (
@@ -6089,10 +8248,10 @@ function ObjectivesImporter({ blockId, onImport, T, tc }) {
               </div>
             ));
           })()}
-          {importing && (
+          {processing && (
             <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid " + T.border1, borderTopColor: tc || T.red, animation: "rxtSpin 0.7s linear infinite", flexShrink: 0 }} />
-              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>{msg}</span>
+              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>{importProgress || "…"}</span>
             </div>
           )}
           <div ref={liveEndRef} />
@@ -6109,8 +8268,1213 @@ function ObjectivesImporter({ blockId, onImport, T, tc }) {
 }
 
 // ─────────────────────────────────────────────
+// Block objectives in localStorage: { [blockId]: { imported, extracted } } (legacy: flat array)
+// ─────────────────────────────────────────────
+function parseBlockObjectivesRaw(raw) {
+  if (Array.isArray(raw))
+    return { imported: [...raw], extracted: [], legacyFlat: true, rawObj: null };
+  if (raw && typeof raw === "object") {
+    return {
+      imported: Array.isArray(raw.imported) ? [...raw.imported] : [],
+      extracted: Array.isArray(raw.extracted) ? [...raw.extracted] : [],
+      legacyFlat: false,
+      rawObj: raw,
+    };
+  }
+  return { imported: [], extracted: [], legacyFlat: false, rawObj: null };
+}
+
+function packBlockObjectivesRaw(imported, extracted, legacyFlat, rawObj) {
+  if (legacyFlat) return imported;
+  const base = rawObj && typeof rawObj === "object" && !Array.isArray(rawObj) ? { ...rawObj } : {};
+  return { ...base, imported, extracted };
+}
+
+/** Clear linkedLecId when it does not exist in rxt-lec-meta (global). */
+function validateAndRepairLinkedIds(blockId) {
+  try {
+    const objKey = "rxt-block-objectives";
+    const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
+    const raw = getBlockObjectivesStoredRaw(stored, blockId);
+    if (!raw) return { invalidated: 0, repaired: 0 };
+
+    const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+    const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    const validIds = new Set((allLecs || []).map((l) => l?.id).filter(Boolean));
+
+    let invalidated = 0;
+
+    const repairArr = (arr) =>
+      (arr || []).map((obj) => {
+        if (!obj?.linkedLecId) return obj;
+        if (validIds.has(obj.linkedLecId)) return obj;
+        invalidated++;
+        return {
+          ...obj,
+          linkedLecId: null,
+          sourceFile: null,
+          invalidatedAt: new Date().toISOString(),
+          invalidReason: "lecture_not_found",
+        };
+      });
+
+    const nextImported = repairArr(imported);
+    const nextExtracted = repairArr(extracted);
+
+    if (invalidated > 0) {
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = packBlockObjectivesRaw(nextImported, nextExtracted, legacyFlat, rawObj);
+      localStorage.setItem(objKey, JSON.stringify(stored));
+      console.log(`Invalidated ${invalidated} objectives with broken linkedLecId`);
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    }
+
+    return { invalidated, repaired: 0 };
+  } catch (e) {
+    console.error("validateAndRepairLinkedIds failed:", e);
+    return { invalidated: 0, repaired: 0 };
+  }
+}
+
+/** Flag likely wrong objective ↔ lecture pairings (AI-aligned only). */
+function detectContentMismatches(blockId) {
+  try {
+    const objKey = "rxt-block-objectives";
+    const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
+    const raw = getBlockObjectivesStoredRaw(stored, blockId);
+    if (!raw) return [];
+    const { imported, extracted } = parseBlockObjectivesRaw(raw);
+    const objs = [...(imported || []), ...(extracted || [])];
+    const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+
+    const mismatches = [];
+
+    const regionKeywords = {
+      "hand|wrist|carpal|metacarpal|finger|thumb": ["hand", "wrist", "forearm"],
+      "shoulder|rotator|glenohumeral|scapula": ["shoulder", "upper limb"],
+      "spine|vertebr|disc|spinal cord|lumbar|cervical|thoracic": ["spine", "back", "vertebr", "spinal"],
+      "hip|pelvis|femur|gluteal|acetabul": ["hip", "pelvis", "lower limb"],
+      "knee|patella|tibia|fibula|meniscus": ["knee", "lower limb"],
+      "foot|ankle|plantar|tarsal|calcaneus": ["foot", "ankle", "lower limb"],
+      "axilla|brachial plexus|axillary": ["axilla", "brachial", "upper limb"],
+      "heart|cardiac|coronary|pericardium": ["cardiac", "heart", "thorax"],
+      "lung|pulmonary|bronch|pleura": ["lung", "pulmonary", "thorax"],
+    };
+
+    objs.forEach((obj) => {
+      if (!obj.linkedLecId || !obj.aiAligned) return;
+      const lec = allLecs.find((l) => l.id === obj.linkedLecId);
+      if (!lec) return;
+
+      const objText = (obj.objective || obj.text || "").toLowerCase();
+      const lecTitle = (lec.lectureTitle || "").toLowerCase();
+
+      for (const [objPattern, lecKeywords] of Object.entries(regionKeywords)) {
+        const objRegex = new RegExp(objPattern, "i");
+        if (!objRegex.test(objText)) continue;
+        const lecMatchesRegion = lecKeywords.some((kw) => lecTitle.includes(kw));
+        if (!lecMatchesRegion) {
+          mismatches.push({
+            objId: obj.id,
+            objText: (obj.objective || obj.text || "").slice(0, 80),
+            lecId: lec.id,
+            lecTitle: `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || ""}`.trim(),
+            region: objPattern.split("|")[0],
+          });
+          break;
+        }
+      }
+    });
+
+    return mismatches;
+  } catch (e) {
+    console.error("detectContentMismatches:", e);
+    return [];
+  }
+}
+
+// ─────────────────────────────────────────────
+// Objectives PDF import: chunking, merge, dedupe (module PDF summary)
+// ─────────────────────────────────────────────
+function chunkText(text, maxCharsPerChunk = 3000) {
+  const chunks = [];
+  let remaining = (text || "").trim();
+  while (remaining.length > 0) {
+    if (remaining.length <= maxCharsPerChunk) {
+      chunks.push(remaining);
+      break;
+    }
+    let breakAt = remaining.lastIndexOf("\n", maxCharsPerChunk);
+    if (breakAt < maxCharsPerChunk * 0.5) breakAt = maxCharsPerChunk;
+    chunks.push(remaining.slice(0, breakAt));
+    remaining = remaining.slice(breakAt).trim();
+  }
+  return chunks;
+}
+
+function tryParseObjectivesJSON(raw) {
+  if (!raw) return null;
+  try {
+    return safeJSON(raw);
+  } catch {
+    try {
+      const first = raw.indexOf("{");
+      const last = raw.lastIndexOf("}");
+      if (first === -1 || last === -1) return null;
+      return safeJSON(raw.slice(first, last + 1));
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** For objective extraction: whitespace cleanup only — no truncation. */
+function prepareTextForObjectiveExtraction(rawText) {
+  if (!rawText) return "";
+  return rawText
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+}
+
+function assessTextQuality(text) {
+  if (!text || text.trim().length < 50) {
+    return { quality: "empty", reason: "No text extracted" };
+  }
+  const wordCount = text.split(/\s+/).filter(Boolean).length;
+  const avgWordLength = text.replace(/\s+/g, "").length / Math.max(1, wordCount);
+  if (wordCount < 20) {
+    return {
+      quality: "poor",
+      reason: "Very little text — may be image-based",
+    };
+  }
+  if (Number.isFinite(avgWordLength) && avgWordLength > 25) {
+    return {
+      quality: "poor",
+      reason: "Text may be garbled",
+    };
+  }
+  const specialCharRatio =
+    (text.match(/[^a-zA-Z0-9\s.,;:!?()-]/g) || []).length / Math.max(1, text.length);
+  if (specialCharRatio > 0.3) {
+    return {
+      quality: "poor",
+      reason: "Text may be garbled",
+    };
+  }
+  return { quality: "good", reason: null };
+}
+
+function deduplicateExtractedObjectives(objs) {
+  const seen = new Map();
+  objs.forEach((obj) => {
+    const key = (obj.objective || obj.text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80);
+    if (key.length < 10) return;
+    if (!seen.has(key)) {
+      seen.set(key, obj);
+    } else {
+      const existing = seen.get(key);
+      if (obj.code && !existing.code) {
+        seen.set(key, { ...obj });
+      }
+    }
+  });
+  return [...seen.values()];
+}
+
+async function extractObjectivesChunk(text, lec, blockId) {
+  const systemPrompt = `Extract ALL learning objectives from this medical lecture text.
+Return JSON only. No markdown. Start with {
+{"objectives":[{"text":"full objective text","code":"SOM.XX if present or null","bloom_level":3}]}
+Extract EVERY objective you find. Do not summarize. Do not skip any.
+Include the complete text of each objective.
+bloom_level: 1=Remember, 2=Understand, 3=Apply, 4=Analyze, 5=Evaluate, 6=Create`;
+
+  const userPrompt = `Lecture: ${lec.lectureType} ${lec.lectureNumber} — ${lec.lectureTitle || ""}
+
+Extract all learning objectives from this text. Include every single one:
+
+${text}`;
+
+  const newId = () =>
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `ext_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  try {
+    const raw = await callAI(systemPrompt, userPrompt, 2000);
+    const parsed = tryParseObjectivesJSON(raw);
+    if (!parsed?.objectives) return [];
+    const rows = [];
+    for (const item of parsed.objectives) {
+      if (typeof item === "string") {
+        const t = item.trim();
+        if (t.length > 10) {
+          rows.push({
+            id: newId(),
+            blockId,
+            linkedLecId: lec.id,
+            sourceFile: lec.id,
+            objective: t,
+            text: t,
+            code: null,
+            objectiveCode: null,
+            lectureType: lec.lectureType,
+            lectureNumber: lec.lectureNumber,
+            bloom_level: null,
+            status: "untested",
+          });
+        }
+      } else if (item && typeof item === "object") {
+        const t = (item.text || item.objective || "").trim();
+        if (t.length > 10) {
+          rows.push({
+            id: newId(),
+            blockId,
+            linkedLecId: lec.id,
+            sourceFile: lec.id,
+            objective: t,
+            text: t,
+            code: item.code || null,
+            objectiveCode: item.code || null,
+            lectureType: lec.lectureType,
+            lectureNumber: lec.lectureNumber,
+            bloom_level: item.bloom_level ?? null,
+            status: "untested",
+          });
+        }
+      }
+    }
+    return rows;
+  } catch (e) {
+    console.error("extractObjectivesChunk failed:", e);
+    return [];
+  }
+}
+
+async function extractObjectivesFromLecture(rawText, lec, blockId) {
+  const bid = blockId ?? lec?.blockId;
+  const fullText = prepareTextForObjectiveExtraction(rawText || "");
+  if (!fullText.trim()) return [];
+  if (fullText.length <= 6000) {
+    return deduplicateExtractedObjectives(await extractObjectivesChunk(fullText, lec, bid));
+  }
+  const chunkSize = 5000;
+  const overlap = 500;
+  const chunks = [];
+  let pos = 0;
+  while (pos < fullText.length) {
+    chunks.push(fullText.slice(pos, pos + chunkSize));
+    pos += chunkSize - overlap;
+  }
+  const limit = 3;
+  const allSettled = [];
+  for (let i = 0; i < chunks.length; i += limit) {
+    const batch = chunks.slice(i, i + limit);
+    const settled = await Promise.allSettled(batch.map((chunk) => extractObjectivesChunk(chunk, lec, bid)));
+    allSettled.push(...settled);
+  }
+  const allObjs = allSettled
+    .filter((r) => r.status === "fulfilled")
+    .flatMap((r) => r.value || []);
+  return deduplicateExtractedObjectives(allObjs);
+}
+
+function normalizeTextForMerge(t) {
+  return (t || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function mergeImportedObjectives(importedObjs, existingObjs, blockLecs, blockId) {
+  const merged = [...(existingObjs || [])];
+  let added = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  const newId = () =>
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `imp_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  importedObjs.forEach((imported) => {
+    const textRaw = imported.text || imported.objective || "";
+    if (!textRaw || textRaw.trim().length < 10) {
+      skipped++;
+      return;
+    }
+
+    if (imported.code) {
+      const existingByCode = merged.findIndex(
+        (e) => e.code === imported.code || e.objectiveCode === imported.code
+      );
+      if (existingByCode !== -1) {
+        merged[existingByCode] = {
+          ...merged[existingByCode],
+          code: imported.code,
+          objectiveCode: imported.code,
+        };
+        updated++;
+        return;
+      }
+    }
+
+    const importedNorm = normalizeTextForMerge(textRaw);
+    const existingMatch = merged.findIndex((e) => {
+      const existingNorm = normalizeTextForMerge(e.objective || e.text || "");
+      const importedWords = new Set(importedNorm.split(" ").filter((w) => w.length > 3));
+      const existingWords = existingNorm.split(" ").filter((w) => w.length > 3);
+      if (importedWords.size === 0) return false;
+      const matches = existingWords.filter((w) => importedWords.has(w)).length;
+      return matches / importedWords.size >= 0.7;
+    });
+
+    if (existingMatch !== -1) {
+      merged[existingMatch] = {
+        ...merged[existingMatch],
+        code: imported.code || merged[existingMatch].code,
+        objectiveCode: imported.code || merged[existingMatch].objectiveCode,
+      };
+      updated++;
+      return;
+    }
+
+    let linkedLecId = null;
+    if (imported.lectureType && imported.lectureNumber != null) {
+      const matchedLec = (blockLecs || []).find(
+        (l) =>
+          String(l.lectureType || "LEC") === String(imported.lectureType) &&
+          String(l.lectureNumber) === String(imported.lectureNumber)
+      );
+      if (matchedLec) linkedLecId = matchedLec.id;
+    }
+
+    if (linkedLecId || imported.code) {
+      merged.push({
+        id: newId(),
+        blockId,
+        objective: textRaw,
+        text: textRaw,
+        code: imported.code || null,
+        objectiveCode: imported.code || null,
+        linkedLecId,
+        sourceFile: linkedLecId || "imported",
+        lectureType: imported.lectureType || null,
+        lectureNumber: imported.lectureNumber ?? null,
+        lectureTitle: imported.lectureTitle || "",
+        discipline: imported.discipline || "Unknown",
+        activity: imported.activity || null,
+        status: "untested",
+        confidence: 0,
+        lastTested: null,
+        quizScore: null,
+        source: "imported",
+        bloom_level: null,
+        bloom_level_name: null,
+        importedAt: new Date().toISOString(),
+      });
+      added++;
+    } else {
+      skipped++;
+    }
+  });
+
+  return { merged, added, updated, skipped };
+}
+
+function deduplicateObjectives(objs) {
+  const seen = new Map();
+  const deduped = [];
+  let removed = 0;
+
+  (objs || []).forEach((obj) => {
+    const text = (obj.objective || obj.text || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 100);
+
+    if (!text || text.length < 10) {
+      deduped.push(obj);
+      return;
+    }
+
+    if (seen.has(text)) {
+      const existingIdx = seen.get(text);
+      const existing = deduped[existingIdx];
+      const objScore =
+        (obj.linkedLecId ? 4 : 0) + (obj.code ? 2 : 0) + (obj.status && obj.status !== "untested" ? 1 : 0);
+      const existingScore =
+        (existing.linkedLecId ? 4 : 0) +
+        (existing.code ? 2 : 0) +
+        (existing.status && existing.status !== "untested" ? 1 : 0);
+
+      if (objScore > existingScore) {
+        deduped[existingIdx] = {
+          ...obj,
+          status: existing.status && existing.status !== "untested" ? existing.status : obj.status,
+          linkedLecId: obj.linkedLecId || existing.linkedLecId,
+        };
+      }
+      removed++;
+    } else {
+      seen.set(text, deduped.length);
+      deduped.push(obj);
+    }
+  });
+
+  return { deduped, removed };
+}
+
+function mapMergedObjectivesToAppShape(rows) {
+  return (rows || []).map((m) => {
+    const lt = String(m.lectureType || "LEC")
+      .toUpperCase()
+      .replace(/^LECTURE$|^LECT/i, "LEC");
+    const ln = m.lectureNumber;
+    let activity = m.activity;
+    if ((!activity || activity === "Unknown") && ln != null) {
+      activity = `${lt.replace(/^LECT/i, "LEC")}${ln}`;
+    }
+    return {
+      ...m,
+      id: m.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `imp_${Date.now()}`),
+      objective: m.objective || m.text || "",
+      activity: activity || m.activity || "Unknown",
+      discipline: m.discipline ?? "Unknown",
+      lectureTitle: m.lectureTitle ?? "",
+      lectureType: m.lectureType || lt,
+      lectureNumber: m.lectureNumber ?? null,
+      code: m.code ?? m.objectiveCode ?? null,
+      source: m.source || "imported",
+    };
+  });
+}
+
+async function parseObjectiveChunkWithGemini(chunk, chunkIndex, totalChunks) {
+  const key = import.meta.env.VITE_GEMINI_API_KEY || "";
+  if (!key) throw new Error("Missing VITE_GEMINI_API_KEY");
+
+  const systemPrompt = `Extract learning objectives from this medical curriculum text.
+Return JSON only. No markdown.
+{"objectives":[{"code":"SOM.MKII.XXX","text":"objective text","lectureType":"LEC","lectureNumber":5,"activity":"Lec5","discipline":"BCHM","lectureTitle":"optional title"}]}
+code = official objective code if present, else null
+lectureType = DLA/LEC/SG/TBL detected from context
+lectureNumber = number detected from context, else null
+activity = short label like Lec12 or DLA3 if inferable, else null
+Extract EVERY objective in this section. Do not summarize or skip any.`;
+
+  const userPrompt = `Extract all objectives from this section (part ${chunkIndex + 1} of ${totalChunks}):\n\n${chunk}`;
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
+        generationConfig: { maxOutputTokens: 8192, temperature: 0 },
+        safetySettings: [
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        ],
+      }),
+    }
+  );
+  const d = await res.json();
+  const raw = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const parsed = tryParseObjectivesJSON(raw);
+  const arr =
+    parsed?.objectives ||
+    (Array.isArray(parsed) ? parsed : null) ||
+    Object.values(parsed || {}).find((v) => Array.isArray(v) && v.length > 0) ||
+    [];
+  return arr
+    .map((o) => ({
+      text: (o.text || o.objective || "").trim(),
+      code: o.code ?? o.objectiveCode ?? null,
+      lectureType: o.lectureType ?? null,
+      lectureNumber: o.lectureNumber ?? null,
+      lectureTitle: o.lectureTitle ?? "",
+      discipline: o.discipline ?? "",
+      activity: o.activity ?? null,
+    }))
+    .filter((o) => o.text.length > 10);
+}
+
+async function parseObjectivesFromPDFText(pdfText, onProgress) {
+  const chunks = chunkText(pdfText, 3000);
+  const all = [];
+  const CONCURRENCY = 3;
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const batch = chunks.slice(i, i + CONCURRENCY);
+    const batchStart = i;
+    await Promise.all(
+      batch.map(async (chunk, j) => {
+        const idx = batchStart + j;
+        onProgress?.(idx + 1, chunks.length);
+        try {
+          const part = await parseObjectiveChunkWithGemini(chunk, idx, chunks.length);
+          all.push(...part);
+        } catch (e) {
+          console.error(`Objective chunk ${idx} failed:`, e);
+        }
+      })
+    );
+  }
+  return all;
+}
+
+async function extractObjectivesPdfText(file, onProgress) {
+  onProgress?.("Extracting text from PDF...");
+  let pdfText = await extractPdfTextFast(file);
+  if (!pdfText || pdfText.trim().length < 100) {
+    if (import.meta.env.VITE_MISTRAL_API_KEY) {
+      onProgress?.("Running OCR (scanned PDF)...");
+      try {
+        const mistralResult = await extractPDFWithMistralSafe(file);
+        if (mistralResult?.markdown?.trim()) {
+          pdfText = mistralResult.markdown;
+        }
+      } catch (e) {
+        console.warn("Mistral OCR failed:", e);
+      }
+    }
+  }
+  if (!pdfText || pdfText.trim().length < 100) {
+    throw new Error("Could not extract text — is this a scanned PDF?");
+  }
+  return pdfText;
+}
+
+// ─────────────────────────────────────────────
 // MAIN APP
 // ─────────────────────────────────────────────
+function sortBlockLecsForDrill(a, b) {
+  const ta = String(a.lectureType || "LEC").toUpperCase();
+  const tb = String(b.lectureType || "LEC").toUpperCase();
+  if (ta !== tb) return ta.localeCompare(tb);
+  return (parseInt(a.lectureNumber, 10) || 0) - (parseInt(b.lectureNumber, 10) || 0);
+}
+
+function buildDrillQueue(blockObjs, filter, lecFilter) {
+  let pool = [...(blockObjs || [])];
+  if (lecFilter && lecFilter !== "all") {
+    pool = pool.filter((o) => o.linkedLecId === lecFilter);
+  }
+  if (filter === "untested") pool = pool.filter((o) => !o.status || o.status === "untested");
+  else if (filter === "weak")
+    pool = pool.filter(
+      (o) =>
+        o.status === "struggling" ||
+        o.status === "inprogress" ||
+        !o.status ||
+        o.status === "untested"
+    );
+  else if (filter === "struggling") pool = pool.filter((o) => o.status === "struggling");
+
+  const order = { struggling: 0, inprogress: 1, untested: 2, mastered: 3 };
+  pool.sort((a, b) => {
+    const ao = order[a.status] ?? 2;
+    const bo = order[b.status] ?? 2;
+    if (ao !== bo) return ao - bo;
+    return (b.bloom_level || 1) - (a.bloom_level || 1);
+  });
+
+  return pool;
+}
+
+function resolveDrillLectureForObj(obj, blockLecsList) {
+  if (!obj) return null;
+  let lec = (blockLecsList || []).find((l) => l.id === obj.linkedLecId);
+  if (!lec)
+    lec = (blockLecsList || []).find(
+      (l) =>
+        String(l.lectureNumber) === String(obj.lectureNumber) &&
+        String(l.lectureType || "LEC") === String(obj.lectureType || "LEC")
+    );
+  return lec || null;
+}
+
+/** School objective codes only — never show raw extracted_* or numeric-only IDs */
+function getDisplayObjectiveCode(obj) {
+  const code = obj?.code || obj?.objectiveCode || null;
+  if (!code || typeof code !== "string") return null;
+  if (code.startsWith("extracted_")) return null;
+  if (/^\d+$/.test(code.trim())) return null;
+  if (code.length > 60) return null;
+  return code;
+}
+
+/** Filename-only hint: show rename warning when type defaulted to LEC without DLA/LEC/SG/TBL in filename */
+function shouldWarnLectureTypeBadge(lectureType, fileName) {
+  if (lectureType == null || lectureType === "other") return true;
+  const base = (fileName || "").replace(/\.(pdf|txt|md)$/i, "");
+  const hasTypeHint = /\b(DLA|LEC|LECTURE|SGL?|SG|TBL|LAB|CLIN)\b/i.test(base);
+  return lectureType === "LEC" && !hasTypeHint;
+}
+
+const UPLOAD_CACHE_KEY = "rxt-upload-cache";
+
+function getFileHash(file) {
+  return `${file.name}__${file.size}__${file.lastModified}`;
+}
+
+function isAlreadyProcessed(file, blockId) {
+  const hash = getFileHash(file);
+  try {
+    const cache = JSON.parse(localStorage.getItem(UPLOAD_CACHE_KEY) || "{}");
+    if (cache[hash] !== blockId) return false;
+
+    const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    const blockLecs = lecs.filter((l) => l.blockId === blockId);
+
+    const filename = file.name
+      .replace(/\.pdf$/i, "")
+      .replace(/\.txt$/i, "");
+
+    const exists = blockLecs.some((lec) => {
+      const lecTitle = (lec.lectureTitle || "").toLowerCase();
+      const fileBase = filename
+        .toLowerCase()
+        .replace(/[_\-]/g, " ")
+        .trim();
+      const lecWords = lecTitle.split(" ").filter((w) => w.length > 4);
+      const matchCount = lecWords.filter((w) => fileBase.includes(w)).length;
+      return matchCount >= 2;
+    });
+
+    if (!exists) {
+      delete cache[hash];
+      localStorage.setItem(UPLOAD_CACHE_KEY, JSON.stringify(cache));
+      console.log(`Cache invalidated for ${file.name} — lecture not found`);
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearUploadCacheHash(file) {
+  const hash = getFileHash(file);
+  try {
+    const cache = JSON.parse(localStorage.getItem(UPLOAD_CACHE_KEY) || "{}");
+    delete cache[hash];
+    localStorage.setItem(UPLOAD_CACHE_KEY, JSON.stringify(cache));
+  } catch (_) {}
+}
+
+function checkForCollision(lectureType, lectureNumber, blockId, lecsArray) {
+  const lecs = lecsArray || JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+  return lecs.find(
+    (l) =>
+      l.blockId === blockId &&
+      String(l.lectureType || "LEC").trim() === String(lectureType || "LEC").trim() &&
+      String(l.lectureNumber).trim() === String(lectureNumber).trim()
+  );
+}
+
+function allocateUniqueLectureNumber(blockLecs, lectureType, preferredNum) {
+  const t = String(lectureType || "LEC").trim();
+  const same = blockLecs.filter((l) => String(l.lectureType || "LEC").trim() === t);
+  const exists = (n) => same.some((l) => String(l.lectureNumber).trim() === String(n));
+  const baseSafe = Math.floor(parseFloat(preferredNum));
+  const base = Number.isNaN(baseSafe) ? 1 : baseSafe;
+  let c = parseFloat(String(preferredNum));
+  if (Number.isNaN(c)) c = base;
+  if (!exists(c)) return c;
+  for (let d = 1; d <= 99; d++) {
+    const cand = parseFloat(`${base}.${d}`);
+    if (!exists(cand)) return cand;
+  }
+  return base + (Date.now() % 1000) / 10000;
+}
+
+function isPartSplitPairCandidate(fileName, existingLec) {
+  const a = detectLectureInfo(fileName);
+  const b = detectLectureInfo(existingLec?.filename || "");
+  if (!a.rawNumber || !b.rawNumber || a.rawNumber !== b.rawNumber) return false;
+  const ta = a.lectureType || detectLectureType(fileName);
+  const tb = b.lectureType || detectLectureType(existingLec?.filename || "");
+  if (String(ta) !== String(tb)) return false;
+  const parts = [a.partSuffix, b.partSuffix].filter(Boolean);
+  if (parts.includes("a") && parts.includes("b")) return true;
+  if (parts.includes("p1") && parts.includes("p2")) return true;
+  if (parts.some((p) => /^p\d+$/.test(p))) {
+    const n1 = parts.find((p) => /^p\d+$/.test(p));
+    const n2 = parts.filter((p) => /^p\d+$/.test(p));
+    const nums = [n1, ...n2].map((p) => parseInt(p.slice(1), 10)).filter((n) => !isNaN(n));
+    if (nums.length >= 2 && Math.abs(nums[0] - nums[1]) === 1) return true;
+  }
+  return false;
+}
+
+function markAsProcessed(file, blockId) {
+  const hash = getFileHash(file);
+  try {
+    const cache = JSON.parse(localStorage.getItem(UPLOAD_CACHE_KEY) || "{}");
+    cache[hash] = blockId;
+    const keys = Object.keys(cache);
+    if (keys.length > 200) delete cache[keys[0]];
+    localStorage.setItem(UPLOAD_CACHE_KEY, JSON.stringify(cache));
+  } catch (_) {}
+}
+
+function preprocessLectureText(rawText, maxChars = 8000) {
+  if (!rawText) return "";
+  let cleaned = rawText
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .trim();
+  if (cleaned.length <= maxChars) return cleaned;
+  const keepStart = Math.floor(maxChars * 0.6);
+  const keepEnd = Math.floor(maxChars * 0.2);
+  return (
+    cleaned.slice(0, keepStart) +
+    "\n\n[...middle content truncated for processing...]\n\n" +
+    cleaned.slice(-keepEnd)
+  );
+}
+
+async function withTimeout(promise, ms = 30000, label = "") {
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Timeout after ${ms / 1000}s: ${label}`));
+    }, ms);
+  });
+  try {
+    const result = await Promise.race([promise, timeout]);
+    clearTimeout(timeoutId);
+    return result;
+  } catch (e) {
+    clearTimeout(timeoutId);
+    throw e;
+  }
+}
+
+/** Fast PDF text probe (pdf.js) — same extraction approach as examParser, no question AI */
+async function extractPdfTextFast(file) {
+  await loadPDFJS();
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
+  const parts = [];
+  const maxPages = Math.min(pdf.numPages, 80);
+  for (let i = 1; i <= maxPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const text = content.items.map((x) => x.str + (x.hasEOL ? "\n" : " ")).join("").trim();
+    parts.push(text);
+  }
+  return parts.join("\n\n");
+}
+
+/** Try direct text first; Mistral only if < 100 chars (does not change parseExamPDF / Mistral implementations). */
+async function extractWithSmartFallback(file, onProgress, opts = {}) {
+  const forceMistralOcr = opts.forceMistralOcr === true;
+  if (forceMistralOcr && import.meta.env.VITE_MISTRAL_API_KEY) {
+    try {
+      onProgress?.("🔍 Running OCR...");
+      const mistralResult = await extractPDFWithMistralSafe(file);
+      if (mistralResult?.markdown?.trim()) {
+        const md = mistralResult.markdown.trim();
+        return {
+          contentResult: {
+            fullText: md,
+            chunks: (mistralResult.pages || []).map((p) => ({
+              text: (p.header ? p.header + "\n\n" : "") + (p.markdown || ""),
+            })),
+            extractionMethod: "mistral-ocr",
+            pageCount: mistralResult.pageCount,
+            questions: [],
+            examTitle: file.name.replace(/\.pdf$/i, ""),
+            totalQuestions: 0,
+            format: "standard",
+            subtopics: [],
+            keyTerms: [],
+            lectureNumber: detectLectureNumber(file.name, file.name.replace(/\.pdf$/i, ""), "LEC"),
+            lectureTitle: file.name.replace(/\.pdf$/i, ""),
+          },
+          method: "mistral-ocr",
+        };
+      }
+    } catch (e) {
+      console.warn("Mistral OCR failed:", e);
+    }
+  }
+  const directText = await extractPdfTextFast(file);
+  if (directText && directText.trim().length > 100) {
+    const parsed = await parseExamPDF(file, onProgress);
+    return {
+      contentResult: {
+        ...parsed,
+        extractionMethod: "pdfplumber",
+        pageCount: (parsed.chunks || []).length,
+      },
+      method: "pdfplumber",
+    };
+  }
+  if (import.meta.env.VITE_MISTRAL_API_KEY) {
+    try {
+      onProgress?.("🔍 Running OCR...");
+      const mistralResult = await extractPDFWithMistralSafe(file);
+      if (mistralResult?.markdown?.trim()) {
+        const md = mistralResult.markdown.trim();
+        return {
+          contentResult: {
+            fullText: md,
+            chunks: (mistralResult.pages || []).map((p) => ({
+              text: (p.header ? p.header + "\n\n" : "") + (p.markdown || ""),
+            })),
+            extractionMethod: "mistral-ocr",
+            pageCount: mistralResult.pageCount,
+            questions: [],
+            examTitle: file.name.replace(/\.pdf$/i, ""),
+            totalQuestions: 0,
+            format: "standard",
+            subtopics: [],
+            keyTerms: [],
+            lectureNumber: detectLectureNumber(file.name, file.name.replace(/\.pdf$/i, ""), "LEC"),
+            lectureTitle: file.name.replace(/\.pdf$/i, ""),
+          },
+          method: "mistral-ocr",
+        };
+      }
+    } catch (e) {
+      console.warn("Mistral OCR failed:", e);
+    }
+  }
+  const parsed = await parseExamPDF(file, onProgress);
+  const hasText = (parsed.fullText || "").trim().length > 0;
+  return {
+    contentResult: {
+      ...parsed,
+      extractionMethod: hasText ? "pdfplumber" : "none",
+      pageCount: (parsed.chunks || []).length,
+    },
+    method: hasText ? "pdfplumber" : "none",
+  };
+}
+
+function extractionMethodSuffix(method) {
+  if (method === "pdfplumber") return "direct extract";
+  if (method === "mistral-ocr") return "OCR";
+  if (method === "none" || method === "error") return null;
+  return null;
+}
+
+function objectiveCodeStr(o) {
+  return String((o && (o.code || o.objectiveCode)) || "").trim();
+}
+
+/** Reject invented lecture IDs from AI; only return id if present in lecById map. */
+function validateLecId(returnedId, lecById) {
+  if (!returnedId) return null;
+  if (lecById[returnedId]) return returnedId;
+  console.warn(`Rejected fake lecId from AI: ${returnedId}`);
+  return null;
+}
+
+/**
+ * Multi-strategy alignment for unlinked objectives (imported + extracted).
+ * Lectures are always loaded from localStorage `rxt-lec-meta` so linkedLecId values are real IDs.
+ * @returns {{ aligned: number, failed: number, allAlreadyLinked?: boolean, totalUnlinked: number, noLectures?: boolean }}
+ */
+async function runSmartAlignmentCore(blockId, lectures, setAlignmentProgress, setBlockObjectives, blockMeta) {
+  void lectures;
+  const objKey = "rxt-block-objectives";
+
+  let allLecs = [];
+  try {
+    allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+  } catch {
+    allLecs = [];
+  }
+  const blockLecs = getBlockLecs(allLecs, blockMeta || { id: blockId });
+  const lecById = {};
+  blockLecs.forEach((l) => {
+    if (l?.id) lecById[l.id] = l;
+  });
+
+  const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
+  const raw = getBlockObjectivesStoredRaw(stored, blockId);
+  const parsed = parseBlockObjectivesRaw(raw);
+  let { imported, extracted, legacyFlat, rawObj } = parsed;
+  let imp = [...(imported || [])];
+  let ext = [...(extracted || [])];
+  const allObjs = [...imp, ...ext];
+
+  if (blockLecs.length === 0) {
+    return { noLectures: true, aligned: 0, failed: 0, allAlreadyLinked: false, totalUnlinked: 0 };
+  }
+
+  const unlinked = allObjs.filter((o) => {
+    const lid = o?.linkedLecId;
+    if (!lid || lid === "imported" || lid === "unknown") return true;
+    return !lecById[lid];
+  });
+
+  const totalUnlinkedStart = unlinked.length;
+  if (totalUnlinkedStart === 0) {
+    return { aligned: 0, failed: 0, allAlreadyLinked: true, totalUnlinked: 0 };
+  }
+
+  const results = new Map();
+  const trySet = (objId, lecId) => {
+    if (!objId || !lecId || results.has(objId)) return;
+    if (!lecById[lecId]) return;
+    results.set(objId, lecId);
+  };
+
+  const patchById = (id, patch) => {
+    let ix = imp.findIndex((o) => o.id === id);
+    if (ix !== -1) {
+      imp[ix] = { ...imp[ix], ...patch };
+      return true;
+    }
+    ix = ext.findIndex((o) => o.id === id);
+    if (ix !== -1) {
+      ext[ix] = { ...ext[ix], ...patch };
+      return true;
+    }
+    return false;
+  };
+
+  setAlignmentProgress(`Aligning ${unlinked.length} objectives to ${blockLecs.length} lectures...`);
+
+  const lecManifest = [...blockLecs]
+    .sort((a, b) => (a.lectureNumber || 0) - (b.lectureNumber || 0))
+    .map((l) => ({
+      id: l.id,
+      type: l.lectureType,
+      number: l.lectureNumber,
+      title: (l.lectureTitle || "").trim(),
+      keywords: getLecText(l)
+        .toLowerCase()
+        .split(/\W+/)
+        .filter((w) => w.length > 5)
+        .slice(0, 30)
+        .join(" "),
+    }));
+
+  const manifestStr = lecManifest.map((l) => `ID:${l.id}|${l.type} ${l.number}: ${l.title}`).join("\n");
+
+  // —— Strategy 1: SOM code numeric sequence vs linked objectives ——
+  setAlignmentProgress("Strategy 1: matching by code sequence...");
+  const codeRanges = {};
+  allObjs
+    .filter((o) => o.linkedLecId && lecById[o.linkedLecId])
+    .forEach((o) => {
+      const m = (o.code || o.objectiveCode || "").match(/\.(\d+)$/);
+      if (!m) return;
+      const num = parseInt(m[1], 10);
+      if (Number.isNaN(num)) return;
+      const lecId = o.linkedLecId;
+      if (!codeRanges[lecId]) {
+        codeRanges[lecId] = { min: num, max: num };
+      } else {
+        codeRanges[lecId].min = Math.min(codeRanges[lecId].min, num);
+        codeRanges[lecId].max = Math.max(codeRanges[lecId].max, num);
+      }
+    });
+
+  unlinked.forEach((obj) => {
+    if (results.has(obj.id)) return;
+    const m = (obj.code || obj.objectiveCode || "").match(/\.(\d+)$/);
+    if (!m) return;
+    const num = parseInt(m[1], 10);
+    if (Number.isNaN(num)) return;
+    let bestLecId = null;
+    let bestGap = Infinity;
+    Object.entries(codeRanges).forEach(([lecId, range]) => {
+      if (num >= range.min - 3 && num <= range.max + 3) {
+        const gap = Math.min(Math.abs(num - range.min), Math.abs(num - range.max));
+        if (gap < bestGap) {
+          bestGap = gap;
+          bestLecId = lecId;
+        }
+      }
+    });
+    if (bestLecId && lecById[bestLecId]) trySet(obj.id, bestLecId);
+  });
+
+  setAlignmentProgress(`Strategy 1: ${results.size} matched · trying text matching...`);
+
+  // —— Strategy 2: objective text ↔ lecture title / content keywords ——
+  const stillUnlinked1 = unlinked.filter((o) => !results.has(o.id));
+  const stopWords = new Set([
+    "this",
+    "that",
+    "with",
+    "from",
+    "have",
+    "been",
+    "will",
+    "they",
+    "their",
+    "into",
+    "your",
+    "more",
+    "about",
+    "what",
+    "when",
+    "which",
+    "there",
+    "than",
+    "describe",
+    "explain",
+    "identify",
+    "compare",
+    "define",
+    "list",
+    "outline",
+    "discuss",
+    "state",
+    "clinical",
+    "anatomy",
+    "lecture",
+    "structure",
+    "function",
+    "patient",
+    "medical",
+    "human",
+  ]);
+
+  const lecKeywordSets = lecManifest.map((l) => {
+    const titleStr = (l.title || "").toLowerCase();
+    const titleWords = titleStr.split(/\W+/).filter((w) => w.length >= 4 && !stopWords.has(w));
+    const contentWords = new Set(
+      l.keywords.split(/\W+/).filter((w) => w.length >= 5 && !stopWords.has(w))
+    );
+    return { id: l.id, titleWords, contentWords, type: l.type, number: l.number };
+  });
+
+  stillUnlinked1.forEach((obj) => {
+    if (results.has(obj.id)) return;
+    const objText = (obj.objective || obj.text || "").toLowerCase();
+    const objWords = objText.split(/\W+/).filter((w) => w.length >= 5 && !stopWords.has(w));
+    if (objWords.length === 0) return;
+
+    const scores = lecKeywordSets.map((lec) => {
+      let score = 0;
+      objWords.forEach((w) => {
+        if (lec.titleWords.some((tw) => tw.includes(w) || w.includes(tw))) score += 3;
+      });
+      objWords.forEach((w) => {
+        if (lec.contentWords.has(w)) score += 1;
+      });
+      return { id: lec.id, score };
+    });
+    scores.sort((a, b) => b.score - a.score);
+    if (scores.length === 0) return;
+    const top = scores[0];
+    const second = scores[1];
+    if (top.score >= 6 && top.score > (second?.score || 0) * 1.4) {
+      trySet(obj.id, top.id);
+    }
+  });
+
+  setAlignmentProgress(`${results.size} matched · running AI on remaining...`);
+
+  // —— Strategy 3: AI with strict ID validation (validateLecId) ——
+  const stillUnlinked2 = unlinked.filter((o) => !results.has(o.id));
+  const batchSize = 12;
+
+  if (stillUnlinked2.length > 0) {
+    for (let i = 0; i < stillUnlinked2.length; i += batchSize) {
+      const batch = stillUnlinked2.slice(i, i + batchSize);
+      const batchNum = Math.floor(i / batchSize) + 1;
+      const batchTotal = Math.ceil(stillUnlinked2.length / batchSize);
+      setAlignmentProgress(`AI matching batch ${batchNum} of ${batchTotal}...`);
+
+      const objList = batch.map((o, idx) => `${idx}|${(o.objective || o.text || "").slice(0, 80)}`).join("\n");
+
+      const systemPrompt = `Match each medical objective to its lecture.
+Return JSON only: {"m":[{"i":0,"id":"exact_lecture_id"}]}
+i=objective index, id=EXACT lecture ID from the list (copy verbatim).
+Only include matches you are confident about.
+If unsure, omit that objective.`;
+
+      const userPrompt = `Lectures (use EXACT id value):
+${manifestStr}
+
+Objectives to match (index|text):
+${objList}`;
+
+      try {
+        const rawAi = await callAI(systemPrompt, userPrompt, 1000);
+        const parsed = tryParseJSON(rawAi);
+        if (parsed?.m && Array.isArray(parsed.m)) {
+          parsed.m.forEach((match) => {
+            if (match == null || match.i == null) return;
+            const realId = validateLecId(match.id, lecById);
+            if (!realId) {
+              if (match.id) console.warn(`AI returned fake ID: ${match.id} — skipping`);
+              return;
+            }
+            const obj = batch[Number(match.i)];
+            if (obj) trySet(obj.id, realId);
+          });
+        }
+        if (parsed?.matches && Array.isArray(parsed.matches)) {
+          parsed.matches.forEach((m) => {
+            if (m == null || m.index == null) return;
+            const realId = validateLecId(m.lecId, lecById);
+            if (!realId) {
+              if (m.lecId) console.warn(`AI returned fake ID: ${m.lecId} — skipping`);
+              return;
+            }
+            const obj = batch[Number(m.index)];
+            if (obj) trySet(obj.id, realId);
+          });
+        }
+      } catch (e) {
+        console.error(`AI batch ${i} failed:`, e);
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+  }
+
+  const alignedAt = new Date().toISOString();
+  results.forEach((lecId, objId) => {
+    if (!lecById[lecId]) {
+      console.error(`Skipping invalid lecId: ${lecId}`);
+      return;
+    }
+    patchById(objId, {
+      linkedLecId: lecId,
+      sourceFile: lecId,
+      aiAligned: true,
+      alignedAt,
+    });
+  });
+
+  const objWriteKey = blockObjectivesStorageKey(stored, blockId);
+  stored[objWriteKey] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+  localStorage.setItem(objKey, JSON.stringify(stored));
+  setBlockObjectives({ ...stored });
+  window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+
+  const stillRemaining = unlinked.filter((o) => !results.has(o.id)).length;
+  const aligned = results.size;
+
+  return {
+    aligned,
+    failed: stillRemaining,
+    allAlreadyLinked: false,
+    totalUnlinked: totalUnlinkedStart,
+  };
+}
+
 export default function App() {
   const [terms,    setTerms]    = useState([]);
   const [lectures, setLecs]     = useState([]);
@@ -6118,6 +9482,33 @@ export default function App() {
   const [analyses, setAnalyses] = useState({});
   const [ready,    setReady]    = useState(false);
   const [saveMsg,  setSaveMsg]  = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      const hasDLA3 = lecs.some(
+        (l) =>
+          l &&
+          String(l.lectureType || "").toUpperCase() === "DLA" &&
+          String(l.lectureNumber) === "3"
+      );
+      if (!hasDLA3) {
+        const cache = JSON.parse(localStorage.getItem("rxt-upload-cache") || "{}");
+        const cleaned = {};
+        Object.entries(cache).forEach(([key, val]) => {
+          const k = key.toLowerCase();
+          if (!k.includes("dla 3") && !k.includes("dla3")) {
+            cleaned[key] = val;
+          }
+        });
+        localStorage.setItem("rxt-upload-cache", JSON.stringify(cleaned));
+        console.log("Cleared DLA 3 cache entry — ready for re-upload");
+      }
+    } catch (e) {
+      console.warn("DLA 3 cache clear:", e);
+    }
+  }, []);
 
   const [theme, setTheme] = useState(() => {
     if (typeof window === "undefined") return "dark";
@@ -6145,7 +9536,95 @@ export default function App() {
   });
   const activeTerm  = terms.find(t => t.id === termId);
   const activeBlock = activeTerm?.blocks.find(b => b.id === blockId);
+  const blocksFromTerms = useMemo(
+    () => (terms || []).flatMap((t) => t.blocks || []),
+    [terms]
+  );
+  /** Block row from terms (or active) so getBlockLecs can match MSK / name vs stored blockId. */
+  const resolveBlockMeta = useCallback(
+    (bid) => {
+      if (!bid) return null;
+      if (activeBlock?.id === bid) return activeBlock;
+      return blocksFromTerms.find((b) => b.id === bid) || { id: bid };
+    },
+    [activeBlock, blocksFromTerms]
+  );
   const [tab,     setTab]     = useState("lectures");
+  const [drillMode, setDrillMode] = useState(false);
+  const [drillQueue, setDrillQueue] = useState([]);
+  const [drillIndex, setDrillIndex] = useState(0);
+  const [drillComplete, setDrillComplete] = useState(false);
+  const [drillStats, setDrillStats] = useState({
+    seen: 0,
+    mastered: 0,
+    struggling: 0,
+    skipped: 0,
+    inprogress: 0,
+    assessedIndices: [],
+  });
+  const [showDrillSummary, setShowDrillSummary] = useState(false);
+  const [drillSummaryData, setDrillSummaryData] = useState(null);
+  const [coverageRefreshKey, setCoverageRefreshKey] = useState(0);
+  const [lecturesRefreshKey, setLecturesRefreshKey] = useState(0);
+  const [saveConfirmed, setSaveConfirmed] = useState(null);
+  const [exitConfirmVisible, setExitConfirmVisible] = useState(false);
+  const [drillResumeSnapshot, setDrillResumeSnapshot] = useState(null);
+  const [drillFilter, setDrillFilter] = useState("weak");
+  const [drillLecFilter, setDrillLecFilter] = useState("all");
+  const [drillIdAllowlist, setDrillIdAllowlist] = useState(null);
+  const [drillCardOpacity, setDrillCardOpacity] = useState(1);
+  const [drillStyle, setDrillStyle] = useState(() => {
+    try {
+      const saved = localStorage.getItem("rxt-drill-style");
+      return saved === "mcq" ? "mcq" : "flashcard";
+    } catch {
+      return "flashcard";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("rxt-drill-style", drillStyle);
+    } catch {}
+  }, [drillStyle]);
+  const [revealedCardKey, setRevealedCardKey] = useState(null);
+  const [cardState, setCardState] = useState("front");
+  const [cardBack, setCardBack] = useState(null);
+  const [drillCardMode, setDrillCardMode] = useState("back");
+  const [mcqData, setMcqData] = useState(null);
+  const [mcqError, setMcqError] = useState(null);
+  const [eliminatedOptions, setEliminatedOptions] = useState([]);
+  const [selectedOption, setSelectedOption] = useState(null); // tentative MCQ choice (drill)
+  const [lockedAnswer, setLockedAnswer] = useState(null); // confirmed index — triggers handleDrillMCQAnswer
+  const [selectedAnswer, setSelectedAnswer] = useState(null); // submitted index (snapshots / assess)
+  const [mcqOptionHover, setMcqOptionHover] = useState(null);
+  const [studentReasoning, setStudentReasoning] = useState("");
+  const [showReasoningBox, setShowReasoningBox] = useState(false);
+  const [currentQuestionLevel, setCurrentQuestionLevel] = useState(1);
+  const [levelAdvancement, setLevelAdvancement] = useState(null);
+  const [conceptFocus, setConceptFocus] = useState(null);
+  const [weakConceptsRefreshKey, setWeakConceptsRefreshKey] = useState(0);
+  const conceptFocusRef = useRef(null);
+  const drillWeakConceptSnapshotRef = useRef({});
+  const drillSessionLevelSnapshotRef = useRef({});
+  const drillMcqSnapshotRef = useRef({
+    mcqData: null,
+    selectedAnswer: null,
+    studentReasoning: "",
+  });
+  const drillMcqEliminatedRef = useRef([]);
+  const drillMcqSelectedAnswerRef = useRef(null);
+  const drillMcqSelectedOptionRef = useRef(null);
+  const revealedCardKeyRef = useRef(null);
+  const drillCardModeRef = useRef("back");
+  const handleDrillMCQAnswerRef = useRef(() => {});
+  const mcqRetryRef = useRef(false);
+  const mcqGenTokenRef = useRef(0);
+  const handleDrillSkipRef = useRef(() => {});
+  const generateDrillMCQRef = useRef(() => {});
+  const prefetchCacheRef = useRef({});
+  const activePrefetchesRef = useRef(0);
+  const prefetchMCQRef = useRef(() => {});
+  const MAX_CONCURRENT_PREFETCHES = 2;
   const [studyCfg, setStudyCfg] = useState(null);
   const [ankiLogTarget, setAnkiLogTarget] = useState(null);
   const [trackerKey, setTrackerKey] = useState(0);
@@ -6173,6 +9652,7 @@ export default function App() {
       return next;
     });
   }, []);
+
   const sessionSaveInProgress = useRef(false);
   const [examDates, setExamDates] = useState(() => {
     try {
@@ -6198,6 +9678,59 @@ export default function App() {
   const [aLoading, setALoading]   = useState(false);
   const [sidebar, setSidebar]     = useState(true);
   const [drag, setDrag]           = useState(false);
+  const [editPanelOpen, setEditPanelOpen] = useState(false);
+  const uploadInputRef = useRef(null);
+  const uploadRetryFilesRef = useRef(new Map());
+  const uploadFileByQueueIdRef = useRef(new Map());
+  const uploadForceUniqueRef = useRef(new Map());
+  const uploadForceOcrQueueIdRef = useRef(new Set());
+  const uploadCollisionResumeRef = useRef(new Map());
+  const uploadResolveCollisionRef = useRef(null);
+  const uploadCollisionSkipRef = useRef(null);
+  const runOneUploadRef = useRef(null);
+
+  const [uploadQueue, setUploadQueue] = useState([]);
+  const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
+  const [uploadComplete, setUploadComplete] = useState(false);
+  const [reExtractingLectureId, setReExtractingLectureId] = useState(null);
+  const uploadAutoDismissRef = useRef(null);
+  const lectureDragCounterRef = useRef(0);
+  const [lectureDragActive, setLectureDragActive] = useState(false);
+
+  const updateQueueItem = useCallback((queueId, updates) => {
+    setUploadQueue((prev) => prev.map((item) => (item.id === queueId ? { ...item, ...updates } : item)));
+  }, []);
+
+  const dismissUploadPanel = useCallback(() => {
+    if (uploadAutoDismissRef.current) {
+      clearTimeout(uploadAutoDismissRef.current);
+      uploadAutoDismissRef.current = null;
+    }
+    setUploadQueue([]);
+    setUploadPanelOpen(false);
+    setUploadComplete(false);
+  }, []);
+
+  useEffect(() => {
+    if (!uploadQueue.length) return;
+    const allTerminal = uploadQueue.every((i) => i.status === "done" || i.status === "error");
+    if (!allTerminal) return;
+    const anyErr = uploadQueue.some((i) => i.status === "error");
+    if (anyErr) return;
+    if (uploadAutoDismissRef.current) clearTimeout(uploadAutoDismissRef.current);
+    uploadAutoDismissRef.current = setTimeout(() => {
+      setUploadQueue([]);
+      setUploadPanelOpen(false);
+      setUploadComplete(false);
+      uploadAutoDismissRef.current = null;
+    }, 8000);
+    return () => {
+      if (uploadAutoDismissRef.current) {
+        clearTimeout(uploadAutoDismissRef.current);
+        uploadAutoDismissRef.current = null;
+      }
+    };
+  }, [uploadQueue]);
 
   const [newTermName,  setNewTermName]  = useState("");
   const [newBlockName, setNewBlockName] = useState("");
@@ -6212,6 +9745,8 @@ export default function App() {
     if (typeof window !== "undefined") localStorage.setItem("rxt-lec-view", v);
   };
   const [expandedLec, setExpandedLec] = useState(null);
+  const [scheduleEditMode, setScheduleEditMode] = useState(false);
+  const [expandedWeeks, setExpandedWeeks] = useState(() => ({ unscheduled: true }));
 
   const [lecSort, setLecSort] = useState(() =>
     typeof window !== "undefined" ? (localStorage.getItem("rxt-lec-sort") || "number") : "number"
@@ -6270,6 +9805,36 @@ export default function App() {
     }
   });
 
+  const refreshObjectivesFromStorage = useCallback(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      setBlockObjectives(stored || {});
+    } catch (e) {
+      console.error("refreshObjectivesFromStorage failed:", e);
+    }
+  }, []);
+
+  const [alignmentStatus, setAlignmentStatus] = useState(null);
+  const [alignmentProgress, setAlignmentProgress] = useState("");
+  const [alignmentDoneSummary, setAlignmentDoneSummary] = useState(null);
+  const [unlinkedTabFocusKey, setUnlinkedTabFocusKey] = useState(0);
+  const [contentMismatches, setContentMismatches] = useState([]);
+  const [showMismatchReview, setShowMismatchReview] = useState(false);
+  const alignmentDoneTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (alignmentStatus !== "done") return;
+    if (alignmentDoneTimerRef.current) clearTimeout(alignmentDoneTimerRef.current);
+    alignmentDoneTimerRef.current = window.setTimeout(() => {
+      setAlignmentStatus(null);
+      setAlignmentProgress("");
+      setAlignmentDoneSummary(null);
+    }, 10000);
+    return () => {
+      if (alignmentDoneTimerRef.current) clearTimeout(alignmentDoneTimerRef.current);
+    };
+  }, [alignmentStatus]);
+
   const [reviewedLectures, setReviewedLectures] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("rxt-reviewed-lecs") || "{}");
@@ -6286,8 +9851,43 @@ export default function App() {
     } catch {}
   }, [reviewedLectures]);
 
+  useEffect(() => {
+    const handler = () => {
+      refreshObjectivesFromStorage();
+      try {
+        const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+        setPerformanceHistory(perf || {});
+      } catch {}
+    };
+    window.addEventListener("rxt-objectives-updated", handler);
+    window.addEventListener("rxt-completion-updated", handler);
+    return () => {
+      window.removeEventListener("rxt-objectives-updated", handler);
+      window.removeEventListener("rxt-completion-updated", handler);
+    };
+  }, [refreshObjectivesFromStorage]);
+
+  useEffect(() => {
+    const handler = () => setCoverageRefreshKey((k) => k + 1);
+    window.addEventListener("rxt-objectives-updated", handler);
+    return () => window.removeEventListener("rxt-objectives-updated", handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setLecturesRefreshKey((k) => k + 1);
+    window.addEventListener("rxt-objectives-updated", handler);
+    return () => window.removeEventListener("rxt-objectives-updated", handler);
+  }, []);
+
+  useEffect(() => {
+    if (activeBlock?.id) {
+      backfillObjectiveStatuses(activeBlock.id);
+      refreshObjectivesFromStorage();
+    }
+  }, [activeBlock?.id, refreshObjectivesFromStorage]);
+
   const getBlockObjectives = (bid) => {
-    const data = blockObjectives[bid] || { imported: [], extracted: [] };
+    const data = pickBlockObjectivesState(blockObjectives, bid);
     const all = [...(data.imported || []), ...(data.extracted || [])];
     const seen = new Set();
     return all.filter((obj) => {
@@ -6298,33 +9898,163 @@ export default function App() {
     });
   };
 
+  /** Read + dedupe block objectives from localStorage (same rules as getBlockObjectives). */
+  const readBlockObjectivesDedupedFromStorage = useCallback((bid) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted } = parseBlockObjectivesRaw(raw);
+      const all = [...(imported || []), ...(extracted || [])];
+      const seen = new Set();
+      return all.filter((obj) => {
+        const key = (obj.objective || "").slice(0, 60).toLowerCase().replace(/\W/g, "");
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const repairUnlinkedObjectives = useCallback(
+    (blockBid) => {
+      try {
+        if (!blockBid) return;
+        const objKey = "rxt-block-objectives";
+        const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
+        const raw = getBlockObjectivesStoredRaw(stored, blockBid);
+        const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+        const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockBid));
+        let repaired = 0;
+        const repairArr = (arr) =>
+          (arr || []).map((obj) => {
+            if (obj.linkedLecId) return obj;
+            const matchedLec = blockLecs.find(
+              (l) =>
+                String(l.lectureType || "LEC") === String(obj.lectureType || "LEC") &&
+                String(l.lectureNumber) === String(obj.lectureNumber)
+            );
+            if (matchedLec) {
+              repaired++;
+              return { ...obj, linkedLecId: matchedLec.id, sourceFile: matchedLec.id };
+            }
+            return obj;
+          });
+        const imp = repairArr(imported);
+        const ext = repairArr(extracted);
+        if (repaired > 0) {
+          const wk = blockObjectivesStorageKey(stored, blockBid);
+          stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+          localStorage.setItem(objKey, JSON.stringify(stored));
+          setBlockObjectives(stored);
+          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+          console.log(`Repaired ${repaired} unlinked objectives`);
+        }
+      } catch (e) {
+        console.error("repairUnlinkedObjectives failed:", e);
+      }
+    },
+    [lectures, resolveBlockMeta, setBlockObjectives]
+  );
+
+  const coverageObjectivesMemo = useMemo(() => {
+    void coverageRefreshKey;
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid) return [];
+    return readBlockObjectivesDedupedFromStorage(bid);
+  }, [activeBlock?.id, blockId, coverageRefreshKey, readBlockObjectivesDedupedFromStorage]);
+
+  useEffect(() => {
+    if (tab !== "objectives" || !activeBlock?.id) return;
+    repairUnlinkedObjectives(activeBlock.id);
+    validateAndRepairLinkedIds(activeBlock.id);
+    setContentMismatches(detectContentMismatches(activeBlock.id));
+  }, [tab, activeBlock?.id, lectures, repairUnlinkedObjectives]);
+
+  function backfillObjectiveStatuses(bid) {
+    try {
+      if (!bid) return;
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const parsed = parseBlockObjectivesRaw(raw);
+      const imported = [...(parsed.imported || [])];
+      const extracted = [...(parsed.extracted || [])];
+      const impLen = imported.length;
+      const all = [...imported, ...extracted];
+      const backfillKey = `rxt-backfill-done-${bid}`;
+      if (localStorage.getItem(backfillKey)) return;
+      let changed = false;
+      Object.entries(perf || {}).forEach(([key, entry]) => {
+        if (!String(key || "").includes(bid)) return;
+        const lecId = entry?.lectureId;
+        const score = Number(entry?.score);
+        if (!lecId || !Number.isFinite(score)) return;
+        all.forEach((obj, idx) => {
+          if (obj?.linkedLecId !== lecId) return;
+          if (obj?.status && obj.status !== "untested") return;
+          let newStatus;
+          if (score >= 80) newStatus = "mastered";
+          else if (score >= 55) newStatus = "inprogress";
+          else newStatus = "struggling";
+          all[idx] = {
+            ...obj,
+            status: newStatus,
+            lastSessionScore: score,
+            backfilled: true,
+          };
+          changed = true;
+        });
+      });
+      if (changed) {
+        const wk = blockObjectivesStorageKey(stored, bid);
+        stored[wk] = packBlockObjectivesRaw(all.slice(0, impLen), all.slice(impLen), parsed.legacyFlat, parsed.rawObj);
+        localStorage.setItem("rxt-block-objectives", JSON.stringify(stored));
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      }
+      localStorage.setItem(backfillKey, "1");
+    } catch (e) {
+      console.error("backfillObjectiveStatuses failed:", e);
+    }
+  }
+
   const handleRealignObjectives = useCallback(
     (blockId) => {
       setBlockObjectives((prev) => {
-        const data = prev[blockId] || { imported: [], extracted: [] };
+        const data = pickBlockObjectivesState(prev, blockId);
+        const wk = blockObjectivesStorageKey(prev, blockId);
         const objs = data.imported || [];
-        const blockLecs = lectures.filter((l) => l.blockId === blockId);
+        const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
         const aligned = alignObjectivesToLectures(blockId, objs, blockLecs);
-        const next = { ...prev, [blockId]: { ...data, imported: aligned } };
+        const next = { ...prev, [wk]: { ...data, imported: aligned } };
         try {
           localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
         } catch {}
         return next;
       });
+      queueMicrotask(() => {
+        validateAndRepairLinkedIds(blockId);
+        setContentMismatches(detectContentMismatches(blockId));
+      });
     },
-    [lectures]
+    [lectures, resolveBlockMeta]
   );
 
   const repairObjectiveAlignmentRepairedRef = useRef(0);
-  const repairObjectiveAlignment = useCallback(
-    (blockId) => {
-      if (!blockId) return 0;
-      const blockLecs = (lectures || []).filter((l) => l.blockId === blockId);
-      if (!blockLecs.length) return 0;
-      let repaired = 0;
-      const data = (blockObjectives || {})[blockId] || { imported: [], extracted: [] };
+  /** Uses functional setState only — do NOT depend on blockObjectives or this callback thrashes every update. */
+  const repairObjectiveAlignment = useCallback((blockId) => {
+    if (!blockId) return 0;
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
+    if (!blockLecs.length) return 0;
+
+    let repairedOut = 0;
+    setBlockObjectives((prev) => {
+      const data = pickBlockObjectivesState(prev, blockId);
+      const writeKey = blockObjectivesStorageKey(prev, blockId);
       let imported = Array.isArray(data.imported) ? data.imported : [];
       let extracted = Array.isArray(data.extracted) ? data.extracted : [];
+      let repaired = 0;
 
       // One-time migration: objectives with legacy timestamp-style linkedLecId (extracted_...) don't match any lecture
       const hasLegacyIds = [...imported, ...extracted].some((o) => o?.linkedLecId?.startsWith?.("extracted_"));
@@ -6338,7 +10068,6 @@ export default function App() {
           );
           if (match) {
             repaired++;
-            console.log(`Migrating objective from ${obj.linkedLecId} → ${match.id}`);
             return { ...obj, linkedLecId: match.id, sourceFile: match.id };
           }
           return obj;
@@ -6390,20 +10119,20 @@ export default function App() {
       };
       const updatedImported = imported.map(reStamp).map(repairOne);
       const updatedExtracted = extracted.map(reStamp).map(repairOne);
-      if (repaired > 0) {
-        repairObjectiveAlignmentRepairedRef.current = repaired;
-        const next = { ...(blockObjectives || {}), [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
-        try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
-        } catch (e) {
-          console.error(e);
-        }
-        setBlockObjectives(next);
+      if (repaired === 0) return prev;
+
+      repairObjectiveAlignmentRepairedRef.current = repaired;
+      repairedOut = repaired;
+      const next = { ...prev, [writeKey]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+      try {
+        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+      } catch (e) {
+        console.error(e);
       }
-      return repaired;
-    },
-    [lectures, blockObjectives]
-  );
+      return next;
+    });
+    return repairedOut;
+  }, [lectures, resolveBlockMeta]);
 
   useEffect(() => {
     const bid = activeBlock?.id ?? blockId;
@@ -6413,9 +10142,9 @@ export default function App() {
   const bidForObjectives = activeBlock?.id ?? blockId;
   const repairedBlockObjs = useMemo(() => {
     if (!bidForObjectives) return [];
-    const data = blockObjectives[bidForObjectives] || { imported: [], extracted: [] };
+    const data = pickBlockObjectivesState(blockObjectives, bidForObjectives);
     const allObjs = [...(data.imported || []), ...(data.extracted || [])];
-    const blockLecs = lectures.filter((l) => l.blockId === bidForObjectives);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bidForObjectives));
     if (!blockLecs.length) return allObjs;
     const reStamp = (obj) => {
       if (!obj || typeof obj !== "object") return obj;
@@ -6450,13 +10179,13 @@ export default function App() {
     const repairedImported = (data.imported || []).map(reStamp).map(repairOne);
     const repairedExtracted = (data.extracted || []).map(reStamp).map(repairOne);
     return [...repairedImported, ...repairedExtracted];
-  }, [blockObjectives, bidForObjectives, lectures]);
+  }, [blockObjectives, bidForObjectives, lectures, resolveBlockMeta]);
 
   useEffect(() => {
     if (!bidForObjectives || !setBlockObjectives) return;
-    const data = blockObjectives[bidForObjectives] || { imported: [], extracted: [] };
+    const data = pickBlockObjectivesState(blockObjectives, bidForObjectives);
     const allObjs = [...(data.imported || []), ...(data.extracted || [])];
-    const blockLecs = lectures.filter((l) => l.blockId === bidForObjectives);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bidForObjectives));
     if (!blockLecs.length) return;
     const lecIds = new Set(blockLecs.map((l) => l.id));
     const needsLink = (o) =>
@@ -6495,27 +10224,36 @@ export default function App() {
     const repairOne = (obj) => {
       if (obj?.linkedLecId && lecIds.has(obj.linkedLecId) && (obj.activity || "").trim() !== "Unknown") return obj;
       const match = findLecForObj(obj);
-      return match ? { ...obj, linkedLecId: match.id, sourceFile: match.id } : obj;
+      if (!match) return obj;
+      if (match.id === obj.linkedLecId) {
+        return obj.sourceFile === match.id ? obj : { ...obj, sourceFile: match.id };
+      }
+      return { ...obj, linkedLecId: match.id, sourceFile: match.id };
     };
     const repairedImported = (data.imported || []).map(repairOne);
     const repairedExtracted = (data.extracted || []).map(repairOne);
+    const rowChanged = (o, p) =>
+      o.linkedLecId !== p?.linkedLecId || o.sourceFile !== p?.sourceFile;
     const changed =
-      repairedImported.some((o, i) => o.linkedLecId !== (data.imported || [])[i]?.linkedLecId) ||
-      repairedExtracted.some((o, i) => o.linkedLecId !== (data.extracted || [])[i]?.linkedLecId);
+      repairedImported.some((o, i) => rowChanged(o, (data.imported || [])[i])) ||
+      repairedExtracted.some((o, i) => rowChanged(o, (data.extracted || [])[i]));
     if (!changed) return;
-    setBlockObjectives((prev) => ({
-      ...prev,
-      [bidForObjectives]: { ...data, imported: repairedImported, extracted: repairedExtracted },
-    }));
-  }, [bidForObjectives, blockObjectives, lectures, setBlockObjectives]);
+    setBlockObjectives((prev) => {
+      const wk = blockObjectivesStorageKey(prev, bidForObjectives);
+      return {
+        ...prev,
+        [wk]: { ...data, imported: repairedImported, extracted: repairedExtracted },
+      };
+    });
+  }, [bidForObjectives, blockObjectives, lectures, setBlockObjectives, resolveBlockMeta]);
 
   // When in Deep Learn view, also run link-by-title for the Deep Learn block so that block gets repaired even if it's not the active block
   useEffect(() => {
     const dlBid = view === "deeplearn" && studyCfg?.blockId ? studyCfg.blockId : null;
     if (!dlBid || !setBlockObjectives || !blockObjectives) return;
-    const data = blockObjectives[dlBid] || { imported: [], extracted: [] };
+    const data = pickBlockObjectivesState(blockObjectives, dlBid);
     const allObjs = [...(data.imported || []), ...(data.extracted || [])];
-    const blockLecs = (lectures || []).filter((l) => l.blockId === dlBid);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(dlBid));
     if (!blockLecs.length) return;
     const lecIds = new Set(blockLecs.map((l) => l.id));
     const needsLink = (o) =>
@@ -6552,19 +10290,28 @@ export default function App() {
     const repairOne = (obj) => {
       if (obj?.linkedLecId && lecIds.has(obj.linkedLecId) && (obj.activity || "").trim() !== "Unknown") return obj;
       const match = findLec(obj);
-      return match ? { ...obj, linkedLecId: match.id, sourceFile: match.id } : obj;
+      if (!match) return obj;
+      if (match.id === obj.linkedLecId) {
+        return obj.sourceFile === match.id ? obj : { ...obj, sourceFile: match.id };
+      }
+      return { ...obj, linkedLecId: match.id, sourceFile: match.id };
     };
     const repairedImported = (data.imported || []).map(repairOne);
     const repairedExtracted = (data.extracted || []).map(repairOne);
+    const rowChangedDl = (o, p) =>
+      o.linkedLecId !== p?.linkedLecId || o.sourceFile !== p?.sourceFile;
     const changed =
-      repairedImported.some((o, i) => o.linkedLecId !== (data.imported || [])[i]?.linkedLecId) ||
-      repairedExtracted.some((o, i) => o.linkedLecId !== (data.extracted || [])[i]?.linkedLecId);
+      repairedImported.some((o, i) => rowChangedDl(o, (data.imported || [])[i])) ||
+      repairedExtracted.some((o, i) => rowChangedDl(o, (data.extracted || [])[i]));
     if (!changed) return;
-    setBlockObjectives((prev) => ({
-      ...prev,
-      [dlBid]: { ...data, imported: repairedImported, extracted: repairedExtracted },
-    }));
-  }, [view, studyCfg?.blockId, blockObjectives, lectures, setBlockObjectives]);
+    setBlockObjectives((prev) => {
+      const wk = blockObjectivesStorageKey(prev, dlBid);
+      return {
+        ...prev,
+        [wk]: { ...data, imported: repairedImported, extracted: repairedExtracted },
+      };
+    });
+  }, [view, studyCfg?.blockId, blockObjectives, lectures, resolveBlockMeta, setBlockObjectives]);
 
   // Repair objectives with activity "Unknown" that are linked to a lecture — set activity from lecture (e.g. "DLA 2")
   const repairUnknownActivityRef = useRef(false);
@@ -6576,7 +10323,7 @@ export default function App() {
     bids.forEach((bid) => {
       const data = next[bid];
       if (!data) return;
-      const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+      const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid));
       let blockChanged = false;
       const fixActivity = (obj) => {
         if (!obj || typeof obj !== "object") return obj;
@@ -6604,7 +10351,7 @@ export default function App() {
         localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
       } catch {}
     }
-  }, [blockObjectives, lectures, setBlockObjectives]);
+  }, [blockObjectives, lectures, resolveBlockMeta, setBlockObjectives]);
 
   // One-time repair for existing orphaned objectives (match by lectureType + lectureNumber only)
   const repairAllBlocksOnMountRef = useRef(false);
@@ -6617,104 +10364,77 @@ export default function App() {
     }
   }, [blockObjectives, lectures, repairObjectiveAlignment]);
 
-  useEffect(() => {
-    const bid = activeBlock?.id ?? blockId;
-    if (!bid) return;
-    const objs = getBlockObjectives(bid) || [];
-    const unlinked = objs.filter(
-      (o) => !o.linkedLecId || !lectures.find((l) => l.id === o.linkedLecId)
-    );
-    if (unlinked.length > 0) {
-      console.log(`${unlinked.length} unlinked objectives — running repair`);
-      const t = setTimeout(() => repairObjectiveAlignment(bid), 100);
-      return () => clearTimeout(t);
-    }
-  }, [activeBlock?.id, blockId, lectures.length, blockObjectives, getBlockObjectives, repairObjectiveAlignment]);
+  // (Removed: effect that called repairObjectiveAlignment whenever blockObjectives changed while any
+  //  objectives were still unlinked — that re-ran forever because many imports cannot auto-link.)
 
-  // One-time migration: unlink obviously misassigned objectives (e.g. shoulder/axilla linked to neural lecture)
+  // One-time migration: unlink obviously misassigned objectives (e.g. shoulder/axilla linked to neural lecture).
+  // Must run at most once per block: link-repair effects can re-link the same rows, which would otherwise loop
+  // setState forever. Persist a flag in localStorage so React Strict Mode remounts don't re-run either.
+  const shoulderNeuralMisassignCleanupRanRef = useRef(new Set());
   useEffect(() => {
     const bid = activeBlock?.id ?? blockId;
     if (!bid || !lectures.length) return;
-    const data = blockObjectives[bid];
-    if (!data) return;
-    const imported = data.imported || [];
-    const extracted = data.extracted || [];
-    if (!imported.length && !extracted.length) return;
+    if (shoulderNeuralMisassignCleanupRanRef.current.has(bid)) return;
+    const flagKey = `rxt-misassign-shoulder-neural-${bid}`;
+    try {
+      if (localStorage.getItem(flagKey)) {
+        shoulderNeuralMisassignCleanupRanRef.current.add(bid);
+        return;
+      }
+    } catch {
+      /* ignore */
+    }
+
     const SHOULDER_KEYWORDS = /axilla|shoulder|cervicoaxillary|axillary|subclavian|scapula|brachial plexus|rotator cuff|glenohumeral/i;
     const NEURAL_KEYWORDS = /neural tube|spinal cord|vertebra|neuroectoderm|neural plate|neural crest|somite|notochord|meninges|neurulation/i;
-    let fixed = 0;
-    const clean = (obj) => {
-      if (!obj?.linkedLecId) return obj;
-      const linkedLec = lectures.find((l) => l.id === obj.linkedLecId);
-      if (!linkedLec) return obj;
-      const lecTitle = (linkedLec.lectureTitle || linkedLec.fileName || linkedLec.filename || "").toLowerCase();
-      const objText = (obj.objective || "").toLowerCase();
-      if (SHOULDER_KEYWORDS.test(objText) && NEURAL_KEYWORDS.test(lecTitle)) {
-        fixed++;
-        console.log(`🔧 Removing misassigned obj from ${linkedLec.lectureTitle}:`, obj.objective?.slice(0, 50));
-        return { ...obj, linkedLecId: null };
-      }
-      if (NEURAL_KEYWORDS.test(objText) && SHOULDER_KEYWORDS.test(lecTitle)) {
-        fixed++;
-        return { ...obj, linkedLecId: null };
-      }
-      return obj;
-    };
-    const cleanedImported = imported.map(clean);
-    const cleanedExtracted = extracted.map(clean);
-    if (fixed > 0) {
-      console.log(`🔧 Removed ${fixed} misassigned objectives`);
-      setBlockObjectives((prev) => {
-        const next = { ...prev, [bid]: { ...data, imported: cleanedImported, extracted: cleanedExtracted } };
-        try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
-        } catch {}
-        return next;
-      });
-    }
-  }, [activeBlock?.id, blockId, lectures.length, blockObjectives]);
 
-  useEffect(() => {
-    const bid = activeBlock?.id ?? blockId;
-    if (!bid) return;
-    try {
-      const blockObjs = getBlockObjectives(bid) || [];
-      const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
-      const lec = blockLecs.find(
-        (l) =>
-          (String(l.lectureType || "").toUpperCase().includes("DLA") || (l.lectureType || "").toUpperCase() === "DLA") &&
-          String(l.lectureNumber) === "4"
-      );
-      const dla4ObjsByActivity = blockObjs.filter(
-        (o) =>
-          (o.activity || "").toLowerCase().includes("dla") &&
-          (o.activity || "").includes("4")
-      );
-      const dla4ObjsByLec = lec ? blockObjs.filter((o) => o.linkedLecId === lec.id) : [];
-      console.log("DLA 4 objectives found:", dla4ObjsByActivity.length, "(by activity)", dla4ObjsByLec.length, "(by linkedLecId)");
-      console.log("DLA 4 lec.id:", lec?.id);
-      console.log("All block objectives count:", blockObjs.length);
-      console.log("Sample linkedLecIds:", blockObjs.slice(0, 5).map((o) => o.linkedLecId));
-      console.log("Sample sourceFiles:", blockObjs.slice(0, 5).map((o) => o.sourceFile));
-      const sampleActivities = [...new Set(blockObjs.map((o) => o.activity))].slice(0, 10);
-      console.log("Sample activities:", sampleActivities);
-      const unknownObjs = blockObjs.filter((o) => (o.activity || "").trim() === "Unknown" || !(o.activity || "").trim());
-      if (unknownObjs.length > 0) {
-        console.log(
-          "Objectives with activity 'Unknown' (which file/lecture):",
-          unknownObjs.slice(0, 5).map((o) => ({
-            lectureTitle: o.lectureTitle,
-            sourceFile: o.sourceFile,
-            linkedLecId: o.linkedLecId,
-            objectivePreview: (o.objective || o.text || "").slice(0, 50) + "...",
-          }))
-        );
-        console.log("Total objectives with Unknown activity:", unknownObjs.length);
+    setBlockObjectives((prev) => {
+      if (shoulderNeuralMisassignCleanupRanRef.current.has(bid)) return prev;
+      try {
+        if (localStorage.getItem(flagKey)) return prev;
+      } catch {
+        return prev;
       }
-    } catch (e) {
-      console.warn("Objective alignment debug log failed:", e);
-    }
-  }, [activeBlock?.id, blockId, lectures, getBlockObjectives]);
+      const cur = prev[bid];
+      if (!cur) return prev;
+      const imported = cur.imported || [];
+      const extracted = cur.extracted || [];
+      if (!imported.length && !extracted.length) return prev;
+
+      let fixed = 0;
+      const clean = (obj) => {
+        if (!obj?.linkedLecId) return obj;
+        const linkedLec = lectures.find((l) => l.id === obj.linkedLecId);
+        if (!linkedLec) return obj;
+        const lecTitle = (linkedLec.lectureTitle || linkedLec.fileName || linkedLec.filename || "").toLowerCase();
+        const objText = (obj.objective || "").toLowerCase();
+        if (SHOULDER_KEYWORDS.test(objText) && NEURAL_KEYWORDS.test(lecTitle)) {
+          fixed++;
+          return { ...obj, linkedLecId: null };
+        }
+        if (NEURAL_KEYWORDS.test(objText) && SHOULDER_KEYWORDS.test(lecTitle)) {
+          fixed++;
+          return { ...obj, linkedLecId: null };
+        }
+        return obj;
+      };
+      const cleanedImported = imported.map(clean);
+      const cleanedExtracted = extracted.map(clean);
+      if (fixed === 0) return prev;
+
+      shoulderNeuralMisassignCleanupRanRef.current.add(bid);
+      try {
+        localStorage.setItem(flagKey, "1");
+      } catch {
+        /* ignore */
+      }
+      const next = { ...prev, [bid]: { ...cur, imported: cleanedImported, extracted: cleanedExtracted } };
+      try {
+        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, [activeBlock?.id, blockId, lectures, setBlockObjectives]);
 
   useEffect(() => {
     setBlockObjectives((prev) => {
@@ -6769,7 +10489,7 @@ export default function App() {
 
   const hasOrphanedPerf = useMemo(() => {
     const bid = activeBlock?.id ?? blockId;
-    const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid), blockId);
     const lecIds = new Set(blockLecs.map((l) => l.id));
     return Object.keys(performanceHistory || {}).some((key) => {
       const parts = key.split("__");
@@ -6777,7 +10497,7 @@ export default function App() {
       const [lecId, keyBlockId] = parts;
       return keyBlockId === bid && lecId !== "block" && !lecIds.has(lecId);
     });
-  }, [performanceHistory, lectures, activeBlock?.id, blockId]);
+  }, [performanceHistory, lectures, activeBlock?.id, blockId, resolveBlockMeta]);
 
   const [showManualResync, setShowManualResync] = useState(false);
   const [orphanedSessionsForManual, setOrphanedSessionsForManual] = useState([]);
@@ -6786,7 +10506,7 @@ export default function App() {
     const bid = activeBlock?.id ?? blockId;
     if (!bid) return;
     const allPerf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
-    const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid), blockId);
     const lecIds = new Set(blockLecs.map((l) => l.id));
 
     const orphanedKeys = Object.keys(allPerf).filter((key) => {
@@ -6900,7 +10620,7 @@ export default function App() {
           : "No orphaned sessions found to resync."
       );
     }
-  }, [activeBlock?.id, blockId, lectures, setPerformanceHistory]);
+  }, [activeBlock?.id, blockId, lectures, setPerformanceHistory, resolveBlockMeta]);
 
   const dismissOrphanedSession = useCallback((oldKey) => {
     setPerformanceHistory((prev) => {
@@ -7193,7 +10913,8 @@ export default function App() {
         [key]: { date: new Date().toISOString(), method: "manual" },
       }));
       setBlockObjectives((prev) => {
-        const data = prev[blockId] || { imported: [], extracted: [] };
+        const data = pickBlockObjectivesState(prev, blockId);
+        const wk = blockObjectivesStorageKey(prev, blockId);
         const linkedToThisLec = (obj) =>
           obj.linkedLecId === lec.id ||
           (Array.isArray(lec.mergedFrom) && lec.mergedFrom.some((m) => m && m.id === obj.linkedLecId));
@@ -7203,7 +10924,7 @@ export default function App() {
             : obj;
         const updatedImported = (data.imported || []).map(mapUntestedToInProgress);
         const updatedExtracted = (data.extracted || []).map(mapUntestedToInProgress);
-        const next = { ...prev, [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+        const next = { ...prev, [wk]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
         try {
           localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
         } catch {}
@@ -7233,14 +10954,15 @@ export default function App() {
       const hasSessions = (performanceHistory[perfKey]?.sessions?.length || 0) > 0;
       if (!hasSessions) {
         setBlockObjectives((prev) => {
-          const data = prev[blockId] || { imported: [], extracted: [] };
+          const data = pickBlockObjectivesState(prev, blockId);
+          const wk = blockObjectivesStorageKey(prev, blockId);
           const revertInProgressToUntested = (obj) =>
             obj.linkedLecId === lec.id && obj.status === "inprogress"
               ? { ...obj, status: "untested" }
               : obj;
           const updatedImported = (data.imported || []).map(revertInProgressToUntested);
           const updatedExtracted = (data.extracted || []).map(revertInProgressToUntested);
-          const next = { ...prev, [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+          const next = { ...prev, [wk]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
           try {
             localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
           } catch {}
@@ -7266,9 +10988,31 @@ export default function App() {
     if (topicKey) setActiveSessions((prev) => ({ ...prev, [topicKey]: true }));
     setStudyCfg({
       blockId: bid,
-      lecs: lectures.filter((l) => l.blockId === bid),
+      lecs: getBlockLecs(lectures, resolveBlockMeta(bid)),
       blockObjectives: getBlockObjectives(bid),
       preselectedLecId: lecId,
+    });
+    setView("deeplearn");
+  };
+
+  const handleRapidFireStart = async ({ selectedTopics, blockId: bId }) => {
+    const bid = bId ?? activeBlock?.id ?? blockId;
+    repairObjectiveAlignment(bid);
+    await new Promise((r) => setTimeout(r, 300)); // let setState propagate
+    const lecId = selectedTopics?.[0]?.lecId;
+    const lec = lectures.find((l) => l.id === lecId);
+    const freshObjs = (getBlockObjectives(bid) || []).filter(
+      (o) => o.linkedLecId === lec?.id || (lec?.mergedFrom || []).includes(o.linkedLecId)
+    );
+    console.log("Fresh objectives after repair (Rapid Fire):", freshObjs.length);
+    const topicKey = makeTopicKey(lecId, bid);
+    if (topicKey) setActiveSessions((prev) => ({ ...prev, [topicKey]: true }));
+    setStudyCfg({
+      blockId: bid,
+      lecs: getBlockLecs(lectures, resolveBlockMeta(bid)),
+      blockObjectives: getBlockObjectives(bid),
+      preselectedLecId: lecId,
+      rapidFireMode: true,
     });
     setView("deeplearn");
   };
@@ -7323,7 +11067,7 @@ export default function App() {
     const daysLeft = Math.ceil((exam - today) / (1000 * 60 * 60 * 24));
     if (daysLeft <= 0) return null;
 
-    const blockLecs = lectures.filter((l) => l.blockId === blockId);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
     const blockObjs = getBlockObjectives(blockId) || [];
     const perf = performanceHistory;
 
@@ -7461,10 +11205,31 @@ export default function App() {
     const daysLeft = Math.ceil((exam - today) / (1000 * 60 * 60 * 24));
     if (daysLeft <= 0) return { schedule: [], daysLeft: 0, lecScores: [], upcoming: [], undated: [], needsBlockStart: false };
 
-    const blockLecs = lectures.filter((l) => l.blockId === blockId);
-    const blockObjs = getBlockObjectives(blockId) || [];
+    const getPressureZone = (examDateStr) => {
+      const t = new Date();
+      t.setHours(0, 0, 0, 0);
+      const e = new Date(examDateStr);
+      e.setHours(0, 0, 0, 0);
+      const days = Math.ceil((e - t) / (1000 * 60 * 60 * 24));
+      if (days <= 0) return { zone: "exam", days };
+      if (days <= 3) return { zone: "critical", days };
+      if (days <= 7) return { zone: "crunch", days };
+      if (days <= 14) return { zone: "build", days };
+      return { zone: "normal", days };
+    };
+    const pressure = getPressureZone(examDate);
+    const zone = pressure.zone;
+
     const blocks = terms.flatMap((t) => t.blocks || []);
     const block = blocks.find((b) => b.id === blockId);
+    const blockLecs = getBlockLecs(lectures, block || { id: blockId });
+    const blockObjs = getBlockObjectives(blockId) || [];
+    let completions = {};
+    try {
+      completions = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    } catch {
+      completions = {};
+    }
     const blockStart = block?.startDate
       ? (() => {
           const d = new Date(block.startDate);
@@ -7532,6 +11297,9 @@ export default function App() {
       const confidence = perf?.confidenceLevel || "Low";
       const nextReview = perf?.nextReview ? new Date(perf.nextReview) : null;
       const sessions = perf?.sessions?.length || 0;
+      const completion = completions[`${lec.id}__${blockId}`] || null;
+      const ankiOverdue = completion?.ankiCardsOverdue || 0;
+      const ankiTotal = completion?.ankiCardCount || 0;
 
       let urgency = 0;
       urgency += struggling * 10;
@@ -7545,6 +11313,36 @@ export default function App() {
         urgency += reviewedLectures[`${lec.id}__${blockId}`] ? 8 : 12;
       }
       if (nextReview && nextReview <= today) urgency += 20;
+
+      // Anki backlog urgency (from rxt-completion)
+      if (ankiOverdue > 0 && ankiTotal > 0) {
+        const overdueRatio = ankiOverdue / ankiTotal;
+        if (overdueRatio >= 0.5) urgency += 20;
+        else if (overdueRatio >= 0.25) urgency += 10;
+        else urgency += 5;
+      }
+      if (ankiTotal >= 20 && completion?.lastAnkiLogDate) {
+        const daysSinceAnki = Math.floor((new Date() - new Date(completion.lastAnkiLogDate)) / (1000 * 60 * 60 * 24));
+        if (daysSinceAnki >= 3) urgency += 8;
+      }
+
+      const trend = getConfidenceTrend(completion?.activityLog || [], null);
+      if (trend.trend === "declining") urgency += 12;
+      if (trend.trend === "stuck") urgency += 8;
+
+      // Pressure zone urgency additions (do not restructure passes)
+      if (zone === "build") {
+        if (struggling > 0) urgency += 5;
+      }
+      if (zone === "crunch") {
+        if (sessions === 0) urgency += 20;
+        if (struggling > 0) urgency += 15;
+      }
+      if (zone === "critical") {
+        if (sessions === 0) urgency += 50;
+        if (struggling > 0) urgency += 40;
+        if (struggling === 0 && sessions > 0) urgency += 10;
+      }
 
       const recommendedSessions = [];
       if (sessions === 0) {
@@ -7615,7 +11413,8 @@ export default function App() {
     lecScores.sort((a, b) => b.urgency - a.urgency);
 
     const schedule = [];
-    const MAX_PER_DAY = 6;
+    const MAX_PER_DAY =
+      zone === "crunch" ? 8 : 6;
     const scheduled = new Set();
 
     for (let d = 0; d < daysLeft; d++) {
@@ -7715,7 +11514,7 @@ export default function App() {
   };
 
   const buildQuestionContext = (blockId, lectureId, questionBanksByFileArg, mode = "quiz", options = {}) => {
-    const blockLecs = lectures.filter((l) => l.blockId === blockId);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
     const blockObjs = getBlockObjectives(blockId) || [];
     const allUploaded = Object.entries(questionBanksByFileArg || {});
     const relevantQs = allUploaded
@@ -7738,13 +11537,13 @@ export default function App() {
       const lecsUsed = selectedLecIds.map((id) => lectures.find((l) => l.id === id)).filter(Boolean);
       anyMistralOcr = lecsUsed.some((l) => l.extractionMethod === "mistral-ocr");
       lectureChunks = lecsUsed
-        .flatMap((lec) => (lec.chunks || []).map((c) => c.text || c.content || ""))
+        .map((lec) => getLecText(lec))
         .join("\n")
         .slice(0, 6000);
     } else if (lectureId) {
       const lec = lectures.find((l) => l.id === lectureId);
       anyMistralOcr = lec?.extractionMethod === "mistral-ocr";
-      lectureChunks = (lec?.chunks || []).map((c) => c.text || c.content || "").join("\n").slice(0, 6000);
+      lectureChunks = getLecText(lec).slice(0, 6000);
     }
     const contentNote = anyMistralOcr
       ? "The following lecture content has been extracted with high-fidelity OCR, preserving tables, headings, and document structure as markdown. Use the structure to identify high-yield topics.\n\n"
@@ -7797,8 +11596,10 @@ export default function App() {
     if (!bid) return;
     console.log("saveBlockObjectives:", bid, "imported:", patch.imported?.length);
     setBlockObjectives((prev) => {
-      const blockLectures = lectures.filter((l) => l.blockId === bid);
-      let importedAligned = patch.imported ?? prev[bid]?.imported ?? [];
+      const blockLectures = getBlockLecs(lectures, resolveBlockMeta(bid));
+      const existing = pickBlockObjectivesState(prev, bid);
+      const writeKey = blockObjectivesStorageKey(prev, bid);
+      let importedAligned = patch.imported ?? existing?.imported ?? [];
       if (importedAligned.length && blockLectures.length) {
         importedAligned = alignObjectivesToLectures(bid, importedAligned, blockLectures);
         const linked = importedAligned.filter((o) => o.hasLecture).length;
@@ -7806,8 +11607,8 @@ export default function App() {
       }
       const updated = {
         ...prev,
-        [bid]: {
-          ...(prev[bid] || {}),
+        [writeKey]: {
+          ...existing,
           ...patch,
           imported: importedAligned,
         },
@@ -7817,15 +11618,21 @@ export default function App() {
       } catch {}
       return updated;
     });
+    queueMicrotask(() => {
+      try {
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch {}
+    });
   };
 
   const updateObjective = (blockId, objId, patch) => {
     setBlockObjectives((prev) => {
-      const blockData = prev[blockId] || { imported: [], extracted: [] };
+      const blockData = pickBlockObjectivesState(prev, blockId);
+      const writeKey = blockObjectivesStorageKey(prev, blockId);
       const updateArr = (arr) => (arr || []).map((o) => (o.id === objId ? { ...o, ...patch } : o));
       const updated = {
         ...prev,
-        [blockId]: {
+        [writeKey]: {
           ...blockData,
           imported: updateArr(blockData.imported),
           extracted: updateArr(blockData.extracted),
@@ -7836,7 +11643,1705 @@ export default function App() {
       } catch {}
       return updated;
     });
+    queueMicrotask(() => {
+      try {
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch {}
+    });
   };
+
+  const assignObjectiveToLecture = (bid, objId, lecId) => {
+    if (!bid || !objId || !lecId) return;
+    updateObjective(bid, objId, { linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true });
+  };
+
+  const assignAllVisibleObjectives = (bid, lecId, visibleObjIds) => {
+    if (!bid || !lecId || !visibleObjIds?.length) return;
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const idSet = new Set(visibleObjIds);
+      const patchArr = (arr) =>
+        (arr || []).map((o) =>
+          idSet.has(o.id)
+            ? { ...o, linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true }
+            : o
+        );
+      const imp = patchArr(imported);
+      const ext = patchArr(extracted);
+      const wk = blockObjectivesStorageKey(stored, bid);
+      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setBlockObjectives({ ...stored });
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("assignAllVisibleObjectives:", e);
+    }
+  };
+
+  const removeObjectiveLectureLink = (bid, objId) => {
+    if (!bid || !objId) return;
+    updateObjective(bid, objId, { linkedLecId: null, sourceFile: null });
+  };
+
+  const deleteUnlinkedObjectivesForBlock = (bid) => {
+    if (!bid) return;
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid));
+      const keep = (o) => isObjectiveLinked(o, blockLecs);
+      const imp = (imported || []).filter(keep);
+      const ext = (extracted || []).filter(keep);
+      const wk = blockObjectivesStorageKey(stored, bid);
+      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setBlockObjectives({ ...stored });
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("deleteUnlinkedObjectivesForBlock:", e);
+    }
+  };
+
+  function deleteSingleObjective(objId, blockId) {
+    if (!blockId || !objId) return;
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, blockId);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const idSet = new Set([objId]);
+      const imp = (imported || []).filter((o) => !idSet.has(o.id));
+      const ext = (extracted || []).filter((o) => !idSet.has(o.id));
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setBlockObjectives({ ...stored });
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("deleteSingleObjective failed:", e);
+    }
+  }
+
+  function deleteMultipleObjectives(objIds, blockId) {
+    if (!blockId || !objIds?.length) return;
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, blockId);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const idSet = new Set(objIds);
+      const imp = (imported || []).filter((o) => !idSet.has(o.id));
+      const ext = (extracted || []).filter((o) => !idSet.has(o.id));
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setBlockObjectives({ ...stored });
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("deleteMultipleObjectives failed:", e);
+    }
+  }
+
+  function assignMultipleToLecture(objIds, lecId, blockId) {
+    if (!blockId || !lecId || !objIds?.length) return;
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, blockId);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const idSet = new Set(objIds);
+      const patchArr = (arr) =>
+        (arr || []).map((o) =>
+          idSet.has(o.id)
+            ? { ...o, linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true }
+            : o
+        );
+      const imp = patchArr(imported);
+      const ext = patchArr(extracted);
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setBlockObjectives({ ...stored });
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("assignMultipleToLecture failed:", e);
+    }
+  }
+
+  const runSmartAlignment = useCallback(
+    async (blockId) => {
+      if (!blockId) return;
+      setAlignmentStatus("running");
+      setAlignmentProgress("Preparing...");
+      setAlignmentDoneSummary(null);
+      try {
+        const res = await runSmartAlignmentCore(
+          blockId,
+          lectures,
+          setAlignmentProgress,
+          setBlockObjectives,
+          resolveBlockMeta(blockId)
+        );
+        if (res.noLectures) {
+          setAlignmentStatus("error");
+          setAlignmentProgress("No lectures found for this block");
+          return;
+        }
+        if (res.allAlreadyLinked) {
+          setAlignmentStatus("done");
+          setAlignmentProgress("All objectives already linked");
+          setAlignmentDoneSummary({ aligned: 0, failed: 0 });
+          return;
+        }
+        setAlignmentStatus("done");
+        setAlignmentProgress(
+          `✓ ${res.aligned}/${res.totalUnlinked} aligned · ${res.failed} still need manual review`
+        );
+        setAlignmentDoneSummary({ aligned: res.aligned, failed: res.failed });
+        validateAndRepairLinkedIds(blockId);
+        setContentMismatches(detectContentMismatches(blockId));
+      } catch (e) {
+        console.error("Smart alignment failed:", e);
+        setAlignmentStatus("error");
+        setAlignmentProgress(`Failed: ${e.message || String(e)}`);
+      }
+    },
+    [lectures, setBlockObjectives, resolveBlockMeta]
+  );
+
+  const updateSingleObjectiveStatus = useCallback(
+    (bid, objId, newStatus, opts) => {
+      if (!bid || !objId) return;
+      try {
+        const key = "rxt-block-objectives";
+        const stored = JSON.parse(localStorage.getItem(key) || "{}");
+        const raw = getBlockObjectivesStoredRaw(stored, bid);
+        const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+        const imp = [...imported];
+        const ext = [...extracted];
+        let idx = imp.findIndex((o) => o.id === objId);
+        let arr = imp;
+        if (idx === -1) {
+          idx = ext.findIndex((o) => o.id === objId);
+          arr = ext;
+        }
+        if (idx === -1) return;
+        const now = new Date().toISOString();
+        arr[idx] = {
+          ...arr[idx],
+          status: newStatus,
+          lastUpdated: now,
+          lastTested: now,
+          ...(opts?.includeLastDrilled ? { lastDrilled: now } : {}),
+        };
+        const wk = blockObjectivesStorageKey(stored, bid);
+        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+        localStorage.setItem(key, JSON.stringify(stored));
+        setBlockObjectives({ ...stored });
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch (e) {
+        console.error("updateSingleObjectiveStatus:", e);
+      }
+    },
+    [setBlockObjectives]
+  );
+
+  const updateDrillProgression = useCallback((objId, blockId, wasCorrect) => {
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, blockId);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const imp = [...imported];
+      const ext = [...extracted];
+      let idx = imp.findIndex((o) => o.id === objId);
+      let arr = imp;
+      if (idx === -1) {
+        idx = ext.findIndex((o) => o.id === objId);
+        arr = ext;
+      }
+      if (idx === -1) return;
+      const obj = arr[idx];
+      const prev = obj.consecutiveCorrect || 0;
+      arr[idx] = {
+        ...obj,
+        drillCount: (obj.drillCount || 0) + 1,
+        lastDrillStatus: wasCorrect ? "correct" : "wrong",
+        consecutiveCorrect: wasCorrect ? prev + 1 : 0,
+        lastDrilledAt: new Date().toISOString(),
+      };
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+      localStorage.setItem(key, JSON.stringify(stored));
+      setBlockObjectives({ ...stored });
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("updateDrillProgression failed:", e);
+    }
+  }, [setBlockObjectives]);
+
+  function captureDrillLevelSnapshot(queue, bid) {
+    if (!bid || !queue?.length) {
+      drillSessionLevelSnapshotRef.current = {};
+      return;
+    }
+    const flat = readBlockObjectivesDedupedFromStorage(bid) || [];
+    const snap = {};
+    queue.forEach((o) => {
+      const f = flat.find((x) => x.id === o.id);
+      snap[o.id] = { drillCount: f?.drillCount || 0, consecutiveCorrect: f?.consecutiveCorrect || 0 };
+    });
+    drillSessionLevelSnapshotRef.current = snap;
+  }
+
+  function captureDrillWeakConceptSnapshot(bid) {
+    if (!bid) {
+      drillWeakConceptSnapshotRef.current = new Map();
+      return;
+    }
+    const { block } = getWeakConcepts(bid);
+    drillWeakConceptSnapshotRef.current = new Map(block.map((c) => [c.id, c.missCount || 0]));
+  }
+
+  const writeObjectiveStatuses = useCallback(
+    (lecId, bid, score) => {
+      if (!lecId || !bid) return;
+      try {
+        const key = "rxt-block-objectives";
+        const stored = JSON.parse(localStorage.getItem(key) || "{}");
+        const raw = getBlockObjectivesStoredRaw(stored, bid);
+        const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+        const imp = [...imported];
+        const ext = [...extracted];
+        let changed = false;
+        const apply = (arr) => {
+          arr.forEach((obj, idx) => {
+            if (obj.linkedLecId !== lecId) return;
+            if (obj.status === "mastered" && score < 50) return;
+            const newStatus =
+              score >= 80 ? "mastered" : score >= 55 ? "inprogress" : "struggling";
+            const order = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
+            const prev = order[obj.status] ?? 0;
+            const next = order[newStatus] ?? 0;
+            if (next >= prev || score < 30) {
+              arr[idx] = {
+                ...obj,
+                status: newStatus,
+                lastQuizzed: new Date().toISOString(),
+                lastQuizScore: score,
+              };
+              changed = true;
+            }
+          });
+        };
+        apply(imp);
+        apply(ext);
+        if (changed) {
+          const wk = blockObjectivesStorageKey(stored, bid);
+          stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+          localStorage.setItem(key, JSON.stringify(stored));
+          setBlockObjectives({ ...stored });
+          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+          window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+        }
+      } catch (e) {
+        console.error("writeObjectiveStatuses:", e);
+      }
+    },
+    [setBlockObjectives]
+  );
+
+  useEffect(() => {
+    const bid = activeBlock?.id;
+    if (!bid) return;
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid));
+    if (!blockLecs.length) return;
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted } = parseBlockObjectivesRaw(raw);
+      const flat = [...imported, ...extracted];
+      blockLecs.forEach((lec) => {
+        const lecObjs = flat.filter((o) => o.linkedLecId === lec.id);
+        if (!lecObjs.length) return;
+        const allUntested = lecObjs.every((o) => !o.status || o.status === "untested");
+        const lecPerf = perf[`${lec.id}__${bid}`];
+        const s = lecPerf?.lastScore ?? lecPerf?.score;
+        const num = Number(s);
+        if (allUntested && Number.isFinite(num) && num > 0) {
+          writeObjectiveStatuses(lec.id, bid, Math.round(num));
+        }
+      });
+    } catch (e) {
+      console.error("objectives perf backfill:", e);
+    }
+  }, [activeBlock?.id, writeObjectiveStatuses, lectures, resolveBlockMeta]);
+
+  const drillQueueRef = useRef([]);
+  const drillIndexRef = useRef(0);
+  const drillStatsRef = useRef(drillStats);
+  const drillStyleRef = useRef(drillStyle);
+  const drillFilterRef = useRef(drillFilter);
+  const drillLecFilterRef = useRef(drillLecFilter);
+  const drillIdAllowlistRef = useRef(drillIdAllowlist);
+  const drillBlockIdRef = useRef(activeBlock?.id ?? blockId);
+  const drillSessionStrugglingRef = useRef(new Set());
+  const drillSummaryBuiltRef = useRef(false);
+  const drillCardFirstRenderRef = useRef(true);
+  const drillKeyHandlersRef = useRef({});
+  const drillAssessBusyRef = useRef(false);
+
+  useEffect(() => {
+    drillQueueRef.current = drillQueue;
+  }, [drillQueue]);
+  useEffect(() => {
+    drillIndexRef.current = drillIndex;
+  }, [drillIndex]);
+
+  useEffect(() => {
+    drillStatsRef.current = drillStats;
+    drillStyleRef.current = drillStyle;
+    drillFilterRef.current = drillFilter;
+    drillLecFilterRef.current = drillLecFilter;
+    drillIdAllowlistRef.current = drillIdAllowlist;
+    drillBlockIdRef.current = activeBlock?.id ?? blockId;
+  }, [
+    drillStats,
+    drillStyle,
+    drillFilter,
+    drillLecFilter,
+    drillIdAllowlist,
+    activeBlock?.id,
+    blockId,
+  ]);
+
+  useEffect(() => {
+    revealedCardKeyRef.current = revealedCardKey;
+  }, [revealedCardKey]);
+  useEffect(() => {
+    drillCardModeRef.current = drillCardMode;
+  }, [drillCardMode]);
+
+  useEffect(() => {
+    conceptFocusRef.current = conceptFocus;
+  }, [conceptFocus]);
+
+  const handleDrillMCQAnswer = useCallback(
+    (optionIndex) => {
+      if (drillCardModeRef.current !== "mcq_ready") return;
+      setMcqData((prev) => {
+        if (!prev) return prev;
+        const isCorrect = prev.options?.[optionIndex]?.correct === true;
+        const bid = activeBlock?.id ?? blockId;
+        const currentObj = drillQueueRef.current[drillIndexRef.current];
+        queueMicrotask(() => {
+          void (async () => {
+            if (!bid) return;
+            if (!isCorrect) {
+              const lec = (lectures || []).find((l) => l.id === currentObj?.linkedLecId);
+              const lectureLabel = lec
+                ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.fileName || ""}`
+                : "";
+              await recordWrongAnswer({
+                blockId: bid,
+                blockName: activeBlock?.name || "",
+                question: prev.question || "",
+                wrongAnswer: prev.options?.[optionIndex]?.text || "",
+                correctAnswer: prev.options?.find((o) => o.correct)?.text || "",
+                linkedLecId: currentObj?.linkedLecId,
+                lectureLabel,
+                source: "drill",
+              });
+              setWeakConceptsRefreshKey((k) => k + 1);
+            } else {
+              const { block } = getWeakConcepts(bid);
+              const matchingConcept = block.find(
+                (c) =>
+                  currentObj?.linkedLecId &&
+                  (c.linkedLecIds || []).includes(currentObj.linkedLecId) &&
+                  c.masteryLevel !== "mastered"
+              );
+              if (matchingConcept) {
+                recordConceptCorrect(bid, matchingConcept.id);
+                setWeakConceptsRefreshKey((k) => k + 1);
+              }
+            }
+          })();
+        });
+        return { ...prev, selectedIndex: optionIndex };
+      });
+      setDrillCardMode("mcq_answered");
+      drillCardModeRef.current = "mcq_answered";
+    },
+    [activeBlock?.id, activeBlock?.name, blockId, lectures]
+  );
+
+  const generateCardAnswer = useCallback(async (obj) => {
+    setCardBack({ answer: "", loading: true });
+    try {
+      const lec = (lectures || []).find((l) => l.id === obj.linkedLecId);
+      const lecTitle = lec?.lectureTitle || lec?.title || lec?.fileName || "";
+      const systemPrompt = `You are a concise medical education assistant.
+Give a direct, accurate answer to the learning objective.
+2-4 sentences maximum. No preamble. No "The answer is...".
+Just the factual answer a medical student needs.
+Plain text only — no markdown, no bullet points.`;
+
+      const userPrompt = `Learning objective: ${obj.objective || obj.text || ""}
+Lecture context: ${lecTitle}
+Bloom's level: ${obj.bloom_level_name || ""}
+
+Provide the answer to this objective in 2-4 sentences.`;
+
+      const answer = await callAI(systemPrompt, userPrompt, 300);
+
+      setCardBack({
+        answer: answer?.trim() || "No answer generated.",
+        loading: false,
+      });
+    } catch (e) {
+      console.error("generateCardAnswer failed:", e);
+      setCardBack({
+        answer: "Could not generate answer — check your knowledge against the lecture.",
+        loading: false,
+      });
+    }
+  }, [lectures]);
+
+  const buildMCQPrompts = useCallback((obj, levelConfig = null) => {
+    const lec = (lectures || []).find((l) => l.id === obj.linkedLecId);
+    const lecTitle = lec
+      ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.fileName || ""}`
+      : "";
+    const objText = obj.objective || obj.text || "";
+    const systemPrompt = `Return JSON only. No markdown. No extra text. Start with {
+Schema: {"q":"string","o":[{"t":"string","c":bool,"e":"string"}],"ex":"string"}
+q=question, o=options array, t=option text, c=correct boolean, e=explanation, ex=overall explanation
+Exactly 4 options. Exactly 1 with c:true.`;
+    const levelBlock =
+      levelConfig && levelConfig.promptInstruction
+        ? `\n${levelConfig.promptInstruction}\n`
+        : "";
+    const userPrompt = `Objective: ${objText}
+Lecture: ${lecTitle}
+${levelBlock}
+Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 15 words each).`;
+    return { systemPrompt, userPrompt, objText, lecTitle };
+  }, [lectures]);
+
+  const prefetchMCQ = useCallback(
+    async (obj) => {
+      if (!obj?.id) return;
+      const objId = obj.id;
+      const drillBid = activeBlock?.id ?? blockId;
+      const blockObjs = getBlockObjectives(drillBid) || [];
+      const questionLevel = getQuestionLevel(obj, blockObjs);
+      const levelConfig = QUESTION_LEVELS[questionLevel];
+      const cacheKey = `${objId}_${questionLevel}`;
+      const existing = prefetchCacheRef.current[cacheKey];
+      if (existing?.status === "ready") return;
+      if (existing?.status === "loading") return;
+      if (activePrefetchesRef.current >= MAX_CONCURRENT_PREFETCHES) return;
+
+      prefetchCacheRef.current[cacheKey] = { status: "loading", data: null };
+      activePrefetchesRef.current += 1;
+
+      const hasValidOptions = (options) => {
+        if (!options || options.length < 4) return false;
+        const hasRealText = options.every(
+          (o) =>
+            o.text &&
+            o.text.trim().length > 3 &&
+            o.text !== "None of the above" &&
+            o.text !== "Not applicable"
+        );
+        const correctCount = options.filter((o) => o.correct).length;
+        return hasRealText && correctCount === 1;
+      };
+
+      const normalizeFromParsed = (parsed) => {
+        if (!parsed || typeof parsed !== "object") return null;
+        const rawOptions = parsed.o || parsed.options || [];
+        const question = String(parsed.q || parsed.question || "").trim();
+        const overallExplanation = String(parsed.ex || parsed.overallExplanation || "").trim();
+        const options = rawOptions.slice(0, 4).map((o) => ({
+          text: String(o.t || o.text || o.option || "").trim(),
+          correct:
+            o.c === true ||
+            o.correct === true ||
+            String(o.c) === "true" ||
+            String(o.correct) === "true",
+          explanation: String(o.e || o.explanation || o.reason || "").trim(),
+        }));
+        let numCorrect = options.filter((o) => o.correct).length;
+        if (numCorrect === 0 && options.length > 0) {
+          options[0].correct = true;
+        } else if (numCorrect > 1) {
+          let done = false;
+          options.forEach((o) => {
+            if (o.correct && !done) done = true;
+            else o.correct = false;
+          });
+        }
+        return { question, options, overallExplanation };
+      };
+
+      try {
+        const { systemPrompt, userPrompt, objText } = buildMCQPrompts(obj, levelConfig);
+        const raw = await callAI(systemPrompt, userPrompt, 2500);
+        const parsed = tryParseJSON(raw);
+        const normalized = normalizeFromParsed(parsed);
+
+        if (!normalized || !normalized.question || !hasValidOptions(normalized.options)) {
+          throw new Error("Invalid prefetch result");
+        }
+
+        prefetchCacheRef.current[cacheKey] = {
+          status: "ready",
+          data: {
+            question: normalized.question,
+            options: shuffleArray(normalized.options),
+            overallExplanation: normalized.overallExplanation,
+            objectiveText: objText,
+            selectedIndex: null,
+            isFallback: false,
+            questionLevel,
+          },
+        };
+      } catch (e) {
+        prefetchCacheRef.current[cacheKey] = { status: "error", data: null };
+      } finally {
+        activePrefetchesRef.current -= 1;
+      }
+    },
+    [buildMCQPrompts, getBlockObjectives, activeBlock?.id, blockId]
+  );
+
+  const scheduleMcqPrefetchForQueue = useCallback((queue) => {
+    prefetchCacheRef.current = {};
+    activePrefetchesRef.current = 0;
+    if (drillStyle !== "mcq" || !queue?.length) return;
+    if (queue[1]) prefetchMCQRef.current?.(queue[1]);
+    if (queue[2]) {
+      setTimeout(() => prefetchMCQRef.current?.(queue[2]), 200);
+    }
+  }, [drillStyle]);
+
+  const applyDrillResumeSnapshot = useCallback(
+    (saved) => {
+      const drillBid = activeBlock?.id ?? blockId;
+      let baseObjs = getBlockObjectives(drillBid) || [];
+      const al = saved.drillIdAllowlist;
+      if (al?.length) {
+        const allow = new Set(al);
+        baseObjs = baseObjs.filter((o) => allow.has(o.id));
+      }
+      const lecF = saved.drillLecFilter ?? "all";
+      if (lecF !== "all") {
+        baseObjs = baseObjs.filter((o) => o.linkedLecId === lecF);
+      }
+      const queue = buildDrillQueue(baseObjs, saved.drillFilter ?? "weak", lecF);
+      const idx = Math.min(Math.max(0, saved.drillIndex ?? 0), Math.max(0, queue.length - 1));
+      setDrillFilter(saved.drillFilter ?? "weak");
+      setDrillLecFilter(lecF);
+      setDrillStyle(saved.drillStyle === "mcq" ? "mcq" : "flashcard");
+      setDrillIdAllowlist(al?.length ? al : null);
+      setDrillQueue(queue);
+      setDrillIndex(idx);
+      setDrillComplete(false);
+      setDrillStats(
+        saved.drillStats ?? {
+          seen: 0,
+          mastered: 0,
+          struggling: 0,
+          skipped: 0,
+          inprogress: 0,
+          assessedIndices: [],
+        }
+      );
+      drillSessionStrugglingRef.current.clear();
+      drillCardFirstRenderRef.current = true;
+      revealedCardKeyRef.current = null;
+      setRevealedCardKey(null);
+      setCardState("front");
+      drillCardModeRef.current = "back";
+      setDrillCardMode("back");
+      setMcqData(null);
+      setCardBack(null);
+      setMcqError(null);
+      mcqRetryRef.current = false;
+      setDrillResumeSnapshot(null);
+      captureDrillLevelSnapshot(queue, drillBid);
+      captureDrillWeakConceptSnapshot(drillBid);
+      scheduleMcqPrefetchForQueue(queue);
+    },
+    [activeBlock?.id, blockId, scheduleMcqPrefetchForQueue]
+  );
+
+  const generateDrillMCQ = useCallback(
+    async (obj, level = null) => {
+      if (!obj?.id) return;
+      const drillBid = activeBlock?.id ?? blockId;
+      const blockObjs = getBlockObjectives(drillBid) || [];
+      const questionLevel = level ?? getQuestionLevel(obj, blockObjs);
+      const levelConfig = QUESTION_LEVELS[questionLevel];
+      const cacheKey = `${obj.id}_${questionLevel}`;
+      setCurrentQuestionLevel(questionLevel);
+
+      const cachedEntry = prefetchCacheRef.current[cacheKey];
+      if (cachedEntry?.status === "ready" && cachedEntry.data) {
+        mcqRetryRef.current = false;
+        const ql = cachedEntry.data.questionLevel ?? questionLevel;
+        setCurrentQuestionLevel(ql);
+        setMcqData({
+          ...cachedEntry.data,
+          questionLevel: ql,
+          options: shuffleArray(cachedEntry.data.options || []),
+          selectedIndex: null,
+          fromCache: true,
+        });
+        setMcqError(null);
+        setCardState("mcq_ready");
+        setDrillCardMode("mcq_ready");
+        drillCardModeRef.current = "mcq_ready";
+        const q = drillQueueRef.current;
+        const i = drillIndexRef.current;
+        const nextObj = q[i + 1];
+        if (nextObj) prefetchMCQRef.current?.(nextObj);
+        return;
+      }
+
+      const myGen = ++mcqGenTokenRef.current;
+
+      function hasValidOptions(options) {
+        if (!options || options.length < 4) return false;
+        const hasRealText = options.every(
+          (o) =>
+            o.text &&
+            o.text.trim().length > 3 &&
+            o.text !== "None of the above" &&
+            o.text !== "Not applicable"
+        );
+        const correctCount = options.filter((o) => o.correct).length;
+        return hasRealText && correctCount === 1;
+      }
+
+      function normalizeFromParsed(parsed) {
+        if (!parsed || typeof parsed !== "object") return null;
+        const rawOptions = parsed.o || parsed.options || [];
+        const question = String(parsed.q || parsed.question || "").trim();
+        const overallExplanation = String(parsed.ex || parsed.overallExplanation || "").trim();
+        const options = rawOptions.slice(0, 4).map((o) => ({
+          text: String(o.t || o.text || o.option || "").trim(),
+          correct:
+            o.c === true ||
+            o.correct === true ||
+            String(o.c) === "true" ||
+            String(o.correct) === "true",
+          explanation: String(o.e || o.explanation || o.reason || "").trim(),
+        }));
+        let numCorrect = options.filter((o) => o.correct).length;
+        if (numCorrect === 0 && options.length > 0) {
+          options[0].correct = true;
+        } else if (numCorrect > 1) {
+          let done = false;
+          options.forEach((o) => {
+            if (o.correct && !done) done = true;
+            else o.correct = false;
+          });
+        }
+        return { question, options, overallExplanation };
+      }
+
+      try {
+        setCardState("mcq_loading");
+        setMcqData(null);
+        setMcqError(null);
+        setDrillCardMode("mcq_loading");
+        drillCardModeRef.current = "mcq_loading";
+
+        const { systemPrompt, userPrompt, objText, lecTitle } = buildMCQPrompts(obj, levelConfig);
+
+        const hasWeakConcepts = getWeakConcepts(drillBid).block.some(
+          (c) => (c.linkedLecIds || []).includes(obj.linkedLecId) && c.masteryLevel !== "mastered"
+        );
+        const useAdaptive = hasWeakConcepts || !!conceptFocusRef.current;
+        if (useAdaptive) {
+          const { normalized: adNorm, matchingConceptId } = await runAdaptiveDrillMcqGeneration({
+            obj,
+            questionLevel,
+            levelConfig,
+            drillBid,
+            lectures,
+            conceptFocus: conceptFocusRef.current,
+          });
+          if (myGen !== mcqGenTokenRef.current) return;
+          if (adNorm && hasValidOptions(adNorm.options)) {
+            mcqRetryRef.current = false;
+            setMcqData({
+              question: adNorm.question,
+              options: shuffleArray(adNorm.options),
+              overallExplanation: adNorm.overallExplanation,
+              objectiveText: objText,
+              selectedIndex: null,
+              isFallback: false,
+              fromCache: false,
+              questionLevel,
+              weakConceptHistoryId: matchingConceptId || null,
+            });
+            setCardState("mcq_ready");
+            setDrillCardMode("mcq_ready");
+            drillCardModeRef.current = "mcq_ready";
+            const q2 = drillQueueRef.current;
+            const i2 = drillIndexRef.current;
+            const nextObj2 = q2[i2 + 1];
+            if (nextObj2) prefetchMCQRef.current?.(nextObj2);
+            return;
+          }
+        }
+
+        let raw = await callAI(systemPrompt, userPrompt, 2500);
+
+        if (myGen !== mcqGenTokenRef.current) return;
+        if (!raw) throw new Error("No response");
+
+        let parsed = tryParseJSON(raw);
+        let normalized = normalizeFromParsed(parsed);
+
+        if (
+          !normalized ||
+          !normalized.question ||
+          !hasValidOptions(normalized.options)
+        ) {
+          console.warn("First MCQ attempt failed, retrying with minimal prompt");
+          await new Promise((r) => setTimeout(r, 1000));
+          if (myGen !== mcqGenTokenRef.current) return;
+
+          const minimalSystem = `Return only JSON. No markdown.
+{"question":"string","options":[{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"}],"overallExplanation":"string"}`;
+
+          const minimalUser = `${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
+4 short options. 1 correct. Return JSON only.`;
+
+          raw = await callAI(minimalSystem, minimalUser, 2500);
+          if (myGen !== mcqGenTokenRef.current) return;
+          parsed = tryParseJSON(raw);
+          normalized = normalizeFromParsed(parsed);
+        }
+
+        if (
+          normalized &&
+          normalized.question &&
+          hasValidOptions(normalized.options)
+        ) {
+          if (myGen !== mcqGenTokenRef.current) return;
+          mcqRetryRef.current = false;
+          setMcqData({
+            question: normalized.question,
+            options: shuffleArray(normalized.options),
+            overallExplanation: normalized.overallExplanation,
+            objectiveText: objText,
+            selectedIndex: null,
+            isFallback: false,
+            fromCache: false,
+            questionLevel,
+          });
+          setCardState("mcq_ready");
+          setDrillCardMode("mcq_ready");
+          drillCardModeRef.current = "mcq_ready";
+          return;
+        }
+
+        console.error("Both MCQ attempts failed for:", objText.slice(0, 60));
+        if (myGen !== mcqGenTokenRef.current) return;
+        mcqRetryRef.current = false;
+        setMcqData({
+          question: `Can you explain: ${objText}`,
+          options: shuffleArray([
+            {
+              text: "Yes, I can explain this fully",
+              correct: true,
+              explanation: "Good — you have mastered this objective.",
+            },
+            {
+              text: "I know part of this",
+              correct: false,
+              explanation: "Review this objective in your lecture notes.",
+            },
+            {
+              text: "I am not sure about this",
+              correct: false,
+              explanation: "Focus on this in your next study session.",
+            },
+            {
+              text: "I have not studied this yet",
+              correct: false,
+              explanation: "Prioritize this before your exam.",
+            },
+          ]),
+          overallExplanation: `This objective is from ${lecTitle}. Review it carefully.`,
+          objectiveText: objText,
+          selectedIndex: null,
+          isFallback: true,
+          fromCache: false,
+          questionLevel,
+        });
+        setCardState("mcq_ready");
+        setDrillCardMode("mcq_ready");
+        drillCardModeRef.current = "mcq_ready";
+      } catch (e) {
+        console.error("generateDrillMCQ failed:", e);
+        if (myGen !== mcqGenTokenRef.current) return;
+
+        const { objText, lecTitle } = buildMCQPrompts(obj, levelConfig);
+
+        if (drillStyle === "mcq") {
+          mcqRetryRef.current = false;
+          setMcqData({
+            question: `Self-assess: ${objText}`,
+            options: shuffleArray([
+              {
+                text: "I can fully explain this",
+                correct: true,
+                explanation: "Great — mark as mastered.",
+              },
+              {
+                text: "I know most of this",
+                correct: false,
+                explanation: "Review the details in your notes.",
+              },
+              {
+                text: "I am unclear on this",
+                correct: false,
+                explanation: "Re-read this section of the lecture.",
+              },
+              {
+                text: "I do not know this yet",
+                correct: false,
+                explanation: "Add this to your priority review list.",
+              },
+            ]),
+            overallExplanation: `Review this objective from ${lecTitle}.`,
+            objectiveText: objText,
+            selectedIndex: null,
+            isFallback: true,
+            fromCache: false,
+            questionLevel,
+          });
+          setCardState("mcq_ready");
+          setDrillCardMode("mcq_ready");
+          drillCardModeRef.current = "mcq_ready";
+        } else {
+          setDrillCardMode("back");
+          drillCardModeRef.current = "back";
+          setCardState("back");
+          generateCardAnswer(obj);
+        }
+      }
+    },
+    [buildMCQPrompts, drillStyle, generateCardAnswer, getBlockObjectives, activeBlock?.id, blockId, lectures]
+  );
+
+  useEffect(() => {
+    generateDrillMCQRef.current = generateDrillMCQ;
+  }, [generateDrillMCQ]);
+
+  useEffect(() => {
+    prefetchMCQRef.current = prefetchMCQ;
+  }, [prefetchMCQ]);
+
+  useEffect(() => {
+    handleDrillMCQAnswerRef.current = handleDrillMCQAnswer;
+  }, [handleDrillMCQAnswer]);
+
+  const syncDrillResultsToPerformance = useCallback(
+    (drillQueue, assessedIndices, blockBid) => {
+      try {
+        if (!blockBid) return;
+        const perfKey = "rxt-performance";
+        const stored = JSON.parse(localStorage.getItem(perfKey) || "{}");
+        const deduped = readBlockObjectivesDedupedFromStorage(blockBid);
+        const byLecture = {};
+        (drillQueue || []).forEach((obj, idx) => {
+          if (!(assessedIndices || []).includes(idx)) return;
+          const lecId = obj.linkedLecId;
+          if (!lecId) return;
+          if (!byLecture[lecId]) byLecture[lecId] = [];
+          byLecture[lecId].push(obj);
+        });
+        const now = new Date().toISOString();
+        Object.keys(byLecture).forEach((lecId) => {
+          const lecObjs = deduped.filter((o) => o.linkedLecId === lecId);
+          if (lecObjs.length === 0) return;
+          const mastered = lecObjs.filter((o) => o.status === "mastered").length;
+          const inprogress = lecObjs.filter((o) => o.status === "inprogress").length;
+          const total = lecObjs.length;
+          const score = total > 0 ? Math.round((mastered * 100 + inprogress * 60) / total) : 0;
+          const key = `${lecId}__${blockBid}`;
+          const existing = stored[key] || {};
+          const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+          const sessionRecord = {
+            score,
+            date: now,
+            startedAt: now,
+            completedAt: now,
+            sessionType: "drill",
+            lectureId: lecId,
+            blockId: blockBid,
+            topicKey: key,
+          };
+          stored[key] = {
+            ...existing,
+            lectureId: lecId,
+            blockId: blockBid,
+            score,
+            date: now,
+            sessions: [...existingSessions, sessionRecord].slice(-50),
+            lastScore: score,
+            lastStudied: now,
+            lastDrillScore: score,
+            sessionType: "drill",
+          };
+        });
+        localStorage.setItem(perfKey, JSON.stringify(stored));
+        setPerformanceHistory(stored);
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch (e) {
+        console.error("syncDrillResultsToPerformance failed:", e);
+      }
+    },
+    [readBlockObjectivesDedupedFromStorage, setPerformanceHistory]
+  );
+
+  const exitDrill = useCallback(() => {
+    const bid = activeBlock?.id ?? blockId;
+    setShowDrillSummary(false);
+    setDrillSummaryData(null);
+    drillSummaryBuiltRef.current = false;
+    try {
+      syncDrillResultsToPerformance(
+        drillQueueRef.current,
+        drillStatsRef.current?.assessedIndices || [],
+        bid
+      );
+    } catch {}
+    repairUnlinkedObjectives(bid);
+    drillAssessBusyRef.current = false;
+    prefetchCacheRef.current = {};
+    activePrefetchesRef.current = 0;
+    refreshObjectivesFromStorage();
+    try {
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+    } catch {}
+    setExitConfirmVisible(false);
+    setSaveConfirmed(null);
+    setDrillResumeSnapshot(null);
+    setDrillMode(false);
+    setDrillStyle("flashcard");
+    setDrillQueue([]);
+    setDrillIndex(0);
+    setDrillComplete(false);
+    setDrillIdAllowlist(null);
+    setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+    drillSessionStrugglingRef.current.clear();
+    drillCardFirstRenderRef.current = true;
+    revealedCardKeyRef.current = null;
+    setRevealedCardKey(null);
+    setCardState("front");
+    setCardBack(null);
+    drillCardModeRef.current = "back";
+    setDrillCardMode("back");
+    setMcqData(null);
+    setMcqError(null);
+    mcqRetryRef.current = false;
+    setEliminatedOptions([]);
+    setSelectedOption(null);
+    setLockedAnswer(null);
+    setSelectedAnswer(null);
+    setMcqOptionHover(null);
+    setStudentReasoning("");
+    setShowReasoningBox(false);
+    setCurrentQuestionLevel(1);
+    setLevelAdvancement(null);
+    setConceptFocus(null);
+    conceptFocusRef.current = null;
+  }, [refreshObjectivesFromStorage, syncDrillResultsToPerformance, repairUnlinkedObjectives, activeBlock?.id, blockId]);
+
+  const openDrillSummary = useCallback(() => {
+    if (drillSummaryBuiltRef.current) return;
+    drillSummaryBuiltRef.current = true;
+    const bid = activeBlock?.id ?? blockId;
+    const queue = drillQueueRef.current;
+    const stats = drillStatsRef.current;
+    if (!queue?.length) {
+      drillSummaryBuiltRef.current = false;
+      exitDrill();
+      return;
+    }
+    const summary = buildDrillSummary(queue, stats, bid);
+    const snap = drillSessionLevelSnapshotRef.current || {};
+    const flatAfter = readBlockObjectivesDedupedFromStorage(bid);
+    const levelDistribution = { advanced: 0, maintained: 0, regressed: 0 };
+    (stats.assessedIndices || []).forEach((idx) => {
+      const o = queue[idx];
+      if (!o) return;
+      const before = snap[o.id] || { drillCount: 0, consecutiveCorrect: 0 };
+      const cur = flatAfter.find((x) => x.id === o.id);
+      const startLevel = levelFromCounters(before.consecutiveCorrect, before.drillCount);
+      const endLevel = levelFromCounters(cur?.consecutiveCorrect ?? 0, cur?.drillCount ?? 0);
+      if (endLevel > startLevel) levelDistribution.advanced += 1;
+      else if (endLevel < startLevel) levelDistribution.regressed += 1;
+      else levelDistribution.maintained += 1;
+    });
+    summary.levelDistribution = levelDistribution;
+    const wSnap = drillWeakConceptSnapshotRef.current || new Map();
+    const curWeak = getWeakConcepts(bid).block;
+    summary.newConceptsThisSession = curWeak.filter((c) => {
+      const prev = wSnap.get(c.id);
+      return prev === undefined || (c.missCount || 0) > prev;
+    });
+    const top2Weak = summary.weakLectures.filter((wl) => wl.lec !== null).slice(0, 2);
+    top2Weak.forEach((wl) => {
+      if (wl.lec) addLectureToTodayReview(wl.lec, bid);
+    });
+    summary.top2AutoCount = top2Weak.length;
+    setDrillSummaryData(summary);
+    setShowDrillSummary(true);
+  }, [activeBlock?.id, blockId, exitDrill, readBlockObjectivesDedupedFromStorage]);
+
+  const weakConceptsStrugglingCount = useMemo(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid) return 0;
+    return getWeakConcepts(bid).block.filter((c) => c.masteryLevel === "struggling").length;
+  }, [activeBlock?.id, blockId, weakConceptsRefreshKey]);
+
+  useEffect(() => {
+    const h = () => setWeakConceptsRefreshKey((k) => k + 1);
+    window.addEventListener("rxt-weak-concepts-updated", h);
+    return () => window.removeEventListener("rxt-weak-concepts-updated", h);
+  }, []);
+
+  const startConceptDrill = useCallback(
+    (concept, bid) => {
+      if (!bid) return;
+      try {
+        const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+        const raw = getBlockObjectivesStoredRaw(stored, bid);
+        const { imported, extracted } = parseBlockObjectivesRaw(raw);
+        const flat = [...(imported || []), ...(extracted || [])];
+        const relevantObjs = flat
+          .filter((o) => (concept.linkedLecIds || []).includes(o.linkedLecId))
+          .map((o) => ({ ...o, _drillBlockId: bid }));
+        if (!relevantObjs.length) return;
+        setConceptFocus(concept);
+        conceptFocusRef.current = concept;
+        setDrillQueue(relevantObjs);
+        setDrillIndex(0);
+        setDrillComplete(false);
+        setDrillStyle("mcq");
+        setDrillFilter("all");
+        setDrillIdAllowlist(relevantObjs.map((o) => o.id));
+        setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+        drillSessionStrugglingRef.current.clear();
+        drillCardFirstRenderRef.current = true;
+        setDrillMode(true);
+        captureDrillLevelSnapshot(relevantObjs, bid);
+        captureDrillWeakConceptSnapshot(bid);
+        scheduleMcqPrefetchForQueue(relevantObjs);
+        setTab("objectives");
+      } catch (e) {
+        console.error("startConceptDrill failed:", e);
+      }
+    },
+    [scheduleMcqPrefetchForQueue]
+  );
+
+  const startComprehensiveWeakReview = useCallback(() => {
+    try {
+      const storedW = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+      const lifetime = storedW.lifetime || [];
+      const allLecIds = new Set();
+      lifetime.forEach((c) => (c.linkedLecIds || []).forEach((id) => allLecIds.add(id)));
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const out = [];
+      const seen = new Set();
+      Object.keys(stored).forEach((bid) => {
+        if (!bid || bid === "lifetime") return;
+        const raw = stored[bid];
+        const { imported, extracted } = parseBlockObjectivesRaw(raw);
+        const flat = [...(imported || []), ...(extracted || [])];
+        flat.forEach((o) => {
+          if (!allLecIds.has(o.linkedLecId)) return;
+          if (seen.has(o.id)) return;
+          seen.add(o.id);
+          out.push({ ...o, _drillBlockId: bid });
+        });
+      });
+      if (!out.length) return;
+      setConceptFocus(null);
+      conceptFocusRef.current = null;
+      setDrillQueue(out);
+      setDrillIndex(0);
+      setDrillComplete(false);
+      setDrillStyle("mcq");
+      setDrillFilter("all");
+      setDrillIdAllowlist(out.map((o) => o.id));
+      setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+      drillSessionStrugglingRef.current.clear();
+      drillCardFirstRenderRef.current = true;
+      setDrillMode(true);
+      const primaryBid = out[0]._drillBlockId || activeBlock?.id || blockId;
+      captureDrillLevelSnapshot(out, primaryBid);
+      captureDrillWeakConceptSnapshot(primaryBid);
+      scheduleMcqPrefetchForQueue(out);
+      setTab("objectives");
+    } catch (e) {
+      console.error("startComprehensiveWeakReview failed:", e);
+    }
+  }, [activeBlock?.id, blockId, scheduleMcqPrefetchForQueue]);
+
+  useLayoutEffect(() => {
+    if (!drillMode || !drillComplete || !drillQueue.length) return;
+    openDrillSummary();
+  }, [drillMode, drillComplete, drillQueue.length, openDrillSummary]);
+
+  const requestDrillExit = useCallback(() => {
+    if (!drillQueue.length) {
+      exitDrill();
+      return;
+    }
+    if (drillIndex >= drillQueue.length - 1) {
+      openDrillSummary();
+      return;
+    }
+    setExitConfirmVisible(true);
+  }, [drillQueue.length, drillIndex, exitDrill, openDrillSummary]);
+
+  const toggleDrillStyleAndReset = useCallback(() => {
+    setDrillStyle((prev) => {
+      const next = prev === "flashcard" ? "mcq" : "flashcard";
+      if (next === "flashcard") {
+        prefetchCacheRef.current = {};
+        activePrefetchesRef.current = 0;
+      }
+      return next;
+    });
+    setRevealedCardKey(null);
+    revealedCardKeyRef.current = null;
+    setCardBack(null);
+    drillCardModeRef.current = "back";
+    setDrillCardMode("back");
+    setMcqData(null);
+    setMcqError(null);
+    setCardState("front");
+    mcqRetryRef.current = false;
+    setEliminatedOptions([]);
+    setSelectedOption(null);
+    setLockedAnswer(null);
+    setSelectedAnswer(null);
+    setMcqOptionHover(null);
+    setStudentReasoning("");
+    setShowReasoningBox(false);
+  }, []);
+
+  const saveDrillProgressToStorage = useCallback((nextIndex) => {
+    try {
+      localStorage.setItem(
+        "rxt-drill-progress",
+        JSON.stringify({
+          blockId: drillBlockIdRef.current,
+          drillIndex: nextIndex,
+          drillStats: drillStatsRef.current,
+          drillStyle: drillStyleRef.current,
+          drillFilter: drillFilterRef.current,
+          drillLecFilter: drillLecFilterRef.current,
+          drillIdAllowlist: drillIdAllowlistRef.current,
+          savedAt: new Date().toISOString(),
+        })
+      );
+    } catch {}
+  }, []);
+
+  const advanceDrill = useCallback(() => {
+    drillAssessBusyRef.current = false;
+    setSaveConfirmed(null);
+    setCurrentQuestionLevel(1);
+    setLevelAdvancement(null);
+    mcqGenTokenRef.current += 1;
+    mcqRetryRef.current = false;
+    setRevealedCardKey(null);
+    revealedCardKeyRef.current = null;
+    setCardBack(null);
+    drillCardModeRef.current = "back";
+    setDrillCardMode("back");
+    setMcqData(null);
+    setMcqError(null);
+    setCardState("front");
+    setEliminatedOptions([]);
+    setSelectedOption(null);
+    setLockedAnswer(null);
+    setSelectedAnswer(null);
+    setMcqOptionHover(null);
+    setStudentReasoning("");
+    setShowReasoningBox(false);
+    setDrillIndex((prev) => {
+      const q = drillQueueRef.current;
+      if (prev + 1 >= q.length) {
+        setDrillComplete(true);
+        try {
+          localStorage.removeItem("rxt-drill-progress");
+        } catch {}
+        queueMicrotask(() => {
+          try {
+            window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+            window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+          } catch {}
+        });
+        return prev;
+      }
+      const next = prev + 1;
+      saveDrillProgressToStorage(next);
+      return next;
+    });
+  }, [saveDrillProgressToStorage]);
+
+  const handleDrillAssess = useCallback(
+    (newStatus) => {
+      if (drillAssessBusyRef.current) return;
+      const q = drillQueueRef.current;
+      const i = drillIndexRef.current;
+      const obj = q[i];
+      if (!obj) return;
+      drillAssessBusyRef.current = true;
+      const bid = obj._drillBlockId || activeBlock?.id || blockId;
+      const blockObjsBefore = getBlockObjectives(bid) || [];
+      const fullBefore = blockObjsBefore.find((o) => o.id === obj.id);
+      const prevConsecutiveCorrect = fullBefore?.consecutiveCorrect || 0;
+      const prevDrillCount = fullBefore?.drillCount || 0;
+      const prevLevel = levelFromCounters(prevConsecutiveCorrect, prevDrillCount);
+      drillMcqSnapshotRef.current = { mcqData, selectedAnswer, studentReasoning };
+      updateSingleObjectiveStatus(bid, obj.id, newStatus, { includeLastDrilled: true });
+      const snap = drillMcqSnapshotRef.current;
+      const wrongMcq =
+        snap.selectedAnswer != null &&
+        snap.mcqData?.options?.[snap.selectedAnswer]?.correct === false;
+      if (wrongMcq && snap.studentReasoning?.trim()) {
+        const entry = {
+          date: new Date().toISOString(),
+          question: snap.mcqData?.question || "",
+          selectedAnswer: snap.mcqData?.options?.[snap.selectedAnswer]?.text || "",
+          correctAnswer: snap.mcqData?.options?.find((o) => o.correct)?.text || "",
+          reasoning: snap.studentReasoning.trim(),
+        };
+        const oid = obj.id;
+        queueMicrotask(() => {
+          try {
+            setBlockObjectives((prev) => {
+              const blockData = prev[bid] || { imported: [], extracted: [] };
+              const merge = (arr) =>
+                (arr || []).map((o) => {
+                  if (o.id !== oid) return o;
+                  const existing = o.reasoningLog || [];
+                  return { ...o, reasoningLog: [entry, ...existing].slice(0, 10) };
+                });
+              const updated = {
+                ...prev,
+                [bid]: {
+                  ...blockData,
+                  imported: merge(blockData.imported),
+                  extracted: merge(blockData.extracted),
+                },
+              };
+              try {
+                localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+              } catch {}
+              return updated;
+            });
+            window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+          } catch (err) {
+            console.error("Failed to save reasoning:", err);
+          }
+        });
+      }
+      if (newStatus === "struggling") drillSessionStrugglingRef.current.add(obj.id);
+      setDrillStats((prev) => {
+        const next = {
+          ...prev,
+          assessedIndices: [...(prev.assessedIndices || []), i],
+          seen: prev.seen + 1,
+          mastered: newStatus === "mastered" ? prev.mastered + 1 : prev.mastered,
+          struggling: newStatus === "struggling" ? prev.struggling + 1 : prev.struggling,
+          inprogress: newStatus === "inprogress" ? prev.inprogress + 1 : prev.inprogress,
+        };
+        drillStatsRef.current = next;
+        return next;
+      });
+      const wasCorrect = newStatus !== "struggling";
+      if (drillStyle === "mcq" && snap.mcqData?.weakConceptHistoryId) {
+        patchWeakConceptQuestionHistoryResult(
+          bid,
+          snap.mcqData.weakConceptHistoryId,
+          wasCorrect ? "correct" : "incorrect",
+          snap.mcqData.questionLevel
+        );
+      }
+      updateDrillProgression(obj.id, bid, wasCorrect);
+      const newConsecutive = wasCorrect ? prevConsecutiveCorrect + 1 : 0;
+      const newDrillCount = prevDrillCount + 1;
+      const newLevel = levelFromCounters(newConsecutive, newDrillCount);
+      setSaveConfirmed(newStatus);
+      if (
+        drillStyle === "mcq" &&
+        newLevel > prevLevel
+      ) {
+        setLevelAdvancement({
+          from: prevLevel,
+          to: newLevel,
+          label: QUESTION_LEVELS[newLevel].name,
+        });
+        setTimeout(() => {
+          setLevelAdvancement(null);
+          setSaveConfirmed(null);
+          drillAssessBusyRef.current = false;
+          advanceDrill();
+        }, 1200);
+        return;
+      }
+      setTimeout(() => {
+        setSaveConfirmed(null);
+        drillAssessBusyRef.current = false;
+        advanceDrill();
+      }, 400);
+    },
+    [activeBlock?.id, blockId, mcqData, selectedAnswer, studentReasoning, setBlockObjectives, updateSingleObjectiveStatus, updateDrillProgression, advanceDrill, drillStyle, getBlockObjectives]
+  );
+
+  const handleDrillSkip = useCallback(() => {
+    const q = drillQueueRef.current;
+    const i = drillIndexRef.current;
+    const obj = q[i];
+    if (obj) {
+      const bid = obj._drillBlockId || activeBlock?.id || blockId;
+      const blockObjs = getBlockObjectives(bid) || [];
+      const full = blockObjs.find((o) => o.id === obj.id);
+      if (full && !full.lastSeen) {
+        updateObjective(bid, obj.id, { lastSeen: new Date().toISOString() });
+        try {
+          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        } catch {}
+      }
+    }
+    setDrillStats((prev) => {
+      const next = { ...prev, skipped: prev.skipped + 1 };
+      drillStatsRef.current = next;
+      return next;
+    });
+    advanceDrill();
+  }, [advanceDrill, activeBlock?.id, blockId, updateObjective]);
+
+  useEffect(() => {
+    handleDrillSkipRef.current = handleDrillSkip;
+  }, [handleDrillSkip]);
+
+  useEffect(() => {
+    drillMcqEliminatedRef.current = eliminatedOptions;
+    drillMcqSelectedAnswerRef.current = selectedAnswer;
+    drillMcqSelectedOptionRef.current = selectedOption;
+  }, [eliminatedOptions, selectedAnswer, selectedOption]);
+
+  /** Reset MCQ UI when a new question is shown (without touching generateDrillMCQ). */
+  useEffect(() => {
+    if (drillCardMode !== "mcq_ready" || !mcqData?.question) return;
+    setEliminatedOptions([]);
+    setSelectedOption(null);
+    setLockedAnswer(null);
+    setMcqOptionHover(null);
+  }, [drillCardMode, mcqData?.question, drillIndex]);
+
+  useEffect(() => {
+    if (!drillMode || drillQueue.length === 0 || drillComplete) {
+      if (drillComplete) {
+        try {
+          localStorage.removeItem("rxt-drill-progress");
+        } catch {}
+      }
+      return;
+    }
+    try {
+      localStorage.setItem(
+        "rxt-drill-progress",
+        JSON.stringify({
+          blockId: activeBlock?.id ?? blockId,
+          drillIndex,
+          drillStats,
+          drillStyle,
+          drillFilter,
+          drillLecFilter,
+          drillIdAllowlist,
+          savedAt: new Date().toISOString(),
+        })
+      );
+    } catch {}
+  }, [
+    drillMode,
+    drillQueue.length,
+    drillComplete,
+    drillIndex,
+    drillStats,
+    drillStyle,
+    drillFilter,
+    drillLecFilter,
+    drillIdAllowlist,
+    activeBlock?.id,
+    blockId,
+  ]);
+
+  useEffect(() => {
+    if (!drillMode || drillQueue.length > 0 || drillComplete) {
+      setDrillResumeSnapshot(null);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem("rxt-drill-progress");
+      const saved = raw ? JSON.parse(raw) : null;
+      const bid = activeBlock?.id ?? blockId;
+      if (saved && saved.blockId === bid && Date.now() - new Date(saved.savedAt) < 3600000) {
+        setDrillResumeSnapshot(saved);
+      } else {
+        setDrillResumeSnapshot(null);
+      }
+    } catch {
+      setDrillResumeSnapshot(null);
+    }
+  }, [drillMode, drillQueue.length, drillComplete, activeBlock?.id, blockId]);
+
+  useEffect(() => {
+    if (drillStyle === "mcq" && drillCardMode === "mcq_answered") {
+      setCardState("mcq_answered");
+    }
+  }, [drillCardMode, drillStyle]);
+
+  useEffect(() => {
+    if (!drillMode) return;
+    if (drillComplete) return;
+    if (drillStyle !== "mcq") return;
+    const q = drillQueueRef.current;
+    if (!q.length) return;
+    const currentObj = q[drillIndex];
+    if (!currentObj) return;
+    setRevealedCardKey(currentObj.id);
+    revealedCardKeyRef.current = currentObj.id;
+
+    generateDrillMCQRef.current?.(currentObj);
+
+    const nextObj = q[drillIndex + 1];
+    if (nextObj) prefetchMCQRef.current?.(nextObj);
+    const nextNextObj = q[drillIndex + 2];
+    if (nextNextObj) prefetchMCQRef.current?.(nextNextObj);
+  }, [drillMode, drillIndex, drillStyle, drillComplete, drillQueue.length]);
+
+  useEffect(() => {
+    if (drillStyle !== "mcq") {
+      prefetchCacheRef.current = {};
+      activePrefetchesRef.current = 0;
+    }
+  }, [drillStyle]);
+
+  useEffect(() => {
+    if (drillMode && drillComplete) {
+      prefetchCacheRef.current = {};
+      activePrefetchesRef.current = 0;
+    }
+  }, [drillMode, drillComplete]);
+
+  drillKeyHandlersRef.current = {
+    assess: handleDrillAssess,
+    skip: handleDrillSkip,
+    exit: requestDrillExit,
+  };
+
+  useEffect(() => {
+    if (!drillMode) return;
+    const onKeyDown = (e) => {
+      if (e.defaultPrevented) return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+      const { assess, skip, exit } = drillKeyHandlersRef.current;
+      if (e.key === "Escape") {
+        if (
+          drillStyle === "mcq" &&
+          drillCardModeRef.current === "mcq_ready" &&
+          drillMcqSelectedOptionRef.current !== null
+        ) {
+          e.preventDefault();
+          setSelectedOption(null);
+          return;
+        }
+        e.preventDefault();
+        exit();
+        return;
+      }
+      if (drillComplete || drillQueue.length === 0) return;
+
+      const curObj = drillQueueRef.current[drillIndexRef.current];
+      const curId = curObj?.id;
+      const revealKeys = e.key === " " || e.key === "Spacebar" || e.key === "Enter";
+      if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        toggleDrillStyleAndReset();
+        return;
+      }
+      if (curId != null && revealedCardKey !== curId && revealKeys) {
+        if (drillStyle === "mcq") {
+          return;
+        }
+        if (e.key === " " || e.key === "Spacebar") {
+          e.preventDefault();
+          e.stopPropagation();
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+        }
+        setRevealedCardKey(curId);
+        revealedCardKeyRef.current = curId;
+        generateCardAnswer(curObj);
+        return;
+      }
+
+      if (curId == null || revealedCardKey !== curId) return;
+
+      const mode = drillCardModeRef.current;
+      if (mode === "mcq_loading") return;
+
+      if (mode === "mcq_ready") {
+        const selOpt = drillMcqSelectedOptionRef.current;
+        const elim = drillMcqEliminatedRef.current;
+
+        if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+          if (selOpt !== null) {
+            e.preventDefault();
+            setLockedAnswer(selOpt);
+            handleDrillMCQAnswerRef.current?.(selOpt);
+            setSelectedAnswer(selOpt);
+          }
+          return;
+        }
+
+        const digitMatch = e.code?.match(/^Digit([1-4])$/);
+        if (digitMatch) {
+          e.preventDefault();
+          const idx = parseInt(digitMatch[1], 10) - 1;
+          if (e.shiftKey) {
+            setEliminatedOptions((prev) =>
+              prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+            );
+            if (selOpt === idx) setSelectedOption(null);
+          } else if (elim.includes(idx)) {
+            setEliminatedOptions((prev) => prev.filter((i) => i !== idx));
+          } else if (selOpt === idx) {
+            setSelectedOption(null);
+          } else {
+            setSelectedOption(idx);
+          }
+          return;
+        }
+        const k = e.key;
+        const kl = k.length === 1 ? k.toLowerCase() : "";
+        if (kl === "a" || kl === "b" || kl === "c" || kl === "d") {
+          e.preventDefault();
+          const idx = kl.charCodeAt(0) - 97;
+          if (e.shiftKey) {
+            setEliminatedOptions((prev) =>
+              prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+            );
+            if (selOpt === idx) setSelectedOption(null);
+          } else if (elim.includes(idx)) {
+            setEliminatedOptions((prev) => prev.filter((i) => i !== idx));
+          } else if (selOpt === idx) {
+            setSelectedOption(null);
+          } else {
+            setSelectedOption(idx);
+          }
+        }
+        return;
+      }
+
+      if (mode === "mcq_answered") {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const idx = mcqData?.selectedIndex;
+          if (idx != null && mcqData?.options?.[idx]?.correct) {
+            assess("mastered");
+          } else {
+            assess("struggling");
+          }
+          return;
+        }
+        if (e.key === "1" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          assess("struggling");
+        } else if (e.key === "2" || e.key === "ArrowDown") {
+          e.preventDefault();
+          assess("inprogress");
+        } else if (e.key === "3" || e.key === "ArrowRight") {
+          e.preventDefault();
+          assess("mastered");
+        }
+        return;
+      }
+
+      if (mode === "back") {
+        if (e.key === "1" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          assess("struggling");
+        } else if (e.key === "2" || e.key === "ArrowDown") {
+          e.preventDefault();
+          assess("inprogress");
+        } else if (e.key === "3" || e.key === "ArrowRight") {
+          e.preventDefault();
+          assess("mastered");
+        } else if (e.key === "s" || e.key === "S" || e.key === "ArrowUp") {
+          e.preventDefault();
+          skip();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    drillMode,
+    drillComplete,
+    drillQueue,
+    drillQueue.length,
+    drillIndex,
+    drillStyle,
+    revealedCardKey,
+    drillCardMode,
+    cardState,
+    mcqData,
+    eliminatedOptions,
+    selectedAnswer,
+    toggleDrillStyleAndReset,
+    generateCardAnswer,
+  ]);
+
+  useEffect(() => {
+    if (!drillMode || drillQueue.length === 0 || drillComplete) return;
+    if (drillCardFirstRenderRef.current) {
+      drillCardFirstRenderRef.current = false;
+      setDrillCardOpacity(1);
+      return;
+    }
+    setDrillCardOpacity(0);
+    const tid = setTimeout(() => setDrillCardOpacity(1), 80);
+    return () => clearTimeout(tid);
+  }, [drillIndex, drillMode, drillQueue.length, drillComplete]);
 
   // ONLY update objective statuses for the target lecture — never by lecture number or topic string.
   const syncSessionToObjectives = (sessionResults, blockId, targetObjectives, targetLecId) => {
@@ -7891,7 +13396,7 @@ export default function App() {
 
     setBlockObjectives((prev) => {
       const storedCount = prev[currentBlock.id]?.imported?.length || 0;
-      const blockLectures = lectures.filter((l) => l.blockId === currentBlock.id);
+      const blockLectures = getBlockLecs(lectures, currentBlock);
 
       if (storedCount > 0) {
         if (!blockLectures.length) return prev;
@@ -7948,7 +13453,7 @@ export default function App() {
   const computeWeakAreas = (blockId) => {
     const objs = getBlockObjectives(blockId) || [];
     const perf = performanceHistory;
-    const blockLecs = (lectures || []).filter((l) => l.blockId === blockId);
+    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
     const resolveActivity = (o) => {
       if ((o.activity || "").trim() && (o.activity || "").trim() !== "Unknown") return o.activity || "Unknown";
       const lec =
@@ -8189,7 +13694,7 @@ export default function App() {
   }, []);
 
   // ── Derived ────────────────────────────────
-  const blockLecs   = lectures.filter(l => l.blockId === (activeBlock?.id ?? blockId));
+  const blockLecs   = getBlockLecs(lectures, resolveBlockMeta(blockId), blockId);
   const sortedLecs = [...blockLecs].sort((a, b) => {
     if (lecSort === "number") {
       if (a.lectureNumber == null && b.lectureNumber == null) return 0;
@@ -8305,7 +13810,7 @@ export default function App() {
 
   const reanalyzeLecture = useCallback(
     async (lec) => {
-      const text = lec?.extractedText || lec?.fullText || "";
+      const text = getLecText(lec);
       if (!text || text.length < 100) {
         setUpMsg("No lecture text to analyze — re-upload the PDF first.");
         setTimeout(() => setUpMsg(""), 3000);
@@ -8321,7 +13826,7 @@ export default function App() {
         if (teachingMap?.sections?.length > 0) {
           const bid = lec.blockId;
           setBlockObjectives((prev) => {
-            const data = prev[bid] || { imported: [], extracted: [] };
+            const data = pickBlockObjectivesState(prev, bid);
             const existingExtracted = (data.extracted || []).filter((o) => o.linkedLecId !== lec.id);
             const aiObjectives = teachingMap.sections.flatMap((section, si) =>
               (section.objectives || []).map((objText) => ({
@@ -8338,9 +13843,10 @@ export default function App() {
                 bloom_level_name: "Understand",
               }))
             );
+            const wk = blockObjectivesStorageKey(prev, bid);
             const next = {
               ...prev,
-              [bid]: { ...data, extracted: [...existingExtracted, ...aiObjectives] },
+              [wk]: { ...data, extracted: [...existingExtracted, ...aiObjectives] },
             };
             try {
               localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
@@ -8491,7 +13997,7 @@ export default function App() {
       const todayLec = lectures.find((l) => l.id === todayLecId);
       if (todayLec?.weekNumber) return todayLec.weekNumber;
     }
-    const blockLecsForWeek = lectures.filter((l) => l.blockId === bid);
+    const blockLecsForWeek = getBlockLecs(lectures, resolveBlockMeta(bid));
     const weekScores = {};
     blockLecsForWeek.forEach((l) => {
       if (!l.weekNumber) return;
@@ -8520,7 +14026,7 @@ export default function App() {
     });
     const mostUntested = Object.entries(untestedByWeek).sort((a, b) => b[1] - a[1])[0];
     return mostUntested ? parseInt(mostUntested[0], 10) : 1;
-  }, [activeBlock?.id, blockId, lectures, performanceHistory, buildStudySchedule, getBlockObjectives, getLecPerf]);
+  }, [activeBlock?.id, blockId, lectures, performanceHistory, buildStudySchedule, getBlockObjectives, getLecPerf, resolveBlockMeta]);
 
   const [bulkWeekTarget, setBulkWeekTarget] = useState(null);
   const [collapsedCardWeeks, setCollapsedCardWeeks] = useState(() => new Set());
@@ -8533,9 +14039,10 @@ export default function App() {
     });
   }, []);
   useEffect(() => {
-    const unassigned = lectures.filter((l) => l.blockId === (activeBlock?.id ?? blockId) && !l.weekNumber);
+    const bid = activeBlock?.id ?? blockId;
+    const unassigned = getBlockLecs(lectures, resolveBlockMeta(bid)).filter((l) => !l.weekNumber);
     if (unassigned.length === 0) setBulkWeekTarget(null);
-  }, [lectures, activeBlock?.id, blockId]);
+  }, [lectures, activeBlock?.id, blockId, resolveBlockMeta]);
   useEffect(() => {
     const toCollapse = new Set(sortedWeeks.filter((wk) => wk !== currentWeek && wk !== 0));
     setCollapsedCardWeeks(toCollapse);
@@ -8639,7 +14146,8 @@ export default function App() {
     const mergedLecNumStr = String(lecNum ?? "");
     const mergedActivityNorm = mergedLecNumStr ? (mergedLecTypeNorm + mergedLecNumStr) : "";
     setBlockObjectives(prev => {
-      const data = prev[blockId] || { imported: [], extracted: [] };
+      const data = pickBlockObjectivesState(prev, blockId);
+      const wk = blockObjectivesStorageKey(prev, blockId);
       const relink = (obj) =>
         sourceLecIds.has(obj.linkedLecId) ? { ...obj, linkedLecId: mergedId, sourceFile: mergedId } : obj;
       const linkToMergedIfMatch = (obj) => {
@@ -8655,7 +14163,7 @@ export default function App() {
       };
       const updatedImported = (data.imported || []).map(linkToMergedIfMatch);
       const updatedExtracted = (data.extracted || []).map(linkToMergedIfMatch);
-      const next = { ...prev, [blockId]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
+      const next = { ...prev, [wk]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
       try {
         localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
       } catch (e) {
@@ -8684,65 +14192,374 @@ export default function App() {
   const handleLectureUpload = async (files, bid, tid) => {
     if (!files?.length) return;
     const fileList = Array.from(files);
+    const pairs = fileList.map((file) => ({
+      file,
+      queueId: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
+    }));
+    setUploadQueue((prev) => [
+      ...prev,
+      ...pairs.map(({ queueId, file }) => ({
+        id: queueId,
+        filename: file.name,
+        status: "pending",
+        progress: 0,
+        error: null,
+        result: null,
+      })),
+    ]);
+    setUploadPanelOpen(true);
+    setUploadComplete(false);
+
     let added = 0;
     let failed = 0;
     const addedInBatch = new Set();
     setUploading(true);
+    pairs.forEach(({ queueId, file }) => uploadFileByQueueIdRef.current.set(queueId, file));
 
-    for (const file of fileList) {
+    const commitPdfTail = async ({
+      lectureToSave,
+      contentResult,
+      extractedObjectives,
+      extractMethodUsed,
+      teachingMap,
+      file,
+      queueId,
+      bid,
+      skipSetLecs,
+      textQualityAssessment = null,
+    }) => {
+      if (teachingMap?.sections?.length > 0) {
+        setUpMsg("Mapping objectives to content...");
+        setBlockObjectives((prev) => {
+          const data = prev[bid] || { imported: [], extracted: [] };
+          const existingExtracted = (data.extracted || []).filter((o) => o.linkedLecId !== lectureToSave.id);
+          const aiObjectives = teachingMap.sections.flatMap((section, si) =>
+            (section.objectives || []).map((objText) => ({
+              id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
+              text: objText,
+              objective: objText,
+              linkedLecId: lectureToSave.id,
+              sourceFile: lectureToSave.id,
+              lectureType: lectureToSave.lectureType,
+              lectureNumber: lectureToSave.lectureNumber,
+              sectionIndex: si,
+              status: "untested",
+              bloom_level: 2,
+              bloom_level_name: "Understand",
+            }))
+          );
+          const next = {
+            ...prev,
+            [bid]: {
+              ...data,
+              extracted: [...existingExtracted, ...aiObjectives],
+            },
+          };
+          try {
+            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+      }
+
+      updateQueueItem(queueId, { status: "linking", progress: 72 });
+      setTimeout(() => updateQueueItem(queueId, { progress: 90 }), 30);
+      setUpMsg("Saving lecture...");
+      if (!skipSetLecs) {
+        setLecs((prev) => {
+          const hasNum = lectureToSave.lectureNumber != null && String(lectureToSave.lectureNumber).trim() !== "";
+          const filtered = prev.filter((l) => {
+            if (hasNum) {
+              return !(
+                l.blockId === bid &&
+                (l.lectureType || "LEC").trim() === (lectureToSave.lectureType || "LEC").trim() &&
+                String(l.lectureNumber).trim() === String(lectureToSave.lectureNumber).trim()
+              );
+            }
+            return !(l.blockId === bid && l.filename === file.name);
+          });
+          const updated = [...filtered, lectureToSave];
+          saveLectures(updated);
+          return updated;
+        });
+      }
+      reconcileCompletionOnUpload(lectureToSave);
+      migratePerformanceOnUpload(lectureToSave, bid, lectures, setPerformanceHistory);
+      setUpMsg("Done ✓");
+      setTimeout(() => setUpMsg(""), 2000);
+
+      setBlockObjectives((prev) => {
+        const blockData = prev[bid] || { imported: [], extracted: [] };
+        const blockLecs = [...(lectures || []).filter((l) => l.blockId === bid), lectureToSave];
+        let repaired = 0;
+        const repair = (obj) => {
+          const stillLinked = blockLecs.some((l) => l.id === obj.linkedLecId);
+          if (
+            !stillLinked &&
+            String(obj.lectureType) === String(lectureToSave.lectureType) &&
+            String(obj.lectureNumber) === String(lectureToSave.lectureNumber)
+          ) {
+            repaired++;
+            return { ...obj, linkedLecId: lectureToSave.id, sourceFile: lectureToSave.id };
+          }
+          return obj;
+        };
+        const imported = (blockData.imported || []).map(repair);
+        const extracted = (blockData.extracted || []).map(repair);
+        if (repaired === 0) return prev;
+        const next = { ...prev, [bid]: { ...blockData, imported, extracted } };
+        try {
+          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+
+      if (contentResult.questions?.length) {
+        onFileParsed(file.name, contentResult.questions);
+      }
+
+      if (extractedObjectives.length > 0) {
+        const oldLecId = lectures.find((l) => l.blockId === bid && l.filename === file.name)?.id ?? null;
+        setBlockObjectives((prev) => {
+          const blockData = prev[bid] || { imported: [], extracted: [] };
+          const blockLecs = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
+          const isOrphan = (obj) =>
+            String(obj.lectureType) === String(lectureToSave.lectureType) &&
+            String(obj.lectureNumber) === String(lectureToSave.lectureNumber) &&
+            !blockLecs.some((l) => l.id === obj.linkedLecId);
+          const cleanedImported = (blockData.imported || []).filter((obj) => !isOrphan(obj));
+          const cleanedExtracted = (blockData.extracted || []).filter((obj) => !isOrphan(obj));
+          const existing = cleanedExtracted;
+          let existingFiltered = existing;
+          if (oldLecId) {
+            existingFiltered = existing.filter(
+              (obj) => obj.linkedLecId !== oldLecId && obj.sourceFile !== oldLecId
+            );
+          } else {
+            existingFiltered = existing.filter(
+              (obj) =>
+                !(
+                  String(obj.lectureType) === String(lectureToSave.lectureType) &&
+                  String(obj.lectureNumber) === String(lectureToSave.lectureNumber)
+                )
+            );
+          }
+          const existingKeys = new Set(
+            existingFiltered.map((o) => (o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
+          );
+          const newOnes = extractedObjectives
+            .filter(
+              (o) => !existingKeys.has((o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
+            )
+            .map((o) => {
+              const enriched = enrichObjectiveWithBloom(o, lectureToSave.lectureType || "LEC");
+              return {
+                ...enriched,
+                id: enriched.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid()),
+                linkedLecId: lectureToSave.id,
+                lectureType: lectureToSave.lectureType,
+                lectureNumber: lectureToSave.lectureNumber,
+                activity: `${lectureToSave.lectureType || "LEC"}${lectureToSave.lectureNumber}`,
+                sourceFile: lectureToSave.id,
+              };
+            });
+          const updatedExtracted = [...existingFiltered, ...newOnes];
+          const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
+          const alignedImported = alignObjectivesToLectures(bid, cleanedImported, allLectures);
+          const updated = {
+            ...prev,
+            [bid]: { imported: alignedImported, extracted: updatedExtracted },
+          };
+          try {
+            localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      } else {
+        setBlockObjectives((prev) => {
+          const blockData = prev[bid];
+          if (!blockData?.imported?.length) return prev;
+          const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
+          const aligned = alignObjectivesToLectures(bid, blockData.imported, allLectures);
+          const updated = { ...prev, [bid]: { ...blockData, imported: aligned } };
+          try {
+            localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+          } catch {}
+          return updated;
+        });
+      }
+
+      const objCount = extractedObjectives.length;
+      const qCount = contentResult.questions?.length || 0;
+      const aiObjCount = teachingMap?.sections?.length
+        ? teachingMap.sections.flatMap((s) => s.objectives || []).length
+        : 0;
+      const totalObjCount = extractedObjectives.length + aiObjCount;
+      const nExtract = extractedObjectives.length;
+      const typeLabel = String(lectureToSave.lectureType || "LEC")
+        .replace(/^LECTURE$/i, "LEC")
+        .slice(0, 4);
+      const numPart =
+        lectureToSave.lectureNumber != null && String(lectureToSave.lectureNumber).trim() !== ""
+          ? String(lectureToSave.lectureNumber)
+          : null;
+      const extLab = extractionMethodSuffix(extractMethodUsed);
+      let resultSummary;
+      let resultSummaryColor = "#27500A";
+      if (
+        (extractMethodUsed === "none" || extractMethodUsed === "error") &&
+        !(contentResult.fullText || "").trim()
+      ) {
+        resultSummary = "⚠ No text extracted — is this a scanned PDF?";
+        resultSummaryColor = "#BA7517";
+      } else if (numPart != null) {
+        if (nExtract === 0) {
+          resultSummary = `⚠ ${typeLabel} ${numPart} · 0 objectives found — PDF may be image-based${
+            extLab ? " · " + extLab : ""
+          }`;
+          resultSummaryColor = "#BA7517";
+        } else if (nExtract < 3) {
+          resultSummary = `△ ${typeLabel} ${numPart} · ${nExtract} objectives — may be incomplete${
+            extLab ? " · " + extLab : ""
+          }`;
+          resultSummaryColor = "#BA7517";
+        } else {
+          resultSummary = `✓ ${typeLabel} ${numPart} · ${nExtract} objectives${extLab ? " · " + extLab : ""}`;
+        }
+      } else {
+        resultSummary = `✓ Uploaded · ${nExtract} objectives${extLab ? " · " + extLab : ""}`;
+      }
+      const textQualityWarning =
+        textQualityAssessment?.quality === "poor" && textQualityAssessment?.reason
+          ? `⚠ Poor text quality — ${textQualityAssessment.reason}. Try Mistral OCR for better results.`
+          : null;
+      const showEnableOcr =
+        !!textQualityWarning &&
+        !!import.meta.env.VITE_MISTRAL_API_KEY &&
+        extractMethodUsed !== "mistral-ocr";
+      updateQueueItem(queueId, {
+        status: "done",
+        progress: 100,
+        result: {
+          lectureType: lectureToSave.lectureType,
+          lectureNumber: lectureToSave.lectureNumber,
+          objectiveCount: totalObjCount,
+          resultSummary,
+          resultSummaryColor,
+          textQualityWarning,
+          showEnableOcr,
+          extractMethod: extractMethodUsed,
+          typeWarning: shouldWarnLectureTypeBadge(lectureToSave.lectureType, file.name),
+        },
+      });
+      markAsProcessed(file, bid);
+      setUpMsg(
+        "Done ✓ — " +
+          file.name +
+          (qCount > 0 ? " · " + qCount + " questions" : "") +
+          (objCount > 0 ? " · " + objCount + " objectives" : " · objectives aligned")
+      );
+    };
+
+    const runOne = async ({ file, queueId }) => {
+      if (isAlreadyProcessed(file, bid)) {
+        updateQueueItem(queueId, {
+          status: "done",
+          progress: 100,
+          result: {
+            skipped: true,
+            reason: "Already uploaded",
+            resultSummary: "Already uploaded — skipped",
+          },
+        });
+        return;
+      }
+
       const isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
       const existingInBlock = lectures.some((l) => l.blockId === bid && l.filename === file.name);
       const existingInBatch = addedInBatch.has(file.name);
       if ((existingInBlock || existingInBatch) && !window.confirm("A lecture named \"" + file.name + "\" already exists in this block. Replace it?")) {
         failed++;
-        continue;
+        updateQueueItem(queueId, { status: "error", error: "Skipped — duplicate not replaced", progress: 100 });
+        return;
       }
 
       try {
         if (isPdf) {
-          let contentResult;
-          if (import.meta.env.VITE_MISTRAL_API_KEY) {
-            setUpMsg("🔍 Running OCR...");
-            const mistralResult = await extractPDFWithMistralSafe(file);
-            if (mistralResult?.markdown?.trim()) {
-              contentResult = {
-                fullText: mistralResult.markdown.slice(0, 12000),
-                chunks: (mistralResult.pages || []).map((p) => ({ text: (p.header ? p.header + "\n\n" : "") + (p.markdown || "") })),
-                extractionMethod: "mistral-ocr",
-                pageCount: mistralResult.pageCount,
-              };
-              console.log("✅ Mistral OCR: " + mistralResult.pageCount + " pages extracted");
-            }
-          }
-          if (!contentResult) {
-            setUpMsg("📖 Extracting PDF text...");
-            const parsed = await parseExamPDF(file, (msg) => setUpMsg(msg));
-            contentResult = {
-              ...parsed,
-              extractionMethod: "pdfplumber",
-              pageCount: (parsed.chunks || []).length,
-            };
-          }
+          updateQueueItem(queueId, { status: "extracting", progress: 0 });
+          setTimeout(() => updateQueueItem(queueId, { progress: 40 }), 30);
+          setUpMsg("📖 Extracting PDF text...");
+          const forceOcr = uploadForceOcrQueueIdRef.current.has(queueId);
+          if (forceOcr) uploadForceOcrQueueIdRef.current.delete(queueId);
+          const { contentResult: cr0, method: extractMethodUsed } = await extractWithSmartFallback(
+            file,
+            (msg) => setUpMsg(msg),
+            { forceMistralOcr: forceOcr }
+          );
+          let contentResult = cr0;
           if (contentResult.chunks?.length > 0) {
             console.log("Chunk sample keys:", Object.keys(contentResult.chunks[0]));
             console.log("Chunk sample:", JSON.stringify(contentResult.chunks[0]).slice(0, 300));
           }
-          setUpMsg("🎯 Extracting learning objectives...");
-          const extractedObjectives = await extractObjectivesFromLecture(file);
+          const fullRawTextJoin =
+            (contentResult.fullText || (contentResult.chunks || []).map((c) => c.text || "").join("\n\n")) || "";
+          const textQualityAssessment = assessTextQuality(fullRawTextJoin);
 
-          const lecTitle =
-            contentResult.lectureTitle ??
-            extractedObjectives[0]?.lectureTitle ??
-            file.name.replace(/\.[^.]+$/, "");
-          const lectureType = detectLectureType(file.name, lecTitle);
-          const lecNum =
+          const lecTitlePre =
+            contentResult.lectureTitle ?? file.name.replace(/\.[^.]+$/, "");
+          const fnInfo = detectLectureInfo(file.name);
+          const lectureTypePre = fnInfo.lectureType || detectLectureType(file.name, lecTitlePre);
+          let lecNumPre =
             contentResult.lectureNumber ??
-            extractedObjectives[0]?.lectureNumber ??
-            detectLectureNumber(file.name, lecTitle, lectureType);
+            (fnInfo.lectureNumber != null && !isNaN(fnInfo.lectureNumber) ? fnInfo.lectureNumber : null) ??
+            detectLectureNumber(file.name, lecTitlePre, lectureTypePre);
+          if (uploadForceUniqueRef.current.get(queueId)) {
+            const blockLecs = lectures.filter((l) => l.blockId === bid);
+            lecNumPre = allocateUniqueLectureNumber(blockLecs, lectureTypePre, lecNumPre);
+            uploadForceUniqueRef.current.delete(queueId);
+          }
+          const pendingLecId =
+            typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid();
+          const lecForExtract = {
+            id: pendingLecId,
+            blockId: bid,
+            termId: tid,
+            lectureType: lectureTypePre,
+            lectureNumber: lecNumPre,
+            lectureTitle: lecTitlePre,
+            title: lecTitlePre,
+            filename: file.name,
+          };
+
+          updateQueueItem(queueId, { status: "parsing", progress: 45 });
+          setTimeout(() => updateQueueItem(queueId, { progress: 70 }), 30);
+          setUpMsg("🎯 Extracting learning objectives...");
+          let extractedObjectives;
+          try {
+            extractedObjectives = await extractObjectivesFromLecture(fullRawTextJoin, lecForExtract, bid);
+          } catch (objErr) {
+            const msg = objErr?.message || String(objErr);
+            if (/Timeout/i.test(msg)) {
+              uploadRetryFilesRef.current.set(queueId, file);
+              updateQueueItem(queueId, {
+                status: "error",
+                error: "AI parsing timed out — try again",
+                progress: 100,
+                retryable: true,
+              });
+              failed++;
+              return;
+            }
+            throw objErr;
+          }
+
+          const lecTitle = lecTitlePre;
+          const lectureType = lectureTypePre;
+          const lecNum = lecNumPre;
           console.log("Detected type/number:", lectureType, lecNum, "from:", file.name);
 
           const newLec = {
-            id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
+            id: pendingLecId,
             blockId: bid,
             termId: tid,
             filename: file.name,
@@ -8755,7 +14572,7 @@ export default function App() {
             subtopics: contentResult.subtopics || contentResult.topics || contentResult.subtopicList || [],
             keyTerms: contentResult.keyTerms || contentResult.terms || contentResult.keywords || [],
             summary: contentResult.summary || "",
-            fullText: (contentResult.fullText || "").slice(0, 12000),
+            fullText: fullRawTextJoin,
             extractionMethod: contentResult.extractionMethod || "pdfplumber",
             pageCount: contentResult.pageCount ?? (contentResult.chunks || []).length,
             uploadedAt: new Date().toISOString(),
@@ -8855,7 +14672,7 @@ export default function App() {
           let teachingMap = null;
           try {
             setUpMsg("Analyzing lecture content with AI...");
-            teachingMap = await analyzeLecture(newLec, newLec.fullText);
+            teachingMap = await analyzeLecture(newLec, getLecText(newLec));
             console.log("Teaching map generated:", teachingMap?.sections?.length, "sections");
           } catch (err) {
             console.error("Teaching map generation failed:", err);
@@ -8867,179 +14684,72 @@ export default function App() {
             teachingMapDate: teachingMap ? new Date().toISOString() : undefined,
           };
 
-          if (teachingMap?.sections?.length > 0) {
-            setUpMsg("Mapping objectives to content...");
-            setBlockObjectives((prev) => {
-              const data = prev[bid] || { imported: [], extracted: [] };
-              const existingExtracted = (data.extracted || []).filter((o) => o.linkedLecId !== lectureToSave.id);
-              const aiObjectives = teachingMap.sections.flatMap((section, si) =>
-                (section.objectives || []).map((objText) => ({
-                  id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
-                  text: objText,
-                  objective: objText,
-                  linkedLecId: lectureToSave.id,
-                  sourceFile: lectureToSave.id,
-                  lectureType: lectureToSave.lectureType,
-                  lectureNumber: lectureToSave.lectureNumber,
-                  sectionIndex: si,
-                  status: "untested",
-                  bloom_level: 2,
-                  bloom_level_name: "Understand",
-                }))
-              );
-              const next = {
-                ...prev,
-                [bid]: {
-                  ...data,
-                  extracted: [...existingExtracted, ...aiObjectives],
-                },
-              };
-              try {
-                localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
-              } catch {}
-              return next;
+          const skipCollisionOnce = uploadCollisionSkipRef.current === queueId;
+          if (skipCollisionOnce) {
+            uploadCollisionSkipRef.current = null;
+          }
+          const colliding =
+            !skipCollisionOnce &&
+            checkForCollision(lectureToSave.lectureType, lectureToSave.lectureNumber, bid, lectures);
+          if (colliding && colliding.filename !== file.name) {
+            uploadCollisionResumeRef.current.set(queueId, {
+              file,
+              bid,
+              tid,
+              lectureToSave,
+              newLec,
+              contentResult,
+              extractedObjectives,
+              extractMethodUsed,
+              teachingMap,
+              colliding,
+              textQualityAssessment,
             });
+            uploadFileByQueueIdRef.current.set(queueId, file);
+            const uniqueHint = (() => {
+              const blockLecs = lectures.filter((l) => l.blockId === bid);
+              const u = allocateUniqueLectureNumber(blockLecs, lectureToSave.lectureType, lectureToSave.lectureNumber);
+              return String(u);
+            })();
+            updateQueueItem(queueId, {
+              status: "collision",
+              progress: 0,
+              collisionExisting: colliding,
+              collisionLabel: `${lectureToSave.lectureType} ${lectureToSave.lectureNumber}`,
+              showMergeOption: isPartSplitPairCandidate(file.name, colliding),
+              uniqueNumberHint: uniqueHint,
+            });
+            return;
           }
 
-          setUpMsg("Saving lecture...");
-          setLecs((prev) => {
-            const hasNum = lectureToSave.lectureNumber != null && String(lectureToSave.lectureNumber).trim() !== "";
-            const filtered = prev.filter(l => {
-              if (hasNum) {
-                return !(l.blockId === bid &&
-                  (l.lectureType || "LEC").trim() === (lectureToSave.lectureType || "LEC").trim() &&
-                  String(l.lectureNumber).trim() === String(lectureToSave.lectureNumber).trim());
-              }
-              return !(l.blockId === bid && l.filename === file.name);
-            });
-            const updated = [...filtered, lectureToSave];
-            saveLectures(updated);
-            return updated;
+          await commitPdfTail({
+            lectureToSave,
+            contentResult,
+            extractedObjectives,
+            extractMethodUsed,
+            teachingMap,
+            file,
+            queueId,
+            bid,
+            skipSetLecs: false,
+            textQualityAssessment,
           });
-          migratePerformanceOnUpload(lectureToSave, bid, lectures, setPerformanceHistory);
-          setUpMsg("Done ✓");
-          setTimeout(() => setUpMsg(""), 2000);
-
-          // Re-stamp objectives that match this lecture by type+number but were linked to an old (replaced) lecture id
-          setBlockObjectives((prev) => {
-            const blockData = prev[bid] || { imported: [], extracted: [] };
-            const blockLecs = [...(lectures || []).filter((l) => l.blockId === bid), lectureToSave];
-            let repaired = 0;
-            const repair = (obj) => {
-              const stillLinked = blockLecs.some((l) => l.id === obj.linkedLecId);
-              if (
-                !stillLinked &&
-                String(obj.lectureType) === String(lectureToSave.lectureType) &&
-                String(obj.lectureNumber) === String(lectureToSave.lectureNumber)
-              ) {
-                repaired++;
-                return { ...obj, linkedLecId: lectureToSave.id, sourceFile: lectureToSave.id };
-              }
-              return obj;
-            };
-            const imported = (blockData.imported || []).map(repair);
-            const extracted = (blockData.extracted || []).map(repair);
-            if (repaired === 0) return prev;
-            const next = { ...prev, [bid]: { ...blockData, imported, extracted } };
-            try {
-              localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
-            } catch {}
-            return next;
-          });
-
-          if (contentResult.questions?.length) {
-            onFileParsed(file.name, contentResult.questions);
-          }
-
-          if (extractedObjectives.length > 0) {
-            const oldLecId = lectures.find((l) => l.blockId === bid && l.filename === file.name)?.id ?? null;
-            setBlockObjectives((prev) => {
-              const blockData = prev[bid] || { imported: [], extracted: [] };
-              const blockLecs = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
-              const isOrphan = (obj) =>
-                String(obj.lectureType) === String(lectureToSave.lectureType) &&
-                String(obj.lectureNumber) === String(lectureToSave.lectureNumber) &&
-                !blockLecs.some((l) => l.id === obj.linkedLecId);
-              const cleanedImported = (blockData.imported || []).filter((obj) => !isOrphan(obj));
-              const cleanedExtracted = (blockData.extracted || []).filter((obj) => !isOrphan(obj));
-              const existing = cleanedExtracted;
-              let existingFiltered = existing;
-              if (oldLecId) {
-                existingFiltered = existing.filter(
-                  (obj) => obj.linkedLecId !== oldLecId && obj.sourceFile !== oldLecId
-                );
-              } else {
-                existingFiltered = existing.filter(
-                  (obj) =>
-                    !(
-                      String(obj.lectureType) === String(lectureToSave.lectureType) &&
-                      String(obj.lectureNumber) === String(lectureToSave.lectureNumber)
-                    )
-                );
-              }
-              const existingKeys = new Set(
-                existingFiltered.map((o) => (o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
-              );
-              const newOnes = extractedObjectives
-                .filter(
-                  (o) => !existingKeys.has((o.objective || "").slice(0, 55).toLowerCase().replace(/\W/g, ""))
-                )
-                .map((o) => {
-                  const enriched = enrichObjectiveWithBloom(o, lectureToSave.lectureType || "LEC");
-                  return {
-                    ...enriched,
-                    id: enriched.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid()),
-                    linkedLecId: lectureToSave.id,
-                    lectureType: lectureToSave.lectureType,
-                    lectureNumber: lectureToSave.lectureNumber,
-                    activity: `${lectureToSave.lectureType || "LEC"}${lectureToSave.lectureNumber}`,
-                    sourceFile: lectureToSave.id,
-                  };
-                });
-              const updatedExtracted = [...existingFiltered, ...newOnes];
-              const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
-              const alignedImported = alignObjectivesToLectures(bid, cleanedImported, allLectures);
-              const updated = {
-                ...prev,
-                [bid]: { imported: alignedImported, extracted: updatedExtracted },
-              };
-              try {
-                localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
-              } catch {}
-              return updated;
-            });
-          } else {
-            setBlockObjectives((prev) => {
-              const blockData = prev[bid];
-              if (!blockData?.imported?.length) return prev;
-              const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
-              const aligned = alignObjectivesToLectures(bid, blockData.imported, allLectures);
-              const updated = { ...prev, [bid]: { ...blockData, imported: aligned } };
-              try {
-                localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
-              } catch {}
-              return updated;
-            });
-          }
-
-          const objCount = extractedObjectives.length;
-          const qCount = contentResult.questions?.length || 0;
-          setUpMsg(
-            "Done ✓ — " + file.name +
-            (qCount > 0 ? " · " + qCount + " questions" : "") +
-            (objCount > 0 ? " · " + objCount + " objectives" : " · objectives aligned")
-          );
           added++;
           addedInBatch.add(file.name);
         } else {
+          updateQueueItem(queueId, { status: "extracting", progress: 0 });
+          setTimeout(() => updateQueueItem(queueId, { progress: 40 }), 30);
           setUpMsg("Reading file...");
           let text = await file.text();
           text = (text || "").trim();
           if (!text || text.length < 50) {
             setUpMsg("⚠ No text in " + file.name);
+            updateQueueItem(queueId, { status: "error", error: "No text in file", progress: 100 });
             failed++;
-            continue;
+            return;
           }
+          updateQueueItem(queueId, { status: "parsing", progress: 55 });
+          setTimeout(() => updateQueueItem(queueId, { progress: 70 }), 30);
           setUpMsg("🧠 AI parsing...");
           let meta;
           try {
@@ -9065,6 +14775,8 @@ export default function App() {
             lectureType,
             weekNumber: detectWeekNumber(file.name, meta.lectureTitle || "") || null,
           };
+          updateQueueItem(queueId, { status: "linking", progress: 75 });
+          setTimeout(() => updateQueueItem(queueId, { progress: 90 }), 30);
           setLecs((p) => [...p.filter((l) => !(l.blockId === bid && l.filename === file.name)), lec]);
           setBlockObjectives((prev) => {
             const blockData = prev[bid];
@@ -9077,24 +14789,346 @@ export default function App() {
             } catch {}
             return updated;
           });
+          const typeLabel = String(lec.lectureType || "LEC")
+            .replace(/^LECTURE$/i, "LEC")
+            .slice(0, 4);
+          const numPart =
+            lec.lectureNumber != null && String(lec.lectureNumber).trim() !== ""
+              ? String(lec.lectureNumber)
+              : null;
+          const resultSummary =
+            numPart != null
+              ? `${typeLabel} ${numPart} · 0 objectives`
+              : "Uploaded · 0 objectives";
+          updateQueueItem(queueId, {
+            status: "done",
+            progress: 100,
+            result: {
+              lectureType: lec.lectureType,
+              lectureNumber: lec.lectureNumber,
+              objectiveCount: 0,
+              resultSummary,
+              extractMethod: "text",
+              typeWarning: shouldWarnLectureTypeBadge(lec.lectureType, file.name),
+            },
+          });
+          markAsProcessed(file, bid);
           setUpMsg("✓ " + file.name);
           added++;
           addedInBatch.add(file.name);
         }
       } catch (e) {
         setUpMsg("✗ " + file.name + ": " + (e.message || String(e)));
+        updateQueueItem(queueId, { status: "error", error: e.message || "Upload failed", progress: 100 });
         failed++;
         console.error("Upload failed:", e);
       }
+    };
+
+    uploadResolveCollisionRef.current = async (queueId, resolution) => {
+      const stash = uploadCollisionResumeRef.current.get(queueId);
+      if (!stash) return;
+      const {
+        file,
+        bid,
+        lectureToSave,
+        colliding,
+        contentResult,
+        extractedObjectives,
+        extractMethodUsed,
+        teachingMap,
+        textQualityAssessment,
+      } = stash;
+      if (resolution === "keep") {
+        uploadCollisionResumeRef.current.delete(queueId);
+        updateQueueItem(queueId, {
+          status: "done",
+          progress: 100,
+          result: {
+            skipped: true,
+            reason: "keep_existing",
+            resultSummary: "Kept existing lecture — skipped",
+          },
+        });
+        return;
+      }
+      uploadCollisionResumeRef.current.delete(queueId);
+      if (resolution === "replace") {
+        uploadCollisionSkipRef.current = queueId;
+        clearUploadCacheHash(file);
+        delLec(colliding.id);
+        updateQueueItem(queueId, {
+          status: "pending",
+          progress: 0,
+          error: null,
+          collisionExisting: undefined,
+          collisionLabel: undefined,
+          showMergeOption: undefined,
+          uniqueNumberHint: undefined,
+        });
+        setUploading(true);
+        try {
+          await runOne({ file, queueId });
+        } finally {
+          setUploading(false);
+        }
+        return;
+      }
+      if (resolution === "new") {
+        clearUploadCacheHash(file);
+        uploadForceUniqueRef.current.set(queueId, true);
+        updateQueueItem(queueId, {
+          status: "pending",
+          progress: 0,
+          error: null,
+          collisionExisting: undefined,
+          collisionLabel: undefined,
+          showMergeOption: undefined,
+          uniqueNumberHint: undefined,
+        });
+        setUploading(true);
+        try {
+          await runOne({ file, queueId });
+        } finally {
+          setUploading(false);
+        }
+        return;
+      }
+      if (resolution === "merge") {
+        const baseTitle = (colliding.lectureTitle || "").replace(/\s*\(Parts.*\)\s*$/i, "").trim();
+        const mergedTitle = `${baseTitle || lectureToSave.lectureTitle || ""} (Parts 1 & 2)`.trim();
+        const mergedLec = {
+          ...lectureToSave,
+          lectureTitle: mergedTitle,
+          chunks: [...(colliding.chunks || []), ...(lectureToSave.chunks || [])],
+          fullText: [colliding.fullText, lectureToSave.fullText].filter(Boolean).join("\n\n---\n\n"),
+          subtopics: [...new Set([...(colliding.subtopics || []), ...(lectureToSave.subtopics || [])])],
+          keyTerms: [...new Set([...(colliding.keyTerms || []), ...(lectureToSave.keyTerms || [])])],
+          isMerged: true,
+          mergedFrom: [
+            { id: colliding.id, title: colliding.lectureTitle, num: colliding.lectureNumber },
+            { id: lectureToSave.id, title: lectureToSave.lectureTitle, num: lectureToSave.lectureNumber },
+          ],
+        };
+        setLecs((prev) => {
+          const filtered = prev.filter((l) => l.id !== colliding.id);
+          const updated = [...filtered, mergedLec];
+          saveLectures(updated);
+          return updated;
+        });
+        setBlockObjectives((prev) => {
+          const data = prev[bid] || { imported: [], extracted: [] };
+          const relink = (obj) =>
+            obj.linkedLecId === colliding.id
+              ? { ...obj, linkedLecId: mergedLec.id, sourceFile: mergedLec.id }
+              : obj;
+          const imported = (data.imported || []).map(relink);
+          const extracted = (data.extracted || []).map(relink);
+          const next = { ...prev, [bid]: { ...data, imported, extracted } };
+          try {
+            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          } catch {}
+          return next;
+        });
+        await commitPdfTail({
+          lectureToSave: mergedLec,
+          contentResult,
+          extractedObjectives,
+          extractMethodUsed,
+          teachingMap,
+          file,
+          queueId,
+          bid,
+          skipSetLecs: true,
+          textQualityAssessment: textQualityAssessment ?? null,
+        });
+      }
+    };
+
+    runOneUploadRef.current = runOne;
+    const pool = [];
+    const executing = [];
+    for (const pair of pairs) {
+      const p = runOne(pair).finally(() => {
+        const idx = executing.indexOf(p);
+        if (idx >= 0) executing.splice(idx, 1);
+      });
+      pool.push(p);
+      executing.push(p);
+      if (executing.length >= 3) {
+        await Promise.race(executing);
+      }
     }
+    await Promise.all(pool);
 
     setUploading(false);
+    setUploadComplete(true);
+    try {
+      const l = await loadLectures();
+      setLecs(l || []);
+      const raw = localStorage.getItem("rxt-block-objectives") || "{}";
+      const parsed = JSON.parse(raw);
+      setBlockObjectives(parsed);
+    } catch (err) {
+      console.warn("Post-upload refresh failed:", err);
+    }
+    try {
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (_) {}
+
     const parts = [];
     if (added) parts.push("✓ Added " + added + " lecture" + (added !== 1 ? "s" : ""));
     if (failed) parts.push("⚠ " + failed + " failed");
     setUpMsg(parts.length ? parts.join(", ") : "No files processed.");
     setTimeout(() => setUpMsg(""), 8000);
   };
+
+  const retryUploadQueuedFile = useCallback(
+    async (queueId) => {
+      const file = uploadRetryFilesRef.current.get(queueId);
+      const fn = runOneUploadRef.current;
+      if (!file || !fn) return;
+      setUploading(true);
+      updateQueueItem(queueId, { status: "pending", progress: 0, error: null, retryable: false });
+      try {
+        await fn({ file, queueId });
+      } finally {
+        setUploading(false);
+        try {
+          const l = await loadLectures();
+          setLecs(l || []);
+          const raw = localStorage.getItem("rxt-block-objectives") || "{}";
+          setBlockObjectives(JSON.parse(raw));
+          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        } catch (_) {}
+      }
+    },
+    [updateQueueItem]
+  );
+
+  const forceReuploadQueuedFile = useCallback(
+    async (queueId) => {
+      const file = uploadFileByQueueIdRef.current.get(queueId);
+      const fn = runOneUploadRef.current;
+      if (!file || !fn) return;
+      clearUploadCacheHash(file);
+      setUploading(true);
+      updateQueueItem(queueId, {
+        status: "pending",
+        progress: 0,
+        error: null,
+        result: null,
+        retryable: false,
+      });
+      try {
+        await fn({ file, queueId });
+      } finally {
+        setUploading(false);
+        try {
+          const l = await loadLectures();
+          setLecs(l || []);
+          const raw = localStorage.getItem("rxt-block-objectives") || "{}";
+          setBlockObjectives(JSON.parse(raw));
+          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        } catch (_) {}
+      }
+    },
+    [updateQueueItem]
+  );
+
+  const forceOcrQueuedFile = useCallback(
+    async (queueId) => {
+      const file = uploadFileByQueueIdRef.current.get(queueId);
+      const fn = runOneUploadRef.current;
+      if (!file || !fn) return;
+      clearUploadCacheHash(file);
+      uploadForceOcrQueueIdRef.current.add(queueId);
+      setUploading(true);
+      updateQueueItem(queueId, {
+        status: "pending",
+        progress: 0,
+        error: null,
+        result: null,
+        retryable: false,
+      });
+      try {
+        await fn({ file, queueId });
+      } finally {
+        setUploading(false);
+        try {
+          const l = await loadLectures();
+          setLecs(l || []);
+          const raw = localStorage.getItem("rxt-block-objectives") || "{}";
+          setBlockObjectives(JSON.parse(raw));
+          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        } catch (_) {}
+      }
+    },
+    [updateQueueItem]
+  );
+
+  const reExtractObjectivesForLecture = useCallback(
+    async (lecId, blockBid) => {
+      const lec =
+        lectures.find((l) => l.id === lecId) ||
+        (() => {
+          try {
+            return JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").find((l) => l.id === lecId);
+          } catch {
+            return null;
+          }
+        })();
+      if (!lec) return;
+      const text = getLecText(lec).trim();
+      if (!text) {
+        window.alert("No extracted text available — re-upload this lecture");
+        return;
+      }
+      setReExtractingLectureId(lecId);
+      try {
+        const lecStub = {
+          ...lec,
+          blockId: blockBid,
+          lectureTitle: lec.lectureTitle || "",
+        };
+        const newObjs = await extractObjectivesFromLecture(text, lecStub, blockBid);
+        if (newObjs.length === 0) return;
+        setBlockObjectives((prev) => {
+          const data = pickBlockObjectivesState(prev, blockBid);
+          const wk = blockObjectivesStorageKey(prev, blockBid);
+          const extracted = data.extracted || [];
+          const withoutOld = extracted.filter((o) => o.linkedLecId !== lecId);
+          const newOnes = newObjs.map((o) => {
+            const enriched = enrichObjectiveWithBloom(o, lec?.lectureType || "LEC");
+            return {
+              ...enriched,
+              id:
+                enriched.id ||
+                (typeof crypto !== "undefined" && crypto.randomUUID
+                  ? crypto.randomUUID()
+                  : uid()),
+              linkedLecId: lecId,
+              sourceFile: lecId,
+              lectureType: lec.lectureType,
+              lectureNumber: lec.lectureNumber,
+              activity: `${lec.lectureType || "LEC"}${lec.lectureNumber}`,
+            };
+          });
+          const next = { ...prev, [wk]: { ...data, extracted: [...withoutOld, ...newOnes] } };
+          try {
+            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          } catch (_) {}
+          return next;
+        });
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch (e) {
+        console.error("reExtractObjectivesForLecture:", e);
+      } finally {
+        setReExtractingLectureId(null);
+      }
+    },
+    [lectures, setBlockObjectives]
+  );
 
   // ── Study ──────────────────────────────────
   const startTopic = (lec, sub) => {
@@ -9127,6 +15161,10 @@ export default function App() {
   };
 
   const [objectiveQuizLoading, setObjectiveQuizLoading] = useState(false);
+  const [quizLoadingId, setQuizLoadingId] = useState(null);
+  const [quizErrorId, setQuizErrorId] = useState(null);
+  const [quizFlashLectureId, setQuizFlashLectureId] = useState(null);
+  const [quizSavedState, setQuizSavedState] = useState(null);
   const [blockExamLoading, setBlockExamLoading] = useState(false);
   const [examConfigModal, setExamConfigModal] = useState(null); // { mode: "objectives"|"weak"|"full", blockId, open: true }
 
@@ -9312,6 +15350,14 @@ export default function App() {
   const startObjectiveQuiz = async (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
     if (!objectives?.length) return;
     const bid = optionalBlockId ?? blockId;
+    const lectureIdForMeta =
+      extraMeta?.lectureId ??
+      objectives?.map((o) => o.linkedLecId).find(Boolean) ??
+      objectives?.[0]?.linkedLecId ??
+      null;
+    setQuizLoadingId(lectureIdForMeta);
+    setQuizErrorId(null);
+    setQuizSavedState(null);
     const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
     const topicKey = bid ? "block__" + bid + "__objectives" : "default";
     const diffKey = bid ? "block__" + bid : "default";
@@ -9337,7 +15383,8 @@ export default function App() {
     const count = Math.min(objectives.length, 10);
     const prompt =
       `Generate ${count} USMLE Step 1 clinical vignette questions for: ${lectureTitle}\n\n` +
-      buildExamPromptFromContext(count, objectives, { ...quizContext, stylePrefs }, difficulty).replace(/^Generate exactly \d+ questions\.\n/, "");
+      buildExamPromptFromContext(count, objectives, { ...quizContext, stylePrefs }, difficulty).replace(/^Generate exactly \d+ questions\.\n/, "") +
+      `\n\nIMPORTANT OUTPUT SCHEMA:\nFor each question include objectiveId (preferred) or objectiveIndex (1-based index into provided objectives).\nReturn JSON with fields: question/stem, options/choices, correctAnswer/correct, objectiveId, objectiveIndex, explanation.`;
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
@@ -9372,6 +15419,7 @@ export default function App() {
         usedUploadedStyle: !!q.usedUploadedStyle || !!quizContext.hasUploadedQs,
         objectiveId:
           q.objectiveId ||
+          (q.objectiveIndex != null && objectives[Number(q.objectiveIndex) - 1]?.id) ||
           objectives.find((o) =>
             o.objective.toLowerCase().includes((q.objectiveCovered || "").toLowerCase().slice(0, 25))
           )?.id ||
@@ -9379,7 +15427,6 @@ export default function App() {
       }));
       const validated = validateAndFixQuestions(questions);
       setBlockExamLoading(null);
-      const lectureIdForMeta = objectives?.[0]?.linkedLecId ?? extraMeta?.lectureId ?? null;
       setCurrentSessionMeta({
         blockId: bid,
         topicKey: makeTopicKey(lectureIdForMeta, bid),
@@ -9396,6 +15443,7 @@ export default function App() {
         subject: lectureTitle,
         subtopic: "Objectives",
         blockId: bid,
+        lectureId: lectureIdForMeta,
         blockName: activeBlock?.name || bid,
         termColor: tc,
         objectiveBlockId: bid,
@@ -9403,25 +15451,279 @@ export default function App() {
       setView("study");
     } catch (e) {
       setBlockExamLoading(null);
+      setQuizErrorId(lectureIdForMeta ?? extraMeta?.lectureId ?? null);
       console.error("startObjectiveQuiz failed:", e.message);
       alert("Quiz generation failed: " + (e.message || String(e)));
+    } finally {
+      setQuizLoadingId(null);
     }
   };
 
-  const onObjectiveQuizComplete = (results, objectiveBlockId) => {
-    if (!results?.length || !objectiveBlockId) return;
-    results.forEach((r) => {
-      const all = getBlockObjectives(objectiveBlockId);
-      const existing = all.find((o) => o.id === r.objectiveId);
-      const newStatus = r.correct
-        ? (existing?.status === "struggling" ? "inprogress" : "mastered")
-        : "struggling";
-      updateObjective(objectiveBlockId, r.objectiveId, {
-        status: newStatus,
-        lastTested: new Date().toISOString(),
-        quizScore: r.correct ? 100 : 0,
+  const updateObjectivesFromQuiz = (lecId, bid, questionResults) => {
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const imp = [...imported];
+      const ext = [...extracted];
+      let changed = false;
+
+      const findSlot = (o, result) => {
+        const byId = o.id === result.objectiveId;
+        const byText =
+          result.objectiveText &&
+          String(o.objective || o.text || "")
+            .toLowerCase()
+            .includes(String(result.objectiveText).toLowerCase().slice(0, 40));
+        return byId || byText;
+      };
+
+      (questionResults || []).forEach((result) => {
+        let idx = imp.findIndex((o) => findSlot(o, result));
+        let arr = imp;
+        if (idx === -1) {
+          idx = ext.findIndex((o) => findSlot(o, result));
+          arr = ext;
+        }
+        if (idx === -1) return;
+        const obj = arr[idx];
+        if (obj?.linkedLecId && lecId && obj.linkedLecId !== lecId) return;
+
+        const prevStatus = obj.status;
+        const score = Number.isFinite(result.score) ? Number(result.score) : result.correct ? 100 : 0;
+        let newStatus;
+        if (score >= 80 || result.correct === true) newStatus = "mastered";
+        else if (score >= 50) newStatus = "inprogress";
+        else newStatus = "struggling";
+
+        const statusOrder = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
+        const prevOrder = statusOrder[prevStatus] ?? 0;
+        const newOrder = statusOrder[newStatus] ?? 0;
+        if (newOrder >= prevOrder || score < 30) {
+          arr[idx] = {
+            ...obj,
+            status: newStatus,
+            lastQuizzed: new Date().toISOString(),
+            lastQuizScore: score,
+          };
+          changed = true;
+        }
       });
-    });
+
+      if (changed) {
+        const wk = blockObjectivesStorageKey(stored, bid);
+        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+        localStorage.setItem(key, JSON.stringify(stored));
+        setBlockObjectives({ ...stored });
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      }
+      return changed;
+    } catch (e) {
+      console.error("updateObjectivesFromQuiz failed:", e);
+      return false;
+    }
+  };
+
+  const updateAllLecObjectivesFromScore = (lecId, bid, overallScore) => {
+    writeObjectiveStatuses(lecId, bid, overallScore);
+    return true;
+  };
+
+  const updateObjectivesFromSession = (lecId, bid, objResults) => {
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const imp = [...imported];
+      const ext = [...extracted];
+      let changed = false;
+
+      (objResults || []).forEach((result) => {
+        let idx = imp.findIndex(
+          (o) => o.id === result.objectiveId || (o.linkedLecId === lecId && result.objectiveId == null)
+        );
+        let arr = imp;
+        if (idx === -1) {
+          idx = ext.findIndex(
+            (o) => o.id === result.objectiveId || (o.linkedLecId === lecId && result.objectiveId == null)
+          );
+          arr = ext;
+        }
+        if (idx === -1) return;
+        const score = Number(result?.score ?? 0);
+        let newStatus;
+        if (score >= 80) newStatus = "mastered";
+        else if (score >= 55) newStatus = "inprogress";
+        else newStatus = "struggling";
+        const statusOrder = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
+        const prev = statusOrder[arr[idx]?.status] ?? 0;
+        const next = statusOrder[newStatus] ?? 0;
+        if (next >= prev || score < 30) {
+          arr[idx] = {
+            ...arr[idx],
+            status: newStatus,
+            lastSessionDate: new Date().toISOString(),
+            lastSessionScore: score,
+          };
+          changed = true;
+        }
+      });
+      if (changed) {
+        const wk = blockObjectivesStorageKey(stored, bid);
+        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+        localStorage.setItem(key, JSON.stringify(stored));
+        setBlockObjectives({ ...stored });
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      }
+      return changed;
+    } catch (e) {
+      console.error("updateObjectivesFromSession failed:", e);
+      return false;
+    }
+  };
+
+  const updateAllLecObjectivesFromSessionScore = (lecId, bid, score) => {
+    try {
+      const key = "rxt-block-objectives";
+      const stored = JSON.parse(localStorage.getItem(key) || "{}");
+      const raw = getBlockObjectivesStoredRaw(stored, bid);
+      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
+      const imp = [...imported];
+      const ext = [...extracted];
+      let changed = false;
+      const apply = (arr) => {
+        arr.forEach((obj, idx) => {
+          if (obj.linkedLecId !== lecId) return;
+          let newStatus;
+          if (score >= 80) newStatus = "mastered";
+          else if (score >= 55) newStatus = "inprogress";
+          else newStatus = "struggling";
+          const statusOrder = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
+          const prev = statusOrder[obj.status] ?? 0;
+          const next = statusOrder[newStatus] ?? 0;
+          if (next >= prev || score < 30) {
+            arr[idx] = {
+              ...obj,
+              status: newStatus,
+              lastSessionDate: new Date().toISOString(),
+              lastSessionScore: score,
+            };
+            changed = true;
+          }
+        });
+      };
+      apply(imp);
+      apply(ext);
+      if (changed) {
+        const wk = blockObjectivesStorageKey(stored, bid);
+        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
+        localStorage.setItem(key, JSON.stringify(stored));
+        setBlockObjectives({ ...stored });
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      }
+      return changed;
+    } catch (e) {
+      console.error("updateAllLecObjectivesFromSessionScore failed:", e);
+      return false;
+    }
+  };
+
+  const saveQuizSession = (lec, bid, score, questionCount) => {
+    try {
+      const perfKey = "rxt-performance";
+      const stored = JSON.parse(localStorage.getItem(perfKey) || "{}");
+      const key = `${lec.id}__${bid}`;
+      const existing = stored[key] || {};
+      const now = new Date().toISOString();
+      const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+      const sessionRecord = {
+        score,
+        date: now,
+        startedAt: now,
+        completedAt: now,
+        questionCount: questionCount || 0,
+        difficulty: currentSessionMeta?.difficulty || "medium",
+        sessionType: "quiz",
+        lectureId: lec.id,
+        blockId: bid,
+        topicKey: makeTopicKey(lec.id, bid),
+        lectureType: lec?.lectureType ?? null,
+        lectureNumber: lec?.lectureNumber ?? null,
+        lectureName: lec?.lectureTitle || lec?.filename || lec?.fileName || null,
+      };
+      stored[key] = {
+        ...existing,
+        lectureId: lec.id,
+        blockId: bid,
+        score,
+        date: now,
+        sessions: [...existingSessions, sessionRecord].slice(-50),
+        sessionType: "quiz",
+        questionCount: questionCount || 0,
+        lastQuizScore: score,
+        lastScore: score,
+        lastStudied: now,
+      };
+      localStorage.setItem(perfKey, JSON.stringify(stored));
+      setPerformanceHistory((prev) => ({ ...prev, [key]: stored[key] }));
+      window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("saveQuizSession perf failed:", e);
+    }
+  };
+
+  const syncQuizToTracker = (lec, bid, score) => {
+    try {
+      const completionKey = "rxt-completion";
+      const stored = JSON.parse(localStorage.getItem(completionKey) || "{}");
+      const key = `${lec.id}__${bid}`;
+      const existing = stored[key] || {
+        lectureId: lec.id,
+        blockId: bid,
+        ankiInRotation: false,
+        firstCompletedDate: new Date().toISOString(),
+        lastActivityDate: null,
+        lastConfidence: null,
+        reviewDates: [],
+        activityLog: [],
+      };
+      const confidence = score >= 75 ? "good" : score >= 50 ? "okay" : "struggling";
+      const now = new Date().toISOString();
+      const activityEntry = {
+        id: uid(),
+        date: now,
+        activityType: "questions",
+        confidenceRating: confidence,
+        durationMinutes: null,
+        note: `Quiz — ${score}% on ${lec.lectureType} ${lec.lectureNumber}`,
+      };
+      const updatedLog = [activityEntry, ...(existing.activityLog || [])];
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const intervals =
+        confidence === "good" ? [2, 7, 14, 30] : confidence === "okay" ? [1, 5, 10, 21] : [0, 2, 5, 10];
+      const reviewDates = intervals.map((d) => {
+        const r = new Date(today);
+        r.setDate(r.getDate() + d);
+        return r.toISOString();
+      });
+      stored[key] = {
+        ...existing,
+        lastActivityDate: now,
+        lastConfidence: confidence,
+        firstCompletedDate: existing.firstCompletedDate || now,
+        reviewDates,
+        activityLog: updatedLog,
+      };
+      localStorage.setItem(completionKey, JSON.stringify(stored));
+      window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    } catch (e) {
+      console.error("syncQuizToTracker failed:", e);
+    }
   };
 
   const distributeResultsToSubtopics = (_results, _lec, _blockId) => {
@@ -9478,6 +15780,7 @@ export default function App() {
         notes: sessionMeta.notes ?? null,
       }),
     };
+    const overallScore = sessionRecord.score;
 
     setPerformanceHistory((prev) => {
       const existing = prev[topicKey] || { sessions: [] };
@@ -9509,6 +15812,36 @@ export default function App() {
       console.log("✅ Session saved:", topicKey, sessionRecord);
       return newState;
     });
+
+    // Activity tracking (rxt-completion) — separate from rxt-performance
+    if (targetLecId && bid && sessionRecord?.sessionType) {
+      const confMap =
+        sessionRecord.confidenceLevel === "High" ? "good"
+          : sessionRecord.confidenceLevel === "Low" ? "struggling"
+            : sessionRecord.confidenceLevel === "Medium" ? "okay"
+              : "okay";
+      const activityType =
+        sessionRecord.sessionType === "deepLearn" ? "deep_learn"
+          : sessionRecord.sessionType === "anki" ? "anki"
+            : sessionRecord.sessionType === "quiz" || sessionRecord.sessionType === "objectiveQuiz" || sessionRecord.sessionType === "blockExam"
+              ? "questions"
+              : "manual";
+      logActivityToCompletion(targetLecId, bid, activityType, confMap, { date: now.slice(0, 10) });
+    }
+
+    if (sessionMeta?.sessionType === "deepLearn" && targetLecId && bid) {
+      const objResults = (results || [])
+        .filter((r) => r && (r.objectiveId || r.score != null || r.correct != null))
+        .map((r) => ({
+          objectiveId: r.objectiveId || null,
+          score: Number.isFinite(r.score) ? Number(r.score) : r.correct ? 100 : 0,
+        }));
+      if (objResults.some((r) => !!r.objectiveId)) {
+        updateObjectivesFromSession(targetLecId, bid, objResults);
+      } else {
+        updateAllLecObjectivesFromSessionScore(targetLecId, bid, overallScore);
+      }
+    }
 
     syncTrackerRow(targetLecId, bid, sessionRecord);
 
@@ -9561,6 +15894,8 @@ export default function App() {
     setStudyCfg(null);
     const areas = computeWeakAreas(bid);
     setWeakAreas(areas);
+    window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+    window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
   };
 
   const handleSessionComplete = (arg1, arg2) => {
@@ -9588,6 +15923,76 @@ export default function App() {
         (l) => l.id === (sessionMeta?.lectureId ?? sessionMeta?.targetObjectives?.[0]?.linkedLecId)
       );
       const sessionType = sessionMeta?.sessionType || "quiz";
+
+      if (sessionType === "quiz") {
+        const bid = sessionMeta?.blockId ?? blockId;
+        const targetLecId =
+          sessionMeta?.lectureId ??
+          sessionMeta?.targetObjectives?.[0]?.linkedLecId ??
+          results.find((r) => r?.lectureRef)?.lectureRef ??
+          null;
+        const targetLec =
+          lec ||
+          lectures.find((l) => l.id === targetLecId) ||
+          lectures.find((l) => l.id === sessionMeta?.targetObjectives?.[0]?.linkedLecId) ||
+          lectures.find((l) => l.id === sessionMeta?.lectureId);
+        if (targetLec && bid) {
+          const questionResults = (results || []).map((r) => ({
+            objectiveId: r.objectiveId || null,
+            objectiveText: r.objectiveCovered || r.topic || "",
+            correct: !!r.correct,
+            score: Number.isFinite(r.score) ? Number(r.score) : r.correct ? 100 : 0,
+          }));
+          const hasObjectiveIds = questionResults.some((r) => !!r.objectiveId);
+          const linkedObjCount = (getBlockObjectives(bid) || []).filter(
+            (o) => o.linkedLecId === targetLec.id
+          ).length;
+          const objectiveUpdatedCount = hasObjectiveIds
+            ? questionResults.length
+            : linkedObjCount;
+          if (hasObjectiveIds) {
+            updateObjectivesFromQuiz(targetLec.id, bid, questionResults);
+          } else {
+            updateAllLecObjectivesFromScore(targetLec.id, bid, score);
+          }
+          saveQuizSession(targetLec, bid, score, total);
+          syncQuizToTracker(targetLec, bid, score);
+          if (score < 50) {
+            addLectureToTodayReview(targetLec, bid);
+          }
+          if (score < 70 && (results || []).length) {
+            const label = `${targetLec.lectureType || "LEC"} ${targetLec.lectureNumber ?? ""} — ${targetLec.lectureTitle || targetLec.title || targetLec.fileName || ""}`;
+            const wrongOnes = (results || []).filter((r) => !r.correct);
+            const toFlag = wrongOnes.length ? wrongOnes.slice(0, 8) : results.slice(0, 3);
+            for (const r of toFlag) {
+              void recordWrongAnswer({
+                blockId: bid,
+                blockName: activeBlock?.name || "",
+                question: r.question || r.stem || `Quiz: ${r.objectiveCovered || r.topic || "objective"}`,
+                wrongAnswer: String(r.userAnswer || r.selected || r.chosen || "incorrect").slice(0, 200),
+                correctAnswer: String(r.correctAnswer || r.expected || "").slice(0, 200),
+                linkedLecId: targetLec.id,
+                lectureLabel: label,
+                source: "quiz",
+              });
+            }
+          }
+          setTrackerKey((k) => k + 1);
+          setQuizSavedState({
+            saved: true,
+            score,
+            objectiveSynced: true,
+            trackerSynced: true,
+            objectiveUpdatedCount,
+          });
+          setQuizFlashLectureId(targetLec.id);
+          setTimeout(() => setQuizFlashLectureId(null), 1000);
+        } else {
+          setQuizSavedState({ saved: false, score, objectiveSynced: false, trackerSynced: false });
+          console.warn("Quiz completed but lecture/block context missing — skipped save");
+        }
+        return;
+      }
 
       if (!["anki", "deepLearn"].includes(sessionType)) {
         setPendingConfidence({
@@ -9860,7 +16265,7 @@ export default function App() {
       <ExamConfigModal
         config={examConfigModal}
         blockObjs={getBlockObjectives(examConfigModal.blockId) || []}
-        blockLecs={lectures.filter((l) => l.blockId === examConfigModal.blockId)}
+        blockLecs={getBlockLecs(lectures, resolveBlockMeta(examConfigModal.blockId))}
         questionBanksByFile={(() => { try { return JSON.parse(localStorage.getItem("rxt-question-banks") || "{}"); } catch { return {}; } })()}
         performanceHistory={performanceHistory}
         T={t}
@@ -9896,6 +16301,7 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
         @keyframes rxt-spin { to { transform:rotate(360deg); } }
+        @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing:border-box; margin:0; padding:0; }
         ::-webkit-scrollbar { width:4px; }
         ::-webkit-scrollbar-track { background:${t.scrollbarTrack}; }
@@ -10135,7 +16541,21 @@ export default function App() {
           {/* STUDY */}
           {view==="study" && studyCfg && (
             <div style={{ padding:"32px 36px" }}>
-              <Session cfg={studyCfg} onDone={onSessionDone} onBack={() => { setView("block"); setStudyCfg(null); }} onGenerateTopicVignettes={generateTopicVignettes} />
+              <Session
+                cfg={studyCfg}
+                onDone={onSessionDone}
+                onBack={() => {
+                  setView("block");
+                  setStudyCfg(null);
+                  setQuizSavedState(null);
+                  setTrackerKey((k) => k + 1);
+                }}
+                onGenerateTopicVignettes={generateTopicVignettes}
+                quizSavedState={quizSavedState}
+                quizTargetLecture={lectures.find((l) => l.id === studyCfg?.lectureId) || null}
+                quizBlockId={studyCfg?.blockId ?? null}
+                onAddLectureToTodayReview={addLectureToTodayReview}
+              />
             </div>
           )}
 
@@ -10177,7 +16597,7 @@ export default function App() {
                 onStartScheduleSession={(session) => {
                   setStudyCfg({
                     blockId: session.blockId,
-                    lecs: lectures.filter((l) => l.blockId === session.blockId),
+                    lecs: getBlockLecs(lectures, resolveBlockMeta(session.blockId)),
                     blockObjectives: getBlockObjectives(session.blockId),
                   });
                   setView("deeplearn");
@@ -10192,6 +16612,22 @@ export default function App() {
                     preselectedActivity: activity,
                   });
                 }}
+                weakConceptsBadgeCount={weakConceptsStrugglingCount}
+                weakConceptsTabContent={
+                  <WeakConceptsTabPanel
+                    blockId={activeBlock?.id ?? blockId}
+                    blockName={activeBlock?.name}
+                    T={t}
+                    MONO={MONO}
+                    lecTypeBadge={lecTypeBadge}
+                    refreshKey={weakConceptsRefreshKey}
+                    lectures={lectures}
+                    terms={terms}
+                    onDrillConcept={startConceptDrill}
+                    onComprehensiveReview={startComprehensiveWeakReview}
+                    onRefresh={() => setWeakConceptsRefreshKey((k) => k + 1)}
+                  />
+                }
               />
             </div>
           )}
@@ -10267,7 +16703,7 @@ export default function App() {
             return (
             <DeepLearn
               blockId={bid}
-              lecs={lectures.filter((l) => l.blockId === bid)}
+              lecs={getBlockLecs(lectures, resolveBlockMeta(bid))}
               blockObjectives={blockObjsForDL}
               lecObjectives={lecObjectives}
               getBlockObjectives={getBlockObjectives}
@@ -10283,6 +16719,7 @@ export default function App() {
               termColor={tc}
               makeTopicKey={makeTopicKey}
               performanceHistory={performanceHistory}
+              initialRapidFireMode={!!studyCfg?.rapidFireMode}
               onBack={(results, meta) => {
                 if (Array.isArray(results) && meta) {
                   handleSessionComplete(results, meta);
@@ -10401,292 +16838,695 @@ export default function App() {
           {/* BLOCK VIEW */}
           {view==="block" && activeBlock && activeTerm && (
             <div style={{ padding:"32px 36px", display:"flex", flexDirection:"column", gap:22 }}>
-              {/* Header */}
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", flexWrap:"wrap", gap:14 }}>
-                <div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5 }}>
-                    <div style={{ width:10, height:10, borderRadius:"50%", background:tc }} />
-                    <span style={{ fontFamily:MONO, color:t.text3, fontSize:13 }}>{activeTerm.name}</span>
-                    <span style={{ color:t.text4 }}>›</span>
-                    <span style={{ fontFamily:MONO, color:(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).color, fontSize:11 }}>
-                      {(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).icon} {(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).label.toUpperCase()}
-                    </span>
-                  </div>
-                  <h1 style={{ fontFamily:SERIF, fontSize:28, fontWeight:900, letterSpacing:-0.5, color:t.text1 }}>{activeBlock.name}</h1>
-                  <div style={{ display:"flex", gap:18, marginTop:6 }}>
-                    {[["Lectures",blockLecs.length],["Sessions",sessions.filter(s=>s.blockId===blockId).length],["Questions",sessions.filter(s=>s.blockId===blockId).reduce((a,s)=>a+s.total,0)]].map(([l,v])=>(
-                      <span key={l} style={{ fontFamily:MONO, color:t.text5, fontSize:11 }}><span style={{ color:t.text3, fontWeight:600 }}>{v}</span> {l}</span>
-                    ))}
-                  </div>
-                  <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:10 }}>
-                    <span style={{ fontFamily:MONO, color:t.text3, fontSize:11 }}>
-                      Block start date:
-                    </span>
-                    <input
-                      type="date"
-                      value={activeBlock?.startDate || ""}
-                      onChange={(e) => updateBlock(activeBlock.id, { startDate: e.target.value })}
-                      style={{
-                        background: t.inputBg,
-                        border: "1px solid " + t.border1,
-                        borderRadius: 7,
-                        padding: "5px 10px",
-                        color: t.text1,
-                        fontFamily: MONO,
-                        fontSize: 11,
-                      }}
-                    />
-                  </div>
-                </div>
-                <Ring score={bScore(blockId)} size={80} tint={tc} />
-              </div>
+              <style>{`@keyframes rxtUploadSpin { to { transform: rotate(360deg); } }`}</style>
+              {/* Compact header (Step A) */}
+              {(() => {
+                const examDate = (examDates || {})[blockId] || "";
+                const startDate = activeBlock?.startDate || "";
+                const today = new Date();
+                today.setHours(0,0,0,0);
+                const todayISO = today.toISOString().slice(0,10);
 
-              {/* Block Exam Prep */}
-              <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:16, padding:"24px 28px", display:"flex", alignItems:"center", justifyContent:"space-between", gap:20, flexWrap:"wrap", boxShadow:t.shadowSm }}>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ fontFamily:MONO, color:tc, fontSize:11, letterSpacing:2, marginBottom:6 }}>⚡ BLOCK EXAM PREP</div>
-                  <div style={{ fontFamily:SERIF, color:t.text2, fontSize:16, fontWeight:700, marginBottom:4 }}>Comprehensive {activeBlock.name} Review</div>
-                  <p style={{ fontFamily:MONO, color:t.text3, fontSize:11, lineHeight:1.6 }}>
-                    {blockLecs.length>0 ? "Mixed vignettes from all " + blockLecs.length + " lecture" + (blockLecs.length!==1?"s":"") + (sessions.filter(s=>s.blockId===blockId).length>0?" · weak topics weighted higher":"") : "Upload lectures first."}
-                  </p>
-                  {(() => {
-                    const blockObjs = getBlockObjectives(blockId) || [];
-                    const total = blockObjs.length;
-                    const mastered = blockObjs.filter(o => o.status === "mastered").length;
-                    const struggling = blockObjs.filter(o => o.status === "struggling").length;
-                    const untested = blockObjs.filter(o => o.status === "untested").length;
-                    const inprogress = blockObjs.filter(o => o.status === "inprogress").length;
-                    const pct = total > 0 ? Math.round(mastered / total * 100) : 0;
-                    if (total === 0) return null;
-                    return (
-                      <>
-                        <div style={{ marginTop:12, display:"flex", flexDirection:"column", gap:8 }}>
-                          <div style={{ height:8, background:t.border1, borderRadius:3 }}>
-                            <div style={{ height:"100%", borderRadius:3, width:pct+"%", background:pct===100?t.statusGood:pct>60?t.statusWarn:t.statusBad, transition:"width 0.5s" }} />
-                          </div>
-                          <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
-                            {[
-                              { label:"Mastered", val:mastered, color:t.statusGood },
-                              { label:"In Progress", val:inprogress, color:t.statusProgress },
-                              { label:"Struggling", val:struggling, color:t.statusBad },
-                              { label:"Untested", val:untested, color:t.statusNeutral },
-                            ].filter(s => s.val > 0).map(s => (
-                              <div key={s.label} style={{ display:"flex", alignItems:"center", gap:5 }}>
-                                <div style={{ width:7, height:7, borderRadius:"50%", background:s.color }} />
-                                <span style={{ fontFamily:MONO, color:s.color, fontSize:10, fontWeight:700 }}>{s.val}</span>
-                                <span style={{ fontFamily:MONO, color:t.text3, fontSize:9 }}>{s.label}</span>
-                              </div>
-                            ))}
-                            <span style={{ fontFamily:MONO, color:t.text3, fontSize:9, marginLeft:"auto" }}>{pct}% objective coverage</span>
-                          </div>
+                const perfByLec = (blockLecs || []).map((lec) => {
+                  const perf = getLecPerf(lec, blockId);
+                  const sess = Array.isArray(perf?.sessions) ? perf.sessions : [];
+                  const lastScore = sess.length ? (sess[sess.length - 1]?.score ?? 0) : 0;
+                  return { lec, sessions: sess, lastScore };
+                });
+
+                const totalLecs = (blockLecs || []).length;
+                const lecsWithSessions = perfByLec.filter((p) => (p.sessions?.length || 0) > 0).length;
+                const coveragePct = totalLecs > 0 ? Math.round((lecsWithSessions / totalLecs) * 100) : 0;
+                const ringColor = coveragePct >= 70 ? "#639922" : coveragePct >= 40 ? "#BA7517" : "#E24B4A";
+
+                const totalSessions = perfByLec.reduce((sum, p) => sum + (p.sessions?.length || 0), 0);
+                const objectivesCount = (getBlockObjectives(blockId) || []).length;
+                const allScores = perfByLec.flatMap((p) => (p.sessions || []).map((ss) => ss?.score ?? 0)).filter((n) => n > 0);
+                const avgScore = allScores.length ? Math.round(allScores.reduce((a,b)=>a+b,0)/allScores.length) : null;
+
+                const onTrack = perfByLec.filter((p) => p.lastScore >= 70).length;
+                const needWork = perfByLec.filter((p) => p.lastScore > 0 && p.lastScore < 70).length;
+                const notStarted = perfByLec.filter((p) => (p.sessions?.length || 0) === 0).length;
+
+                const overdue = (() => {
+                  let store = {};
+                  try { store = JSON.parse(localStorage.getItem('rxt-completion') || '{}') || {}; } catch {}
+                  const hasLoggedToday = (entry) => Array.isArray(entry?.activityLog) && entry.activityLog.some((a) => String(a?.date || '').slice(0,10) === todayISO);
+                  return perfByLec.filter(({ lec }) => {
+                    const entry = store[`${lec.id}__${blockId}`] || null;
+                    const rds = Array.isArray(entry?.reviewDates) ? entry.reviewDates : [];
+                    const hasPastReview = rds.some((d) => String(d).slice(0,10) < todayISO);
+                    return hasPastReview && !hasLoggedToday(entry);
+                  }).length;
+                })();
+
+                const daysRemainingLabel = (() => {
+                  if (!examDate) return '';
+                  const ex = new Date(String(examDate).slice(0,10));
+                  ex.setHours(0,0,0,0);
+                  const days = Math.ceil((ex - today) / 86400000);
+                  if (days < 0) return 'Exam complete';
+                  return `${days} days remaining`;
+                })();
+
+                const dateLine = (() => {
+                  if (!startDate) return examDate ? `${examDate}` : '';
+                  if (!examDate) return `${startDate}`;
+                  return `${startDate} – ${examDate}${daysRemainingLabel ? "  ·  " + daysRemainingLabel : ""}`;
+                })();
+
+                const radius = 22;
+                const circumference = 2 * Math.PI * radius;
+                const dash = (coveragePct / 100) * circumference;
+
+                const statusDot = (style) => (
+                  <span style={{ width: 7, height: 7, borderRadius: 999, display: 'inline-block', ...style }} />
+                );
+
+                const objectivesExamOnClick = () =>
+                  setExamConfigModal({ mode: 'objectives', blockId: activeBlock?.id ?? blockId, open: true });
+
+                const clearOrphanedOnClick = () => {
+                  const allLecIds = new Set(lectures.map((l) => l.id));
+                  setPerformanceHistory((prev) => {
+                    const cleaned = {};
+                    Object.entries(prev || {}).forEach(([key, entry]) => {
+                      const lecId = key.split('__')[0];
+                      if (lecId === 'block' || allLecIds.has(lecId)) cleaned[key] = entry;
+                      else console.log(`🗑 Removed orphaned key: ${key}`);
+                    });
+                    try { localStorage.setItem('rxt-performance', JSON.stringify(cleaned)); } catch {}
+                    return cleaned;
+                  });
+                };
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                      <div style={{ flex: 1, minWidth: 260 }}>
+                        <div style={{ fontSize: 11, color: t.text3, marginBottom: 4 }}>
+                          <span style={{ fontFamily: MONO }}>{activeTerm.name}</span>
+                          <span style={{ margin: '0 6px', color: t.text4 }}>·</span>
+                          <span style={{ fontFamily: MONO, color: (BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).color }}>
+                            {(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).label.toUpperCase()}
+                          </span>
                         </div>
-                        <BlockWeakObjectivesBreakdown
-                          blockObjs={blockObjs}
-                          lecs={blockLecs}
-                          blockId={blockId}
-                          currentBlock={activeBlock}
-                          T={t}
-                          tc={tc}
-                          startObjectiveQuiz={startObjectiveQuiz}
-                          updateObjective={updateObjective}
-                          lecTypeBadge={lecTypeBadge}
-                        />
-                      </>
-                    );
-                  })()}
-                </div>
-                <div style={{ display:"flex", gap:16, alignItems:"center", flexWrap:"wrap" }}>
-                  {(getBlockObjectives(blockId).length > 0) && (
-                    <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:8, padding:"4px 12px", display:"flex", gap:6, alignItems:"center" }}>
-                      <span style={{ fontFamily:MONO, color:tc, fontSize:12, fontWeight:700 }}>
-                        {getBlockObjectives(blockId).filter(o=>o.status==="mastered").length}/{getBlockObjectives(blockId).length}
-                      </span>
-                      <span style={{ fontFamily:MONO, color:t.text3, fontSize:9 }}>objectives</span>
+                        <div style={{ fontSize: 22, fontWeight: 500, color: t.text1 }}>{activeBlock.name}</div>
+                        {dateLine && <div style={{ fontSize: 13, color: t.text2, marginTop: 2 }}>{dateLine}</div>}
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <svg width='52' height='52' viewBox='0 0 52 52'>
+                          <circle cx='26' cy='26' r={radius} fill='none' stroke={t.border2} strokeWidth='4' />
+                          <circle cx='26' cy='26' r={radius} fill='none' stroke={ringColor} strokeWidth='4' strokeLinecap='round' strokeDasharray={`${dash} ${circumference-dash}`} transform='rotate(-90 26 26)' />
+                          <text x='26' y='29' textAnchor='middle' style={{ fontFamily: MONO, fontSize: 12, fill: ringColor, fontWeight: 600 }}>{coveragePct}%</text>
+                        </svg>
+                        <div style={{ fontSize: 11, color: t.text3, fontFamily: MONO }}>coverage</div>
+                      </div>
                     </div>
-                  )}
-                  {getBlockObjectives(blockId).filter(o=>o.status!=="mastered").length > 0 && (
-                    <button
-                      onClick={() => {
-                        const weakObjs = getBlockObjectives(blockId).filter(o => o.status === "struggling" || o.status === "untested");
-                        if (weakObjs.length === 0) return;
-                        startObjectiveQuiz(weakObjs, "Weak & Untested Objectives", blockId);
-                      }}
-                      style={{ background:t.statusBad, border:"none", color:"#fff", padding:"6px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:10, fontWeight:700 }}
-                    >
-                      ⚠ Quiz Weak Objectives ({getBlockObjectives(blockId).filter(o=>o.status!=="mastered").length})
-                    </button>
-                  )}
-                  {tab === "lectures" && (
-                    <>
-                      <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                        <span style={{ fontFamily:MONO, color:t.text3, fontSize:9 }}>SORT</span>
-                        {[["number","#"],["name","A–Z"],["subject","Subject"],["score","Score"],["recent","Recent"]].map(([v, label]) => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => { setLecSort(v); if (typeof window !== "undefined") localStorage.setItem("rxt-lec-sort", v); }}
-                            style={{
-                              background: lecSort === v ? tc + "22" : "none",
-                              border: "1px solid " + (lecSort === v ? tc : t.border1),
-                              color: lecSort === v ? tc : t.text3,
-                              padding: "3px 9px",
-                              borderRadius: 5,
-                              cursor: "pointer",
-                              fontFamily: MONO,
-                              fontSize: 12,
-                              transition: "all 0.15s",
-                            }}
-                          >
-                            {label}
-                          </button>
-                        ))}
+
+                    {!(tab === "objectives" && drillMode) && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                      {[{label:'lectures',value:totalLecs},{label:'sessions',value:totalSessions},{label:'objectives',value:objectivesCount},{label:'avg score',value:avgScore==null?'—':`${avgScore}%`}].map(c => (
+                        <div key={c.label} style={{ background: t.inputBg, borderRadius: 10, padding: '5px 10px', fontSize: 12, color: t.text2, display: 'flex', gap: 6, alignItems: 'baseline' }}>
+                          <span style={{ fontFamily: MONO, fontWeight: 500, color: t.text1 }}>{c.value}</span>
+                          <span>{c.label}</span>
+                        </div>
+                      ))}
                     </div>
-                      <div style={{ display:"flex", gap:2, background:t.inputBg, borderRadius:8, padding:2, border:"1px solid "+t.border1 }}>
-                        {[["card","▦"],["list","☰"]].map(([v, icon]) => (
-                          <button
-                            key={v}
-                            type="button"
-                            onClick={() => toggleLecView(v)}
-                            style={{
-                              background: lecView === v ? t.cardBg : "none",
-                              border: "none",
-                              color: lecView === v ? tc : t.text3,
-                              width: 30,
-                              height: 28,
-                              borderRadius: 6,
-                              cursor: "pointer",
-                              fontSize: 16,
-                              boxShadow: lecView === v ? t.shadowSm : "none",
-                              transition: "all 0.15s",
-                            }}
-                          >
-                            {icon}
-                          </button>
-                        ))}
-                  </div>
+                    )}
+
+                    {!(tab === "objectives" && drillMode) && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '8px 0', borderTop: '0.5px solid ' + t.border2, borderBottom: '0.5px solid ' + t.border2, marginTop: 8 }}>
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: t.text2 }}>{statusDot({background:'#639922'})} <span style={{ fontFamily: MONO, color: t.text1 }}>{onTrack}</span> on track</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: t.text2 }}>{statusDot({background:'#BA7517'})} <span style={{ fontFamily: MONO, color: t.text1 }}>{needWork}</span> need work</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: t.text2 }}>{statusDot({background:'transparent',border:'1px solid '+t.border1})} <span style={{ fontFamily: MONO, color: t.text1 }}>{notStarted}</span> not started</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: overdue>0?t.statusBad:t.text3 }}>{statusDot({background:'#E24B4A'})} <span style={{ fontFamily: MONO, color: overdue>0?t.statusBad:t.text3 }}>{overdue}</span> overdue</div>
+                      </div>
+                      <div style={{ flex: 1 }} />
+                      <input ref={uploadInputRef} type='file' accept='.pdf,.txt,.md' multiple onChange={e=>handleLectureUpload(e.target.files,blockId,termId)} style={{ display:'none' }} />
+                      <button type='button' onClick={objectivesExamOnClick} style={{ fontSize: 12, padding: '5px 12px', background: '#FCEBEB', color: '#A32D2D', border: '0.5px solid #F09595', borderRadius: 10, cursor: 'pointer', fontFamily: MONO, fontWeight: 700 }}>Objectives exam</button>
                       <button
-                        type="button"
-                        onClick={() => { setMergeMode(m => !m); setMergeSelected([]); }}
+                        type='button'
+                        disabled={uploading}
+                        onClick={() => !uploading && uploadInputRef.current && uploadInputRef.current.click()}
                         style={{
-                          background: mergeMode ? t.amber + "22" : "none",
-                          border: "1px solid " + (mergeMode ? t.amber : t.border1),
-                          color: mergeMode ? t.amber : t.text3,
-                          padding: "3px 10px",
-                          borderRadius: 6,
-                          cursor: "pointer",
-                          fontFamily: MONO,
                           fontSize: 12,
-                          transition: "all 0.15s",
+                          padding: '5px 12px',
+                          background: '#EEEDFE',
+                          color: '#3C3489',
+                          border: '0.5px solid #AFA9EC',
+                          borderRadius: 10,
+                          cursor: uploading ? 'default' : 'pointer',
+                          fontFamily: MONO,
+                          fontWeight: 700,
+                          opacity: uploading ? 0.7 : 1,
+                          pointerEvents: uploading ? 'none' : 'auto',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
                         }}
                       >
-                        {mergeMode ? "✕ Cancel Merge" : "⊕ Merge"}
+                        {uploading && (
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              width: 10,
+                              height: 10,
+                              border: '2px solid #AFA9EC',
+                              borderTopColor: '#3C3489',
+                              borderRadius: '50%',
+                              animation: 'rxtUploadSpin 0.7s linear infinite',
+                            }}
+                          />
+                        )}
+                        {uploading ? 'Uploading…' : '＋ Upload'}
                       </button>
-                    </>
-                  )}
-                  <div style={{ display:"flex", flexDirection:"column", gap:8, minWidth:200 }}>
-                    <button
-                      onClick={() => setExamConfigModal({ mode: "objectives", blockId: activeBlock?.id ?? blockId, open: true })}
-                      disabled={blockExamLoading || (!blockLecs.length && !getBlockObjectives(blockId).length)}
-                      style={{ background:tc, border:"none", color:"#fff", padding:"11px 20px", borderRadius:9, cursor:blockExamLoading?"wait":"pointer", fontFamily:SERIF, fontSize:14, fontWeight:900, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, transition:"opacity 0.15s" }}
-                      onMouseEnter={e => !blockExamLoading && (e.currentTarget.style.opacity="0.88")}
-                      onMouseLeave={e => (e.currentTarget.style.opacity="1")}
-                    >
-                      {blockExamLoading ? (
-                        <>
-                          <span>Generating exam...</span>
-                          <div style={{ width:14, height:14, border:"2px solid #ffffff40", borderTopColor:"#fff", borderRadius:"50%", animation:"rxt-spin 0.8s linear infinite" }} />
-                        </>
-                      ) : (
-                        <>
-                          <span>🎯 Objectives Exam</span>
-                          <span style={{ fontSize:11, opacity:0.85 }}>→</span>
-                        </>
-                      )}
-                    </button>
-                    <div style={{ display:"flex", gap:6 }}>
-                      <button
-                        onClick={() => setExamConfigModal({ mode: "weak", blockId: activeBlock?.id ?? blockId, open: true })}
-                        disabled={!blockLecs.length && !getBlockObjectives(blockId).length}
-                        style={{ flex:1, background:t.redBg, border:"1px solid "+t.redBorder, color:t.red, padding:"8px 10px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:10, fontWeight:700, transition:"all 0.15s" }}
-                        onMouseEnter={e => (e.currentTarget.style.background=t.red+"30")}
-                        onMouseLeave={e => (e.currentTarget.style.background=t.redBg)}
-                      >
-                        ⚠ Weak Only
-                      </button>
-                      <button
-                        onClick={() => setExamConfigModal({ mode: "full", blockId: activeBlock?.id ?? blockId, open: true })}
-                        disabled={!blockLecs.length && !getBlockObjectives(blockId).length}
-                        style={{ flex:1, background:t.inputBg, border:"1px solid "+t.border1, color:t.text2, padding:"8px 10px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:10, transition:"all 0.15s" }}
-                        onMouseEnter={e => (e.currentTarget.style.background=t.hoverBg)}
-                        onMouseLeave={e => (e.currentTarget.style.background=t.inputBg)}
-                      >
-                        Full Review
-                      </button>
+                      <button type='button' onClick={() => setEditPanelOpen(p => !p)} style={{ fontSize: 12, padding: '5px 12px', background: 'transparent', border: '0.5px solid ' + t.border1, color: t.text2, borderRadius: 10, cursor: 'pointer', fontFamily: MONO, fontWeight: 700 }}>⚙ Edit block</button>
                     </div>
-                    {getBlockObjectives(blockId).length > 0 && (
-                      <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, textAlign:"center", marginTop:2 }}>
-                        Targeting {getBlockObjectives(blockId).filter(o=>o.status==="struggling"||o.status==="untested").length} weak/untested objectives
+                    )}
+
+                    {editPanelOpen && (
+                      <div style={{ background: t.inputBg, border: '0.5px solid ' + t.border2, borderRadius: 10, padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end', marginTop: 10 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: t.text3 }}>Block start date</div>
+                          <input type='date' value={activeBlock?.startDate || ''} onChange={(e)=>updateBlock(activeBlock.id,{ startDate:e.target.value })} style={{ background: t.cardBg, border: '1px solid ' + t.border1, borderRadius: 7, padding: '6px 10px', color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: t.text3 }}>Exam date</div>
+                          <input type='date' value={examDate} min={new Date().toISOString().slice(0,10)} onChange={(e)=>saveExamDate(blockId,e.target.value)} style={{ background: t.cardBg, border: '1px solid ' + t.border1, borderRadius: 7, padding: '6px 10px', color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: t.text3 }}>Maintenance</div>
+                          <button type='button' onClick={clearOrphanedOnClick} style={{ fontFamily: MONO, fontSize: 11, padding: '6px 12px', borderRadius: 10, border: '1px solid ' + t.border1, background: t.cardBg, color: t.text2, cursor: 'pointer' }}>🗑 Clear Orphaned Sessions</button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: t.text3 }}>Lectures</div>
+                          <button type='button' onClick={clearBlockLectures} style={{ fontFamily: MONO, fontSize: 11, padding: '6px 12px', borderRadius: 10, border: '1px solid ' + t.border1, background: t.cardBg, color: t.text2, cursor: 'pointer' }}>Clear All</button>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <div style={{ fontSize: 11, color: t.text3 }}>Upload cache</div>
+                          <button
+                            type='button'
+                            onClick={() => {
+                              try {
+                                localStorage.removeItem(UPLOAD_CACHE_KEY);
+                              } catch (_) {}
+                              alert("Upload cache cleared — files will be re-processed on next upload");
+                            }}
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 11,
+                              padding: '6px 12px',
+                              borderRadius: 10,
+                              border: 'none',
+                              background: 'transparent',
+                              color: '#A32D2D',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                            }}
+                          >
+                            Clear upload cache
+                          </button>
+                        </div>
                       </div>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const allLecIds = new Set(lectures.map((l) => l.id));
-                        setPerformanceHistory((prev) => {
-                          const cleaned = {};
-                          Object.entries(prev || {}).forEach(([key, entry]) => {
-                            const lecId = key.split("__")[0];
-                            if (lecId === "block" || allLecIds.has(lecId)) {
-                              cleaned[key] = entry;
-                            } else {
-                              console.log(`🗑 Removed orphaned key: ${key}`);
-                            }
-                          });
-                          try {
-                            localStorage.setItem("rxt-performance", JSON.stringify(cleaned));
-                          } catch {}
-                          return cleaned;
-                        });
-                      }}
+                  </div>
+                );
+              })()}
+
+              {uploadQueue.length > 0 &&
+                (() => {
+                  const busy = uploadQueue.some((i) =>
+                    ["pending", "extracting", "parsing", "linking"].includes(i.status)
+                  );
+                  const hasCollisionPending = uploadQueue.some((i) => i.status === "collision");
+                  const allTerminal =
+                    uploadQueue.every((i) => i.status === "done" || i.status === "error") &&
+                    !hasCollisionPending;
+                  const anyErr = uploadQueue.some((i) => i.status === "error");
+                  const okCount = uploadQueue.filter((i) => i.status === "done").length;
+                  const errCount = uploadQueue.filter((i) => i.status === "error").length;
+                  const totalObj = uploadQueue.reduce((s, i) => s + (i.result?.objectiveCount || 0), 0);
+                  const busyN = uploadQueue.filter((i) =>
+                    ["pending", "extracting", "parsing", "linking"].includes(i.status)
+                  ).length;
+                  const showDismiss = allTerminal && !busy;
+
+                  const statusLabel = (item) => {
+                    switch (item.status) {
+                      case "pending":
+                        return { text: "Waiting...", color: t.text3 };
+                      case "extracting":
+                        return { text: "Extracting text...", color: "#0891b2" };
+                      case "parsing":
+                        return { text: "Parsing objectives...", color: "#BA7517" };
+                      case "linking":
+                        return { text: "Linking objectives...", color: "#185FA5" };
+                      case "collision":
+                        return {
+                          text:
+                            "⚠ " +
+                            (item.collisionLabel || "Lecture") +
+                            " already exists — choose an action below",
+                          color: "#BA7517",
+                        };
+                      case "done":
+                        if (item.result?.skipped) {
+                          return {
+                            text: item.result?.resultSummary || "Already uploaded — skipped",
+                            color: t.text3,
+                          };
+                        }
+                        return {
+                          text: item.result?.resultSummary || `${item.result?.objectiveCount ?? 0} objectives`,
+                          color: item.result?.resultSummaryColor || "#27500A",
+                        };
+                      case "error":
+                        return { text: item.error || "Upload failed", color: "#E24B4A" };
+                      default:
+                        return { text: "", color: t.text3 };
+                    }
+                  };
+
+                  const progPct = (item) => {
+                    if (item.status === "pending") return 0;
+                    if (item.status === "error") return 100;
+                    if (item.status === "done") return 100;
+                    if (item.status === "collision") return 0;
+                    return typeof item.progress === "number" ? item.progress : 0;
+                  };
+
+                  const progBg = (item) => {
+                    if (item.status === "error") return "#E24B4A";
+                    if (item.status === "done") return "#639922";
+                    if (item.status === "collision") return "#BA7517";
+                    return tc;
+                  };
+
+                  return (
+                    <div
                       style={{
-                        background: t.statusBad,
-                        border: "none",
-                        color: "#fff",
-                        padding: "6px 14px",
-                        borderRadius: 7,
-                        cursor: "pointer",
-                        fontFamily: MONO,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        marginTop: 8,
+                        background: "var(--color-background-primary, " + t.cardBg + ")",
+                        border: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                        borderRadius: "var(--border-radius-lg, 12px)",
+                        padding: "12px 16px",
+                        marginBottom: 8,
                       }}
                     >
-                      🗑 Clear Orphaned Sessions
-                    </button>
-                  </div>
-                </div>
-              </div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          marginBottom: 10,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 200 }}>
+                          {busy && (
+                            <>
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  width: 10,
+                                  height: 10,
+                                  border: "2px solid " + t.border1,
+                                  borderTopColor: tc,
+                                  borderRadius: "50%",
+                                  animation: "rxtUploadSpin 0.7s linear infinite",
+                                }}
+                              />
+                              <span style={{ fontSize: 13, fontWeight: 500, color: t.text1 }}>
+                                Processing {busyN} file(s)...
+                              </span>
+                            </>
+                          )}
+                          {!busy && allTerminal && !anyErr && (
+                            <span style={{ fontSize: 13, fontWeight: 500, color: "#27500A" }}>
+                              ✓ {okCount} lecture(s) uploaded
+                            </span>
+                          )}
+                          {!busy && allTerminal && anyErr && (
+                            <span style={{ fontSize: 13, fontWeight: 500, color: "#BA7517" }}>
+                              ⚠ {errCount} failed · {okCount} succeeded
+                            </span>
+                          )}
+                        </div>
+                        {showDismiss && (
+                          <button
+                            type="button"
+                            onClick={dismissUploadPanel}
+                            style={{
+                              background: "none",
+                              border: "none",
+                              color: t.text3,
+                              fontSize: 11,
+                              cursor: "pointer",
+                              fontFamily: MONO,
+                            }}
+                          >
+                            ✕ Dismiss
+                          </button>
+                        )}
+                      </div>
+                      {!busy && allTerminal && !anyErr && (
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "#27500A", marginBottom: 6 }}>
+                          ✓ {okCount} uploaded · {totalObj} objectives extracted
+                        </div>
+                      )}
+                      {!busy && allTerminal && okCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setTab("lectures")}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            padding: 0,
+                            marginBottom: 10,
+                            fontSize: 12,
+                            color: "var(--color-text-info, " + t.blue + ")",
+                            cursor: "pointer",
+                            fontFamily: MONO,
+                            textDecoration: "underline",
+                          }}
+                        >
+                          Go to Lectures tab
+                        </button>
+                      )}
 
-              {/* Upload */}
-              <div
-                onDragOver={e=>{ e.preventDefault(); setDrag(true); }}
-                onDragLeave={()=>setDrag(false)}
-                onDrop={e=>{ e.preventDefault(); setDrag(false); handleLectureUpload(e.dataTransfer.files,blockId,termId); }}
-                style={{ background:drag?t.hoverBg:t.cardBg, border:"1px "+(drag?"solid "+tc:"dashed "+t.border1), borderRadius:12, padding:"16px 20px", transition:"all 0.2s", display:"flex", alignItems:"center", gap:14, flexWrap:"wrap" }}>
-                <div style={{ flex:1 }}>
-                  <span style={{ fontFamily:MONO, color:t.text3, fontSize:12 }}>Upload to <span style={{ color:tc, fontWeight:600 }}>{activeBlock.name}</span></span>
-                  <span style={{ fontFamily:MONO, color:t.text3, fontSize:11, marginLeft:10 }}>PDF or .txt — drag & drop or click</span>
-                </div>
-                <label style={{ background:t.inputBg, border:"1px dashed " + t.border1, color:t.text1, padding:"6px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:11, fontWeight:600 }}>
-                  {uploading ? "Analyzing…" : "+ Upload Files"}
-                  <input type="file" accept=".pdf,.txt,.md" multiple onChange={e=>handleLectureUpload(e.target.files,blockId,termId)} style={{ display:"none" }} />
-                </label>
-                {blockLecs.length > 0 && (
-                  <button type="button" onClick={clearBlockLectures} style={{ background:"none", border:"1px solid " + t.text4, color:t.text3, padding:"6px 12px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>Clear All</button>
-                )}
-                {uploading && <div style={{ width:"100%", height:2, background:t.border1, borderRadius:1, overflow:"hidden" }}><div style={{ height:"100%", width:"65%", background:"linear-gradient(90deg,"+tc+","+t.purple+")", borderRadius:1 }} /></div>}
-                {upMsg && <div style={{ width:"100%", fontFamily:MONO, color:upMsg.startsWith("✓")?t.green:upMsg.startsWith("✗")||upMsg.startsWith("⚠")?t.red:t.blue, fontSize:11 }}>{upMsg}</div>}
-              </div>
+                      {uploadQueue.map((item, idx) => {
+                        const sl = statusLabel(item);
+                        const isLast = idx === uploadQueue.length - 1;
+                        return (
+                          <div key={item.id}>
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                                padding: "7px 0",
+                                borderBottom: isLast && !item.result?.typeWarning ? "none" : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: 24,
+                                  height: 24,
+                                  flexShrink: 0,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                {item.status === "pending" && (
+                                  <span
+                                    style={{
+                                      width: 10,
+                                      height: 10,
+                                      borderRadius: "50%",
+                                      border: "1.5px solid " + t.border1,
+                                      display: "block",
+                                    }}
+                                  />
+                                )}
+                                {(item.status === "extracting" ||
+                                  item.status === "parsing" ||
+                                  item.status === "linking") && (
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      width: 10,
+                                      height: 10,
+                                      border: "2px solid " + t.border1,
+                                      borderTopColor: tc,
+                                      borderRadius: "50%",
+                                      animation: "rxtUploadSpin 0.7s linear infinite",
+                                    }}
+                                  />
+                                )}
+                                {item.status === "done" && !item.result?.skipped && (
+                                  <span style={{ color: "#639922", fontSize: 14 }}>✓</span>
+                                )}
+                                {item.status === "done" && item.result?.skipped && (
+                                  <span style={{ color: t.text3, fontSize: 12 }}>○</span>
+                                )}
+                                {item.status === "error" && (
+                                  <span style={{ color: "#E24B4A", fontSize: 14 }}>⚠</span>
+                                )}
+                                {item.status === "collision" && (
+                                  <span style={{ color: "#BA7517", fontSize: 14 }}>⚠</span>
+                                )}
+                              </div>
+                              <div
+                                title={item.filename}
+                                style={{
+                                  flex: 1,
+                                  fontSize: 13,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  minWidth: 0,
+                                  fontFamily: MONO,
+                                  color: t.text1,
+                                }}
+                              >
+                                {item.filename}
+                              </div>
+                              <div
+                                style={{
+                                  flexShrink: 0,
+                                  maxWidth: 200,
+                                  fontSize: 11,
+                                  color: sl.color,
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                  fontFamily: MONO,
+                                }}
+                              >
+                                {sl.text}
+                              </div>
+                              <div
+                                style={{
+                                  width: 80,
+                                  flexShrink: 0,
+                                  height: 3,
+                                  borderRadius: 2,
+                                  background: "var(--color-background-tertiary, " + t.border1 + ")",
+                                  overflow: "hidden",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: progPct(item) + "%",
+                                    height: "100%",
+                                    borderRadius: 2,
+                                    background: progBg(item),
+                                    transition: "width 1.2s ease",
+                                  }}
+                                />
+                              </div>
+                              {item.status === "error" && item.retryable && (
+                                <button
+                                  type="button"
+                                  onClick={() => retryUploadQueuedFile(item.id)}
+                                  style={{
+                                    flexShrink: 0,
+                                    fontSize: 11,
+                                    fontFamily: MONO,
+                                    padding: "3px 8px",
+                                    borderRadius: 4,
+                                    border: "1px solid " + t.border1,
+                                    background: t.inputBg,
+                                    color: t.text2,
+                                    cursor: "pointer",
+                                  }}
+                                >
+                                  Retry
+                                </button>
+                              )}
+                              {item.status === "done" && item.result?.skipped && (
+                                <button
+                                  type="button"
+                                  onClick={() => forceReuploadQueuedFile(item.id)}
+                                  style={{
+                                    flexShrink: 0,
+                                    fontSize: 11,
+                                    fontFamily: MONO,
+                                    padding: "3px 8px",
+                                    borderRadius: 4,
+                                    border: "none",
+                                    background: "transparent",
+                                    color: t.blue || "#185FA5",
+                                    cursor: "pointer",
+                                    textDecoration: "underline",
+                                  }}
+                                >
+                                  Re-upload
+                                </button>
+                              )}
+                            </div>
+                            {item.status === "done" && item.result?.textQualityWarning && (
+                              <div
+                                style={{
+                                  padding: "4px 0 8px 34px",
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: 8,
+                                  alignItems: "center",
+                                  borderBottom: isLast ? "none" : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#BA7517",
+                                    fontFamily: MONO,
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  {item.result.textQualityWarning}
+                                </span>
+                                {item.result?.showEnableOcr && (
+                                  <button
+                                    type="button"
+                                    onClick={() => forceOcrQueuedFile(item.id)}
+                                    style={{
+                                      fontSize: 11,
+                                      fontFamily: MONO,
+                                      padding: "4px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #BA7517",
+                                      background: "#FAEEDA",
+                                      color: "#633806",
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Enable OCR
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {item.status === "collision" && item.collisionExisting && (
+                              <div
+                                style={{
+                                  padding: "4px 0 10px 34px",
+                                  display: "flex",
+                                  flexWrap: "wrap",
+                                  gap: 6,
+                                  alignItems: "center",
+                                  borderBottom: isLast
+                                    ? "none"
+                                    : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#633806",
+                                    width: "100%",
+                                    fontFamily: MONO,
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  ⚠ {item.collisionLabel} already exists — what would you like to do?
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => uploadResolveCollisionRef.current?.(item.id, "keep")}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "4px 10px",
+                                    borderRadius: 4,
+                                    border: "1px solid " + t.border1,
+                                    background: t.inputBg,
+                                    color: t.text2,
+                                    cursor: "pointer",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  Keep existing
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => uploadResolveCollisionRef.current?.(item.id, "replace")}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "4px 10px",
+                                    borderRadius: 4,
+                                    border: "1px solid " + t.border1,
+                                    background: t.inputBg,
+                                    color: t.text2,
+                                    cursor: "pointer",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  Replace
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => uploadResolveCollisionRef.current?.(item.id, "new")}
+                                  style={{
+                                    fontSize: 11,
+                                    padding: "4px 10px",
+                                    borderRadius: 4,
+                                    border: "1px solid " + t.border1,
+                                    background: t.inputBg,
+                                    color: t.text2,
+                                    cursor: "pointer",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  Upload as new ({item.uniqueNumberHint ?? "…"})
+                                </button>
+                                {item.showMergeOption && (
+                                  <button
+                                    type="button"
+                                    onClick={() => uploadResolveCollisionRef.current?.(item.id, "merge")}
+                                    style={{
+                                      fontSize: 11,
+                                      padding: "4px 10px",
+                                      borderRadius: 4,
+                                      border: "1px solid #AFA9EC",
+                                      background: "#EEEDFE",
+                                      color: "#3C3489",
+                                      cursor: "pointer",
+                                      fontFamily: MONO,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    Merge with Part 1
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {item.status === "done" && item.result?.typeWarning && (
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#633806",
+                                  padding: "4px 0 8px 34px",
+                                  borderBottom: isLast ? "none" : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                                }}
+                              >
+                                △ Lecture type not detected — rename file to include DLA, LEC, SG, or TBL and
+                                re-upload for best results
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+
+                      {anyErr && allTerminal && (
+                        <div style={{ fontSize: 11, color: "#BA7517", marginTop: 8 }}>
+                          ⚠ {errCount} file(s) failed — check filenames include lecture type and number (e.g. &apos;LEC 5
+                          - Title.pdf&apos;)
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
               {/* Tabs */}
               <div style={{ display:"flex", borderBottom:"1px solid " + t.border2, background:t.panelBg }}>
@@ -10712,11 +17552,64 @@ export default function App() {
               </div>
 
               {/* Lectures */}
-              {tab==="lectures" && (blockLecs.length===0 ? (
+              {tab==="lectures" && (
+              <div
+                onDragEnter={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  lectureDragCounterRef.current += 1;
+                  setLectureDragActive(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  lectureDragCounterRef.current = Math.max(0, lectureDragCounterRef.current - 1);
+                  if (lectureDragCounterRef.current === 0) setLectureDragActive(false);
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  lectureDragCounterRef.current = 0;
+                  setLectureDragActive(false);
+                  const fl = e.dataTransfer?.files;
+                  if (fl?.length) handleLectureUpload(fl, blockId, termId);
+                }}
+                style={{
+                  position: "relative",
+                  minHeight: 80,
+                  borderRadius: "var(--border-radius-lg, 12px)",
+                  border: lectureDragActive
+                    ? "2px dashed var(--color-border-secondary, " + t.border2 + ")"
+                    : "2px solid transparent",
+                  margin: "0 0 8px 0",
+                  transition: "border-color 0.15s",
+                }}
+              >
+                {lectureDragActive && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      pointerEvents: "none",
+                      zIndex: 2,
+                      borderRadius: 12,
+                      background: "rgba(0,0,0,0.04)",
+                    }}
+                  >
+                    <span style={{ fontSize: 14, color: t.text3, fontFamily: MONO }}>Drop PDF files to upload</span>
+                  </div>
+                )}
+                {blockLecs.length===0 ? (
                 <div style={{ ...CARD, border:"1px dashed " + t.border2, padding:70, textAlign:"center" }}>
-                  <div style={{ fontSize:38, marginBottom:14 }}>📄</div>
-                  <p style={{ fontFamily:MONO, color:t.text5, fontSize:13 }}>Upload your first lecture for {activeBlock.name}.</p>
-                  <p style={{ fontFamily:MONO, color:t.border1, fontSize:11, marginTop:8 }}>AI auto-detects subject, subtopics, and key terms.</p>
+                  <p style={{ fontFamily:MONO, color:t.text3, fontSize:13 }}>No lectures uploaded yet.</p>
+                  <p style={{ fontFamily:MONO, color:t.text3, fontSize:12, marginTop:8 }}>Use the Upload button above to add lecture PDFs.</p>
                 </div>
               ) : (
                 <>
@@ -10749,7 +17642,7 @@ export default function App() {
                           △ {unassigned.length} LECTURES NOT YET ASSIGNED TO A WEEK
                         </div>
                         <div style={{ fontFamily: MONO, color: t.text2, fontSize: 11, marginBottom: 12 }}>
-                          Assign each lecture to the week it was taught. Use the <strong>Wk</strong> dropdown on each card, or bulk-assign below.
+                          Assign each lecture to the week it was taught. Turn on <strong>✎ Edit schedule</strong> below, then use the Wk/Day dropdowns on each row, or bulk-assign below.
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                           {[1, 2, 3, 4, 5, 6, 7, 8].map((wk) => (
@@ -10782,287 +17675,232 @@ export default function App() {
                       </div>
                     );
                   })()}
-                  {lecView === "list" ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "0 24px 24px" }}>
-                      {(() => {
-                        const bid = activeBlock?.id ?? blockId;
-                        const blockObjs = getBlockObjectives(bid) || [];
-
-                        const lecRowProps = {
-                          tc,
-                          T: t,
-                          sessions,
-                          onStart: startTopic,
-                          onUpdateLec: updateLec,
-                          mergeMode,
-                          mergeSelected,
-                          onMergeToggle,
-                          bulkWeekTarget,
-                          allObjectives: getBlockObjectives(blockId),
-                          allBlockObjectives: getBlockObjectives(activeBlock?.id ?? blockId),
-                          getBlockObjectives,
-                          updateObjective,
-                          currentBlock: activeBlock,
-                          startObjectiveQuiz,
-                          detectStudyMode,
-                          setAnkiLogTarget,
-                          handleDeepLearnStart,
-                          getLectureSubtopicCompletion,
-                          getLecCompletion,
-                          makeSubtopicKey,
-                          performanceHistory,
-                          reanalyzeLecture,
-                          onDeepLearn: () => {
-                            setStudyCfg({ blockId: bid, lecs: lectures.filter((l) => l.blockId === bid), blockObjectives: getBlockObjectives(bid) });
-                            setView("deeplearn");
-                          },
-                        };
-
-                        return sortedWeeks.map((wk) => {
-                          const weekLecs = groupedByWeek[wk] || [];
-                          const weekLabel = wk === 0 ? "Unassigned" : `Week ${wk}`;
-                          const isCurrentWk = wk !== 0 && currentWeek === wk;
-                          const weekObjs = weekLecs.flatMap((l) =>
-                            blockObjs.filter(
-                              (o) =>
-                                o.linkedLecId === l.id ||
-                                (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                            )
-                          );
-                          const mastered = weekObjs.filter((o) => o.status === "mastered").length;
-                          const inProgress = weekObjs.filter((o) => o.status === "inprogress").length;
-                          const struggling = weekObjs.filter((o) => o.status === "struggling").length;
-                          const total = weekObjs.length;
-                          const pct =
-                            total > 0 ? Math.round(((mastered + inProgress * 0.5) / total) * 100) : 0;
-                          const weekSessions = weekLecs.flatMap((l) => {
-                            const perf = getLecPerf(l, bid);
-                            return perf?.sessions || [];
-                          });
-                          const avgScore =
-                            weekSessions.length > 0
-                              ? Math.round(weekSessions.reduce((a, s) => a + (s.score ?? 0), 0) / weekSessions.length)
-                              : null;
-
-                          return (
-                            <WeekGroup
-                              key={wk}
-                              weekLabel={weekLabel}
-                              weekNumber={wk}
-                              lecs={weekLecs}
-                              isCurrentWeek={isCurrentWk}
-                              mastered={mastered}
-                              struggling={struggling}
-                              total={total}
-                              pct={pct}
-                              avgScore={avgScore}
-                              sessionCount={weekSessions.length}
-                              defaultOpen={isCurrentWk || wk === 0 || sortedWeeks.length === 1}
-                              expandedLec={expandedLec}
-                              setExpandedLec={setExpandedLec}
-                              {...lecRowProps}
-                            />
-                          );
+                  {(() => {
+                    const bid = activeBlock?.id ?? blockId;
+                    function buildWeekGroups(blockLecs) {
+                      const weeks = {};
+                      blockLecs.forEach((lec) => {
+                        const wk = lec.weekNumber ?? "unscheduled";
+                        if (!weeks[wk]) weeks[wk] = {};
+                        const day = lec.dayOfWeek ?? "unscheduled";
+                        if (!weeks[wk][day]) weeks[wk][day] = [];
+                        weeks[wk][day].push(lec);
+                      });
+                      return weeks;
+                    }
+                    const weekGroups = buildWeekGroups(blockLecs);
+                    const DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "unscheduled"];
+                    const sortedWeekKeys = [
+                      ...Object.keys(weekGroups).filter((k) => k !== "unscheduled").sort((a, b) => Number(a) - Number(b)),
+                      ...(weekGroups["unscheduled"] ? ["unscheduled"] : []),
+                    ];
+                    function isCurrentWeek(weekNumber) {
+                      if (!activeBlock?.startDate) return String(weekNumber) === "1";
+                      const start = new Date(activeBlock.startDate);
+                      start.setHours(0, 0, 0, 0);
+                      const today = new Date();
+                      today.setHours(0, 0, 0, 0);
+                      const daysSinceStart = Math.floor((today - start) / 86400000);
+                      const currentWeek = Math.floor(daysSinceStart / 7) + 1;
+                      return String(weekNumber) === String(currentWeek);
+                    }
+                    function getWeekDateRange(weekNumber, blockStartDate) {
+                      if (!blockStartDate || weekNumber === "unscheduled") return null;
+                      const start = new Date(blockStartDate);
+                      start.setHours(0, 0, 0, 0);
+                      const weekStart = new Date(start);
+                      weekStart.setDate(start.getDate() + (Number(weekNumber) - 1) * 7);
+                      const weekEnd = new Date(weekStart);
+                      weekEnd.setDate(weekStart.getDate() + 6);
+                      const fmt = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                      return `${fmt(weekStart)} – ${fmt(weekEnd)}`;
+                    }
+                    function getWeekStats(weekLecs, blockId) {
+                      const perfs = weekLecs.map((lec) => getLecPerf(lec, blockId));
+                      const sessions = perfs.reduce((s, p) => s + (p?.sessions?.length || 0), 0);
+                      const scores = perfs.map((p) => p?.lastScore ?? p?.sessions?.slice(-1)[0]?.score).filter((s) => s != null && s > 0);
+                      const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+                      const studied = perfs.filter((p) => (p?.sessions?.length || 0) > 0).length;
+                      return { sessions, avgScore, studied, total: weekLecs.length };
+                    }
+                    const lecRowProps = {
+                      tc,
+                      T: t,
+                      sessions,
+                      onStart: startTopic,
+                      onUpdateLec: updateLec,
+                      mergeMode,
+                      mergeSelected,
+                      onMergeToggle,
+                      bulkWeekTarget,
+                      allObjectives: getBlockObjectives(blockId),
+                      allBlockObjectives: getBlockObjectives(activeBlock?.id ?? blockId),
+                      getBlockObjectives,
+                      updateObjective,
+                      currentBlock: activeBlock,
+                      startObjectiveQuiz,
+                      quizLoadingId,
+                      quizErrorId,
+                      detectStudyMode,
+                      setAnkiLogTarget,
+                      handleDeepLearnStart,
+                      handleRapidFireStart,
+                      getLectureSubtopicCompletion,
+                      getLecCompletion,
+                      makeSubtopicKey,
+                      performanceHistory,
+                      reanalyzeLecture,
+                      getLecPerf,
+                      compactLayout: true,
+                      scheduleEditMode,
+                      onDeepLearn: () => {
+                        setStudyCfg({
+                          blockId: bid,
+                          lecs: getBlockLecs(lectures, resolveBlockMeta(bid)),
+                          blockObjectives: getBlockObjectives(bid),
                         });
-                      })()}
-                    </div>
-                  ) : (
-                    <div style={{ padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 0 }}>
-                      {(() => {
-                        const bid = activeBlock?.id ?? blockId;
-                        const subjectsInBlock = [...new Set(blockLecs.map((l) => l.subject || l.discipline).filter(Boolean))];
-                        const showSubjectOnCards = subjectsInBlock.length > 1;
-                        const todayDow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
-                        const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-                        let cardIndex = 0;
-                        const cardProps = (lec) => ({
-                          lec,
-                          sessions,
-                          accent: PALETTE[cardIndex++ % PALETTE.length],
-                          tint: tc,
-                          onStudy: startTopic,
-                          onDelete: delLec,
-                          onUpdateLec: updateLec,
-                          mergeMode,
-                          mergeSelected,
-                          onMergeToggle,
-                          bulkWeekTarget,
-                          allObjectives: getBlockObjectives(blockId),
-                          showSubjectLabel: showSubjectOnCards,
-                          setAnkiLogTarget,
-                          getBlockObjectives,
-                          currentBlock: activeBlock,
-                          setBlockObjectives,
-                          reviewedLectures,
-                          setReviewedLectures,
-                          markLectureReviewed,
-                          unmarkLectureReviewed,
-                          startObjectiveQuiz,
-                          detectStudyMode,
-                          handleDeepLearnStart,
-                          getLectureSubtopicCompletion,
-                          getLecCompletion,
-                          getSubtopicCompletion,
-                          getLecPerf,
-                          reanalyzeLecture,
-                          onDeepLearn: () => { setStudyCfg({ blockId: bid, lecs: lectures.filter((l) => l.blockId === bid), blockObjectives: getBlockObjectives(bid) }); setView("deeplearn"); },
-                        });
-                        return sortedWeeks.map((wk) => {
-                          const weekLecs = groupedByWeek[wk] || [];
-                          const isCurrentWeek = wk !== 0 && currentWeek === wk;
-                          const isCollapsed = collapsedCardWeeks.has(wk);
-                          const byDay = DOW_ORDER_CARD.reduce((acc, day) => {
-                            const dayLecs = weekLecs.filter((l) => l.dayOfWeek === day);
-                            if (dayLecs.length > 0) acc[day] = dayLecs;
-                            return acc;
-                          }, {});
-                          const unassigned = weekLecs.filter((l) => !l.dayOfWeek);
-                          const blockObjsForWeek = getBlockObjectives(activeBlock?.id ?? blockId) || [];
-                          const weekPct = (() => {
-                            const allObjs = weekLecs.flatMap((l) =>
-                              blockObjsForWeek.filter(
-                                (o) =>
-                                  o.linkedLecId === l.id ||
-                                  (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                              )
-                            );
-                            const mastered = allObjs.filter((o) => o.status === "mastered").length;
-                            const inProg = allObjs.filter((o) => o.status === "inprogress").length;
-                            const total = allObjs.length;
-                            return total > 0 ? Math.round(((mastered + inProg * 0.5) / total) * 100) : 0;
-                          })();
-                          const struggling = weekLecs.reduce((sum, l) => {
-                            const objs = blockObjsForWeek.filter(
-                              (o) =>
-                                o.linkedLecId === l.id ||
-                                (l.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                            );
-                            return sum + objs.filter((o) => o.status === "struggling").length;
-                          }, 0);
-                          return (
-                            <div key={wk} style={{ marginBottom: 16 }}>
+                        setView("deeplearn");
+                      },
+                    };
+                    return (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, padding: "0 24px" }}>
+                          <span style={{ fontSize: 11, color: t.text3 }}>{!scheduleEditMode ? "Tap a lecture to study it" : ""}</span>
+                          <button
+                            type="button"
+                            onClick={() => setScheduleEditMode((p) => !p)}
+                            style={{
+                              fontSize: 12,
+                              padding: "5px 10px",
+                              border: "0.5px solid " + (scheduleEditMode ? (t.statusGood || "#639922") : t.border2),
+                              borderRadius: 8,
+                              background: scheduleEditMode ? (t.statusGoodBg || "#E6F1FB") : "transparent",
+                              color: scheduleEditMode ? (t.statusGood || "#0C447C") : t.text3,
+                              fontFamily: MONO,
+                              cursor: "pointer",
+                            }}
+                          >
+                            {scheduleEditMode ? "✓ Done editing" : "✎ Edit schedule"}
+                          </button>
+                        </div>
+                        <div
+                          key={lecturesRefreshKey}
+                          style={{ padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 8 }}
+                        >
+                          {sortedWeekKeys.map((wk) => {
+                            const weekLecs = Object.values(weekGroups[wk] || {}).flat();
+                            const weekStats = getWeekStats(weekLecs, bid);
+                            const isOpen =
+                              expandedWeeks[wk] !== undefined
+                                ? expandedWeeks[wk]
+                                : wk === "unscheduled"
+                                  ? true
+                                  : isCurrentWeek(wk);
+                            const weekLabel =
+                              wk === "unscheduled" ? `Unscheduled (${weekLecs.length})` : `Week ${wk}`;
+                            const dateRange = getWeekDateRange(wk, activeBlock?.startDate);
+                            const avgScore = weekStats.avgScore;
+                            const avgColor = avgScore >= 70 ? "#639922" : avgScore >= 50 ? "#BA7517" : avgScore != null ? "#E24B4A" : null;
+                            const progressColor = weekStats.total ? (weekStats.studied / weekStats.total >= 0.7 ? "#639922" : weekStats.studied / weekStats.total >= 0.5 ? "#BA7517" : "#E24B4A") : "transparent";
+                            return (
                               <div
-                                onClick={() => toggleCardWeek(wk)}
+                                key={wk}
                                 style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 10,
-                                  padding: "12px 16px",
-                                  borderRadius: isCollapsed ? 10 : "10px 10px 0 0",
-                                  cursor: "pointer",
-                                  userSelect: "none",
-                                  background: isCurrentWeek ? tc + "12" : t.inputBg,
-                                  border: "2px solid " + (isCurrentWeek ? tc : t.border1),
-                                  transition: "all 0.15s",
+                                  background: t.cardBg || t.panelBg,
+                                  border: "0.5px solid " + (t.border2 || t.border1),
+                                  borderRadius: 10,
+                                  overflow: "hidden",
+                                  marginBottom: 8,
+                                  ...(wk === "unscheduled"
+                                    ? {
+                                        borderLeft: "3px solid #EF9F27",
+                                        background: "#FAEEDA",
+                                      }
+                                    : {}),
                                 }}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = isCurrentWeek ? tc + "18" : t.hoverBg)}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = isCurrentWeek ? tc + "12" : t.inputBg)}
                               >
-                                <span
+                                <div
+                                  onClick={() =>
+                                    setExpandedWeeks((prev) => ({
+                                      ...prev,
+                                      [wk]: !(
+                                        prev[wk] !== undefined
+                                          ? prev[wk]
+                                          : wk === "unscheduled"
+                                            ? true
+                                            : isCurrentWeek(wk)
+                                      ),
+                                    }))
+                                  }
                                   style={{
-                                    fontFamily: MONO,
-                                    color: isCurrentWeek ? tc : t.text3,
-                                    fontSize: 12,
-                                    display: "inline-block",
-                                    transform: isCollapsed ? "rotate(0deg)" : "rotate(90deg)",
-                                    transition: "transform 0.2s",
-                                    flexShrink: 0,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 10,
+                                    padding: "10px 14px",
+                                    background:
+                                      wk === "unscheduled" ? "#FAEEDA" : t.inputBg || t.panelBg,
+                                    cursor: "pointer",
                                   }}
                                 >
-                                  ▶
-                                </span>
-                                <span style={{ fontFamily: SERIF, color: isCurrentWeek ? tc : t.text1, fontSize: 15, fontWeight: 900 }}>
-                                  {wk === 0 ? "Unassigned" : `Week ${wk}`}
-                                </span>
-                                {isCurrentWeek && (
-                                  <span style={{ fontFamily: MONO, fontSize: 8, color: "#fff", background: tc, padding: "2px 7px", borderRadius: 3, fontWeight: 700, flexShrink: 0 }}>CURRENT</span>
-                                )}
-                                {struggling > 0 && (
-                                  <span style={{ fontFamily: MONO, fontSize: 9, color: t.statusBad, fontWeight: 700, flexShrink: 0 }}>⚠ {struggling} struggling</span>
-                                )}
-                                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
-                                    {weekLecs.length} lecture{weekLecs.length !== 1 ? "s" : ""}
+                                  <span style={{ color: t.text3, fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                                  <span style={{ fontSize: 13, fontWeight: 500 }}>
+                                    {weekLabel}
+                                    {isCurrentWeek(wk) && (
+                                      <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "#E6F1FB", color: "#0C447C", marginLeft: 6 }}>CURRENT</span>
+                                    )}
                                   </span>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <div style={{ width: 60, height: 4, background: t.border1, borderRadius: 2 }}>
-                                      <div
-                                        style={{
-                                          height: "100%",
-                                          borderRadius: 2,
-                                          width: weekPct + "%",
-                                          background: weekPct >= 80 ? t.statusGood : weekPct >= 50 ? t.statusProgress : weekPct > 0 ? t.statusWarn : t.statusNeutral,
-                                          transition: "width 0.4s",
-                                        }}
-                                      />
-                                    </div>
-                                    <span
-                                      style={{
-                                        fontFamily: MONO,
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        color: weekPct >= 80 ? t.statusGood : weekPct >= 50 ? t.statusProgress : weekPct > 0 ? t.statusWarn : t.statusNeutral,
-                                      }}
-                                    >
-                                      {weekPct}%
-                                    </span>
+                                  {dateRange && <span style={{ fontSize: 11, color: t.text3 }}>{dateRange}</span>}
+                                  <div style={{ flex: 1 }} />
+                                  <span style={{ fontSize: 11, color: t.text3 }}>
+                                    {weekStats.total} lectures · {weekStats.sessions} sessions
+                                    {avgScore != null && ` · avg `}
+                                    {avgScore != null && <span style={{ color: avgColor }}>{avgScore}%</span>}
+                                  </span>
+                                  <div style={{ width: 64, height: 4, flexShrink: 0, background: t.border2 || t.border1, borderRadius: 2 }}>
+                                    {avgScore != null && avgScore > 0 && (
+                                      <div style={{ width: (avgScore / 100 * 64) + "px", height: "100%", background: avgColor || t.border1, borderRadius: 2 }} />
+                                    )}
                                   </div>
                                 </div>
-                              </div>
-                              {!isCollapsed && (
-                                <div
-                                  style={{
-                                    border: "2px solid " + (isCurrentWeek ? tc : t.border1),
-                                    borderTop: "none",
-                                    borderRadius: "0 0 10px 10px",
-                                    padding: 16,
-                                    background: t.cardBg,
-                                  }}
-                                >
-                                  {DOW_ORDER_CARD.filter((d) => byDay[d]).map((day) => {
-                                    const isToday = day === todayDow;
-                                    return (
-                                      <div key={day} style={{ marginBottom: 16 }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                          <div style={{ width: 12, height: 1, background: isToday ? tc : t.border1 }} />
-                                          <span style={{ fontFamily: MONO, color: isToday ? tc : t.text3, fontSize: isToday ? 11 : 10, fontWeight: isToday ? 700 : 400, letterSpacing: 1 }}>{day.toUpperCase()}</span>
-                                          {isToday && (
-                                            <span style={{ fontFamily: MONO, fontSize: 8, color: "#fff", background: tc, padding: "1px 6px", borderRadius: 3, fontWeight: 700 }}>TODAY</span>
-                                          )}
-                                          <div style={{ flex: 1, height: 1, background: isToday ? tc + "40" : t.border2 }} />
-                                        </div>
-                                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-                                          {byDay[day].map((lec) => (
-                                            <LecCard key={lec.id} {...cardProps(lec)} />
+                                <div style={{ height: 3, background: t.border2 || t.border1 }}>
+                                  <div style={{ width: (weekStats.studied / Math.max(weekStats.total, 1) * 100) + "%", height: "100%", background: progressColor, borderRadius: 0 }} />
+                                </div>
+                                {isOpen && (
+                                  <div style={{ padding: "0 14px" }}>
+                                    {DAY_ORDER.filter((d) => (weekGroups[wk] || {})[d]?.length).map((day) => {
+                                      const dayLecs = ((weekGroups[wk] || {})[day] || []).slice().sort((a, b) => (a.lectureNumber ?? 0) - (b.lectureNumber ?? 0));
+                                      const todayDow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
+                                      const isTodayDay = day === todayDow && isCurrentWeek(wk);
+                                      return (
+                                        <div key={day}>
+                                          <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0 4px", borderBottom: "0.5px solid " + (t.border2 || t.border1) }}>
+                                            <span style={{ fontSize: 10, fontWeight: 500, color: t.text3, letterSpacing: "0.06em" }}>
+                                              {day === "unscheduled" ? "UNSCHEDULED" : day.toUpperCase()}
+                                              {isTodayDay && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#E6F1FB", color: "#0C447C", marginLeft: 4 }}>TODAY</span>}
+                                            </span>
+                                            <span style={{ fontSize: 10, color: t.text3 }}>{dayLecs.length} lectures</span>
+                                          </div>
+                                          {dayLecs.map((lec, idx) => (
+                                            <div key={lec.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < dayLecs.length - 1 ? "0.5px solid " + (t.border2 || t.border1) : "none" }}>
+                                              <LecListRow lec={lec} index={0} onOpen={() => setExpandedLec(lec.id)} onClose={() => setExpandedLec(null)} isExpanded={expandedLec === lec.id} {...lecRowProps} />
+                                            </div>
                                           ))}
                                         </div>
-                                      </div>
-                                    );
-                                  })}
-                                  {unassigned.length > 0 && (
-                                    <div>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                        <div style={{ flex: 1, height: 1, background: t.border2 }} />
-                                        <span style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1 }}>UNSCHEDULED</span>
-                                        <div style={{ flex: 1, height: 1, background: t.border2 }} />
-                                      </div>
-                                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-                                        {unassigned.map((lec) => (
-                                          <LecCard key={lec.id} {...cardProps(lec)} />
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                  )}
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </>
-              ))}
+              )}
+              </div>
+              )}
 
               {/* Heatmap */}
               {tab === "heatmap" && (
@@ -11081,6 +17919,8 @@ export default function App() {
               {/* Analysis */}
               {tab==="objectives" && (
                 <div style={{ position:"relative" }}>
+                  {!drillMode ? (
+                  <>
                   {hasOrphanedPerf && (
                     <div
                       style={{
@@ -11119,7 +17959,7 @@ export default function App() {
                   )}
                   {showManualResync && orphanedSessionsForManual.length > 0 && (() => {
                     const bid = activeBlock?.id ?? blockId;
-                    const blockLecsForManual = (lectures || []).filter((l) => l.blockId === bid);
+                    const blockLecsForManual = getBlockLecs(lectures, resolveBlockMeta(bid));
                     return (
                       <div style={{ marginBottom: 12 }}>
                         <div style={{ fontSize: 12, fontFamily: MONO, color: t.text3, marginBottom: 8 }}>
@@ -11230,7 +18070,7 @@ export default function App() {
                                   })
                                   .map(l => (
                                     <option key={l.id} value={l.id}>
-                                      {l.lectureType}{l.lectureNumber} — {l.lectureTitle || l.title || l.filename || l.fileName || l.id}
+                                      {l.lectureType}{l.lectureNumber} — {l.lectureTitle || l.filename || l.fileName || l.id}
                                     </option>
                                   ))
                                 }
@@ -11259,171 +18099,2632 @@ export default function App() {
                       <Spinner msg="Generating objective quiz…" />
                     </div>
                   )}
-                  <ObjectivesImporter
-                    blockId={activeBlock?.id ?? blockId}
-                    T={t}
-                    tc={tc}
-                    onImport={(objectives) => {
-                      const bid = activeBlock?.id ?? blockId;
-                      const blockLectures = lectures.filter((l) => l.blockId === bid);
-                      const aligned =
-                        blockLectures.length
-                          ? alignObjectivesToLectures(bid, objectives, blockLectures)
-                          : objectives;
-                      const linked = aligned.filter((o) => o.hasLecture).length;
-                      console.log(`Import aligned: ${linked}/${aligned.length} objectives linked`);
-                      saveBlockObjectives(bid, { imported: aligned });
-                    }}
-                  />
                   {(() => {
                     const bid = activeBlock?.id ?? blockId;
                     const allObjs = getBlockObjectives(bid) || [];
-                    const blockLecs = (lectures || []).filter((l) => l.blockId === bid);
+                    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid));
                     const linked = allObjs.filter((o) => isObjectiveLinked(o, blockLecs)).length;
-                    const unlinked = allObjs.length - linked;
-                    if (!allObjs.length) return null;
+                    const totalCt = allObjs.length;
+                    const unlinkedCount = totalCt - linked;
+                    const hasModuleImport = (pickBlockObjectivesState(blockObjectives, bid)?.imported || []).length > 0;
                     return (
+                      <>
+                        <style>{`@keyframes rxtAlignSpin { to { transform: rotate(360deg); } }`}</style>
+                        {contentMismatches.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 10px",
+                              background: "#FAEEDA",
+                              border: "0.5px solid #EF9F27",
+                              borderRadius: "var(--border-radius-md, 8px)",
+                              fontSize: 12,
+                              color: "#633806",
+                              marginBottom: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span>
+                              △ {contentMismatches.length} objectives may be assigned to wrong lectures
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowMismatchReview(true)}
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 10px",
+                                background: "#FAEEDA",
+                                border: "0.5px solid #EF9F27",
+                                borderRadius: 6,
+                                color: "#633806",
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                              }}
+                            >
+                              Review
+                            </button>
+                          </div>
+                        )}
                       <div
                         style={{
                           display: "flex",
                           alignItems: "center",
                           gap: 8,
-                          padding: "8px 14px",
-                          borderRadius: 8,
-                          marginBottom: 12,
-                          background: linked === allObjs.length ? t.greenBg : t.amberBg,
-                          border: "1px solid " + (linked === allObjs.length ? t.greenBorder : t.amberBorder),
+                          flexWrap: "wrap",
+                          marginBottom: 10,
+                          padding: "7px 10px",
+                          background: "var(--color-background-secondary, " + (t.inputBg || "#f4f4f5") + ")",
+                          borderRadius: "var(--border-radius-md, 8px)",
+                          border: "0.5px solid var(--color-border-tertiary, " + (t.border2 || t.border1) + ")",
                         }}
                       >
-                        <span style={{ fontSize: 16 }}>
-                          {linked === allObjs.length ? "✅" : "🔗"}
+                        <span
+                          style={{
+                            fontFamily: MONO,
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color: linked === totalCt && totalCt > 0 ? "#27500A" : "#BA7517",
+                            flexShrink: 0,
+                          }}
+                        >
+                          {totalCt > 0
+                            ? linked === totalCt
+                              ? `✓ ${linked}/${totalCt} synced`
+                              : `⚠ ${linked}/${totalCt} linked`
+                            : "— No objectives"}
                         </span>
-                        <div style={{ flex: 1 }}>
-                          <span
-                            style={{
-                              fontFamily: MONO,
-                              fontSize: 13,
-                              fontWeight: 600,
-                              color: linked === allObjs.length ? t.green : t.amber,
-                            }}
-                          >
-                            {linked}/{allObjs.length} objectives linked to uploaded lectures
-                          </span>
-                          {unlinked > 0 && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1, justifyContent: "center" }}>
+                          {alignmentStatus === null && unlinkedCount > 0 && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => runSmartAlignment(bid)}
+                                style={{
+                                  fontFamily: MONO,
+                                  fontSize: 12,
+                                  padding: "4px 10px",
+                                  borderRadius: 6,
+                                  border: "1px solid #AFA9EC",
+                                  background: "#EEEDFE",
+                                  color: "#3C3489",
+                                  cursor: "pointer",
+                                  fontWeight: 600,
+                                }}
+                              >
+                                🧩 Smart-align unlinked ({unlinkedCount})
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setUnlinkedTabFocusKey((k) => k + 1)}
+                                style={{
+                                  fontFamily: MONO,
+                                  fontSize: 12,
+                                  padding: "4px 8px",
+                                  border: "none",
+                                  background: "transparent",
+                                  color: "#633806",
+                                  textDecoration: "underline",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                🔗 Manual assign
+                              </button>
+                            </>
+                          )}
+                          {alignmentStatus === "running" && (
+                            <span
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 8,
+                                fontFamily: MONO,
+                                fontSize: 12,
+                                color: t.text2,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  width: 12,
+                                  height: 12,
+                                  border: "2px solid " + t.border1,
+                                  borderTopColor: "#3C3489",
+                                  borderRadius: "50%",
+                                  animation: "rxtAlignSpin 0.7s linear infinite",
+                                }}
+                              />
+                              {alignmentProgress || "Aligning…"}
+                            </span>
+                          )}
+                          {alignmentStatus === "done" && (
                             <span
                               style={{
                                 fontFamily: MONO,
                                 fontSize: 12,
-                                color: t.text3,
-                                marginLeft: 8,
+                                fontWeight: 600,
+                                color: "#27500A",
                               }}
                             >
-                              · {unlinked} unlinked (upload those lectures to connect them)
+                              {alignmentProgress ||
+                                (alignmentDoneSummary
+                                  ? `✓ ${alignmentDoneSummary.aligned} aligned · ${alignmentDoneSummary.failed} need review`
+                                  : "Done")}
                             </span>
                           )}
-                        </div>
-                        {linked === allObjs.length && (
-                          <span style={{ fontFamily: MONO, color: t.green, fontSize: 12 }}>
-                            All synced ✓
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            repairObjectiveAlignment(activeBlock?.id ?? blockId);
-                            setTimeout(() => {
-                              const count = repairObjectiveAlignmentRepairedRef.current;
-                              alert(
-                                count > 0
-                                  ? `✅ Fixed ${count} objective alignments`
-                                  : "✓ All objectives already correctly aligned"
-                              );
-                            }, 0);
-                          }}
-                          style={{
-                            fontFamily: MONO,
-                            fontSize: 10,
-                            padding: "5px 12px",
-                            borderRadius: 6,
-                            border: "1px solid " + t.border1,
-                            background: t.inputBg,
-                            color: t.text3,
-                            cursor: "pointer",
-                          }}
-                        >
-                          ↻ Fix Objective Alignment
-                        </button>
-                        <button
-                          type="button"
-                          onClick={resyncOrphanedPerformance}
-                          style={{
-                            fontFamily: MONO,
-                            fontSize: 10,
-                            padding: "5px 12px",
-                            borderRadius: 6,
-                            border: "none",
-                            background: t.statusProgress || t.tc,
-                            color: "white",
-                            cursor: "pointer",
-                          }}
-                        >
-                          ⟳ Resync Performance History
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (
-                              !confirm(
-                                "This will clear all objectives for this block. " +
-                                  "They will be re-extracted when you re-upload your PDFs. Continue?"
+                          {alignmentStatus === "error" && (
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                              <span style={{ fontFamily: MONO, fontSize: 12, color: "#A32D2D" }}>
+                                ⚠ Alignment failed{alignmentProgress ? ` — ${alignmentProgress}` : ""}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => runSmartAlignment(bid)}
+                                style={{
+                                  fontFamily: MONO,
+                                  fontSize: 11,
+                                  padding: "4px 8px",
+                                  borderRadius: 6,
+                                  border: "1px solid " + t.border1,
+                                  background: t.cardBg,
+                                  color: t.text2,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                Retry
+                              </button>
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              repairObjectiveAlignment(activeBlock?.id ?? blockId);
+                              repairUnlinkedObjectives(activeBlock?.id ?? blockId);
+                              const bid = activeBlock?.id ?? blockId;
+                              validateAndRepairLinkedIds(bid);
+                              setContentMismatches(detectContentMismatches(bid));
+                              setTimeout(() => {
+                                const count = repairObjectiveAlignmentRepairedRef.current;
+                                alert(
+                                  count > 0
+                                    ? `✅ Fixed ${count} objective alignments`
+                                    : "✓ All objectives already correctly aligned"
+                                );
+                              }, 0);
+                            }}
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid " + t.border1,
+                              background: t.cardBg,
+                              color: t.text2,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Fix alignment
+                          </button>
+                          <button
+                            type="button"
+                            onClick={resyncOrphanedPerformance}
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid " + t.border1,
+                              background: t.cardBg,
+                              color: t.text2,
+                              cursor: "pointer",
+                            }}
+                          >
+                            Resync history
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (
+                                !confirm(
+                                  "This will clear all objectives for this block. " +
+                                    "They will be re-extracted when you re-upload your PDFs. Continue?"
+                                )
                               )
-                            )
-                              return;
-                            const bid = activeBlock?.id ?? blockId;
-                            setBlockObjectives((prev) => {
-                              const next = { ...prev, [bid]: { imported: [], extracted: [] } };
-                              try {
-                                localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
-                              } catch {}
-                              return next;
-                            });
+                                return;
+                              const b = activeBlock?.id ?? blockId;
+                              setBlockObjectives((prev) => {
+                                const next = { ...prev, [b]: { imported: [], extracted: [] } };
+                                try {
+                                  localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+                                } catch {}
+                                return next;
+                              });
+                            }}
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 11,
+                              padding: "4px 8px",
+                              borderRadius: 6,
+                              border: "1px solid #F09595",
+                              background: "transparent",
+                              color: "#A32D2D",
+                              cursor: "pointer",
+                            }}
+                          >
+                            Reset
+                          </button>
+                        </div>
+                        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", flexShrink: 0 }}>
+                        <ObjectivesImporter
+                          blockId={bid}
+                          blockLectures={getBlockLecs(lectures, resolveBlockMeta(bid))}
+                          onAfterImport={(blockBid) => repairUnlinkedObjectives(blockBid)}
+                          T={t}
+                          tc={tc}
+                          compact
+                          hasModuleImport={hasModuleImport}
+                          onImport={(objectives) => {
+                            const blockLectures = getBlockLecs(lectures, resolveBlockMeta(bid));
+                            const aligned =
+                              blockLectures.length
+                                ? alignObjectivesToLectures(bid, objectives, blockLectures)
+                                : objectives;
+                            const lk = aligned.filter((o) => o.hasLecture).length;
+                            console.log(`Import aligned: ${lk}/${aligned.length} objectives linked`);
+                            saveBlockObjectives(bid, { imported: aligned });
                           }}
-                          style={{
-                            fontFamily: MONO,
-                            fontSize: 10,
-                            padding: "5px 12px",
-                            borderRadius: 6,
-                            border: "1px solid " + t.statusBadBorder,
-                            background: t.statusBadBg,
-                            color: t.statusBad,
-                            cursor: "pointer",
-                          }}
-                        >
-                          🗑 Reset objectives (re-upload to fix alignment)
-                        </button>
+                        />
+                        </div>
                       </div>
+                      </>
                     );
                   })()}
-                  {(blockObjectives[blockId]?.imported || []).length === 0 && (
-                    <div style={{ background:t.amberBg, border:"1px solid "+t.amberBorder, borderRadius:10, padding:"12px 16px", marginBottom:12, display:"flex", alignItems:"center", gap:10 }}>
-                      <span style={{ fontSize:18 }}>💡</span>
-                      <div style={{ flex:1, fontFamily:MONO }}>
-                        <div style={{ color:t.amber, fontSize:11, fontWeight:600 }}>Have your module objectives summary PDF?</div>
-                        <div style={{ color:t.text3, fontSize:10, marginTop:1 }}>
-                          Import it above for complete objective coverage with official codes. Objectives are auto-extracted from lecture PDFs as you upload them.
+                  {showMismatchReview && (
+                    <div
+                      style={{
+                        background: "var(--color-background-primary, " + (t.cardBg || "#fff") + ")",
+                        border: "0.5px solid #EF9F27",
+                        borderRadius: "var(--border-radius-lg, 12px)",
+                        padding: "12px 16px",
+                        marginBottom: 12,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: 10,
+                        }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 500, color: t.text1 }}>
+                          Possible wrong lecture assignments
                         </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowMismatchReview(false)}
+                          style={{
+                            fontSize: 11,
+                            border: "none",
+                            background: "transparent",
+                            color: "var(--color-text-tertiary, " + (t.text3 || "#888") + ")",
+                            cursor: "pointer",
+                            fontFamily: MONO,
+                          }}
+                        >
+                          Close
+                        </button>
                       </div>
+
+                      {contentMismatches.length === 0 ? (
+                        <div style={{ fontSize: 12, color: t.text3, fontFamily: MONO }}>
+                          No items left — close or run alignment again.
+                        </div>
+                      ) : (
+                        <>
+                          {contentMismatches.slice(0, 10).map((m) => (
+                            <div
+                              key={m.objId}
+                              style={{
+                                display: "flex",
+                                alignItems: "flex-start",
+                                gap: 10,
+                                padding: "8px 0",
+                                borderBottom: "0.5px solid var(--color-border-tertiary, " + (t.border2 || "#e5e7eb") + ")",
+                              }}
+                            >
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 12, marginBottom: 3, color: t.text1 }}>
+                                  {m.objText}
+                                  {(m.objText || "").length >= 80 ? "…" : ""}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "#A32D2D",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  Currently: {m.lecTitle}
+                                </div>
+                              </div>
+                              <select
+                                defaultValue=""
+                                onChange={(e) => {
+                                  const lecId = e.target.value;
+                                  if (!lecId) return;
+                                  const bid = activeBlock?.id ?? blockId;
+                                  assignObjectiveToLecture(bid, m.objId, lecId);
+                                  setContentMismatches((prev) => prev.filter((x) => x.objId !== m.objId));
+                                  e.target.value = "";
+                                }}
+                                style={{
+                                  fontSize: 11,
+                                  padding: "6px 8px",
+                                  width: "100%",
+                                  minWidth: 320,
+                                  maxWidth: 480,
+                                  flexShrink: 0,
+                                  boxSizing: "border-box",
+                                }}
+                              >
+                                <option value="">Move to...</option>
+                                {[...blockLecs]
+                                  .sort((a, b) => (a.lectureNumber || 0) - (b.lectureNumber || 0))
+                                  .map((l) => (
+                                    <option key={l.id} value={l.id}>
+                                      {`${l.lectureType} ${l.lectureNumber} — ${l.lectureTitle || ""}`}
+                                    </option>
+                                  ))}
+                              </select>
+                            </div>
+                          ))}
+
+                          {contentMismatches.length > 10 && (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--color-text-tertiary, " + (t.text3 || "#888") + ")",
+                                marginTop: 8,
+                                textAlign: "center",
+                                fontFamily: MONO,
+                              }}
+                            >
+                              + {contentMismatches.length - 10} more — use the Unlinked tab to review all
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   )}
                   <ObjectiveTracker
-                    blockId={blockId}
+                    blockId={activeBlock?.id ?? blockId}
                     blockLectures={blockLecs}
-                    objectives={getBlockObjectives(blockId)}
-                    onSelfRate={(id, status) => updateObjective(blockId, id, { status, lastTested: new Date().toISOString() })}
+                    objectives={getBlockObjectives(activeBlock?.id ?? blockId)}
+                    coverageObjectives={coverageObjectivesMemo}
+                    onReExtractObjectives={reExtractObjectivesForLecture}
+                    reExtractingLectureId={reExtractingLectureId}
+                    onUpdateObjectiveStatus={(objId, newStatus) =>
+                      updateSingleObjectiveStatus(activeBlock?.id ?? blockId, objId, newStatus)
+                    }
+                    onSelfRate={(id, status) =>
+                      updateObjective(activeBlock?.id ?? blockId, id, {
+                        status,
+                        lastTested: new Date().toISOString(),
+                      })
+                    }
                     onStartObjectiveQuiz={startObjectiveQuiz}
+                    quizLoadingId={quizLoadingId}
+                    quizErrorId={quizErrorId}
+                    quizFlashLectureId={quizFlashLectureId}
+                    getLecPerf={getLecPerf}
                     termColor={tc}
                     T={t}
+                    focusUnlinkedTabKey={unlinkedTabFocusKey}
+                    onAssignObjectiveToLecture={(objId, lecId) =>
+                      assignObjectiveToLecture(activeBlock?.id ?? blockId, objId, lecId)
+                    }
+                    onAssignAllVisibleObjectives={(lecId, ids) =>
+                      assignAllVisibleObjectives(activeBlock?.id ?? blockId, lecId, ids)
+                    }
+                    onRemoveObjectiveLink={(objId) =>
+                      removeObjectiveLectureLink(activeBlock?.id ?? blockId, objId)
+                    }
+                    onDeleteUnlinkedObjectives={() =>
+                      deleteUnlinkedObjectivesForBlock(activeBlock?.id ?? blockId)
+                    }
+                    onDeleteSingleObjective={(objId) =>
+                      deleteSingleObjective(objId, activeBlock?.id ?? blockId)
+                    }
+                    onDeleteMultipleObjectives={(ids) =>
+                      deleteMultipleObjectives(ids, activeBlock?.id ?? blockId)
+                    }
+                    onAssignMultipleToLecture={(ids, lecId) =>
+                      assignMultipleToLecture(ids, lecId, activeBlock?.id ?? blockId)
+                    }
+                    headerActions={
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrillMode(true);
+                          setShowDrillSummary(false);
+                          setDrillSummaryData(null);
+                          drillSummaryBuiltRef.current = false;
+                          setDrillQueue([]);
+                          setDrillIndex(0);
+                          setDrillComplete(false);
+                          setDrillIdAllowlist(null);
+                          setDrillFilter("weak");
+                          setDrillLecFilter("all");
+                          setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+                          drillSessionStrugglingRef.current.clear();
+                          drillCardFirstRenderRef.current = true;
+                          revealedCardKeyRef.current = null;
+                          setRevealedCardKey(null);
+                          setCardState("front");
+                          drillCardModeRef.current = "back";
+                          setDrillCardMode("back");
+                          setMcqData(null);
+                          setCardBack(null);
+                          setMcqError(null);
+                          mcqRetryRef.current = false;
+                        }}
+                        style={{
+                          background: "#EEEDFE",
+                          color: "#3C3489",
+                          border: "0.5px solid #AFA9EC",
+                          borderRadius: "var(--border-radius-md, 8px)",
+                          fontSize: 12,
+                          padding: "5px 12px",
+                          cursor: "pointer",
+                          fontFamily: MONO,
+                          fontWeight: 600,
+                        }}
+                      >
+                        ⚡ Drill mode
+                      </button>
+                    }
                   />
+                  </>
+                  ) : (
+                  (() => {
+                    const drillBid = activeBlock?.id ?? blockId;
+                    const drillBlockLecsSorted = [...blockLecs].sort(sortBlockLecsForDrill);
+                    let baseObjs = getBlockObjectives(drillBid) || [];
+                    if (drillIdAllowlist?.length) {
+                      const allow = new Set(drillIdAllowlist);
+                      baseObjs = baseObjs.filter((o) => allow.has(o.id));
+                    }
+                    if (drillLecFilter !== "all") {
+                      baseObjs = baseObjs.filter((o) => o.linkedLecId === drillLecFilter);
+                    }
+                    const nStruggling = baseObjs.filter((o) => o.status === "struggling").length;
+                    const nInProgressDrill = baseObjs.filter((o) => o.status === "inprogress").length;
+                    const nWeak = baseObjs.filter(
+                      (o) =>
+                        o.status === "struggling" ||
+                        o.status === "inprogress" ||
+                        !o.status ||
+                        o.status === "untested"
+                    ).length;
+                    const nUntested = baseObjs.filter((o) => !o.status || o.status === "untested").length;
+                    const nAll = baseObjs.length;
+                    const previewQueue = buildDrillQueue(baseObjs, drillFilter, drillLecFilter);
+                    const nPreview = previewQueue.length;
+
+                    const pillBase = {
+                      fontSize: 12,
+                      padding: "6px 12px",
+                      borderRadius: 20,
+                      cursor: "pointer",
+                      marginBottom: 6,
+                      marginRight: 6,
+                      border: "0.5px solid ",
+                    };
+
+                    if (showDrillSummary && drillSummaryData) {
+                      const top2N = drillSummaryData.top2AutoCount ?? 0;
+                      return (
+                        <DrillSessionSummaryPanel
+                          summary={drillSummaryData}
+                          drillBid={drillBid}
+                          MONO={MONO}
+                          T={t}
+                          top2AutoCount={top2N}
+                          levelDistribution={drillSummaryData?.levelDistribution}
+                          addLectureToTodayReview={addLectureToTodayReview}
+                          onNavigateToObjectivesUnlinked={() => {
+                            setShowDrillSummary(false);
+                            setDrillSummaryData(null);
+                            drillSummaryBuiltRef.current = false;
+                            exitDrill();
+                            setTab("objectives");
+                            setUnlinkedTabFocusKey((k) => k + 1);
+                          }}
+                          onDone={() => {
+                            setShowDrillSummary(false);
+                            setDrillSummaryData(null);
+                            drillSummaryBuiltRef.current = false;
+                            exitDrill();
+                          }}
+                          onDrillStrugglingOnly={() => {
+                            if (!drillSummaryData) return;
+                            const strugglingQueue = drillQueue.filter((o) =>
+                              drillSummaryData.strugglingObjs.some((s) => s.id === o.id)
+                            );
+                            setShowDrillSummary(false);
+                            setDrillSummaryData(null);
+                            drillSummaryBuiltRef.current = false;
+                            setDrillQueue(strugglingQueue);
+                            setDrillIndex(0);
+                            setDrillComplete(false);
+                            setDrillStats({
+                              seen: 0,
+                              mastered: 0,
+                              struggling: 0,
+                              skipped: 0,
+                              inprogress: 0,
+                              assessedIndices: [],
+                            });
+                            setCardState("front");
+                            drillCardFirstRenderRef.current = true;
+                            revealedCardKeyRef.current = null;
+                            setRevealedCardKey(null);
+                            drillCardModeRef.current = "back";
+                            setDrillCardMode("back");
+                            setMcqData(null);
+                            setCardBack(null);
+                            setMcqError(null);
+                            mcqRetryRef.current = false;
+                            drillSessionStrugglingRef.current.clear();
+                            captureDrillLevelSnapshot(strugglingQueue, drillBid);
+                            captureDrillWeakConceptSnapshot(drillBid);
+                            scheduleMcqPrefetchForQueue(strugglingQueue);
+                          }}
+                        />
+                      );
+                    }
+
+                    if (drillQueue.length === 0 || (drillQueue.length > 0 && drillComplete)) {
+                      if (drillQueue.length > 0 && drillComplete && !showDrillSummary) {
+                        return null;
+                      }
+                      return (
+                        <div style={{ maxWidth: 400, margin: "0 auto", padding: "12px 0 24px" }}>
+                          <div style={{ fontSize: 18, fontWeight: 500, color: t.text1, marginBottom: 4, textAlign: "center" }}>Objective drill</div>
+                          <div style={{ fontSize: 12, color: t.text3, marginBottom: 20, textAlign: "center" }}>
+                            Cycle through objectives, self-assess, and mark as you go
+                          </div>
+                          <div style={{ fontSize: 12, color: t.text2, marginBottom: 8 }}>Which objectives?</div>
+                          <div style={{ display: "flex", flexWrap: "wrap" }}>
+                            {[
+                              { key: "struggling", label: `⚠ Struggling only (${nStruggling})` },
+                              { key: "weak", label: `△ Weak + untested (${nWeak})` },
+                              { key: "untested", label: `○ Untested only (${nUntested})` },
+                              { key: "all", label: `All objectives (${nAll})` },
+                            ].map(({ key, label }) => {
+                              const active = drillFilter === key;
+                              const styles =
+                                key === "struggling"
+                                  ? { bg: "#FCEBEB", border: "#F09595" }
+                                  : key === "weak"
+                                    ? { bg: "#FAEEDA", border: "#EF9F27" }
+                                    : { bg: t.inputBg || t.cardBg, border: t.border1 };
+                              return (
+                                <button
+                                  key={key}
+                                  type="button"
+                                  onClick={() => setDrillFilter(key)}
+                                  style={{
+                                    ...pillBase,
+                                    background: active ? styles.bg : "transparent",
+                                    border: active ? "0.5px solid " + styles.border : "0.5px solid " + (t.border2 || t.border1),
+                                    color: active ? t.text1 : t.text3,
+                                  }}
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--color-text-tertiary, " + t.text3 + ")",
+                              textTransform: "uppercase",
+                              letterSpacing: 0.06,
+                              marginTop: 16,
+                              marginBottom: 8,
+                              fontFamily: MONO,
+                            }}
+                          >
+                            Study style
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "1fr 1fr",
+                              gap: 8,
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setDrillStyle("flashcard")}
+                              style={{
+                                padding: "12px 14px",
+                                border: drillStyle === "flashcard" ? "1.5px solid #7F77DD" : "0.5px solid var(--color-border-tertiary)",
+                                borderRadius: "var(--border-radius-md, 8px)",
+                                cursor: "pointer",
+                                background: drillStyle === "flashcard" ? "#EEEDFE" : "transparent",
+                              }}
+                            >
+                              <div style={{ fontSize: 16, marginBottom: 6 }}>🃏</div>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: drillStyle === "flashcard" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>Flashcard</div>
+                              <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>See the answer, self-assess</div>
+                            </div>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setDrillStyle("mcq")}
+                              style={{
+                                padding: "12px 14px",
+                                border: drillStyle === "mcq" ? "1.5px solid #7F77DD" : "0.5px solid var(--color-border-tertiary)",
+                                borderRadius: "var(--border-radius-md, 8px)",
+                                cursor: "pointer",
+                                background: drillStyle === "mcq" ? "#EEEDFE" : "transparent",
+                              }}
+                            >
+                              <div style={{ fontSize: 16, marginBottom: 6 }}>❓</div>
+                              <div style={{ fontSize: 13, fontWeight: 500, color: drillStyle === "mcq" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>MCQ</div>
+                              <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>AI generates a question for each objective</div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 12, color: t.text2, marginTop: 16, marginBottom: 8 }}>From which lectures?</div>
+                          <select
+                            value={drillLecFilter}
+                            onChange={(e) => setDrillLecFilter(e.target.value)}
+                            style={{
+                              width: "100%",
+                              fontSize: 13,
+                              padding: "8px 10px",
+                              borderRadius: "var(--border-radius-md, 8px)",
+                              border: "1px solid " + t.border1,
+                              background: t.inputBg,
+                              color: t.text1,
+                              fontFamily: MONO,
+                            }}
+                          >
+                            <option value="all">All lectures</option>
+                            {drillBlockLecsSorted.map((lec) => {
+                              const cnt = (getBlockObjectives(drillBid) || []).filter((o) => o.linkedLecId === lec.id).length;
+                              const title = lec.lectureTitle || lec.fileName || lec.id;
+                              return (
+                                <option key={lec.id} value={lec.id}>
+                                  {(lec.lectureType || "LEC")} {lec.lectureNumber ?? ""} — {title} ({cnt} obj)
+                                </option>
+                              );
+                            })}
+                          </select>
+                          <div style={{ fontSize: 13, color: t.text3, marginTop: 12 }}>
+                            {nPreview === 0 ? (
+                              <span style={{ color: t.text4 || t.text3 }}>No objectives match this filter</span>
+                            ) : (
+                              <span>
+                                {nPreview} objectives in queue
+                              </span>
+                            )}
+                          </div>
+                          {nPreview > 0 && drillFilter === "weak" && (
+                            <div style={{ fontSize: 11, color: t.text3, marginTop: 6, fontFamily: MONO }}>
+                              includes ⚠ {nStruggling} struggling · △ {nInProgressDrill} in progress · ○ {nUntested}{" "}
+                              untested
+                            </div>
+                          )}
+                          {nPreview > 0 && drillFilter === "struggling" && (
+                            <div style={{ fontSize: 11, color: t.text3, marginTop: 6, fontFamily: MONO }}>
+                              ⚠ Struggling objectives only ({nStruggling} in this scope)
+                            </div>
+                          )}
+                          <div style={{ display: "flex", gap: 8, marginTop: 20, flexWrap: "wrap" }}>
+                            <button
+                              type="button"
+                              disabled={nPreview === 0}
+                              onClick={() => {
+                                const queue = buildDrillQueue(baseObjs, drillFilter, drillLecFilter);
+                                setDrillQueue(queue);
+                                setDrillIndex(0);
+                                setDrillComplete(false);
+                                setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+                                drillSessionStrugglingRef.current.clear();
+                                drillCardFirstRenderRef.current = true;
+                                revealedCardKeyRef.current = null;
+                                setRevealedCardKey(null);
+                                setCardState("front");
+                                drillCardModeRef.current = "back";
+                                setDrillCardMode("back");
+                                setMcqData(null);
+                                setCardBack(null);
+                                setMcqError(null);
+                                mcqRetryRef.current = false;
+                                captureDrillLevelSnapshot(queue, drillBid);
+                                captureDrillWeakConceptSnapshot(drillBid);
+                                scheduleMcqPrefetchForQueue(queue);
+                              }}
+                              style={{
+                                padding: "10px 18px",
+                                fontSize: 13,
+                                cursor: nPreview === 0 ? "not-allowed" : "pointer",
+                                fontFamily: MONO,
+                                fontWeight: 600,
+                                background: nPreview === 0 ? t.border1 : tc,
+                                color: nPreview === 0 ? t.text3 : "#fff",
+                                border: "none",
+                                borderRadius: "var(--border-radius-md, 8px)",
+                                opacity: nPreview === 0 ? 0.5 : 1,
+                              }}
+                            >
+                              Start drill →
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exitDrill()}
+                              style={{
+                                padding: "10px 18px",
+                                fontSize: 13,
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                                background: t.inputBg,
+                                border: "1px solid " + t.border1,
+                                color: t.text2,
+                                borderRadius: "var(--border-radius-md, 8px)",
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const currentObj = drillQueue[drillIndex];
+                    const lecForCard = resolveDrillLectureForObj(currentObj, drillBlockLecsSorted);
+                    const bloomLevel = currentObj?.bloom_level || 2;
+                    const bloomName = LEVEL_NAMES[bloomLevel] || LEVEL_NAMES[2];
+                    const bloomColor = LEVEL_COLORS[bloomLevel] || LEVEL_COLORS[2];
+                    const bloomBg = (LEVEL_BG && LEVEL_BG[bloomLevel]) || bloomColor + "18";
+                    const st = currentObj?.status;
+                    const statusPill =
+                      st === "mastered"
+                        ? { text: "✓ Mastered", color: "#639922", bg: "#EAF3DE" }
+                        : st === "inprogress"
+                          ? { text: "◑ In progress", color: "#0891b2", bg: "#0891b215" }
+                          : st === "struggling"
+                            ? { text: "⚠ Struggling", color: "#E24B4A", bg: "#FCEBEB" }
+                            : { text: "○ Untested", color: t.text3, bg: "transparent" };
+
+                    const nSaved =
+                      drillStats.mastered + drillStats.inprogress + drillStats.struggling;
+                    const blockObjsForLevels = getBlockObjectives(drillBid) || [];
+                    const level1Count =
+                      drillStyle === "mcq"
+                        ? drillQueue.filter((o) => getQuestionLevel(o, blockObjsForLevels) === 1).length
+                        : 0;
+                    const level2Count =
+                      drillStyle === "mcq"
+                        ? drillQueue.filter((o) => getQuestionLevel(o, blockObjsForLevels) === 2).length
+                        : 0;
+                    const level3Count =
+                      drillStyle === "mcq"
+                        ? drillQueue.filter((o) => getQuestionLevel(o, blockObjsForLevels) === 3).length
+                        : 0;
+
+                    return (
+                      <div style={{ padding: "0 8px 24px" }}>
+                        <div style={{ width: "100%", height: 3, background: t.border1 || t.pillBg }}>
+                          <div
+                            style={{
+                              height: "100%",
+                              width: drillQueue.length ? `${(drillIndex / drillQueue.length) * 100}%` : "0%",
+                              background: "#639922",
+                              transition: "width 0.2s ease",
+                            }}
+                          />
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "flex-start",
+                            padding: "12px 0",
+                            marginBottom: 8,
+                            flexWrap: "wrap",
+                            gap: 8,
+                          }}
+                        >
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            <span style={{ fontFamily: MONO, fontSize: 13, color: t.text3 }}>
+                              {drillIndex + 1} / {drillQueue.length}
+                            </span>
+                            <span style={{ fontSize: 10, color: "#639922", fontFamily: MONO }}>✓ auto-saving</span>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 6,
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                              justifyContent: "center",
+                              flex: 1,
+                            }}
+                          >
+                            {nSaved > 0 && (
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  color: "#639922",
+                                  fontFamily: MONO,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                ✓ {nSaved} saved
+                              </span>
+                            )}
+                            {drillStyle === "mcq" && (
+                              <>
+                                <span style={{ fontSize: 10, color: "#185FA5" }}>L1: {level1Count}</span>
+                                <span style={{ fontSize: 10, color: "#854F0B" }}>L2: {level2Count}</span>
+                                <span style={{ fontSize: 10, color: "#3C3489" }}>L3: {level3Count}</span>
+                              </>
+                            )}
+                            {drillStats.mastered > 0 && (
+                              <span style={{ fontSize: 11, color: "#639922", fontFamily: MONO }}>
+                                ✓ {drillStats.mastered} mastered
+                              </span>
+                            )}
+                            {drillStats.struggling > 0 && (
+                              <span style={{ fontSize: 11, color: "#E24B4A", fontFamily: MONO }}>
+                                ⚠ {drillStats.struggling} struggling
+                              </span>
+                            )}
+                            {drillStats.skipped > 0 && (
+                              <span style={{ fontSize: 11, color: t.text3, fontFamily: MONO }}>
+                                → {drillStats.skipped} skipped
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              alignItems: "flex-end",
+                              gap: 6,
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => toggleDrillStyleAndReset()}
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 8px",
+                                border: "0.5px solid var(--color-border-secondary)",
+                                borderRadius: "var(--border-radius-md, 8px)",
+                                background: "transparent",
+                                color: "var(--color-text-secondary)",
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                                fontWeight: 600,
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {drillStyle === "flashcard" ? "❓ MCQ · Switch to MCQ" : "🃏 Flashcard · Switch to Flashcard"}
+                            </button>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                              <button
+                                type="button"
+                                onClick={() => requestDrillExit()}
+                                style={{
+                                  fontSize: 11,
+                                  color: "#27500A",
+                                  border: "none",
+                                  background: "transparent",
+                                  cursor: "pointer",
+                                  fontFamily: MONO,
+                                  fontWeight: 600,
+                                }}
+                              >
+                                ✓ Save & exit
+                              </button>
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  color: "var(--color-text-tertiary)",
+                                  textAlign: "right",
+                                  maxWidth: 160,
+                                }}
+                              >
+                                Progress auto-saved after each card
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        {exitConfirmVisible && (
+                          <div
+                            style={{
+                              background: "var(--color-background-secondary)",
+                              border: "0.5px solid var(--color-border-tertiary)",
+                              borderRadius: 8,
+                              padding: "10px 14px",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              marginBottom: 10,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <span style={{ fontSize: 13, flex: 1, minWidth: 200 }}>
+                              {nSaved} objectives saved. Exit now?
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                openDrillSummary();
+                                setExitConfirmVisible(false);
+                              }}
+                              style={{
+                                fontSize: 12,
+                                padding: "5px 12px",
+                                background: "#EAF3DE",
+                                color: "#27500A",
+                                border: "0.5px solid #97C459",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                              }}
+                            >
+                              Yes, exit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setExitConfirmVisible(false)}
+                              style={{
+                                fontSize: 12,
+                                padding: "5px 12px",
+                                background: "transparent",
+                                border: "0.5px solid var(--color-border-secondary)",
+                                color: "var(--color-text-secondary)",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                              }}
+                            >
+                              Keep going
+                            </button>
+                          </div>
+                        )}
+                        {(() => {
+                          const displayCode = getDisplayObjectiveCode(currentObj);
+                          const isRevealed = revealedCardKey === currentObj?.id;
+                          const isMcq = drillStyle === "mcq";
+                          const mcqShowSpinner =
+                            isMcq &&
+                            (drillCardMode === "mcq_loading" ||
+                              (cardState === "front" && drillCardMode === "back"));
+                          return (
+                        <div
+                          style={{
+                            position: "relative",
+                            background: "var(--color-background-primary)",
+                            border: "0.5px solid var(--color-border-tertiary)",
+                            borderRadius: 12,
+                            padding: 24,
+                            minHeight: 220,
+                            maxWidth: 640,
+                            margin: "0 auto",
+                            display: "flex",
+                            flexDirection: "column",
+                            cursor: isMcq || isRevealed ? "default" : "pointer",
+                            userSelect: "none",
+                            opacity: drillCardOpacity,
+                            transition: "opacity 0.15s ease",
+                          }}
+                          onClick={() => {
+                            if (drillStyle !== "flashcard") return;
+                            if (revealedCardKey !== currentObj?.id) {
+                              setRevealedCardKey(currentObj.id);
+                              revealedCardKeyRef.current = currentObj.id;
+                              generateCardAnswer(currentObj);
+                            }
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                            {lecForCard && lecTypeBadge(lecForCard.lectureType || "LEC")}
+                            <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>
+                              {lecForCard ? `${lecForCard.lectureType || "LEC"} ${lecForCard.lectureNumber ?? ""}` : "—"}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: t.text2,
+                                flex: 1,
+                                minWidth: 0,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {lecForCard ? lecForCard.lectureTitle || lecForCard.fileName || "" : currentObj?.lectureTitle || ""}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 8px",
+                                borderRadius: 20,
+                                background: bloomBg,
+                                color: bloomColor,
+                                fontFamily: MONO,
+                                fontWeight: 600,
+                                border: "0.5px solid " + bloomColor + "55",
+                              }}
+                            >
+                              {bloomName}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                padding: "2px 8px",
+                                borderRadius: 20,
+                                background: statusPill.bg,
+                                color: statusPill.color,
+                                fontFamily: MONO,
+                                fontWeight: 600,
+                                border: "0.5px solid " + (statusPill.bg === "transparent" ? t.border1 : statusPill.color + "55"),
+                              }}
+                            >
+                              {statusPill.text}
+                            </span>
+                            {isMcq && (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  marginLeft: "auto",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                {(drillCardMode === "mcq_ready" || drillCardMode === "mcq_answered") &&
+                                  (() => {
+                                    const ql = mcqData?.questionLevel ?? currentQuestionLevel;
+                                    const lc = QUESTION_LEVELS[ql] || QUESTION_LEVELS[1];
+                                    return (
+                                      <span
+                                        style={{
+                                          fontSize: 10,
+                                          fontWeight: 500,
+                                          padding: "2px 8px",
+                                          borderRadius: 20,
+                                          border: `0.5px solid ${lc.color}`,
+                                          color: lc.color,
+                                          background: `${lc.color}18`,
+                                          flexShrink: 0,
+                                        }}
+                                      >
+                                        {ql === 1 ? "L1 Recall" : ql === 2 ? "L2 Apply" : "L3 Reason"}
+                                      </span>
+                                    );
+                                  })()}
+                                {drillCardMode === "mcq_loading" && (
+                                  <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>
+                                    L? Generating...
+                                  </span>
+                                )}
+                                {mcqData?.fromCache && (
+                                  <span title="Loaded instantly from cache" style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>
+                                    ⚡
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                          {drillStyle === "flashcard" && (
+                            <>
+                              <div
+                                style={{
+                                  fontSize: 16,
+                                  lineHeight: 1.6,
+                                  color: "var(--color-text-primary)",
+                                  flex: 1,
+                                  whiteSpace: "pre-wrap",
+                                }}
+                              >
+                                {currentObj?.objective || currentObj?.text || ""}
+                              </div>
+                              {displayCode ? (
+                                <div
+                                  style={{
+                                    fontFamily: MONO,
+                                    fontSize: 10,
+                                    color: "var(--color-text-tertiary)",
+                                    marginTop: 8,
+                                  }}
+                                >
+                                  {displayCode}
+                                </div>
+                              ) : null}
+                            </>
+                          )}
+
+                          {isMcq && mcqError && (
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "#A32D2D",
+                                textAlign: "center",
+                                marginBottom: 8,
+                                padding: "4px 8px",
+                                background: "#FCEBEB",
+                                borderRadius: 4,
+                              }}
+                            >
+                              {mcqError}
+                            </div>
+                          )}
+
+                          {isMcq && mcqShowSpinner && (
+                            <div
+                              style={{
+                                padding: "32px 0",
+                                textAlign: "center",
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                gap: 12,
+                              }}
+                            >
+                              <span
+                                style={{
+                                  display: "inline-block",
+                                  width: 20,
+                                  height: 20,
+                                  border: "2px solid var(--color-border-secondary)",
+                                  borderTopColor: "#3C3489",
+                                  borderRadius: "50%",
+                                  animation: "spin 0.7s linear infinite",
+                                }}
+                              />
+                              <div style={{ fontSize: 13, color: "var(--color-text-secondary)" }}>Generating question...</div>
+                              <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", textAlign: "center", maxWidth: 280 }}>
+                                {drillIndex === 0
+                                  ? "First card — pre-fetch will help on the next ones."
+                                  : "Pre-fetch should make this rare — hang on a moment."}
+                              </div>
+                            </div>
+                          )}
+
+                          {isMcq && drillCardMode === "mcq_ready" && mcqData && (
+                            <div>
+                              <div
+                                style={{
+                                  fontSize: 15,
+                                  fontWeight: 500,
+                                  marginBottom: 16,
+                                  lineHeight: 1.5,
+                                  color: "var(--color-text-primary)",
+                                }}
+                              >
+                                {mcqData.question}
+                              </div>
+                              {mcqData.isFallback && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "var(--color-text-tertiary)",
+                                    marginBottom: 8,
+                                  }}
+                                >
+                                  ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                </div>
+                              )}
+                              {mcqData.options.map((opt, i) => {
+                                const letters = ["A", "B", "C", "D"];
+                                const isElim = eliminatedOptions.includes(i);
+                                const isSel = selectedOption === i;
+                                const isHovered = mcqOptionHover === i && !isElim && !isSel;
+                                let bg = "var(--color-background-primary)";
+                                let border = "0.5px solid var(--color-border-tertiary)";
+                                let opacity = 1;
+                                let textDecoration = "none";
+                                const cursor = "pointer";
+                                if (isElim) {
+                                  opacity = 0.35;
+                                  textDecoration = "line-through";
+                                } else if (isSel) {
+                                  bg = "#EEEDFE";
+                                  border = "1.5px solid #7F77DD";
+                                } else if (isHovered) {
+                                  bg = "var(--color-background-secondary)";
+                                }
+                                const letterLabel = isElim ? "—" : letters[i];
+                                const letterBg = isElim
+                                  ? "transparent"
+                                  : isSel
+                                    ? "#7F77DD"
+                                    : "var(--color-background-secondary)";
+                                const letterFg = isElim
+                                  ? "var(--color-text-tertiary)"
+                                  : isSel
+                                    ? "#ffffff"
+                                    : "var(--color-text-tertiary)";
+                                return (
+                                  <div
+                                    key={i}
+                                    role="button"
+                                    tabIndex={0}
+                                    onMouseEnter={() => setMcqOptionHover(i)}
+                                    onMouseLeave={() => setMcqOptionHover(null)}
+                                    onClick={() => {
+                                      if (lockedAnswer !== null) return;
+                                      if (isElim) {
+                                        setEliminatedOptions((prev) => prev.filter((x) => x !== i));
+                                        return;
+                                      }
+                                      if (selectedOption === i) {
+                                        setSelectedOption(null);
+                                        return;
+                                      }
+                                      setSelectedOption(i);
+                                    }}
+                                    style={{
+                                      background: bg,
+                                      border,
+                                      opacity,
+                                      cursor,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 10,
+                                      padding: "10px 12px",
+                                      borderRadius: 8,
+                                      marginBottom: 8,
+                                      userSelect: "none",
+                                      transition: "all 0.12s ease",
+                                      fontSize: 13,
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: 24,
+                                        height: 24,
+                                        borderRadius: "50%",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        fontFamily: "var(--font-mono)",
+                                        fontSize: 11,
+                                        flexShrink: 0,
+                                        background: letterBg,
+                                        color: letterFg,
+                                      }}
+                                    >
+                                      {letterLabel}
+                                    </div>
+                                    <span
+                                      style={{
+                                        flex: 1,
+                                        textDecoration,
+                                        color: isElim ? "var(--color-text-tertiary)" : "var(--color-text-primary)",
+                                      }}
+                                    >
+                                      {opt.text}
+                                    </span>
+                                    {lockedAnswer === null && (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (lockedAnswer !== null) return;
+                                          setEliminatedOptions((prev) =>
+                                            prev.includes(i) ? prev.filter((j) => j !== i) : [...prev, i]
+                                          );
+                                          if (selectedOption === i) setSelectedOption(null);
+                                        }}
+                                        style={{
+                                          width: 24,
+                                          height: 24,
+                                          borderRadius: 4,
+                                          border: "0.5px solid var(--color-border-tertiary)",
+                                          background: isElim ? "var(--color-background-secondary)" : "transparent",
+                                          color: isElim ? "var(--color-text-secondary)" : "var(--color-text-tertiary)",
+                                          cursor: "pointer",
+                                          fontSize: 11,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          flexShrink: 0,
+                                          marginLeft: 8,
+                                          transition: "all 0.1s",
+                                        }}
+                                        title={isElim ? "Un-eliminate" : "Eliminate this option"}
+                                      >
+                                        {isElim ? "↺" : "✕"}
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              <div
+                                style={{
+                                  fontSize: 10,
+                                  color: "var(--color-text-tertiary)",
+                                  textAlign: "center",
+                                  marginTop: 6,
+                                }}
+                              >
+                                ✕ to eliminate · click to select · Enter to confirm
+                              </div>
+                              {selectedOption !== null && lockedAnswer === null ? (
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "center",
+                                    marginTop: 12,
+                                    gap: 10,
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setLockedAnswer(selectedOption);
+                                      handleDrillMCQAnswer(selectedOption);
+                                      setSelectedAnswer(selectedOption);
+                                    }}
+                                    style={{
+                                      padding: "10px 28px",
+                                      fontSize: 14,
+                                      fontWeight: 500,
+                                      background: "#7F77DD",
+                                      color: "white",
+                                      border: "none",
+                                      borderRadius: 8,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Confirm answer
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedOption(null)}
+                                    style={{
+                                      padding: "10px 16px",
+                                      fontSize: 13,
+                                      background: "transparent",
+                                      color: "var(--color-text-tertiary)",
+                                      border: "0.5px solid var(--color-border-secondary)",
+                                      borderRadius: 8,
+                                      cursor: "pointer",
+                                    }}
+                                  >
+                                    Clear
+                                  </button>
+                                </div>
+                              ) : (
+                                <div
+                                  style={{
+                                    textAlign: "center",
+                                    marginTop: 12,
+                                    fontSize: 12,
+                                    color: "var(--color-text-tertiary)",
+                                  }}
+                                >
+                                  Select an answer above
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {isMcq && drillCardMode === "mcq_answered" && mcqData && (
+                            <div>
+                              <div
+                                style={{
+                                  fontSize: 15,
+                                  fontWeight: 500,
+                                  marginBottom: 16,
+                                  lineHeight: 1.5,
+                                  color: "var(--color-text-primary)",
+                                }}
+                              >
+                                {mcqData.question}
+                              </div>
+                              {mcqData.isFallback && (
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "var(--color-text-tertiary)",
+                                    marginBottom: 8,
+                                  }}
+                                >
+                                  ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                </div>
+                              )}
+                              {mcqData.options.map((opt, i) => {
+                                const letters = ["A", "B", "C", "D"];
+                                const isAnswered = mcqData.selectedIndex != null;
+                                const isSelected = mcqData.selectedIndex === i;
+                                const isEliminated = eliminatedOptions.includes(i);
+                                const isCorrect = opt.correct;
+                                let bg = "var(--color-background-primary)";
+                                let border = "0.5px solid var(--color-border-tertiary)";
+                                let opacity = 1;
+                                let textDecoration = "none";
+                                let cursor = "default";
+                                if (isAnswered) {
+                                  if (isCorrect && isSelected) {
+                                    bg = "#EAF3DE";
+                                    border = "1.5px solid #639922";
+                                  } else if (isCorrect && !isSelected) {
+                                    bg = "var(--color-background-primary)";
+                                    border = "1.5px solid #639922";
+                                  } else if (isSelected && !isCorrect) {
+                                    bg = "#FCEBEB";
+                                    border = "1.5px solid #E24B4A";
+                                  } else if (isEliminated) {
+                                    opacity = 0.3;
+                                    textDecoration = "line-through";
+                                  } else {
+                                    opacity = 0.6;
+                                  }
+                                }
+                                const letterDisplay = isCorrect
+                                  ? "✓"
+                                  : isSelected && !isCorrect
+                                    ? "✗"
+                                    : isEliminated
+                                      ? "—"
+                                      : letters[i];
+                                return (
+                                  <div
+                                    key={i}
+                                    style={{
+                                      background: bg,
+                                      border,
+                                      opacity,
+                                      cursor: "default",
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 10,
+                                      padding: "10px 12px",
+                                      borderRadius: 8,
+                                      marginBottom: 8,
+                                      userSelect: "none",
+                                      transition: "all 0.12s ease",
+                                      fontSize: 13,
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    <div
+                                      style={{
+                                        width: 24,
+                                        height: 24,
+                                        borderRadius: "50%",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        fontFamily: "var(--font-mono)",
+                                        fontSize: 11,
+                                        flexShrink: 0,
+                                        background: isCorrect
+                                          ? "#639922"
+                                          : isSelected && !isCorrect
+                                            ? "#E24B4A"
+                                            : isEliminated
+                                              ? "transparent"
+                                              : "var(--color-background-secondary)",
+                                        color:
+                                          isCorrect || (isSelected && !isCorrect)
+                                            ? "#ffffff"
+                                            : "var(--color-text-tertiary)",
+                                      }}
+                                    >
+                                      {letterDisplay}
+                                    </div>
+                                    <span
+                                      style={{
+                                        flex: 1,
+                                        textDecoration,
+                                        color: "var(--color-text-primary)",
+                                      }}
+                                    >
+                                      {opt.text}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+
+                              <div
+                                style={{
+                                  background: "var(--color-background-secondary)",
+                                  border: "0.5px solid var(--color-border-tertiary)",
+                                  borderRadius: 8,
+                                  padding: "10px 12px",
+                                  marginTop: 8,
+                                  fontSize: 12,
+                                  lineHeight: 1.5,
+                                  color: "var(--color-text-primary)",
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "var(--color-text-tertiary)",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.06em",
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  Explanation
+                                </div>
+                                {mcqData.overallExplanation}
+                              </div>
+
+                              <div
+                                style={{
+                                  marginTop: 12,
+                                  padding: "10px 12px",
+                                  background: "#EEEDFE",
+                                  border: "0.5px solid #AFA9EC",
+                                  borderRadius: 8,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: 10,
+                                    color: "#3C3489",
+                                    textTransform: "uppercase",
+                                    letterSpacing: "0.06em",
+                                    marginBottom: 4,
+                                  }}
+                                >
+                                  Learning objective
+                                </div>
+                                <div style={{ fontSize: 12, color: "#3C3489", lineHeight: 1.5 }}>
+                                  {mcqData.objectiveText || currentObj?.objective || currentObj?.text || ""}
+                                </div>
+                              </div>
+
+                              {mcqData.selectedIndex != null &&
+                                mcqData.options[mcqData.selectedIndex]?.correct === false && (
+                                  <div style={{ marginTop: 12 }}>
+                                    {!showReasoningBox ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => setShowReasoningBox(true)}
+                                        style={{
+                                          display: "block",
+                                          margin: "0 auto",
+                                          fontSize: 11,
+                                          padding: "4px 12px",
+                                          border: "0.5px solid var(--color-border-secondary)",
+                                          borderRadius: 6,
+                                          background: "transparent",
+                                          color: "var(--color-text-tertiary)",
+                                          cursor: "pointer",
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        + Write out your reasoning (optional)
+                                      </button>
+                                    ) : (
+                                      <div>
+                                        <div
+                                          style={{
+                                            fontSize: 10,
+                                            color: "var(--color-text-tertiary)",
+                                            textTransform: "uppercase",
+                                            letterSpacing: "0.06em",
+                                            marginBottom: 4,
+                                          }}
+                                        >
+                                          Your reasoning
+                                        </div>
+                                        <textarea
+                                          value={studentReasoning}
+                                          onChange={(e) => setStudentReasoning(e.target.value)}
+                                          placeholder="Why did you choose that answer? What were you thinking?..."
+                                          autoFocus
+                                          style={{
+                                            width: "100%",
+                                            minHeight: 80,
+                                            fontSize: 13,
+                                            lineHeight: 1.5,
+                                            padding: "8px 10px",
+                                            border: "0.5px solid var(--color-border-secondary)",
+                                            borderRadius: 8,
+                                            background: "var(--color-background-primary)",
+                                            color: "var(--color-text-primary)",
+                                            resize: "vertical",
+                                            fontFamily: "var(--font-sans, system-ui, sans-serif)",
+                                          }}
+                                        />
+                                        <div
+                                          style={{
+                                            fontSize: 10,
+                                            color: "var(--color-text-tertiary)",
+                                            marginTop: 4,
+                                            textAlign: "right",
+                                          }}
+                                        >
+                                          Saved with this objective
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                              <div style={{ marginTop: 12 }}>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--color-text-tertiary)",
+                                    textAlign: "center",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  How did you do?
+                                </div>
+                                <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDrillAssess("struggling")}
+                                    style={{
+                                      padding: "8px 14px",
+                                      fontSize: 12,
+                                      background: mcqData.options[mcqData.selectedIndex]?.correct ? "transparent" : "#FCEBEB",
+                                      color: mcqData.options[mcqData.selectedIndex]?.correct
+                                        ? "var(--color-text-tertiary)"
+                                        : "#A32D2D",
+                                      border: mcqData.options[mcqData.selectedIndex]?.correct
+                                        ? "0.5px solid var(--color-border-tertiary)"
+                                        : "0.5px solid #F09595",
+                                      borderRadius: 8,
+                                      cursor: "pointer",
+                                      fontFamily: MONO,
+                                      opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 0.5 : 1,
+                                    }}
+                                  >
+                                    ⚠ No
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDrillAssess("inprogress")}
+                                    style={{
+                                      padding: "8px 14px",
+                                      fontSize: 12,
+                                      background: "transparent",
+                                      color: "var(--color-text-secondary)",
+                                      border: "0.5px solid var(--color-border-tertiary)",
+                                      borderRadius: 8,
+                                      cursor: "pointer",
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    △ Partially
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDrillAssess("mastered")}
+                                    style={{
+                                      padding: "8px 14px",
+                                      fontSize: 12,
+                                      background: mcqData.options[mcqData.selectedIndex]?.correct ? "#EAF3DE" : "transparent",
+                                      color: mcqData.options[mcqData.selectedIndex]?.correct ? "#27500A" : "var(--color-text-secondary)",
+                                      border: mcqData.options[mcqData.selectedIndex]?.correct
+                                        ? "0.5px solid #97C459"
+                                        : "0.5px solid var(--color-border-tertiary)",
+                                      borderRadius: 8,
+                                      cursor: "pointer",
+                                      fontFamily: MONO,
+                                      opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 1 : 0.5,
+                                    }}
+                                  >
+                                    ✓ Yes, got it
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          <div
+                            style={{
+                              marginTop: 20,
+                              paddingTop: 16,
+                              borderTop: "0.5px solid var(--color-border-tertiary)",
+                            }}
+                          >
+                            {!isRevealed && drillStyle === "flashcard" && (
+                              <div
+                                style={{
+                                  textAlign: "center",
+                                  fontSize: 12,
+                                  color: "var(--color-text-tertiary)",
+                                }}
+                              >
+                                Think about your answer, then tap to reveal
+                              </div>
+                            )}
+                            {isRevealed && drillStyle === "flashcard" && (
+                              <div onClick={(e) => e.stopPropagation()}>
+                                {(drillStyle === "flashcard" || mcqError) && drillCardMode === "back" && (
+                                  <div>
+                                    {mcqError && (
+                                      <div
+                                        style={{
+                                          fontSize: 11,
+                                          color: "#A32D2D",
+                                          textAlign: "center",
+                                          marginBottom: 8,
+                                          padding: "4px 8px",
+                                          background: "#FCEBEB",
+                                          borderRadius: 4,
+                                        }}
+                                      >
+                                        {mcqError}
+                                      </div>
+                                    )}
+                                    <div
+                                      style={{
+                                        background: "var(--color-background-secondary)",
+                                        border: "0.5px solid var(--color-border-tertiary)",
+                                        borderRadius: 8,
+                                        padding: "14px 16px",
+                                        marginBottom: 14,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: 10,
+                                          color: "var(--color-text-tertiary)",
+                                          textTransform: "uppercase",
+                                          letterSpacing: "0.06em",
+                                          marginBottom: 6,
+                                        }}
+                                      >
+                                        Answer
+                                      </div>
+                                      {cardBack == null || cardBack.loading ? (
+                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap" }}>
+                                          <span
+                                            style={{
+                                              display: "inline-block",
+                                              width: 12,
+                                              height: 12,
+                                              border: "2px solid var(--color-border-secondary)",
+                                              borderTopColor: "var(--color-text-secondary)",
+                                              borderRadius: "50%",
+                                              animation: "spin 0.7s linear infinite",
+                                            }}
+                                          />
+                                          <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>Generating answer...</span>
+                                        </div>
+                                      ) : (
+                                        <div
+                                          style={{
+                                            fontSize: 13,
+                                            lineHeight: 1.6,
+                                            color: "var(--color-text-primary)",
+                                            whiteSpace: "pre-wrap",
+                                          }}
+                                        >
+                                          {cardBack.answer}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 11,
+                                        color: "var(--color-text-tertiary)",
+                                        textAlign: "center",
+                                        marginBottom: 8,
+                                      }}
+                                    >
+                                      Did you know this?
+                                    </div>
+                                    <div style={{ display: "flex", gap: 8, justifyContent: "center", marginBottom: 12, flexWrap: "wrap" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDrillAssess("struggling")}
+                                        style={{
+                                          padding: "8px 16px",
+                                          fontSize: 13,
+                                          background: "#FCEBEB",
+                                          color: "#A32D2D",
+                                          border: "0.5px solid #F09595",
+                                          borderRadius: 8,
+                                          cursor: "pointer",
+                                          fontFamily: MONO,
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        ⚠ No
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDrillAssess("inprogress")}
+                                        style={{
+                                          padding: "8px 16px",
+                                          fontSize: 13,
+                                          background: "#FAEEDA",
+                                          color: "#633806",
+                                          border: "0.5px solid #EF9F27",
+                                          borderRadius: 8,
+                                          cursor: "pointer",
+                                          fontFamily: MONO,
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        △ Partially
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleDrillAssess("mastered")}
+                                        style={{
+                                          padding: "8px 16px",
+                                          fontSize: 13,
+                                          background: "#EAF3DE",
+                                          color: "#27500A",
+                                          border: "0.5px solid #97C459",
+                                          borderRadius: 8,
+                                          cursor: "pointer",
+                                          fontFamily: MONO,
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        ✓ Yes, got it
+                                      </button>
+                                    </div>
+                                    {drillStyle === "flashcard" && (
+                                      <>
+                                        <div style={{ borderTop: "0.5px solid var(--color-border-tertiary)", margin: "10px 0" }} />
+                                        <button
+                                          type="button"
+                                          onClick={() => generateDrillMCQ(currentObj)}
+                                          style={{
+                                            display: "block",
+                                            margin: "0 auto",
+                                            fontSize: 12,
+                                            padding: "5px 14px",
+                                            border: "0.5px solid var(--color-border-secondary)",
+                                            borderRadius: 8,
+                                            background: "transparent",
+                                            color: "var(--color-text-secondary)",
+                                            cursor: "pointer",
+                                            fontFamily: MONO,
+                                          }}
+                                        >
+                                          ❓ Test me with a question instead
+                                        </button>
+                                        <div
+                                          style={{
+                                            fontSize: 10,
+                                            color: "var(--color-text-tertiary)",
+                                            textAlign: "center",
+                                            marginTop: 4,
+                                          }}
+                                        >
+                                          Generates a clinical MCQ for this objective
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+
+                                {!isMcq && drillCardMode === "mcq_loading" && (
+                                  <div
+                                    style={{
+                                      padding: "32px 0",
+                                      textAlign: "center",
+                                      display: "flex",
+                                      flexDirection: "column",
+                                      alignItems: "center",
+                                      gap: 12,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        width: 20,
+                                        height: 20,
+                                        border: "2px solid var(--color-border-secondary)",
+                                        borderTopColor: "#3C3489",
+                                        borderRadius: "50%",
+                                        animation: "spin 0.7s linear infinite",
+                                      }}
+                                    />
+                                    <div
+                                      style={{
+                                        fontSize: 13,
+                                        color: "var(--color-text-secondary)",
+                                      }}
+                                    >
+                                      Generating question...
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 11,
+                                        color: "var(--color-text-tertiary)",
+                                      }}
+                                    >
+                                      This takes a few seconds
+                                    </div>
+                                  </div>
+                                )}
+
+                                {!isMcq && drillCardMode === "mcq_ready" && mcqData && (
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontSize: 15,
+                                        fontWeight: 500,
+                                        marginBottom: 16,
+                                        lineHeight: 1.5,
+                                        color: "var(--color-text-primary)",
+                                      }}
+                                    >
+                                      {mcqData.question}
+                                    </div>
+                                    {mcqData.isFallback && (
+                                      <div
+                                        style={{
+                                          fontSize: 10,
+                                          color: "var(--color-text-tertiary)",
+                                          marginBottom: 8,
+                                        }}
+                                      >
+                                        ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                      </div>
+                                    )}
+                                    {mcqData.options.map((opt, i) => {
+                                      const letters = ["A", "B", "C", "D"];
+                                      const isElim = eliminatedOptions.includes(i);
+                                      const isSel = selectedOption === i;
+                                      const isHovered = mcqOptionHover === i && !isElim && !isSel;
+                                      let bg = "var(--color-background-primary)";
+                                      let border = "0.5px solid var(--color-border-tertiary)";
+                                      let opacity = 1;
+                                      let textDecoration = "none";
+                                      const cursor = "pointer";
+                                      if (isElim) {
+                                        opacity = 0.35;
+                                        textDecoration = "line-through";
+                                      } else if (isSel) {
+                                        bg = "#EEEDFE";
+                                        border = "1.5px solid #7F77DD";
+                                      } else if (isHovered) {
+                                        bg = "var(--color-background-secondary)";
+                                      }
+                                      const letterLabel = isElim ? "—" : letters[i];
+                                      const letterBg = isElim
+                                        ? "transparent"
+                                        : isSel
+                                          ? "#7F77DD"
+                                          : "var(--color-background-secondary)";
+                                      const letterFg = isElim
+                                        ? "var(--color-text-tertiary)"
+                                        : isSel
+                                          ? "#ffffff"
+                                          : "var(--color-text-tertiary)";
+                                      return (
+                                        <div
+                                          key={i}
+                                          role="button"
+                                          tabIndex={0}
+                                          onMouseEnter={() => setMcqOptionHover(i)}
+                                          onMouseLeave={() => setMcqOptionHover(null)}
+                                          onClick={() => {
+                                            if (lockedAnswer !== null) return;
+                                            if (isElim) {
+                                              setEliminatedOptions((prev) => prev.filter((x) => x !== i));
+                                              return;
+                                            }
+                                            if (selectedOption === i) {
+                                              setSelectedOption(null);
+                                              return;
+                                            }
+                                            setSelectedOption(i);
+                                          }}
+                                          style={{
+                                            background: bg,
+                                            border,
+                                            opacity,
+                                            cursor,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 10,
+                                            padding: "10px 12px",
+                                            borderRadius: 8,
+                                            marginBottom: 8,
+                                            userSelect: "none",
+                                            transition: "all 0.12s ease",
+                                            fontSize: 13,
+                                            lineHeight: 1.4,
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              width: 24,
+                                              height: 24,
+                                              borderRadius: "50%",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              fontFamily: "var(--font-mono)",
+                                              fontSize: 11,
+                                              flexShrink: 0,
+                                              background: letterBg,
+                                              color: letterFg,
+                                            }}
+                                          >
+                                            {letterLabel}
+                                          </div>
+                                          <span
+                                            style={{
+                                              flex: 1,
+                                              textDecoration,
+                                              color: isElim ? "var(--color-text-tertiary)" : "var(--color-text-primary)",
+                                            }}
+                                          >
+                                            {opt.text}
+                                          </span>
+                                          {lockedAnswer === null && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (lockedAnswer !== null) return;
+                                                setEliminatedOptions((prev) =>
+                                                  prev.includes(i) ? prev.filter((j) => j !== i) : [...prev, i]
+                                                );
+                                                if (selectedOption === i) setSelectedOption(null);
+                                              }}
+                                              style={{
+                                                width: 24,
+                                                height: 24,
+                                                borderRadius: 4,
+                                                border: "0.5px solid var(--color-border-tertiary)",
+                                                background: isElim ? "var(--color-background-secondary)" : "transparent",
+                                                color: isElim ? "var(--color-text-secondary)" : "var(--color-text-tertiary)",
+                                                cursor: "pointer",
+                                                fontSize: 11,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                flexShrink: 0,
+                                                marginLeft: 8,
+                                                transition: "all 0.1s",
+                                              }}
+                                              title={isElim ? "Un-eliminate" : "Eliminate this option"}
+                                            >
+                                              {isElim ? "↺" : "✕"}
+                                            </button>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    <div
+                                      style={{
+                                        fontSize: 10,
+                                        color: "var(--color-text-tertiary)",
+                                        textAlign: "center",
+                                        marginTop: 6,
+                                      }}
+                                    >
+                                      ✕ to eliminate · click to select · Enter to confirm
+                                    </div>
+                                    {selectedOption !== null && lockedAnswer === null ? (
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "center",
+                                          marginTop: 12,
+                                          gap: 10,
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setLockedAnswer(selectedOption);
+                                            handleDrillMCQAnswer(selectedOption);
+                                            setSelectedAnswer(selectedOption);
+                                          }}
+                                          style={{
+                                            padding: "10px 28px",
+                                            fontSize: 14,
+                                            fontWeight: 500,
+                                            background: "#7F77DD",
+                                            color: "white",
+                                            border: "none",
+                                            borderRadius: 8,
+                                            cursor: "pointer",
+                                          }}
+                                        >
+                                          Confirm answer
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setSelectedOption(null)}
+                                          style={{
+                                            padding: "10px 16px",
+                                            fontSize: 13,
+                                            background: "transparent",
+                                            color: "var(--color-text-tertiary)",
+                                            border: "0.5px solid var(--color-border-secondary)",
+                                            borderRadius: 8,
+                                            cursor: "pointer",
+                                          }}
+                                        >
+                                          Clear
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div
+                                        style={{
+                                          textAlign: "center",
+                                          marginTop: 12,
+                                          fontSize: 12,
+                                          color: "var(--color-text-tertiary)",
+                                        }}
+                                      >
+                                        Select an answer above
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {!isMcq && drillCardMode === "mcq_answered" && mcqData && (
+                                  <div>
+                                    <div
+                                      style={{
+                                        fontSize: 15,
+                                        fontWeight: 500,
+                                        marginBottom: 16,
+                                        lineHeight: 1.5,
+                                        color: "var(--color-text-primary)",
+                                      }}
+                                    >
+                                      {mcqData.question}
+                                    </div>
+                                    {mcqData.isFallback && (
+                                      <div
+                                        style={{
+                                          fontSize: 10,
+                                          color: "var(--color-text-tertiary)",
+                                          marginBottom: 8,
+                                        }}
+                                      >
+                                        ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                      </div>
+                                    )}
+                                    {mcqData.options.map((opt, i) => {
+                                      const letters = ["A", "B", "C", "D"];
+                                      const isAnswered = mcqData.selectedIndex != null;
+                                      const isSelected = mcqData.selectedIndex === i;
+                                      const isEliminated = eliminatedOptions.includes(i);
+                                      const isCorrect = opt.correct;
+                                      let bg = "var(--color-background-primary)";
+                                      let border = "0.5px solid var(--color-border-tertiary)";
+                                      let opacity = 1;
+                                      let textDecoration = "none";
+                                      let cursor = "default";
+                                      if (isAnswered) {
+                                        if (isCorrect && isSelected) {
+                                          bg = "#EAF3DE";
+                                          border = "1.5px solid #639922";
+                                        } else if (isCorrect && !isSelected) {
+                                          bg = "var(--color-background-primary)";
+                                          border = "1.5px solid #639922";
+                                        } else if (isSelected && !isCorrect) {
+                                          bg = "#FCEBEB";
+                                          border = "1.5px solid #E24B4A";
+                                        } else if (isEliminated) {
+                                          opacity = 0.3;
+                                          textDecoration = "line-through";
+                                        } else {
+                                          opacity = 0.6;
+                                        }
+                                      }
+                                      const letterDisplay = isCorrect
+                                        ? "✓"
+                                        : isSelected && !isCorrect
+                                          ? "✗"
+                                          : isEliminated
+                                            ? "—"
+                                            : letters[i];
+                                      return (
+                                        <div
+                                          key={i}
+                                          style={{
+                                            background: bg,
+                                            border,
+                                            opacity,
+                                            cursor: "default",
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 10,
+                                            padding: "10px 12px",
+                                            borderRadius: 8,
+                                            marginBottom: 8,
+                                            userSelect: "none",
+                                            transition: "all 0.12s ease",
+                                            fontSize: 13,
+                                            lineHeight: 1.4,
+                                          }}
+                                        >
+                                          <div
+                                            style={{
+                                              width: 24,
+                                              height: 24,
+                                              borderRadius: "50%",
+                                              display: "flex",
+                                              alignItems: "center",
+                                              justifyContent: "center",
+                                              fontFamily: "var(--font-mono)",
+                                              fontSize: 11,
+                                              flexShrink: 0,
+                                              background: isCorrect
+                                                ? "#639922"
+                                                : isSelected && !isCorrect
+                                                  ? "#E24B4A"
+                                                  : isEliminated
+                                                    ? "transparent"
+                                                    : "var(--color-background-secondary)",
+                                              color:
+                                                isCorrect || (isSelected && !isCorrect)
+                                                  ? "#ffffff"
+                                                  : "var(--color-text-tertiary)",
+                                            }}
+                                          >
+                                            {letterDisplay}
+                                          </div>
+                                          <span
+                                            style={{
+                                              flex: 1,
+                                              textDecoration,
+                                              color: "var(--color-text-primary)",
+                                            }}
+                                          >
+                                            {opt.text}
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+
+                                    <div
+                                      style={{
+                                        background: "var(--color-background-secondary)",
+                                        border: "0.5px solid var(--color-border-tertiary)",
+                                        borderRadius: 8,
+                                        padding: "10px 12px",
+                                        marginTop: 8,
+                                        fontSize: 12,
+                                        lineHeight: 1.5,
+                                        color: "var(--color-text-primary)",
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: 10,
+                                          color: "var(--color-text-tertiary)",
+                                          textTransform: "uppercase",
+                                          letterSpacing: "0.06em",
+                                          marginBottom: 4,
+                                        }}
+                                      >
+                                        Explanation
+                                      </div>
+                                      {mcqData.overallExplanation}
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        marginTop: 12,
+                                        padding: "10px 12px",
+                                        background: "#EEEDFE",
+                                        border: "0.5px solid #AFA9EC",
+                                        borderRadius: 8,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: 10,
+                                          color: "#3C3489",
+                                          textTransform: "uppercase",
+                                          letterSpacing: "0.06em",
+                                          marginBottom: 4,
+                                        }}
+                                      >
+                                        Learning objective
+                                      </div>
+                                      <div style={{ fontSize: 12, color: "#3C3489", lineHeight: 1.5 }}>
+                                        {mcqData.objectiveText || currentObj?.objective || currentObj?.text || ""}
+                                      </div>
+                                    </div>
+
+                                    {mcqData.selectedIndex != null &&
+                                      mcqData.options[mcqData.selectedIndex]?.correct === false && (
+                                        <div style={{ marginTop: 12 }}>
+                                          {!showReasoningBox ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => setShowReasoningBox(true)}
+                                              style={{
+                                                display: "block",
+                                                margin: "0 auto",
+                                                fontSize: 11,
+                                                padding: "4px 12px",
+                                                border: "0.5px solid var(--color-border-secondary)",
+                                                borderRadius: 6,
+                                                background: "transparent",
+                                                color: "var(--color-text-tertiary)",
+                                                cursor: "pointer",
+                                                fontFamily: MONO,
+                                              }}
+                                            >
+                                              + Write out your reasoning (optional)
+                                            </button>
+                                          ) : (
+                                            <div>
+                                              <div
+                                                style={{
+                                                  fontSize: 10,
+                                                  color: "var(--color-text-tertiary)",
+                                                  textTransform: "uppercase",
+                                                  letterSpacing: "0.06em",
+                                                  marginBottom: 4,
+                                                }}
+                                              >
+                                                Your reasoning
+                                              </div>
+                                              <textarea
+                                                value={studentReasoning}
+                                                onChange={(e) => setStudentReasoning(e.target.value)}
+                                                placeholder="Why did you choose that answer? What were you thinking?..."
+                                                autoFocus
+                                                style={{
+                                                  width: "100%",
+                                                  minHeight: 80,
+                                                  fontSize: 13,
+                                                  lineHeight: 1.5,
+                                                  padding: "8px 10px",
+                                                  border: "0.5px solid var(--color-border-secondary)",
+                                                  borderRadius: 8,
+                                                  background: "var(--color-background-primary)",
+                                                  color: "var(--color-text-primary)",
+                                                  resize: "vertical",
+                                                  fontFamily: "var(--font-sans, system-ui, sans-serif)",
+                                                }}
+                                              />
+                                              <div
+                                                style={{
+                                                  fontSize: 10,
+                                                  color: "var(--color-text-tertiary)",
+                                                  marginTop: 4,
+                                                  textAlign: "right",
+                                                }}
+                                              >
+                                                Saved with this objective
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                    <div style={{ marginTop: 12 }}>
+                                      <div
+                                        style={{
+                                          fontSize: 11,
+                                          color: "var(--color-text-tertiary)",
+                                          textAlign: "center",
+                                          marginBottom: 6,
+                                        }}
+                                      >
+                                        How did you do?
+                                      </div>
+                                      <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDrillAssess("struggling")}
+                                          style={{
+                                            padding: "8px 14px",
+                                            fontSize: 12,
+                                            background: mcqData.options[mcqData.selectedIndex]?.correct ? "transparent" : "#FCEBEB",
+                                            color: mcqData.options[mcqData.selectedIndex]?.correct
+                                              ? "var(--color-text-tertiary)"
+                                              : "#A32D2D",
+                                            border: mcqData.options[mcqData.selectedIndex]?.correct
+                                              ? "0.5px solid var(--color-border-tertiary)"
+                                              : "0.5px solid #F09595",
+                                            borderRadius: 8,
+                                            cursor: "pointer",
+                                            fontFamily: MONO,
+                                            opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 0.5 : 1,
+                                          }}
+                                        >
+                                          ⚠ No
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDrillAssess("inprogress")}
+                                          style={{
+                                            padding: "8px 14px",
+                                            fontSize: 12,
+                                            background: "transparent",
+                                            color: "var(--color-text-secondary)",
+                                            border: "0.5px solid var(--color-border-tertiary)",
+                                            borderRadius: 8,
+                                            cursor: "pointer",
+                                            fontFamily: MONO,
+                                          }}
+                                        >
+                                          △ Partially
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => handleDrillAssess("mastered")}
+                                          style={{
+                                            padding: "8px 14px",
+                                            fontSize: 12,
+                                            background: mcqData.options[mcqData.selectedIndex]?.correct ? "#EAF3DE" : "transparent",
+                                            color: mcqData.options[mcqData.selectedIndex]?.correct ? "#27500A" : "var(--color-text-secondary)",
+                                            border: mcqData.options[mcqData.selectedIndex]?.correct
+                                              ? "0.5px solid #97C459"
+                                              : "0.5px solid var(--color-border-tertiary)",
+                                            borderRadius: 8,
+                                            cursor: "pointer",
+                                            fontFamily: MONO,
+                                            opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 1 : 0.5,
+                                          }}
+                                        >
+                                          ✓ Yes, got it
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {(isMcq || (isRevealed && drillStyle === "flashcard")) && (
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <div style={{ textAlign: "center", marginTop: 10, fontSize: 12, color: "var(--color-text-tertiary)" }}>
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleDrillSkip();
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        handleDrillSkip();
+                                      }
+                                    }}
+                                    style={{ cursor: "pointer" }}
+                                  >
+                                    → Skip
+                                  </span>
+                                </div>
+                                <div style={{ textAlign: "center", marginTop: 6, fontSize: 10, color: "var(--color-text-tertiary)" }}>
+                                  {drillStyle === "mcq"
+                                    ? drillCardMode === "mcq_answered"
+                                      ? "1 no · 2 partially · 3 yes · Enter auto-rate"
+                                      : selectedOption === null
+                                        ? "1–4 select · Shift+1–4 eliminate · Enter confirm · M switch to cards"
+                                        : "Enter to confirm · Esc to clear · Shift+N eliminate · M switch to cards"
+                                    : "Space reveal · 1/2/3 · S skip · M switch to MCQ"}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {levelAdvancement != null && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                borderRadius: 12,
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background: "rgba(255,255,255,0.95)",
+                                zIndex: 11,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 13,
+                                  color: "var(--color-text-tertiary)",
+                                  marginBottom: 4,
+                                }}
+                              >
+                                Level up
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 22,
+                                  fontWeight: 500,
+                                  color: QUESTION_LEVELS[levelAdvancement.to].color,
+                                }}
+                              >
+                                {QUESTION_LEVELS[levelAdvancement.to].name}
+                              </div>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "var(--color-text-tertiary)",
+                                  marginTop: 4,
+                                  textAlign: "center",
+                                  padding: "0 12px",
+                                }}
+                              >
+                                {QUESTION_LEVELS[levelAdvancement.to].description}
+                              </div>
+                            </div>
+                          )}
+                          {saveConfirmed != null && (
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                right: 0,
+                                bottom: 0,
+                                borderRadius: 12,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                background:
+                                  saveConfirmed === "mastered"
+                                    ? "rgba(100, 153, 34, 0.08)"
+                                    : saveConfirmed === "struggling"
+                                      ? "rgba(226, 75, 74, 0.08)"
+                                      : "rgba(186, 117, 23, 0.08)",
+                                pointerEvents: "none",
+                                transition: "opacity 0.2s",
+                                zIndex: levelAdvancement != null ? 4 : 10,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 28,
+                                  fontWeight: 500,
+                                  color:
+                                    saveConfirmed === "mastered"
+                                      ? "#639922"
+                                      : saveConfirmed === "struggling"
+                                        ? "#E24B4A"
+                                        : "#BA7517",
+                                }}
+                              >
+                                {saveConfirmed === "mastered"
+                                  ? "✓ Saved"
+                                  : saveConfirmed === "struggling"
+                                    ? "⚠ Saved"
+                                    : "△ Saved"}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                          );
+                        })()}
+                      </div>
+                    );
+                  })()
+                  )}
                 </div>
               )}
               {tab==="analysis" && (
@@ -11459,7 +20760,7 @@ export default function App() {
                     </div>
                   </div>
                   {(() => {
-                    const blockLecs = lectures.filter((l) => l.blockId === (activeBlock?.id ?? blockId));
+                    const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId), blockId);
                     const lecData = blockLecs.map((lec) => {
                       const perf = getLecPerf(lec, activeBlock?.id ?? blockId);
                       const blockObjs = getBlockObjectives(activeBlock?.id ?? blockId) || [];
@@ -11667,13 +20968,11 @@ export default function App() {
                   })()}
                 </div>
               )}
-              {true && (() => {
+              {!(tab === "objectives" && drillMode) && (() => {
                 const currentBlock = activeBlock;
                 const blockObjs = getBlockObjectives(currentBlock?.id ?? blockId) || [];
-                const blockLecsForProgress = lectures.filter((l) => l.blockId === (currentBlock?.id ?? blockId));
                 const areas = computeWeakAreas(currentBlock?.id ?? blockId);
-                const blockKey = "block__" + (currentBlock?.id ?? blockId);
-                const blockPerf = performanceHistory[blockKey];
+                const blockPerf = performanceHistory["block__" + (currentBlock?.id ?? blockId)];
                 const sessions = blockPerf?.sessions || [];
                 const totalObjs = blockObjs.length;
                 const masteredObjs = blockObjs.filter(o=>o.status==="mastered").length;
@@ -11684,50 +20983,7 @@ export default function App() {
                 const avgScore = sessions.length ? Math.round(sessions.reduce((a,s)=>a+s.score,0)/sessions.length) : 0;
                 const trend = blockPerf?.trend || "stable";
                 const currentLevel = blockPerf?.currentDifficulty || "medium";
-                const blockKeyForLog = "block__" + (currentBlock?.id ?? blockId);
-                const studyLog = Object.entries(performanceHistory)
-                  .filter(([k]) =>
-                    k === blockKeyForLog ||
-                    k.startsWith((currentBlock?.id ?? blockId) + "__") ||
-                    blockLecsForProgress.some((l) => k.startsWith(l.id))
-                  )
-                  .flatMap(([key, perf]) =>
-                    (perf.sessions || []).map((s) => ({
-                      ...s,
-                      topicKey: key,
-                      label: resolveTopicLabel(key, s, s.blockId ?? currentBlock?.id ?? blockId),
-                    }))
-                  )
-                  .sort((a, b) => new Date(b.date) - new Date(a.date))
-                  .slice(0, 15);
-
-                const upcomingReviews = Object.entries(performanceHistory)
-                  .filter(([k, v]) => {
-                    if (!v.nextReview) return false;
-                    const inBlock =
-                      k === blockKey ||
-                      k === blockKeyForLog ||
-                      k.startsWith((currentBlock?.id ?? blockId) + "__") ||
-                      blockLecsForProgress.some((lec) => k.startsWith(lec.id));
-                    return inBlock;
-                  })
-                  .map(([key, v]) => {
-                    const next = new Date(v.nextReview);
-                    const diffMs = next.getTime() - Date.now();
-                    const daysUntil = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
-                    const lastSession = v.sessions?.slice(-1)?.[0];
-                    return {
-                      key,
-                      label: resolveTopicLabel(key, lastSession, currentBlock?.id ?? blockId),
-                      nextReview: next,
-                      daysUntil,
-                      confidence: v.confidenceLevel,
-                      postScore: v.postMCQScore,
-                    };
-                  })
-                  .filter((r) => !Number.isNaN(r.daysUntil))
-                  .sort((a, b) => a.daysUntil - b.daysUntil)
-                  .slice(0, 5);
+                const streak = calculateStreak(currentBlock?.id ?? blockId);
                 return (
                   <div style={{ padding:"20px 24px", overflowY:"auto", display:"flex", flexDirection:"column", gap:20 }}>
                     <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
@@ -11735,11 +20991,14 @@ export default function App() {
                         { label:"Sessions", val:totalSessions, color:t.blue },
                         { label:"Avg Score", val:avgScore+"%", color:avgScore>=80?t.green:avgScore>=60?t.amber:t.red },
                         { label:"Level", val:currentLevel.toUpperCase(), color:{easy:t.green,medium:t.amber,hard:t.red,expert:t.purple}[currentLevel] || t.text1 },
-                        { label:"Streak", val:"🔥"+(blockPerf?.streak||0), color:t.amber },
+                        { label:"Streak", val:streak > 0 ? String(streak) : "0", color:streak > 0 ? "#E24B4A" : t.text3, dot: streak > 0 },
                         { label:"Trend", val:trend==="improving"?"↑ Improving":trend==="declining"?"↓ Declining":"→ Stable", color:trend==="improving"?t.green:trend==="declining"?t.red:t.text3 },
                       ].map(kpi => (
                         <div key={kpi.label} style={{ flex:"1 1 100px", background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"14px 16px", textAlign:"center" }}>
-                          <div style={{ fontFamily:MONO, color:kpi.color, fontSize:20, fontWeight:900 }}>{kpi.val}</div>
+                          <div style={{ fontFamily:MONO, color:kpi.color, fontSize:20, fontWeight:900, display:"inline-flex", alignItems:"center", gap:6 }}>
+                            {kpi.dot ? <span style={{ width:7, height:7, borderRadius:"50%", background:"#E24B4A", display:"inline-block" }} /> : null}
+                            {kpi.val}
+                          </div>
                           <div style={{ fontFamily:MONO, color:t.text3, fontSize:10, marginTop:3 }}>{kpi.label}</div>
                         </div>
                       ))}
@@ -11767,26 +21026,6 @@ export default function App() {
                         </svg>
                       </div>
                     )}
-                    {upcomingReviews.length > 0 && (
-                      <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
-                        <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>DUE FOR REVIEW (DEEP LEARN)</div>
-                        {upcomingReviews.map((r, i) => (
-                          <div key={r.key} style={{ display:"flex", alignItems:"center", gap:12, padding:"6px 0", borderBottom:i<upcomingReviews.length-1?"1px solid "+t.border2:"none" }}>
-                            <div style={{ flex:1, fontFamily:MONO, color:t.text1, fontSize:12, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
-                              {r.label}
-                            </div>
-                            <div style={{ fontFamily:MONO, color:t.text3, fontSize:10, minWidth:80, textAlign:"right" }}>
-                              {r.daysUntil <= 0 ? "Today" : r.daysUntil === 1 ? "Tomorrow" : `In ${r.daysUntil} days`}
-                            </div>
-                            {r.postScore != null && (
-                              <div style={{ fontFamily:MONO, fontSize:12, fontWeight:700, minWidth:40, textAlign:"right", color:r.postScore>=80?t.green:r.postScore>=60?t.amber:t.red }}>
-                                {r.postScore}%
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
                     <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
                         <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5 }}>OBJECTIVE MASTERY</div>
@@ -11806,62 +21045,6 @@ export default function App() {
                           </div>
                         ))}
                       </div>
-                    </div>
-                    {studyLog.length > 0 && (
-                      <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
-                        <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>RECENT STUDY ACTIVITY</div>
-                        {studyLog.map((entry, i) => (
-                          <div key={i} style={{ display:"flex", alignItems:"center", gap:12, padding:"8px 0", borderBottom: i<studyLog.length-1?"1px solid "+t.border2:"none" }}>
-                            <div style={{ width:8, height:8, borderRadius:"50%", flexShrink:0, background:entry.score>=80?t.green:entry.score>=60?t.amber:t.red }}/>
-                            <div style={{ flex:1 }}>
-                              <div style={{ fontFamily:MONO, color:t.text1, fontSize:12 }}>{entry.label}</div>
-                              <div style={{ fontFamily:MONO, color:t.text3, fontSize:10 }}>{new Date(entry.date).toLocaleDateString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})} · {entry.questionCount||"?"} questions · {entry.difficulty||"medium"}</div>
-                            </div>
-                            <div style={{ fontFamily:MONO, fontWeight:700, fontSize:14, color:entry.score>=80?t.green:entry.score>=60?t.amber:t.red }}>{Math.round(entry.score)}%</div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
-                      <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>LECTURE BREAKDOWN</div>
-                      {blockLecsForProgress.map(lec => {
-                        const lecObjs = blockObjs.filter(
-                          (o) =>
-                            o.linkedLecId === lec.id ||
-                            (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                        );
-                        const lecPerf = Object.entries(performanceHistory).filter(([k])=>k.startsWith(lec.id)).flatMap(([,v])=>v.sessions||[]);
-                        const lastScore = lecPerf.slice(-1)[0]?.score;
-                        const mastered = lecObjs.filter(o=>o.status==="mastered").length;
-                        const total = lecObjs.length;
-                        const pct = total>0 ? Math.round(mastered/total*100) : 0;
-                        const sessCount = lecPerf.length;
-                        return (
-                          <div key={lec.id} style={{ display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:"1px solid "+t.border2 }}>
-                            <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                              {lecTypeBadge(lec.lectureType)}
-                              {lec.lectureNumber != null && <span style={{ fontFamily:MONO, color:tc, fontSize:12, fontWeight:700 }}>{lec.lectureNumber}</span>}
-                            </div>
-                            <div style={{ flex:1 }}>
-                              <div style={{ fontFamily:MONO, color:t.text1, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", maxWidth:220 }}>
-                                {(() => {
-                                  const title = (lec.lectureTitle || "").trim();
-                                  const fileName = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
-                                  if (title && title.toLowerCase() !== fileName.toLowerCase()) return title;
-                                  return title || fileName;
-                                })()}
-                              </div>
-                              <div style={{ height:4, background:t.border1, borderRadius:2, marginTop:4 }}>
-                                <div style={{ height:"100%", borderRadius:2, background:pct===100?t.green:tc, width:pct+"%", transition:"width 0.4s" }}/>
-                              </div>
-                            </div>
-                            <div style={{ textAlign:"right", minWidth:60 }}>
-                              <div style={{ fontFamily:MONO, fontSize:13, fontWeight:700, color:lastScore>=80?t.green:lastScore>=60?t.amber:lastScore?t.red:t.text3 }}>{lastScore!=null?lastScore+"%":"—"}</div>
-                              <div style={{ fontFamily:MONO, color:t.text3, fontSize:10 }}>{sessCount} session{sessCount!==1?"s":""}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
                     </div>
                   </div>
                 );

@@ -7,6 +7,88 @@ const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
+// Completion activity logger (rxt-completion) for deep learn sessions
+function dlGetNextSaturday(fromDate) {
+  const d = new Date(fromDate);
+  d.setHours(0, 0, 0, 0);
+  const day = d.getDay();
+  const delta = (6 - day + 7) % 7;
+  d.setDate(d.getDate() + delta);
+  return d;
+}
+function dlComputeReviewDates(completedDate, confidenceRating, examDate) {
+  const base = new Date(completedDate);
+  base.setHours(0, 0, 0, 0);
+  const exam = examDate ? new Date(examDate) : null;
+  if (exam) exam.setHours(0, 0, 0, 0);
+  const addDays = (d, days) => {
+    const x = new Date(d);
+    x.setDate(x.getDate() + days);
+    x.setHours(0, 0, 0, 0);
+    return x;
+  };
+  const firstIntervalDays = confidenceRating === "good" ? 2 : confidenceRating === "okay" ? 1 : 0;
+  const first = addDays(base, firstIntervalDays);
+  const saturdaySweep = dlGetNextSaturday(first);
+  const oneWeek = addDays(base, 7);
+  const twoWeeks = addDays(base, 14);
+  const oneMonth = addDays(base, 30);
+  const dates = [first, saturdaySweep, oneWeek, twoWeeks, oneMonth];
+  if (exam) {
+    let m = new Date(oneMonth);
+    m.setHours(0, 0, 0, 0);
+    while (m <= exam) {
+      dates.push(new Date(m));
+      m.setMonth(m.getMonth() + 1);
+      m.setHours(0, 0, 0, 0);
+    }
+  }
+  const uniq = new Map();
+  dates.forEach((d) => {
+    if (!d || Number.isNaN(d.getTime())) return;
+    if (exam && d > exam) return;
+    uniq.set(d.toISOString().slice(0, 10), d);
+  });
+  return Array.from(uniq.values()).sort((a, b) => a.getTime() - b.getTime());
+}
+function dlLogDeepLearnActivityToCompletion(lectureId, blockId, confidenceLevel) {
+  try {
+    if (!lectureId || !blockId) return;
+    const date = new Date().toISOString().slice(0, 10);
+    const key = `${lectureId}__${blockId}`;
+    const store = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    const existing = store[key] || null;
+    const conf =
+      confidenceLevel === "High" ? "good" : confidenceLevel === "Low" ? "struggling" : "okay";
+    const activity = {
+      id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : ("act_" + Date.now()),
+      date,
+      activityType: "deep_learn",
+      confidenceRating: conf,
+      durationMinutes: null,
+      note: null,
+    };
+    const activityLog = [activity, ...(Array.isArray(existing?.activityLog) ? existing.activityLog : [])];
+    const firstCompletedDate = existing?.firstCompletedDate || date;
+    const lastActivityDate = date;
+    const lastConfidence = conf;
+    const reviewDates = dlComputeReviewDates(lastActivityDate, lastConfidence, null).map((d) => d.toISOString().slice(0, 10));
+    store[key] = {
+      lectureId,
+      blockId,
+      ankiInRotation: !!existing?.ankiInRotation,
+      firstCompletedDate,
+      lastActivityDate,
+      lastConfidence,
+      reviewDates,
+      activityLog,
+    };
+    localStorage.setItem("rxt-completion", JSON.stringify(store));
+  } catch (e) {
+    console.warn("dlLogDeepLearnActivityToCompletion failed:", e);
+  }
+}
+
 /** Extracts the first matching field from an AI JSON response. */
 function parseAIField(raw, ...fields) {
   try {
@@ -100,6 +182,114 @@ function getPatientCaseText(pc) {
     }
   }
   return typeof pc === "string" ? pc : "";
+}
+
+function buildSessionContext(lec, blockId, blockObjs) {
+  try {
+    const perf = (() => {
+      try {
+        const stored = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+        return stored[`${lec?.id}__${blockId}`] || null;
+      } catch {
+        return null;
+      }
+    })();
+
+    const lecObjs = (blockObjs || []).filter((o) => o?.linkedLecId === lec?.id);
+
+    // Weak objectives — struggling or inprogress, sorted worst first
+    const weakObjs = lecObjs
+      .filter((o) => o?.status === "struggling" || o?.status === "inprogress")
+      .sort((a, b) => {
+        const order = { struggling: 0, inprogress: 1 };
+        return (order[a?.status] || 1) - (order[b?.status] || 1);
+      })
+      .slice(0, 8);
+
+    // Untested objectives — never seen
+    const untestedObjs = lecObjs.filter((o) => !o?.status || o?.status === "untested").slice(0, 5);
+
+    // Bloom distribution
+    const bloomCounts = {};
+    lecObjs.forEach((o) => {
+      const l = o?.bloom_level || 1;
+      bloomCounts[l] = (bloomCounts[l] || 0) + 1;
+    });
+
+    const highBloom = lecObjs
+      .filter((o) => (o?.bloom_level || 1) >= 4)
+      .map((o) => o?.objective || o?.text || "")
+      .filter(Boolean)
+      .slice(0, 4);
+
+    // Build the context string
+    const lines = [];
+
+    // Session history
+    if (perf && perf.sessions > 0) {
+      lines.push(`SESSION HISTORY:`);
+      lines.push(`- Total sessions: ${perf.sessions}`);
+      lines.push(`- Last score: ${perf.score}%`);
+      if (perf.score < 50) {
+        lines.push(`- Performance level: WEAK — student is struggling`);
+      } else if (perf.score < 70) {
+        lines.push(`- Performance level: DEVELOPING — needs reinforcement`);
+      } else {
+        lines.push(`- Performance level: STRONG — ready for harder questions`);
+      }
+      if (perf.confidenceLevel) {
+        const confLabel = perf.confidenceLevel >= 4 ? "high" : perf.confidenceLevel >= 3 ? "medium" : "low";
+        lines.push(`- Student confidence: ${confLabel}`);
+      }
+    } else {
+      lines.push(`SESSION HISTORY: First session — no prior performance data`);
+    }
+
+    // Weak objectives
+    if (weakObjs.length > 0) {
+      lines.push(`\nWEAK OBJECTIVES (prioritize these):`);
+      weakObjs.forEach((o) => {
+        const status = o?.status === "struggling" ? "STRUGGLING" : "IN PROGRESS";
+        const text = o?.objective || o?.text || "";
+        if (text) lines.push(`- [${status}] ${text}`);
+      });
+    }
+
+    // Untested objectives (first session only or if many untested)
+    if (untestedObjs.length > 0 && (!perf || perf.sessions <= 1)) {
+      lines.push(`\nKEY UNTESTED OBJECTIVES (ensure coverage):`);
+      untestedObjs.forEach((o) => {
+        const text = o?.objective || o?.text || "";
+        if (text) lines.push(`- ${text}`);
+      });
+    }
+
+    // High bloom objectives
+    if (highBloom.length > 0) {
+      lines.push(`\nHIGH-ORDER OBJECTIVES (Bloom's 4-6, exam-critical):`);
+      highBloom.forEach((t) => {
+        if (t) lines.push(`- ${t}`);
+      });
+    }
+
+    // Instruction addendum based on performance
+    if (perf && perf.score < 50) {
+      lines.push(`\nINSTRUCTION: Student is struggling. Use simpler scaffolding,`);
+      lines.push(`more clinical anchors, and focus heavily on the weak objectives above.`);
+      lines.push(`Do not jump to complex application questions until foundations are clear.`);
+    } else if (perf && perf.score >= 70) {
+      lines.push(`\nINSTRUCTION: Student is performing well. Push toward higher-order`);
+      lines.push(`thinking — analysis, evaluation, clinical reasoning. Make questions`);
+      lines.push(`harder than last session. Test edge cases and exceptions.`);
+    } else if (!perf || perf.sessions === 0) {
+      lines.push(`\nINSTRUCTION: First session. Build foundational understanding,`);
+      lines.push(`use clear explanations, and ensure all key objectives are introduced.`);
+    }
+
+    return lines.join("\n");
+  } catch (e) {
+    return "";
+  }
 }
 
 const PHASES = [
@@ -238,71 +428,289 @@ Generate Phase 2 Pathway Backtracking. Return JSON:
   return JSON.parse(text.slice(first, last + 1));
 }
 
-// ── AI Context Badge (mirrors App.jsx for Deep Learn config)
-function AIContextBadge({ context, T, MONO }) {
-  if (!context) return null;
-  return (
-    <div
-      style={{
-        background: T.inputBg,
-        border: "1px solid " + T.border1,
-        borderRadius: 10,
-        padding: "12px 16px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-      }}
-    >
-      <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1.5 }}>
-        AI CONTEXT — WHAT WILL BE USED TO GENERATE YOUR QUESTIONS
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 11,
-            padding: "3px 10px",
-            borderRadius: 5,
-            background: context.hasUploadedQs ? T.statusGoodBg : T.statusBadBg,
-            color: context.hasUploadedQs ? T.statusGood : T.statusBad,
-            border: "1px solid " + (context.hasUploadedQs ? T.statusGoodBorder : T.statusBadBorder),
-          }}
-        >
-          {context.hasUploadedQs ? `✓ ${context.relevantQs.length} uploaded questions as style guide` : "✗ No uploaded questions matched"}
-        </span>
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 11,
-            padding: "3px 10px",
-            borderRadius: 5,
-            background: context.hasLectureContent ? T.statusGoodBg : T.statusBadBg,
-            color: context.hasLectureContent ? T.statusGood : T.statusBad,
-            border: "1px solid " + (context.hasLectureContent ? T.statusGoodBorder : T.statusBadBorder),
-          }}
-        >
-          {context.hasLectureContent ? `✓ Lecture slides loaded (${Math.round(context.lectureChunks.length / 100) * 100} chars)` : "✗ No lecture slides uploaded"}
-        </span>
-        <span
-          style={{
-            fontFamily: MONO,
-            fontSize: 11,
-            padding: "3px 10px",
-            borderRadius: 5,
-            background: context.hasObjectives ? T.statusGoodBg : T.statusWarnBg,
-            color: context.hasObjectives ? T.statusGood : T.statusWarn,
-            border: "1px solid " + (context.hasObjectives ? T.statusGoodBorder : T.statusWarnBorder),
-          }}
-        >
-          {context.hasObjectives ? `✓ ${context.objectives.length} objectives targeted` : "⚠ No objectives linked"}
-        </span>
-      </div>
-      {context.styleAnalysis?.sourceFiles?.length > 0 && (
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>Style learned from: {context.styleAnalysis.sourceFiles.join(", ")}</div>
-      )}
-    </div>
-  );
+/** Read-only perf lookup mirroring App.jsx getLecPerf (exact key + lecId__ prefix). */
+function readLecPerf(lec, bid, performanceHistory, makeTopicKey) {
+  if (!lec?.id || !bid) return null;
+  const exactKey = makeTopicKey ? makeTopicKey(lec.id, bid) : `${lec.id}__${bid}`;
+  if (performanceHistory?.[exactKey]) return performanceHistory[exactKey];
+  const byId = Object.keys(performanceHistory || {}).find((k) => k.startsWith(lec.id + "__"));
+  return byId ? performanceHistory[byId] : null;
 }
+
+function getWeakObjCount(lecId, blockObjs) {
+  return (blockObjs || []).filter(
+    (o) => o.linkedLecId === lecId && (o.status === "struggling" || o.status === "inprogress")
+  ).length;
+}
+
+function getStrugglingObjCount(lecId, blockObjs) {
+  return (blockObjs || []).filter((o) => o.linkedLecId === lecId && o.status === "struggling").length;
+}
+
+function lecHasSlideContent(lec) {
+  const c = lec?.extractedText || lec?.content || lec?.fullText || lec?.text || "";
+  return String(c).trim().length > 0;
+}
+
+/** Cross-lecture: merge objectives, content, and perf for 2–3 lectures (readLecPerf / linkedLecId unchanged). */
+function buildCrossLectureContext(selectedLecs, blockId, blockObjs, performanceHistory, makeTopicKey) {
+  const lecs = (selectedLecs || []).filter(Boolean);
+  const allObjs = lecs.flatMap((lec) => (blockObjs || []).filter((o) => o.linkedLecId === lec.id));
+  const combinedContent = lecs
+    .map((lec) => {
+      const title = `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.title || lec.fileName || ""}`.trim();
+      const content = lec.extractedText || lec.content || lec.fullText || "";
+      return `=== ${title} ===\n${content}`;
+    })
+    .join("\n\n");
+  const weakObjs = allObjs
+    .filter((o) => o.status === "struggling" || o.status === "inprogress")
+    .sort((a, b) => {
+      const order = { struggling: 0, inprogress: 1 };
+      return (order[a.status] || 1) - (order[b.status] || 1);
+    });
+  const perfContext = lecs.map((lec) => {
+    const perf = readLecPerf(lec, blockId, performanceHistory, makeTopicKey);
+    const sessionsArr = Array.isArray(perf?.sessions) ? perf.sessions : [];
+    const lastS = sessionsArr.length ? sessionsArr[sessionsArr.length - 1] : null;
+    const sessCount =
+      typeof perf?.sessions === "number" && !Number.isNaN(perf.sessions)
+        ? perf.sessions
+        : sessionsArr.length;
+    return {
+      lec,
+      sessions: sessCount,
+      score: perf?.lastScore ?? perf?.score ?? (lastS?.score != null ? lastS.score : null),
+      lastConfidence: perf?.confidenceLevel ?? lastS?.confidenceLevel ?? null,
+    };
+  });
+  const scored = perfContext.filter((p) => p.score != null && Number.isFinite(Number(p.score)));
+  const avgScore =
+    scored.length > 0
+      ? Math.round(scored.reduce((s, p) => s + Number(p.score), 0) / scored.length)
+      : null;
+  return {
+    lecs,
+    allObjs,
+    weakObjs,
+    combinedContent,
+    perfContext,
+    avgScore,
+    totalObjs: allObjs.length,
+    weakCount: weakObjs.length,
+  };
+}
+
+function buildCrossLectureSystemPrompt(crossCtx) {
+  if (!crossCtx?.lecs?.length) return "";
+  const lecList = crossCtx.lecs
+    .map((l) => `- ${l.lectureType || "LEC"} ${l.lectureNumber ?? ""}: ${l.lectureTitle || l.title || l.fileName || ""}`)
+    .join("\n");
+  const weakList = crossCtx.weakObjs
+    .slice(0, 10)
+    .map((o) => {
+      const lec = crossCtx.lecs.find((l) => l.id === o.linkedLecId);
+      const lecLabel = lec ? `${lec.lectureType || "LEC"}${lec.lectureNumber ?? ""}` : "?";
+      return `- [${(o.status || "UNTESTED").toUpperCase()}][${lecLabel}] ${o.objective || o.text || ""}`;
+    })
+    .join("\n");
+  const perfSummary = crossCtx.perfContext
+    .map((p) => {
+      const sc = p.score != null && Number.isFinite(Number(p.score)) ? `${p.score}% (${p.sessions} sessions)` : "not yet studied";
+      return `- ${p.lec.lectureType || "LEC"}${p.lec.lectureNumber ?? ""}: ${sc}`;
+    })
+    .join("\n");
+  return `
+This is a CROSS-LECTURE Deep Learn session combining multiple
+related lectures. The student is studying these together because
+the exam will test them in an integrated way.
+
+LECTURES IN THIS SESSION:
+${lecList}
+
+PERFORMANCE HISTORY:
+${perfSummary}
+
+WEAK OBJECTIVES ACROSS ALL LECTURES:
+${weakList || "None identified yet"}
+
+CROSS-LECTURE INSTRUCTION:
+- Draw connections between the lectures wherever possible
+- Clinical vignettes should require knowledge from 2+ lectures to solve
+- Questions should integrate concepts across the selected lectures
+- Do not treat these as isolated topics — the student needs to see
+  how they connect clinically
+- Weight harder questions toward the weakest lecture in the set
+`.trim();
+}
+
+function dlUid() {
+  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "act_" + Date.now();
+}
+
+/** Mirrors App syncQuizToTracker for cross-lecture completion (local only). */
+function dlSyncQuizToTrackerLocal(lec, bid, score) {
+  try {
+    const completionKey = "rxt-completion";
+    const stored = JSON.parse(localStorage.getItem(completionKey) || "{}");
+    const key = `${lec.id}__${bid}`;
+    const existing = stored[key] || {
+      lectureId: lec.id,
+      blockId: bid,
+      ankiInRotation: false,
+      firstCompletedDate: new Date().toISOString(),
+      lastActivityDate: null,
+      lastConfidence: null,
+      reviewDates: [],
+      activityLog: [],
+    };
+    const confidence = score >= 75 ? "good" : score >= 50 ? "okay" : "struggling";
+    const now = new Date().toISOString();
+    const activityEntry = {
+      id: dlUid(),
+      date: now,
+      activityType: "questions",
+      confidenceRating: confidence,
+      durationMinutes: null,
+      note: `Cross Deep Learn — ${score}% · ${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""}`,
+    };
+    const updatedLog = [activityEntry, ...(existing.activityLog || [])];
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const intervals =
+      confidence === "good" ? [2, 7, 14, 30] : confidence === "okay" ? [1, 5, 10, 21] : [0, 2, 5, 10];
+    const reviewDates = intervals.map((d) => {
+      const r = new Date(today);
+      r.setDate(r.getDate() + d);
+      return r.toISOString();
+    });
+    stored[key] = {
+      ...existing,
+      lastActivityDate: now,
+      lastConfidence: confidence,
+      firstCompletedDate: existing.firstCompletedDate || now,
+      reviewDates,
+      activityLog: updatedLog,
+    };
+    localStorage.setItem(completionKey, JSON.stringify(stored));
+  } catch (e) {
+    console.error("dlSyncQuizToTrackerLocal failed:", e);
+  }
+}
+
+/** Mirrors App updateAllLecObjectivesFromScore for one lecture; call per lec in cross session. */
+function dlUpdateAllLecObjectivesFromScore(lecId, bid, overallScore) {
+  try {
+    const key = "rxt-block-objectives";
+    const stored = JSON.parse(localStorage.getItem(key) || "{}");
+    const blockObjs = stored[bid] || [];
+    let changed = false;
+    blockObjs.forEach((obj, idx) => {
+      if (obj.linkedLecId !== lecId) return;
+      if (obj.status === "mastered" && overallScore < 50) return;
+      let newStatus;
+      if (overallScore >= 80) newStatus = "mastered";
+      else if (overallScore >= 55) newStatus = "inprogress";
+      else newStatus = "struggling";
+      blockObjs[idx] = {
+        ...obj,
+        status: newStatus,
+        lastQuizzed: new Date().toISOString(),
+        lastQuizScore: overallScore,
+      };
+      changed = true;
+    });
+    if (changed) {
+      stored[bid] = blockObjs;
+      localStorage.setItem(key, JSON.stringify(stored));
+    }
+    return changed;
+  } catch (e) {
+    console.error("dlUpdateAllLecObjectivesFromScore failed:", e);
+    return false;
+  }
+}
+
+function finalizeCrossSession(crossCtx, sessionResults, blockId, makeTopicKey, mcqResults) {
+  if (!crossCtx?.lecs?.length || !blockId) return;
+  const perfKey = "rxt-performance";
+  const storedPerf = JSON.parse(localStorage.getItem(perfKey) || "{}");
+  const correct = (mcqResults || []).filter((r) => r.correct).length;
+  const total = (mcqResults || []).length;
+  const score =
+    sessionResults?.score != null
+      ? sessionResults.score
+      : total > 0
+        ? Math.round((correct / total) * 100)
+        : 0;
+  const now = new Date().toISOString();
+  const crossIds = crossCtx.lecs.map((l) => l.id);
+
+  crossCtx.lecs.forEach((lec) => {
+    const topicKey = makeTopicKey ? makeTopicKey(lec.id, blockId) : `${lec.id}__${blockId}`;
+    const existing = storedPerf[topicKey] || { sessions: [] };
+    const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+    const sessionRecord = {
+      score,
+      date: now,
+      startedAt: now,
+      completedAt: now,
+      questionCount: total,
+      difficulty: "medium",
+      sessionType: "cross_lecture",
+      lectureId: lec.id,
+      blockId,
+      topicKey,
+      lectureType: lec.lectureType ?? null,
+      lectureNumber: lec.lectureNumber ?? null,
+      lectureName: lec.lectureTitle || lec.fileName || null,
+      preSAQScore: sessionResults?.preSAQScore ?? null,
+      postMCQScore: sessionResults?.postMCQScore ?? score,
+      confidenceLevel: sessionResults?.confidenceLevel ?? null,
+      crossLectureIds: crossIds,
+    };
+    storedPerf[topicKey] = {
+      ...existing,
+      sessions: [...existingSessions, sessionRecord].slice(-50),
+      lastStudied: now,
+      firstStudied: existing.firstStudied || now,
+      lastScore: score,
+      lectureId: lec.id,
+      blockId,
+      lectureType: sessionRecord.lectureType ?? existing.lectureType,
+      lectureNumber: sessionRecord.lectureNumber ?? existing.lectureNumber,
+      lectureName: sessionRecord.lectureName ?? existing.lectureName,
+      confidenceLevel: sessionRecord.confidenceLevel ?? existing.confidenceLevel,
+    };
+    dlSyncQuizToTrackerLocal(lec, blockId, score);
+    dlLogDeepLearnActivityToCompletion(lec.id, blockId, sessionResults?.confidenceLevel);
+    dlUpdateAllLecObjectivesFromScore(lec.id, blockId, score);
+  });
+
+  try {
+    localStorage.setItem(perfKey, JSON.stringify(storedPerf));
+  } catch (e) {
+    console.warn("finalizeCrossSession perf write failed:", e);
+  }
+  window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+  window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+}
+
+function crossLectureTitleLine(lecs) {
+  const parts = (lecs || []).map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""}`.trim());
+  return `Cross-lecture: ${parts.join(" + ")}`;
+}
+
+function dlLecturePillColorFromLec(l) {
+  const u = String(l?.lectureType || "LEC").toUpperCase();
+  if (u.startsWith("DLA")) return "#6366f1";
+  if (u.startsWith("LEC")) return "#60a5fa";
+  if (u.startsWith("SG")) return "#a78bfa";
+  if (u.startsWith("TBL")) return "#f59e0b";
+  return "#64748b";
+}
+
+const DL_TYPE_ORDER = { DLA: 0, LEC: 1, SG: 2, TBL: 3 };
 
 // ── Study mode detection (mirrors App.jsx for discipline-based recommendation)
 function detectStudyMode(lec, objectives = []) {
@@ -331,116 +739,119 @@ function detectStudyMode(lec, objectives = []) {
   return { mode: "clinical", label: "Clinical Sciences", icon: "🏥", recommended: ["deepLearn", "mcq"], avoid: [], reason: "Mixed clinical content works well with Deep Learn and MCQ practice.", color: "#60a5fa" };
 }
 
-// ── Deep Learn Config (auto topics + weak areas) ─────────────────────────────
-function DeepLearnConfig({ blockId, lecs, blockObjectives, questionBanksByFile, buildQuestionContext, detectStudyMode: detectStudyModeProp, onStart, T, tc }) {
+// ── Deep Learn Config (unified lecture list + mode filter) ───────────────────
+function DeepLearnConfig({
+  blockId,
+  lecs,
+  blockObjectives,
+  questionBanksByFile,
+  buildQuestionContext,
+  detectStudyMode: detectStudyModeProp,
+  performanceHistory = {},
+  makeTopicKey,
+  onStart,
+  T,
+  tc,
+}) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const detectStudyModeFn = detectStudyModeProp || detectStudyMode;
 
   const topicPool = useMemo(() => {
     const topics = [];
-    const blockLecs = lecs || [];
-
-    // Always add each lecture itself as a topic
-    blockLecs.forEach((lec) => {
+    (lecs || []).forEach((lec) => {
       topics.push({
         id: lec.id + "_full",
-        label:
-          lec.lectureTitle ||
-          lec.fileName ||
-          ("Lecture " + (lec.lectureNumber || "")),
+        label: lec.lectureTitle || lec.fileName || "Lecture " + (lec.lectureNumber || ""),
         sublabel: (lec.lectureType || "Lec") + (lec.lectureNumber || ""),
         source: "lecture",
         lecId: lec.id,
         weak: false,
       });
-
-      // Add a few subtopics per lecture if present
-      (lec.subtopics || [])
-        .slice(0, 4)
-        .forEach((sub, i) => {
-          topics.push({
-            id: lec.id + "_sub_" + i,
-            label: sub,
-            sublabel: (lec.lectureType || "Lec") + (lec.lectureNumber || ""),
-            source: "subtopic",
-            lecId: lec.id,
-            weak: false,
-          });
-        });
     });
-
-    // Weak / untested objective groups
-    const weakObjs = (blockObjectives || []).filter(
-      (o) => o.status === "struggling" || o.status === "untested"
-    );
-
-    const weakByLec = {};
-    weakObjs.forEach((o) => {
-      const key = o.activity || o.lectureTitle || "Unknown";
-      if (!weakByLec[key]) {
-        weakByLec[key] = {
-          label: o.lectureTitle || key,
-          objs: [],
-          activity: key,
-        };
-      }
-      weakByLec[key].objs.push(o);
-    });
-
-    Object.entries(weakByLec).forEach(([key, group]) => {
-      // Skip tiny groups
-      if (group.objs.length < 2) return;
-      topics.push({
-        id: "weak_" + key,
-        label: group.label,
-        sublabel: "⚠ " + group.objs.length + " weak objectives",
-        source: "weak",
-        lecId: null,
-        weak: true,
-        objectives: group.objs,
-      });
-    });
-
     return topics;
-  }, [lecs, blockObjectives]);
-
-  const weakTopics = topicPool.filter((t) => t.weak);
-  const allTopics = topicPool.filter((t) => !t.weak);
+  }, [lecs]);
 
   const [selected, setSelected] = useState(() => {
-    const firstWeak = topicPool.find((t) => t.weak);
     const firstLec = topicPool.find((t) => t.source === "lecture");
-    const first = firstWeak || firstLec || topicPool[0];
-    return first ? [first.id] : [];
+    return firstLec ? [firstLec.id] : [];
   });
   const [sessionType, setSessionType] = useState("deep");
-
-  // Debug: make sure config receives data and topics build correctly
+  const didInitSelectionRef = useRef(false);
   useEffect(() => {
-    console.log("DeepLearnConfig:", {
-      blockId,
-      lecs: lecs?.length,
-      blockObjectives: blockObjectives?.length,
-      topicPool: topicPool?.length,
-      selected,
-    });
-  }, [blockId, lecs, blockObjectives, topicPool?.length, selected.length]);
-
-  // Ensure something is always selected once topics load
-  useEffect(() => {
-    if (selected.length === 0 && topicPool.length > 0) {
-      const firstWeak = topicPool.find((t) => t.weak);
+    if (!topicPool.length || didInitSelectionRef.current) return;
+    didInitSelectionRef.current = true;
+    setSelected((prev) => {
+      if (prev.length > 0) return prev;
       const firstLec = topicPool.find((t) => t.source === "lecture");
-      const first = firstWeak || firstLec || topicPool[0];
-      if (first) setSelected([first.id]);
-    }
-  }, [topicPool.length]);
+      return firstLec ? [firstLec.id] : [];
+    });
+  }, [topicPool]);
 
   const toggleTopic = (id) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const selectedTopics = topicPool.filter((t) => selected.includes(t.id));
+
+  const visibleLectures = useMemo(() => {
+    const blockLecs = [...(lecs || [])];
+    const scoreFor = (lec) => {
+      const perf = readLecPerf(lec, blockId, performanceHistory, makeTopicKey);
+      const n = perf?.lastScore ?? perf?.sessions?.slice(-1)[0]?.score;
+      return Number.isFinite(n) ? n : 0;
+    };
+    const sessCount = (lec) => {
+      const perf = readLecPerf(lec, blockId, performanceHistory, makeTopicKey);
+      return perf?.sessions?.length ?? 0;
+    };
+
+    if (sessionType === "weak") {
+      const filtered = blockLecs.filter((lec) => {
+        const w = getWeakObjCount(lec.id, blockObjectives);
+        const perf = readLecPerf(lec, blockId, performanceHistory, makeTopicKey);
+        const sc = scoreFor(lec);
+        const nSess = sessCount(lec);
+        return w > 0 || sc < 70 || nSess === 0;
+      });
+      return filtered.sort(
+        (a, b) => getWeakObjCount(b.id, blockObjectives) - getWeakObjCount(a.id, blockObjectives)
+      );
+    }
+
+    if (sessionType === "deep") {
+      return blockLecs.sort((a, b) => {
+        const ta = String(a.lectureType || "LEC").toUpperCase();
+        const tb = String(b.lectureType || "LEC").toUpperCase();
+        const oa = DL_TYPE_ORDER[ta] ?? 99;
+        const ob = DL_TYPE_ORDER[tb] ?? 99;
+        if (oa !== ob) return oa - ob;
+        const na = parseInt(String(a.lectureNumber ?? 0), 10) || 0;
+        const nb = parseInt(String(b.lectureNumber ?? 0), 10) || 0;
+        return na - nb;
+      });
+    }
+
+    // mixed — urgency: struggling count, low score, untested (0 sessions), then good
+    return blockLecs.sort((a, b) => {
+      const sa = getStrugglingObjCount(a.id, blockObjectives);
+      const sb = getStrugglingObjCount(b.id, blockObjectives);
+      if (sa !== sb) return sb - sa;
+      const sca = scoreFor(a);
+      const scb = scoreFor(b);
+      if (sca !== scb) return sca - scb;
+      const na = sessCount(a);
+      const nb = sessCount(b);
+      if (na !== nb) return na - nb;
+      return (a.lectureTitle || "").localeCompare(b.lectureTitle || "");
+    });
+  }, [lecs, blockId, blockObjectives, performanceHistory, makeTopicKey, sessionType]);
+
+  const visibleTopicIds = useMemo(
+    () => new Set(visibleLectures.map((l) => l.id + "_full")),
+    [visibleLectures]
+  );
+
+  const selectedInView = selected.filter((id) => visibleTopicIds.has(id)).length;
 
   const aiContext = useMemo(() => {
     if (!buildQuestionContext || !blockId) return null;
@@ -448,14 +859,77 @@ function DeepLearnConfig({ blockId, lecs, blockObjectives, questionBanksByFile, 
     return buildQuestionContext(blockId, first?.lecId ?? null, questionBanksByFile || {}, "deeplearn");
   }, [buildQuestionContext, blockId, selectedTopics, topicPool, questionBanksByFile]);
 
+  const styleGuideCount = aiContext?.relevantQs?.length ?? 0;
+
+  const slidesOkForSelection = useMemo(() => {
+    if (!selectedTopics.length) return null;
+    return selectedTopics.every((t) => {
+      const lec = lecs.find((l) => l.id === t.lecId);
+      return lec && lecHasSlideContent(lec);
+    });
+  }, [selectedTopics, lecs]);
+
+  const targetedObjectiveCount = useMemo(() => {
+    const ids = new Set(selectedTopics.map((t) => t.lecId).filter(Boolean));
+    return (blockObjectives || []).filter((o) => ids.has(o.linkedLecId)).length;
+  }, [selectedTopics, blockObjectives]);
+
   const selectedLec = lecs.find((l) => l.id === selectedTopics[0]?.lecId);
   const studyMode = selectedLec
     ? detectStudyModeFn(selectedLec, (blockObjectives || []).filter((o) => o.linkedLecId === selectedLec.id))
     : null;
   const deepLearnWarning = studyMode?.avoid?.includes("deepLearn");
 
+  const sectionLabel =
+    sessionType === "weak"
+      ? { text: "△ WEAK LECTURES", color: "#633806" }
+      : sessionType === "deep"
+        ? { text: "LECTURES", color: T.text3 }
+        : { text: "ALL TOPICS", color: T.text3 };
+
+  const nSel = selected.length;
+  const startLabel =
+    nSel === 0 ? "Select a lecture to begin" : nSel === 1 ? "Start Deep Learn →" : `Start Deep Learn — ${nSel} lectures →`;
+
+  const bloomChip = (() => {
+    const selectedObjs = selectedTopics.flatMap((t) =>
+      t.lecId ? (blockObjectives || []).filter((o) => o.linkedLecId === t.lecId) : []
+    );
+    if (!selectedObjs.length) return null;
+    const avgBloom = Math.round(
+      selectedObjs.reduce((s, o) => s + (o.bloom_level ?? 2), 0) / selectedObjs.length
+    );
+    const tip =
+      avgBloom <= 2
+        ? "Brain dump + Read-Recall will be most valuable."
+        : avgBloom <= 4
+          ? "Patient Case + Algorithm phases are key."
+          : "Full sandwich — evaluation & synthesis.";
+    const shortTip = tip.length > 56 ? tip.slice(0, 54) + "…" : tip;
+    const levelName = LEVEL_NAMES[avgBloom] || "Understand";
+    return `L${avgBloom} ${levelName} avg · ${shortTip}`;
+  })();
+
+  const dividerStyle = { height: 1, background: "var(--color-border-tertiary, " + T.border2 + ")", margin: "4px 0" };
+
   return (
     <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+      {nSel > 3 && (
+        <div
+          style={{
+            background: T.statusWarnBg,
+            border: "1px solid " + T.statusWarnBorder,
+            borderRadius: 10,
+            padding: "12px 14px",
+            fontFamily: MONO,
+            color: T.statusWarn,
+            fontSize: 11,
+            lineHeight: 1.5,
+          }}
+        >
+          Select 2–3 lectures for best results — too many reduces depth
+        </div>
+      )}
       {deepLearnWarning && studyMode && (
         <div
           style={{
@@ -519,269 +993,301 @@ function DeepLearnConfig({ blockId, lecs, blockObjectives, questionBanksByFile, 
         ))}
       </div>
 
-      {(() => {
-        const lecTopics = topicPool.filter((t) => t.source === "lecture");
-        const weakTopicsList = topicPool.filter((t) => t.source === "weak");
+      <div style={dividerStyle} />
 
-        return (
-          <>
-            {weakTopicsList.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontFamily: MONO, color: T.statusBad, fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
-                  ⚠ WEAK AREAS
-                </div>
-                {weakTopicsList.map((topic) => (
-                  <div
-                    key={topic.id}
-                    onClick={() => toggleTopic(topic.id)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      padding: "8px 12px",
-                      borderRadius: 8,
-                      cursor: "pointer",
-                      border: "1px solid " + (selected.includes(topic.id) ? T.statusBad : T.border1),
-                      background: selected.includes(topic.id) ? T.statusBadBg : T.inputBg,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 16,
-                        height: 16,
-                        borderRadius: 3,
-                        flexShrink: 0,
-                        border: "2px solid " + (selected.includes(topic.id) ? T.statusBad : T.border1),
-                        background: selected.includes(topic.id) ? T.statusBad : "transparent",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      {selected.includes(topic.id) && <span style={{ color: "#fff", fontSize: 12 }}>✓</span>}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: MONO, color: T.text1, fontSize: 13 }}>{topic.label}</div>
-                      <div style={{ fontFamily: MONO, color: T.statusBad, fontSize: 11 }}>{topic.sublabel}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 8 }}>
-              ALL TOPICS
-            </div>
-            <div style={{ maxHeight: 240, overflowY: "auto", display: "flex", flexDirection: "column", gap: 0 }}>
-              {lecTopics.map((lecTopic) => {
-                const subtopics = topicPool.filter((t) => t.source === "subtopic" && t.lecId === lecTopic.lecId);
-                const isLecSel = selected.includes(lecTopic.id);
-
-                return (
-                  <div key={lecTopic.id} style={{ marginBottom: 8 }}>
-                    <div
-                      onClick={() =>
-                        setSelected((prev) =>
-                          prev.includes(lecTopic.id) ? prev.filter((id) => id !== lecTopic.id) : [...prev, lecTopic.id]
-                        )
-                      }
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "11px 14px",
-                        borderRadius: subtopics.length > 0 ? "10px 10px 0 0" : 10,
-                        background: isLecSel ? tc + "12" : T.inputBg,
-                        borderTop: "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                        borderRight: "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                        borderBottom: subtopics.length > 0 ? "none" : "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                        borderLeft: "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                        cursor: "pointer",
-                        transition: "all 0.15s",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 18,
-                          height: 18,
-                          borderRadius: 4,
-                          flexShrink: 0,
-                          border: "2px solid " + (isLecSel ? tc : T.border1),
-                          background: isLecSel ? tc : "transparent",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {isLecSel && <span style={{ color: "#fff", fontSize: 11 }}>✓</span>}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            fontFamily: MONO,
-                            color: T.text1,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {lecTopic.label}
-                        </div>
-                        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
-                          {lecTopic.sublabel}
-                          {subtopics.length > 0 && ` · ${subtopics.length} subtopics`}
-                        </div>
-                      </div>
-                    </div>
-
-                    {subtopics.length > 0 && (
-                      <div
-                        style={{
-                          borderTop: "1px solid " + T.border2,
-                          borderRight: "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                          borderBottom: "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                          borderLeft: "1px solid " + (isLecSel ? tc + "60" : T.border1),
-                          borderRadius: "0 0 10px 10px",
-                          overflow: "hidden",
-                        }}
-                      >
-                        {subtopics.map((sub, si) => {
-                          const subSel = selected.includes(sub.id);
-                          return (
-                            <div
-                              key={sub.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setSelected((prev) => {
-                                  const next = subSel
-                                    ? prev.filter((id) => id !== sub.id)
-                                    : [...prev, sub.id];
-                                  if (!subSel && !isLecSel && !next.includes(lecTopic.id)) {
-                                    return [...next, lecTopic.id];
-                                  }
-                                  return next;
-                                });
-                              }}
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 10,
-                                padding: "8px 14px 8px 40px",
-                                background: subSel ? tc + "0a" : T.cardBg,
-                                borderBottom: si < subtopics.length - 1 ? "1px solid " + T.border2 : "none",
-                                cursor: "pointer",
-                                transition: "background 0.15s",
-                              }}
-                              onMouseEnter={(e) =>
-                                (e.currentTarget.style.background = subSel ? tc + "14" : (T.hoverBg || T.cardBg))}
-                              onMouseLeave={(e) =>
-                                (e.currentTarget.style.background = subSel ? tc + "0a" : T.cardBg)}
-                            >
-                              <div
-                                style={{
-                                  width: 14,
-                                  height: 14,
-                                  borderRadius: 3,
-                                  flexShrink: 0,
-                                  border: "2px solid " + (subSel ? tc : T.border1),
-                                  background: subSel ? tc : "transparent",
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                {subSel && <span style={{ color: "#fff", fontSize: 9 }}>✓</span>}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div
-                                  style={{
-                                    fontFamily: MONO,
-                                    color: T.text2,
-                                    fontSize: 12,
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {sub.label}
-                                </div>
-                              </div>
-                              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9, flexShrink: 0 }}>
-                                subtopic
-                              </span>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        );
-      })()}
-
-      {aiContext && <AIContextBadge context={aiContext} T={T} MONO={MONO} />}
-
-      {(() => {
-        const selectedObjs = selectedTopics.flatMap((t) =>
-          t.lecId ? (blockObjectives || []).filter((o) => o.linkedLecId === t.lecId) : (t.objectives || [])
-        );
-        if (!selectedObjs.length) return null;
-        const avgBloom = Math.round(
-          selectedObjs.reduce((s, o) => s + (o.bloom_level ?? 2), 0) / selectedObjs.length
-        );
-        const phaseRec =
-          avgBloom <= 2
-            ? "Brain dump + Read-Recall will be most valuable for these objectives."
-            : avgBloom <= 4
-              ? "Patient Case + Algorithm phases are key — these require application and analysis."
-              : "Full sandwich recommended — these high-order objectives need evaluation and synthesis practice.";
-        return (
+      <div>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 8,
+            flexWrap: "wrap",
+            gap: 8,
+          }}
+        >
           <div
             style={{
-              background: LEVEL_BG[avgBloom] || T.inputBg,
-              border: "1px solid " + (LEVEL_COLORS[avgBloom] || T.border1) + "40",
-              borderRadius: 8,
-              padding: "10px 14px",
-              marginBottom: 12,
+              fontFamily: MONO,
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              color: sectionLabel.color,
             }}
           >
-            <div
+            {sectionLabel.text}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontFamily: MONO, fontSize: 12, color: T.text2 }}>{selectedInView} selected</span>
+            <button
+              type="button"
+              onClick={() => {
+                setSelected((prev) => {
+                  const add = visibleLectures.map((l) => l.id + "_full").filter((id) => !prev.includes(id));
+                  return [...prev, ...add];
+                });
+              }}
               style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
                 fontFamily: MONO,
-                color: LEVEL_COLORS[avgBloom] || T.text3,
-                fontSize: 10,
-                fontWeight: 700,
-                marginBottom: 4,
+                fontSize: 11,
+                color: T.text3,
               }}
             >
-              L{avgBloom} {LEVEL_NAMES[avgBloom] || "Understand"} avg — {selectedObjs.length} objectives
-            </div>
-            <div style={{ fontFamily: MONO, color: T.text2, fontSize: 11, lineHeight: 1.5 }}>{phaseRec}</div>
+              Select all
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected([])}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                cursor: "pointer",
+                fontFamily: MONO,
+                fontSize: 11,
+                color: T.text3,
+              }}
+            >
+              Clear
+            </button>
           </div>
-        );
-      })()}
+        </div>
+
+        <div style={{ maxHeight: 320, overflowY: "auto" }}>
+          {visibleLectures.map((lec) => {
+            const tid = lec.id + "_full";
+            const isSel = selected.includes(tid);
+            const perf = readLecPerf(lec, blockId, performanceHistory, makeTopicKey);
+            const nSess = perf?.sessions?.length ?? 0;
+            const score = perf?.lastScore ?? perf?.sessions?.slice(-1)[0]?.score ?? 0;
+            const hasScore = nSess > 0 && Number.isFinite(score);
+            const weakN = getWeakObjCount(lec.id, blockObjectives);
+            const strugN = getStrugglingObjCount(lec.id, blockObjectives);
+            const barColor = !hasScore ? "transparent" : score >= 70 ? "#639922" : score >= 50 ? "#BA7517" : "#E24B4A";
+            const fillW = hasScore ? Math.min(48, (score / 100) * 48) : 0;
+            return (
+              <div
+                key={tid}
+                role="button"
+                tabIndex={0}
+                onClick={() => toggleTopic(tid)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    toggleTopic(tid);
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  minHeight: 44,
+                  padding: "10px 12px",
+                  boxSizing: "border-box",
+                  background: isSel ? "#EEEDFE" : "var(--color-background-primary, " + T.cardBg + ")",
+                  border: isSel ? "1.5px solid #7F77DD" : "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
+                  borderRadius: "var(--border-radius-md, 8px)",
+                  cursor: "pointer",
+                  marginBottom: 6,
+                  transition: "border-color 0.12s ease",
+                }}
+              >
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    flexShrink: 0,
+                    borderRadius: 4,
+                    border: isSel ? "1.5px solid #7F77DD" : "1.5px solid var(--color-border-secondary, " + T.border1 + ")",
+                    background: isSel ? "#7F77DD" : "var(--color-background-primary, " + T.cardBg + ")",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {isSel ? <span style={{ color: "#fff", fontSize: 11, lineHeight: 1 }}>✓</span> : null}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: isSel ? "#3C3489" : "var(--color-text-primary, " + T.text1 + ")",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      fontFamily: MONO,
+                    }}
+                  >
+                    {lec.lectureTitle || lec.fileName || "Lecture"}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "var(--color-text-tertiary, " + T.text3 + ")",
+                      marginTop: 2,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    {(lec.lectureType || "LEC")} {lec.lectureNumber ?? ""}
+                    {lec.weekNumber != null ? ` · Week ${lec.weekNumber}` : ""}
+                    {nSess > 0 ? ` · ${nSess} session${nSess !== 1 ? "s" : ""}` : " · First session"}
+                  </div>
+                </div>
+                {weakN > 0 ? (
+                  <div
+                    style={{
+                      flexShrink: 0,
+                      fontSize: 10,
+                      padding: "2px 7px",
+                      borderRadius: 20,
+                      fontFamily: MONO,
+                      fontWeight: 600,
+                      background: strugN > 0 ? "#FCEBEB" : "#FAEEDA",
+                      color: strugN > 0 ? "#A32D2D" : "#633806",
+                    }}
+                  >
+                    △ {weakN} weak
+                  </div>
+                ) : null}
+                <div
+                  style={{
+                    width: 48,
+                    height: 4,
+                    flexShrink: 0,
+                    borderRadius: 2,
+                    background: "var(--color-background-tertiary, " + T.border2 + ")",
+                    overflow: "hidden",
+                  }}
+                >
+                  <div style={{ width: fillW, height: "100%", borderRadius: 2, background: barColor }} />
+                </div>
+                <div
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: 11,
+                    flexShrink: 0,
+                    minWidth: 32,
+                    textAlign: "right",
+                    color: hasScore ? barColor : "var(--color-text-tertiary, " + T.text3 + ")",
+                  }}
+                >
+                  {hasScore ? `${Math.round(score)}%` : "—"}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div style={dividerStyle} />
+
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {styleGuideCount > 0 ? (
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              padding: "3px 8px",
+              borderRadius: 20,
+              background: "var(--color-background-secondary, " + T.inputBg + ")",
+              border: "1px solid var(--color-border-secondary, " + T.border1 + ")",
+              color: "var(--color-text-secondary, " + T.text2 + ")",
+            }}
+          >
+            ✓ {styleGuideCount} questions as style guide
+          </span>
+        ) : null}
+        {selectedTopics.length > 0 ? (
+          slidesOkForSelection ? (
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: 11,
+                padding: "3px 8px",
+                borderRadius: 20,
+                background: "var(--color-background-secondary, " + T.inputBg + ")",
+                border: "1px solid var(--color-border-secondary, " + T.border1 + ")",
+                color: "var(--color-text-secondary, " + T.text2 + ")",
+              }}
+            >
+              ✓ Lecture slides loaded
+            </span>
+          ) : (
+            <span
+              style={{
+                fontFamily: MONO,
+                fontSize: 11,
+                padding: "3px 8px",
+                borderRadius: 20,
+                background: "#FCEBEB",
+                color: "#A32D2D",
+                border: "0.5px solid #F09595",
+              }}
+            >
+              ✕ No lecture slides
+            </span>
+          )
+        ) : null}
+        <span
+          style={{
+            fontFamily: MONO,
+            fontSize: 11,
+            padding: "3px 8px",
+            borderRadius: 20,
+            background: "var(--color-background-secondary, " + T.inputBg + ")",
+            border: "1px solid var(--color-border-secondary, " + T.border1 + ")",
+            color: "var(--color-text-secondary, " + T.text2 + ")",
+          }}
+        >
+          ✓ {targetedObjectiveCount} objectives targeted
+        </span>
+        {bloomChip ? (
+          <span
+            style={{
+              fontFamily: MONO,
+              fontSize: 11,
+              padding: "4px 10px",
+              borderRadius: "var(--border-radius-md, 8px)",
+              background: "#E6F1FB",
+              color: "#0C447C",
+              border: "0.5px solid #85B7EB",
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={bloomChip}
+          >
+            {bloomChip}
+          </span>
+        ) : null}
+      </div>
 
       <button
+        type="button"
         disabled={selected.length === 0}
         onClick={() => onStart({ sessionType, selectedTopics, blockId })}
         style={{
-          background: selected.length === 0 ? T.border1 : tc,
-          border: "none",
-          color: "#fff",
-          padding: "13px 0",
-          borderRadius: 10,
-          cursor: "pointer",
+          width: "100%",
+          padding: 14,
+          fontSize: 15,
+          fontWeight: 500,
           fontFamily: SERIF,
-          fontSize: 17,
-          fontWeight: 900,
+          background: selected.length === 0 ? "var(--color-background-tertiary, " + T.border2 + ")" : "#E24B4A",
+          color: selected.length === 0 ? "var(--color-text-tertiary, " + T.text3 + ")" : "#fff",
+          border: "none",
+          borderRadius: "var(--border-radius-md, 10px)",
+          marginTop: 4,
+          cursor: selected.length === 0 ? "not-allowed" : "pointer",
         }}
       >
-        Start Deep Learn →
+        {startLabel}
       </button>
     </div>
   );
@@ -1434,7 +1940,7 @@ function LegacyDeepLearnSession({
   );
 }
 
-async function generateSAQs(lectureContent, blockObjectives, lectureTitle, patientCaseText) {
+async function generateSAQs(lectureContent, blockObjectives, lectureTitle, patientCaseText, lec, blockId, crossAugment = null) {
   const fallback = [];
   try {
     const lecObjs = (blockObjectives || [])
@@ -1442,13 +1948,34 @@ async function generateSAQs(lectureContent, blockObjectives, lectureTitle, patie
       .map((o) => `- ${(o.objective || o.text || "").slice(0, 60)}`)
       .filter((s) => s.length > 3)
       .join("\n");
-    const systemPrompt = `You are a medical school tutor. You MUST generate exactly 3 questions.
+    const sessionContext = buildSessionContext(lec, blockId, blockObjectives);
+    const crossPre = crossAugment?.systemPrefix ? crossAugment.systemPrefix + "\n\n" : "";
+    const qShape = crossAugment
+      ? `{"q":[{"question":"<text>","lectureTags":["DLA5","LEC6"]},...]}
+
+Each item may be a string OR an object with "question" and optional "lectureTags" (short labels like DLA5, LEC6).`
+      : `{"q":["<question 1>","<question 2>","<question 3>"]}`;
+    const systemPrompt =
+      crossPre +
+      `You are a medical school tutor. You MUST generate exactly 3 questions.
 Respond ONLY with raw JSON, no markdown, no backticks, no extra text.
 You MUST include exactly 3 items in the array — not 1, not 2, exactly 3:
-{"q":["<question 1>","<question 2>","<question 3>"]}`;
-    const userPrompt = `Lecture: ${(lectureTitle || "Medical Lecture").slice(0, 60)}
+${qShape}
+
+---
+STUDENT CONTEXT:
+${sessionContext}
+---`;
+    const userPrompt =
+      `Lecture: ${(lectureTitle || "Medical Lecture").slice(0, 60)}
 Objectives:
-${lecObjs || "Key concepts from the lecture."}`;
+${lecObjs || "Key concepts from the lecture."}
+
+Instruction:
+Generate questions weighted toward the weak and struggling objectives in the student context.
+If any weak/struggling objectives exist, at least 2 of the 3 questions must directly address a weak or struggling objective.
+If the student's last score was >= 70%, increase question difficulty — target Bloom's level 4-5 for at least one question.` +
+      (crossAugment?.userSuffix ? "\n\n" + crossAugment.userSuffix : "");
     const text = await callAI(systemPrompt, userPrompt, 800);
     const clean = (text || "").replace(/```json\n?|```/g, "").trim();
     let parsed = null;
@@ -1487,6 +2014,7 @@ ${lecObjs || "Key concepts from the lecture."}`;
           ? (Array.isArray(qText.keyPoints) ? qText.keyPoints.join(", ") : (qText.keyPoints ?? qText.key_points ?? ""))
           : "",
         objectiveText: objList[i]?.objective || objList[i]?.text || "",
+        lectureTags: Array.isArray(qText?.lectureTags) ? qText.lectureTags : qText?.lecture_tags || null,
       }))
       .filter((item) => (item.q || "").length > 5);
     console.log("setSaqs called with:", questions.length, "questions");
@@ -1604,10 +2132,16 @@ Student answer: ${String(answer || "(no answer provided)").slice(0, 500)}`;
   return fallback;
 }
 
-async function generatePatientCase(lectureContent, objectives, lectureTitle) {
+async function generatePatientCase(lectureContent, objectives, lectureTitle, lec, blockId, crossAugment = null) {
   try {
-    const system = "You are a medical education expert. Create a specific, realistic clinical vignette. Return ONLY this JSON (no markdown): {\"case\": \"...\", \"focus\": \"...\"}";
-    const user = `Lecture topic: ${lectureTitle || "Medical Lecture"}
+    const sessionContext = buildSessionContext(lec, blockId, objectives);
+    const crossPre = crossAugment?.systemPrefix ? crossAugment.systemPrefix + "\n\n" : "";
+    const systemPrompt =
+      crossPre +
+      "You are a medical education expert. Create a specific, realistic clinical vignette. Return ONLY this JSON (no markdown): {\"case\": \"...\", \"focus\": \"...\"}" +
+      `\n\n---\nSTUDENT CONTEXT:\n${sessionContext}\n---`;
+    const user =
+      `Lecture topic: ${lectureTitle || "Medical Lecture"}
 Key objectives: ${(objectives || []).slice(0, 3).map((o) => o.objective).join("; ")}
 Lecture content excerpt: ${(lectureContent || "").slice(0, 1500)}
 
@@ -1617,8 +2151,11 @@ Write a 3-4 sentence patient case that:
 - Gives enough clinical detail to be interesting
 - Is NOT generic — must be specific to ${lectureTitle || "this topic"}
 
-Return ONLY: {"case": "specific patient case here", "focus": "specific thing to look for"}`;
-    const text = await callAI(system, user, 1800);
+Design the patient case to specifically test the weak objectives listed above. If the student has struggled with this material before (score < 70%), make the case anchor directly on those struggling objectives. Use the case to build a clinical mental model around the weak areas.
+
+Return ONLY: {"case": "specific patient case here", "focus": "specific thing to look for"}` +
+      (crossAugment?.userSuffix ? "\n\n" + crossAugment.userSuffix : "");
+    const text = await callAI(systemPrompt, user, 1800);
     const clean = text.replace(/```json\n?|```/g, "").trim();
 
     try {
@@ -2157,6 +2694,7 @@ function DeepLearnSession({
   getBlockObjectives,
   lec,
   lectureContent,
+  performanceHistory,
   questionBanksByFile,
   buildQuestionContext,
   onComplete,
@@ -2193,6 +2731,8 @@ function DeepLearnSession({
   initialPreSAQScore,
   initialInputMode,
   initialHandwriteDone,
+  crossCtx = null,
+  skipIntroPrep = false,
 }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
@@ -2202,6 +2742,26 @@ function DeepLearnSession({
   // Phases: "brainDump" | "patientCase" | "structureFunction" |
   //         "algorithmDraw" | "readRecall" | "mcq" | "summary"
   const [phase, setPhase] = useState(initialPhase || "brainDump");
+  const [prepComplete, setPrepComplete] = useState(() => Boolean(resuming || skipIntroPrep));
+  useEffect(() => {
+    if (resuming || prepComplete) return;
+    if (typeof window === "undefined") return;
+
+    const onKeyDown = (e) => {
+      if (e.key !== "Enter") return;
+      const el = typeof document !== "undefined" ? document.activeElement : null;
+      const tag = el?.tagName ? String(el.tagName).toLowerCase() : "";
+      const isEditable =
+        tag === "input" || tag === "textarea" || tag === "select" || tag === "button" || el?.isContentEditable;
+      if (isEditable) return;
+
+      e.preventDefault();
+      setPrepComplete(true);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [prepComplete, resuming]);
   const [loading, setLoading] = useState(false);
   const [loadingTooLong, setLoadingTooLong] = useState(false);
   const [patientCase, setPatientCase] = useState(() => {
@@ -2332,6 +2892,8 @@ function DeepLearnSession({
       topic: typeof topic === "object" ? topic?.label : topic,
       objectives: resolvedObjectives,
       lectureContent,
+      isCrossLecture: (crossCtx?.lecs?.length || 0) >= 2,
+      crossLectureIds: (crossCtx?.lecs || []).map((l) => l.id),
       phase,
       brainDump,
       brainDumpFeedback,
@@ -2404,35 +2966,78 @@ function DeepLearnSession({
     return /anatomy|histolog|morpholog|structural|vertebr|spinal|muscl|nerve|vessel|bone|joint/.test(text);
   }, [lectureTitle, resolvedObjectives]);
 
-  const algorithmPhaseConfig = useMemo(
-    () =>
-      isAnatomyContent
-        ? {
-            title: "Map the Structure",
-            subtitle: "STRUCTURAL SYNTHESIS",
-            instruction: `Without looking anything up, map out the key structures and their relationships for ${lectureTitle || "this topic"}. Draw connections: what connects to what, what supplies what, what passes through what.`,
-            overviewHelp: "The overview below is a scaffold of key structures and relationships from the lecture — open it if you're stuck or want a starting point.",
-            placeholder: `Map it out here...
+  const crossSystemPrefix = useMemo(
+    () => (crossCtx?.lecs?.length >= 2 ? buildCrossLectureSystemPrompt(crossCtx) : ""),
+    [crossCtx]
+  );
+  const isCrossLecture = crossSystemPrefix.length > 0;
+
+  const saqCrossAugment = useMemo(() => {
+    if (!isCrossLecture) return null;
+    return {
+      systemPrefix: crossSystemPrefix,
+      userSuffix:
+        "Generate 3 short answer questions. Each question should integrate knowledge from 2 or more of the selected lectures. " +
+        "Distribute questions across the lectures — do not focus all 3 on one lecture. " +
+        "Label each question with which lectures it draws from (e.g. '[DLA5 + LEC6] Describe...') and use lectureTags where possible.",
+    };
+  }, [isCrossLecture, crossSystemPrefix]);
+
+  const patientCaseCrossAugment = useMemo(() => {
+    if (!isCrossLecture) return null;
+    return {
+      systemPrefix: crossSystemPrefix,
+      userSuffix:
+        "Generate a patient case that REQUIRES knowledge from at least 2 of the selected lectures to fully resolve. " +
+        "The case should have a presentation that spans multiple topics. " +
+        "Example: a patient with shoulder pain that requires understanding both shoulder anatomy AND thoracic outlet anatomy to diagnose correctly. " +
+        "Make the case reveal connections between the lectures.",
+    };
+  }, [isCrossLecture, crossSystemPrefix]);
+
+  const algorithmPhaseConfig = useMemo(() => {
+    if (isCrossLecture) {
+      const lecNames = (crossCtx.lecs || []).map((l) => l.lectureTitle || l.fileName || "").filter(Boolean).join(", ");
+      return {
+        title: "Map the Connections",
+        subtitle: "CROSS-LECTURE SYNTHESIS",
+        instruction: `Without looking anything up, map how these lectures connect: ${lecNames || lectureTitle || "the selected topics"}. Focus on shared anatomy, clinical overlaps, pathways spanning topics, and conditions needing integrated knowledge. Reveal connections rather than siloing each lecture.`,
+        overviewHelp: "The overview below is a scaffold — open it if you're stuck. Think integration across lectures, not isolation.",
+        placeholder: `Map connections here...
+Example:
+Topic A ↔ Topic B: shared structure / clinical overlap
+Decision flow that spans lectures: ...`,
+        hint: "Cross-lecture connections",
+        buttonLabel: "Check My Map →",
+        evalPrompt: `Evaluate this cross-lecture connection map. Check whether the student linked the right concepts across topics, identified clinical overlaps, and avoided treating lectures as isolated silos. Be specific about missing links.`,
+      };
+    }
+    return isAnatomyContent
+      ? {
+          title: "Map the Structure",
+          subtitle: "STRUCTURAL SYNTHESIS",
+          instruction: `Without looking anything up, map out the key structures and their relationships for ${lectureTitle || "this topic"}. Draw connections: what connects to what, what supplies what, what passes through what.`,
+          overviewHelp: "The overview below is a scaffold of key structures and relationships from the lecture — open it if you're stuck or want a starting point.",
+          placeholder: `Map it out here...
 Example format:
 Structure A → attaches to B → supplied by C
 Nerve X → originates from Y → innervates Z
 Region 1 contains: (list structures)`,
-            hint: "Structural overview",
-            buttonLabel: "Check My Map →",
-            evalPrompt: `Evaluate this anatomy structure map. Check if key structures, relationships, nerve supplies, and clinical correlations are correctly identified. Be encouraging but specific about gaps.`,
-          }
-        : {
-            title: "Draw the Algorithm",
-            subtitle: "ALGORITHM SYNTHESIS",
-            instruction: `Without looking anything up, write out the decision algorithm for ${lectureTitle || "this topic"}. If you can't draw it from memory, you don't know it yet.`,
-            overviewHelp: "The overview below is a scaffold from the lecture — open it if you're stuck or want a starting point.",
-            placeholder: "Write your algorithm here... Start point → Decision 1 → Yes/No branches → Endpoints",
-            hint: "Algorithm structure",
-            buttonLabel: "Check My Algorithm →",
-            evalPrompt: `Evaluate this clinical decision algorithm. Check if the key decision points, branches, and endpoints are correct. Be specific about what's missing or wrong.`,
-          },
-    [isAnatomyContent, lectureTitle]
-  );
+          hint: "Structural overview",
+          buttonLabel: "Check My Map →",
+          evalPrompt: `Evaluate this anatomy structure map. Check if key structures, relationships, nerve supplies, and clinical correlations are correctly identified. Be encouraging but specific about gaps.`,
+        }
+      : {
+          title: "Draw the Algorithm",
+          subtitle: "ALGORITHM SYNTHESIS",
+          instruction: `Without looking anything up, write out the decision algorithm for ${lectureTitle || "this topic"}. If you can't draw it from memory, you don't know it yet.`,
+          overviewHelp: "The overview below is a scaffold from the lecture — open it if you're stuck or want a starting point.",
+          placeholder: "Write your algorithm here... Start point → Decision 1 → Yes/No branches → Endpoints",
+          hint: "Algorithm structure",
+          buttonLabel: "Check My Algorithm →",
+          evalPrompt: `Evaluate this clinical decision algorithm. Check if the key decision points, branches, and endpoints are correct. Be specific about what's missing or wrong.`,
+        };
+  }, [isCrossLecture, crossCtx, isAnatomyContent, lectureTitle]);
 
   const gemini = async (prompt, maxTokens = 2000) => {
     const res = await fetch(
@@ -2469,12 +3074,13 @@ Region 1 contains: (list structures)`,
   const normalizeSaqQuestions = (raw) => {
     const list = Array.isArray(raw) ? raw : [];
     return list.map((item) => {
-      if (typeof item === "string") return { question: item, keyPoints: [], objectiveText: "" };
+      if (typeof item === "string") return { question: item, keyPoints: [], objectiveText: "", lectureTags: null };
       const question = item?.q ?? item?.question ?? "";
       const kp = item?.keyPoints;
       const keyPoints = Array.isArray(kp) ? kp : (typeof kp === "string" ? kp.split(/,\s*/).map((s) => s.trim()) : []);
       const objectiveText = item?.objectiveText ?? "";
-      return { question, keyPoints, objectiveText };
+      const lectureTags = item?.lectureTags || item?.lecture_tags || null;
+      return { question, keyPoints, objectiveText, lectureTags };
     });
   };
 
@@ -2487,8 +3093,14 @@ Region 1 contains: (list structures)`,
       let questions = [];
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
+          const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
+          const crossExtra = isCrossLecture
+            ? `This is a CROSS-LECTURE session. Generate priming questions that touch multiple lectures where possible.\n\n`
+            : "";
           const parsed = await geminiJSON(
-            `Generate 5 short-answer priming questions for a medical student about to study: ${lectureTitle}\n\n` +
+            crossHdr +
+              crossExtra +
+              `Generate 5 short-answer priming questions for a medical student about to study: ${lectureTitle}\n\n` +
               `Objectives:\n${objList}\n\n` +
               `Questions should identify gaps BEFORE studying — not test mastery.\n` +
               `Keep them quick-fire: one sentence each.\n\n` +
@@ -2508,7 +3120,15 @@ Region 1 contains: (list structures)`,
         setSaqQuestions(questions);
       } else {
         try {
-          const saqs = await generateSAQs(lectureContent, resolvedObjectives || [], lectureTitle, null);
+          const saqs = await generateSAQs(
+            lectureContent,
+            resolvedObjectives || [],
+            lectureTitle,
+            null,
+            lec,
+            blockId,
+            saqCrossAugment || undefined
+          );
           const fallback = normalizeSaqQuestions(saqs);
           if (fallback.length > 0) {
             setSaqQuestions(fallback);
@@ -2529,22 +3149,32 @@ Region 1 contains: (list structures)`,
   };
 
   useEffect(() => {
-    initBrainDump();
+    if (resuming || prepComplete) initBrainDump();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [resuming, prepComplete]);
 
   const submitBrainDump = async () => {
     if (!brainDump.trim()) return;
     setLoading(true);
     try {
+      const sessionContext = buildSessionContext(lec, blockId, resolvedObjectives || []);
+      const crossBrain =
+        isCrossLecture && crossCtx?.lecs?.length
+          ? `${crossSystemPrefix}\n\nThe student should brain dump across ALL of the following lectures: ${crossCtx.lecs
+              .map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}`)
+              .join("; ")}. Evaluate their recall for each lecture separately AND note any cross-lecture connections they made. Call out missing connections explicitly.\n\n`
+          : "";
       const raw = await gemini(
-        `A medical student was asked to brain dump everything they know about: ${lectureTitle}\n\n` +
+        crossBrain +
+          `A medical student was asked to brain dump everything they know about: ${lectureTitle}\n\n` +
           `Their response:\n"${brainDump}"\n\n` +
           `Learning objectives:\n${objList}\n\n` +
           `Evaluate what they got right, what gaps exist, and what misconceptions to watch for.\n` +
           `Be encouraging but honest.\n\n` +
+          `Weight your evaluation based on the weak objectives listed in the student context. If the student missed any struggling objectives in their brain dump, explicitly call those out by name in your feedback.\n\n` +
           `Return ONLY JSON:\n` +
-          `{"strengths":["knew X","mentioned Y"],"gaps":["missing A","no mention of B"],"misconceptions":["confused X with Y"],"readinessScore":40,"message":"Good start! You have the basics of X but..."}`,
+          `{"strengths":["knew X","mentioned Y"],"gaps":["missing A","no mention of B"],"misconceptions":["confused X with Y"],"readinessScore":40,"message":"Good start! You have the basics of X but..."}` +
+          `\n\n---\nSTUDENT CONTEXT:\n${sessionContext}\n---`,
         1000
       );
       const evalText = String(raw || "")
@@ -2598,7 +3228,15 @@ Region 1 contains: (list structures)`,
           message: "The evaluation response couldn’t be read. You can continue to the questions below.",
         });
       }
-      const saqs = await generateSAQs(lectureContent, resolvedObjectives || [], lectureTitle, null);
+      const saqs = await generateSAQs(
+        lectureContent,
+        resolvedObjectives || [],
+        lectureTitle,
+        null,
+        lec,
+        blockId,
+        saqCrossAugment || undefined
+      );
       const next = normalizeSaqQuestions(saqs);
       setSaqQuestions((prev) => (next.length > 0 ? next : prev.length > 0 ? prev : []));
     } catch (err) {
@@ -2679,16 +3317,23 @@ Region 1 contains: (list structures)`,
     setLoadingTooLong(false);
     setLoading(true);
     try {
-      const structResult = await geminiJSON(
-        `Create a structural and functional breakdown for: ${lectureTitle}\n\n` +
+      const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
+      const structBody = isCrossLecture
+        ? `Create an integrated structural/functional breakdown across these lectures: ${(crossCtx.lecs || [])
+            .map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}`)
+            .join("; ")}.\n\n` +
+          `Objectives:\n${objList}\n\n` +
+          `Show how topics bridge across lectures (shared anatomy, pathways, clinical links). Follow: Patient Complaint → Organ → Architecture → Cell → Protein → Clinical Application, integrating across sources where relevant.\n\n` +
+          `Return ONLY JSON:\n` +
+          `{"levels":[{"level":"Patient Complaint","content":"...","whyItMatters":"..."},...],"keyMechanism":"..."}`
+        : `Create a structural and functional breakdown for: ${lectureTitle}\n\n` +
           `Objectives:\n${objList}\n\n` +
           `Follow this hierarchy: Patient Complaint → Organ → Architecture → Cell → Protein → Clinical Application\n\n` +
           `For each level, explain the "Why?" — how does it connect to patient care?\n` +
           `Apply the "Make Me Care" test — only include facts that directly explain patient presentations.\n\n` +
           `Return ONLY JSON:\n` +
-          `{"levels":[{"level":"Patient Complaint","content":"Patient presents with X because...","whyItMatters":"This matters clinically because..."},...],"keyMechanism":"The core mechanism connecting all levels is..."}`,
-        2000
-      );
+          `{"levels":[{"level":"Patient Complaint","content":"Patient presents with X because...","whyItMatters":"This matters clinically because..."},...],"keyMechanism":"The core mechanism connecting all levels is..."}`;
+      const structResult = await geminiJSON(crossHdr + structBody, 2000);
       setStructureContent(structResult);
     } catch (err) {
       console.error("advanceFromBrainDump structure content failed:", err);
@@ -2710,7 +3355,7 @@ Region 1 contains: (list structures)`,
     if (phase !== "patientCase") return;
     if (patientCase?.case) return;
 
-    if (lec?.teachingMap?.clinicalHook) {
+    if (!isCrossLecture && lec?.teachingMap?.clinicalHook) {
       setPatientCase({
         case: lec.teachingMap.clinicalHook,
         focus: "Think about how the core concepts from this lecture explain this patient's presentation.",
@@ -2721,9 +3366,16 @@ Region 1 contains: (list structures)`,
     let cancelled = false;
 
     const load = async () => {
-        console.log("DeepLearn patient case load — content length:", (lectureContent || "").length, "objectives:", (resolvedObjectives || []).length);
+      const contentForCase =
+        isCrossLecture && crossCtx?.combinedContent ? crossCtx.combinedContent : lectureContent;
+      console.log(
+        "DeepLearn patient case load — content length:",
+        (contentForCase || "").length,
+        "objectives:",
+        (resolvedObjectives || []).length
+      );
 
-      if (!lectureContent || lectureContent.length < 100) {
+      if (!contentForCase || contentForCase.length < 100) {
         console.warn("DeepLearn: lecture content too short, using fallback patient case");
         if (!cancelled) {
           setPatientCase({
@@ -2742,7 +3394,14 @@ Region 1 contains: (list structures)`,
       }, 15000);
 
       try {
-        const result = await generatePatientCase(lectureContent, resolvedObjectives || [], lectureTitle);
+        const result = await generatePatientCase(
+          contentForCase,
+          resolvedObjectives || [],
+          lectureTitle,
+          lec,
+          blockId,
+          patientCaseCrossAugment || undefined
+        );
         if (!cancelled) {
           clearTimeout(timeoutId);
           const extracted = extractCaseAndFocusFromRaw(result);
@@ -2761,7 +3420,16 @@ Region 1 contains: (list structures)`,
     return () => {
       cancelled = true;
     };
-  }, [phase, lectureTitle, lectureContent, resolvedObjectives, lec?.teachingMap?.clinicalHook]);
+  }, [
+    phase,
+    lectureTitle,
+    lectureContent,
+    resolvedObjectives,
+    lec?.teachingMap?.clinicalHook,
+    isCrossLecture,
+    crossCtx?.combinedContent,
+    patientCaseCrossAugment,
+  ]);
 
   useEffect(() => {
     if (phase === "structureFunction" && resolvedObjectives.length === 0 && (blockObjectives || []).length > 0 && !manualInput) {
@@ -2794,17 +3462,24 @@ Region 1 contains: (list structures)`,
   const advanceToAlgorithm = async () => {
     setLoading(true);
     try {
-      const parsed = await geminiJSON(
-        `Create a diagnostic/management algorithm for: ${lectureTitle}\n\n` +
+      const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
+      const algoPrompt = isCrossLecture
+        ? `Guide the student to map how the selected lectures connect for integrated exam prep.\n\n` +
+          `Lectures: ${(crossCtx.lecs || []).map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""}`).join(", ")}\n\n` +
+          `Objectives:\n${objList}\n\n` +
+          `Focus on: shared anatomical regions, clinical overlaps, pathways that span multiple topics, or conditions that require integrated knowledge.\n` +
+          `Structure the walkthrough to reveal connections rather than covering each lecture in isolation.\n\n` +
+          `Return ONLY JSON (use algorithm-shaped scaffold: title, entryPoint, steps with yes/no branches, keyBranches, memoryHook):\n` +
+          `{"title":"Connections across X and Y","entryPoint":"...","steps":[{"step":1,"question":"...","yes":"...","no":"..."}],"keyBranches":[],"memoryHook":"..."}`
+        : `Create a diagnostic/management algorithm for: ${lectureTitle}\n\n` +
           `The algorithm must:\n` +
           `- Start from a clear entry point (a patient symptom or lab finding)\n` +
           `- Use Yes/No decision branches\n` +
           `- Be completeable from memory\n` +
           `- Cover the 80% high-yield pathway\n\n` +
           `Return ONLY JSON:\n` +
-          `{"title":"Algorithm for X","entryPoint":"Patient presents with Y","steps":[{"step":1,"question":"Is Z present?","yes":"Go to step 2","no":"Consider diagnosis A"},...],"keyBranches":["Branch 1: if X then Y","Branch 2: if A then B"],"memoryHook":"Remember: ABCDE"}`,
-        1500
-      );
+          `{"title":"Algorithm for X","entryPoint":"Patient presents with Y","steps":[{"step":1,"question":"Is Z present?","yes":"Go to step 2","no":"Consider diagnosis A"},...],"keyBranches":["Branch 1: if X then Y","Branch 2: if A then B"],"memoryHook":"Remember: ABCDE"}`;
+      const parsed = await geminiJSON(crossHdr + algoPrompt, 1500);
       setAlgorithm(parsed);
       advancePhase("algorithmDraw");
     } finally {
@@ -2816,8 +3491,13 @@ Region 1 contains: (list structures)`,
     if (!algorithmText.trim()) return;
     setLoading(true);
     try {
+      const taskPhrase = isCrossLecture
+        ? "map cross-lecture connections for"
+        : isAnatomyContent
+          ? "map key structures and relationships for"
+          : "write out the diagnostic algorithm for";
       const fb = await geminiJSON(
-        `A student was asked to ${isAnatomyContent ? "map key structures and relationships for" : "write out the diagnostic algorithm for"}: ${lectureTitle}\n\n` +
+        `A student was asked to ${taskPhrase}: ${lectureTitle}\n\n` +
           `The correct reference:\n${JSON.stringify(algorithm?.steps || algorithm)}\n\n` +
           `Student's attempt:\n"${algorithmText}"\n\n` +
           `${algorithmPhaseConfig.evalPrompt}\n\n` +
@@ -2834,10 +3514,16 @@ Region 1 contains: (list structures)`,
   const advanceToReadRecall = async () => {
     setLoading(true);
     try {
+      const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
+      const recallExtra = isCrossLecture
+        ? `Each question should integrate concepts across the selected lectures where possible.\n\n`
+        : "";
       const parsed = await geminiJSON(
-        `Generate 3 read-and-recall questions for: ${lectureTitle}\n\n` +
+        crossHdr +
+          `Generate 3 read-and-recall questions for: ${lectureTitle}\n\n` +
           `Patient context: ${patientCase?.case || ""}\n` +
           `Objectives:\n${objList}\n\n` +
+          recallExtra +
           `Each question should:\n` +
           `- Require the student to EXPLAIN a mechanism (not recall a fact)\n` +
           `- Reference the patient case where possible\n` +
@@ -2892,6 +3578,7 @@ Region 1 contains: (list structures)`,
   const advanceToMCQ = async () => {
     setLoading(true);
     try {
+      const sessionContext = buildSessionContext(lec, blockId, resolvedObjectives || []);
       let styleSection = "";
       if (buildQuestionContext && blockId) {
         const ctx = buildQuestionContext(blockId, topic?.lecId ?? null, questionBanksByFile || {}, "deeplearn");
@@ -2916,8 +3603,16 @@ Region 1 contains: (list structures)`,
         styleSection = styleExamples ? `Match this exam style:\n${styleExamples}\n\n` : "";
       }
 
+      const crossMcq =
+        isCrossLecture && crossCtx?.combinedContent
+          ? `${crossSystemPrefix}\n\nCOMBINED LECTURE MATERIAL (excerpt for sourcing):\n${(crossCtx.combinedContent || "").slice(0, 12000)}\n\n` +
+            `Generate questions that test INTEGRATED knowledge across the selected lectures. At least half the questions should require knowledge from 2+ lectures to answer correctly. ` +
+            `Use the combined content of all lectures as source material. Weight questions toward the weakest lecture's objectives.\n\n`
+          : "";
+
       const parsed = await geminiJSON(
-        `Generate 5 high-quality MCQs to close this learning session on: ${lectureTitle}\n\n` +
+        crossMcq +
+          `Generate 5 high-quality MCQs to close this learning session on: ${lectureTitle}\n\n` +
           `Patient case context: ${patientCase?.case || ""}\n\n` +
           `Learning objectives:\n${objList}\n\n` +
           styleSection +
@@ -2926,10 +3621,17 @@ Region 1 contains: (list structures)`,
           `- Ask "what is the underlying mechanism" not "what is the drug"\n` +
           `- Make wrong answers clinically plausible\n` +
           `- Reference the patient case where possible\n` +
+          `- Calibrate question difficulty based on session history from STUDENT CONTEXT:\n` +
+          `  - If last score < 50%: 60% foundational (Bloom 1-2), 40% application (Bloom 3-4)\n` +
+          `  - If last score 50-69%: 40% foundational, 60% application\n` +
+          `  - If last score >= 70%: 20% foundational, 80% application + analysis (Bloom 4-6)\n` +
+          `- If weak objectives exist in STUDENT CONTEXT, at least half the questions must test those specific objectives.\n` +
+          `  Use the struggling objectives as the basis for distractor construction — make wrong answers reflect common misconceptions about those weak areas.\n` +
           `- Every stem MUST end with a question ending in "?"\n` +
           `- Keep explanations under 60 words\n\n` +
           `Return ONLY JSON:\n` +
-          `{"questions":[{"stem":"The patient above now develops X. Which mechanism best explains...?","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"","topic":"${lectureTitle}"}]}`,
+          `{"questions":[{"stem":"The patient above now develops X. Which mechanism best explains...?","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"","topic":"${lectureTitle}"}]}` +
+          `\n\n---\nSTUDENT CONTEXT:\n${sessionContext}\n---`,
         4000
       );
 
@@ -3018,6 +3720,447 @@ Region 1 contains: (list structures)`,
       </div>
     );
 
+  // ── Prep Screen (shown before Phase 1) ──────────────────────────────
+  // Priority rule: if this is a resumed session, skip prep entirely.
+  if (!resuming && !prepComplete) {
+    const lecId = lec?.id;
+
+    const getLecPerf = (l, bid) => {
+      if (!l?.id || !bid) return null;
+      const exactKey = makeTopicKey ? makeTopicKey(l.id, bid) : null;
+      const ph = performanceHistory || {};
+      if (exactKey && ph[exactKey]) return ph[exactKey];
+      if (!exactKey) return null;
+      const byId = Object.keys(ph || {}).find((k) => k.startsWith(l.id + "__"));
+      return byId ? ph[byId] : null;
+    };
+
+    const formatRelativeDate = (isoDate) => {
+      const d = new Date(isoDate);
+      if (Number.isNaN(d.getTime())) return "—";
+      d.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const diff = Math.floor((today - d) / 86400000);
+      if (diff === 0) return "Today";
+      if (diff === 1) return "Yesterday";
+      if (diff < 7) return diff + " days ago";
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    };
+
+    const getScoreTrend = (recentScores) => {
+      if (!Array.isArray(recentScores) || recentScores.length < 4) return "new";
+      const last3 = recentScores.slice(-3);
+      const prev3 = recentScores.slice(-6, -3);
+      if (prev3.length === 0) return "new";
+      const lastAvg = last3.reduce((a, b) => a + b, 0) / last3.length;
+      const prevAvg = prev3.reduce((a, b) => a + b, 0) / prev3.length;
+      const delta = lastAvg - prevAvg;
+      if (delta > 5) return "improving";
+      if (delta < -5) return "declining";
+      return "stable";
+    };
+
+    const perf = getLecPerf(lec, blockId);
+    const sessionsArr = Array.isArray(perf?.sessions) ? perf.sessions : [];
+    const totalSessions = sessionsArr.length;
+    const lastSession = totalSessions ? sessionsArr[totalSessions - 1] : null;
+
+    const lastScoreRaw = perf?.score ?? perf?.lastScore ?? lastSession?.score ?? null;
+    const lastScore = lastScoreRaw != null && typeof lastScoreRaw === "number" ? lastScoreRaw : lastScoreRaw != null ? Number(lastScoreRaw) : null;
+    const lastDateRaw = perf?.date ?? perf?.lastStudied ?? lastSession?.date ?? null;
+    const lastDate = lastDateRaw ? new Date(lastDateRaw).toISOString() : null;
+
+    const confidenceLevelRaw = perf?.confidenceLevel ?? lastSession?.confidenceLevel ?? null;
+    const confidenceBucket = (() => {
+      if (confidenceLevelRaw == null) return null;
+      if (typeof confidenceLevelRaw === "number") {
+        if (confidenceLevelRaw >= 4) return "good";
+        if (confidenceLevelRaw === 3) return "okay";
+        if (confidenceLevelRaw <= 2) return "low";
+      }
+      const s = String(confidenceLevelRaw).toLowerCase();
+      if (s.includes("high")) return "good";
+      if (s.includes("medium") || s.includes("okay") || s.includes("3")) return "okay";
+      if (s.includes("low") || s.includes("1") || s.includes("2")) return "low";
+      return null;
+    })();
+
+    const scoreColor =
+      lastScore == null
+        ? T.text3
+        : lastScore >= 70
+          ? "#639922"
+          : lastScore >= 50
+            ? "#BA7517"
+            : "#E24B4A";
+
+    const allScoresChrono = sessionsArr
+      .map((s) => s?.score)
+      .filter((s) => s != null && typeof s === "number");
+    const trend = totalSessions >= 2 ? getScoreTrend(allScoresChrono) : "new";
+    const trendCfg =
+      trend === "improving"
+        ? { arrow: "↑", label: "improving", color: "#639922" }
+        : trend === "declining"
+          ? { arrow: "↓", label: "declining", color: "#E24B4A" }
+          : trend === "stable"
+            ? { arrow: "→", label: "stable", color: T.text2 }
+            : { arrow: "—", label: "not enough data", color: T.text3 };
+
+    const lecObjs = (blockObjectives || []).filter((o) => o?.linkedLecId === lecId);
+    const weakObjectives = lecObjs
+      .filter((o) => o?.status === "struggling" || o?.status === "inprogress")
+      .sort((a, b) => {
+        const aRank = a?.status === "struggling" ? 0 : 1;
+        const bRank = b?.status === "struggling" ? 0 : 1;
+        return aRank - bRank;
+      })
+      .slice(0, 5);
+
+    const objMastered = lecObjs.filter((o) => o?.status === "mastered").length;
+    const objInProgress = lecObjs.filter((o) => o?.status === "inprogress").length;
+    const objStruggling = lecObjs.filter((o) => o?.status === "struggling").length;
+    const objUntested = lecObjs.filter((o) => !o?.status || o?.status === "untested").length;
+    const objTotal = lecObjs.length;
+
+    const bloomLevels = lecObjs
+      .map((o) => o?.bloom_level)
+      .filter((v) => typeof v === "number" && Number.isFinite(v));
+    const highestBloom = bloomLevels.length ? Math.max(...bloomLevels) : null;
+
+    // Activity log context from rxt-completion
+    const activityKey = lecId ? `${lecId}__${blockId}` : null;
+    let activityLog = [];
+    try {
+      const store = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+      const entry = activityKey ? store?.[activityKey] : null;
+      if (Array.isArray(entry?.activityLog)) activityLog = entry.activityLog;
+    } catch {}
+    const recentActivities = activityLog
+      .filter((a) => a && a.date)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 3);
+
+    const confidencePill = (conf) => {
+      const v = conf == null ? null : String(conf).toLowerCase();
+      const good = v === "good" || v === "high";
+      const okay = v === "okay" || v === "medium";
+      const struggling = v === "struggling" || v === "low";
+      const cfg = good
+        ? { sym: "✓", fg: "#639922", bg: "#63992215", br: "#63992240" }
+        : okay
+          ? { sym: "△", fg: "#BA7517", bg: "#BA751715", br: "#BA751740" }
+          : struggling
+            ? { sym: "⚠", fg: "#E24B4A", bg: "#E24B4A15", br: "#E24B4A40" }
+            : { sym: "—", fg: T.text3, bg: T.border2, br: T.border2 };
+      return cfg;
+    };
+
+    const activityIcon = (type) => {
+      const t = String(type || "").toLowerCase();
+      return t === "deep_learn"
+        ? "🧠"
+        : t === "review"
+          ? "📖"
+          : t === "anki"
+            ? "🃏"
+            : t === "questions"
+              ? "❓"
+              : t === "notes"
+                ? "📝"
+                : t === "sg_tbl"
+                  ? "👥"
+                  : t === "manual"
+                    ? "✏️"
+                    : "•";
+    };
+
+    const activityLabel = (type) => {
+      const t = String(type || "").toLowerCase();
+      return t === "deep_learn"
+        ? "Deep Learn"
+        : t === "review"
+          ? "Review"
+          : t === "anki"
+            ? "Anki"
+            : t === "questions"
+              ? "Questions"
+              : t === "notes"
+                ? "Notes"
+                : t === "sg_tbl"
+                  ? "SG Table"
+                  : t === "manual"
+                    ? "Manual"
+                    : "Activity";
+    };
+
+    const confidenceText =
+      confidenceBucket === "good"
+        ? "✓ Good"
+        : confidenceBucket === "okay"
+          ? "△ Okay"
+          : confidenceBucket === "low"
+            ? "⚠ Low"
+            : "—";
+
+    const confidenceColor =
+      confidenceBucket === "good"
+        ? "#639922"
+        : confidenceBucket === "okay"
+          ? "#BA7517"
+          : confidenceBucket === "low"
+            ? "#E24B4A"
+            : T.text3;
+
+    const complexityChip =
+      highestBloom != null && highestBloom >= 4 ? (
+        <span
+          style={{
+            background: "#FAEEDA",
+            color: "#633806",
+            border: "0.5px solid #EF9F27",
+            borderRadius: 10,
+            padding: "4px 10px",
+            fontSize: 11,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            fontFamily: MONO,
+            fontWeight: 700,
+          }}
+        >
+          △ Bloom's {highestBloom} — high complexity
+        </span>
+      ) : null;
+
+    const showWeakObjectives = weakObjectives.length > 0;
+
+    // Subtitle: lecture type + number, blockId
+    const subtitle = `${lec?.lectureType || "LEC"} ${lec?.lectureNumber ?? ""}`.trim() + ` · ${blockId}`;
+
+    const startBtnStyle = {
+      background: T.statusGood || "#2563eb",
+      color: "#fff",
+      fontSize: 14,
+      padding: "10px 20px",
+      borderRadius: 10,
+      cursor: "pointer",
+      border: "none",
+      fontFamily: SERIF,
+      fontWeight: 900,
+      whiteSpace: "nowrap",
+    };
+
+    const scoreBadge = (s) =>
+      s == null ? { txt: "—", fg: T.text3 } : s >= 70 ? { txt: s + "%", fg: "#639922" } : s >= 50 ? { txt: s + "%", fg: "#BA7517" } : { txt: s + "%", fg: "#E24B4A" };
+
+    return (
+      <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto", width: "100%" }}>
+        <div style={{ width: "100%", padding: "20px 0" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 18, fontWeight: 500, color: T.text1, fontFamily: SERIF }}>
+              {lec?.title || lec?.lectureTitle || lectureTitle || "Deep Learn"}
+            </div>
+            <button type="button" onClick={() => setPrepComplete(true)} style={startBtnStyle}>
+              Start Session →
+            </button>
+          </div>
+
+          <div style={{ fontSize: 12, color: T.text3, marginBottom: 16 }}>
+            {subtitle}
+          </div>
+
+          <div style={{ borderTop: "0.5px solid " + T.border2, marginBottom: 14 }} />
+
+          {/* SECTION 1 — LAST SESSION */}
+          {totalSessions === 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "16px 0", gap: 8 }}>
+              <div style={{ fontSize: 18, color: T.text3 }}>○</div>
+              <div style={{ fontSize: 14, color: T.text2, fontFamily: MONO }}>
+                First session — no history yet
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", padding: "16px 0", borderBottom: "0.5px solid " + T.border2 }}>
+              <div style={{ minWidth: 140 }}>
+                <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: scoreColor }}>
+                  {lastScore != null && Number.isFinite(lastScore) ? Math.round(lastScore) + "%" : "—"}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 2 }}>last score</div>
+              </div>
+
+              <div style={{ minWidth: 140 }}>
+                <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: T.text1 }}>
+                  {totalSessions}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 2 }}>sessions total</div>
+              </div>
+
+              <div style={{ minWidth: 170 }}>
+                <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: T.text1 }}>
+                  {lastDate ? formatRelativeDate(lastDate) : "—"}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 2 }}>last studied</div>
+              </div>
+
+              <div style={{ minWidth: 140 }}>
+                <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: confidenceColor }}>
+                  {confidenceText}
+                </div>
+                <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 2 }}>last confidence</div>
+              </div>
+
+              {totalSessions >= 2 && (
+                <div style={{ minWidth: 160 }}>
+                  <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: trendCfg.color }}>
+                    {trendCfg.arrow}
+                  </div>
+                  <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 2 }}>trend</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SECTION 2 — OBJECTIVE STATUS */}
+          <div style={{ padding: "14px 0", borderBottom: "0.5px solid " + T.border2, display: "flex", gap: 16, alignItems: "flex-start", flexWrap: "wrap" }}>
+            <div>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: T.text3, marginBottom: 8, fontFamily: MONO }}>
+                Objective coverage
+              </div>
+              <div style={{ height: 6, width: 160, borderRadius: 3, overflow: "hidden", display: "flex", background: T.border2 }}>
+                {objTotal > 0 ? (
+                  <>
+                    <div style={{ width: (objMastered / objTotal) * 100 + "%", background: "#639922" }} />
+                    <div style={{ width: (objInProgress / objTotal) * 100 + "%", background: "#BA7517" }} />
+                    <div style={{ width: (objStruggling / objTotal) * 100 + "%", background: "#E24B4A" }} />
+                    <div style={{ flex: 1, background: "transparent" }} />
+                  </>
+                ) : (
+                  <div style={{ width: "100%", background: T.border2 }} />
+                )}
+              </div>
+              <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 6 }}>
+                [{objMastered}] mastered · [{objUntested}] untested
+              </div>
+            </div>
+
+            {complexityChip}
+          </div>
+
+          {/* SECTION 3 — WEAK OBJECTIVES */}
+          {showWeakObjectives && (
+            <div style={{ padding: "14px 0 0" }}>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: T.text3, marginBottom: 6, fontFamily: MONO }}>
+                Watch these
+              </div>
+              {weakObjectives.map((o, idx) => {
+                const statusDot = o.status === "struggling" ? "#E24B4A" : "#BA7517";
+                const bloomLevel = typeof o.bloom_level === "number" ? o.bloom_level : 2;
+                const bloomName = o.bloom_level_name || LEVEL_NAMES[bloomLevel] || "Understand";
+                return (
+                  <div
+                    key={o.id || idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      gap: 8,
+                      padding: "6px 0",
+                      borderBottom: "0.5px solid " + T.border2,
+                      borderRadius: 0,
+                    }}
+                  >
+                    <span style={{ width: 7, height: 7, borderRadius: 999, marginTop: 5, background: statusDot, flexShrink: 0 }} />
+                    <div
+                      style={{
+                        flex: 1,
+                        fontSize: 12,
+                        color: T.text2,
+                        display: "-webkit-box",
+                        WebkitLineClamp: 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {o.objective || o.text || "—"}
+                    </div>
+                    <span
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: 10,
+                        padding: "2px 8px",
+                        borderRadius: 10,
+                        background: LEVEL_BG[bloomLevel] || T.inputBg,
+                        color: LEVEL_COLORS[bloomLevel] || T.text2,
+                        border: "0.5px solid " + (LEVEL_COLORS[bloomLevel] || T.border1) + "40",
+                        flexShrink: 0,
+                        whiteSpace: "nowrap",
+                      }}
+                      title={bloomName}
+                    >
+                      {bloomName}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* SECTION 4 — RECENT ACTIVITY */}
+          {recentActivities.length > 0 && (
+            <div style={{ padding: "14px 0 0" }}>
+              <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: T.text3, marginBottom: 6, fontFamily: MONO }}>
+                Recent activity
+              </div>
+              {recentActivities.map((a, idx) => {
+                const conf = a?.confidenceRating ?? null;
+                const pill = confidencePill(conf);
+                return (
+                  <div key={a.id || idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12 }}>
+                    <span style={{ fontSize: 13, flexShrink: 0 }}>{activityIcon(a?.activityType)}</span>
+                    <span style={{ color: T.text2, flex: 1 }}>{activityLabel(a?.activityType)}</span>
+                    <span style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginRight: 8 }}>
+                      {formatRelativeDate(a.date)}
+                    </span>
+                    <span
+                      style={{
+                        fontFamily: MONO,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        color: pill.fg,
+                        background: pill.bg,
+                        border: "1px solid " + pill.br,
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        flexShrink: 0,
+                      }}
+                    >
+                      {pill.sym}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* BOTTOM ACTION ROW */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20, gap: 12, flexWrap: "wrap" }}>
+            <div style={{ color: T.text3, fontSize: 12, fontFamily: MONO }}>
+              {totalSessions === 0
+                ? "This will be your first session"
+                : lastScore != null && typeof lastScore === "number" && lastScore < 70
+                  ? "⚠ Focus on weak objectives this session"
+                  : "✓ Looking good — keep the streak going"}
+            </div>
+            <button type="button" onClick={() => setPrepComplete(true)} style={startBtnStyle}>
+              Start Session →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const phaseIcons = {
     brainDump: "🧠",
     patientCase: "🏥",
@@ -3030,9 +4173,18 @@ Region 1 contains: (list structures)`,
     brainDump: "Prime",
     patientCase: "Patient",
     structureFunction: "Structure",
-    algorithmDraw: "Algorithm",
+    algorithmDraw: isCrossLecture ? "Connect" : "Algorithm",
     readRecall: "Recall",
     mcq: "Apply",
+  };
+
+  const dlLectureTagColor = (tag) => {
+    const u = String(tag || "").toUpperCase();
+    if (u.startsWith("DLA")) return "#6366f1";
+    if (u.startsWith("LEC")) return "#60a5fa";
+    if (u.startsWith("SG")) return "#a78bfa";
+    if (u.startsWith("TBL")) return "#f59e0b";
+    return tc;
   };
 
   const PhaseBar = () => (
@@ -3125,6 +4277,40 @@ Region 1 contains: (list structures)`,
     </div>
   );
 
+  const CrossLectureStrip = () =>
+    isCrossLecture && crossCtx?.lecs?.length ? (
+      <div
+        style={{
+          marginBottom: 16,
+          marginTop: -8,
+          display: "flex",
+          flexWrap: "wrap",
+          alignItems: "center",
+          gap: 8,
+        }}
+      >
+        <span style={{ fontFamily: MONO, fontSize: 10, color: T.text3 }}>Cross-lecture session</span>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {(crossCtx.lecs || []).map((l) => (
+            <span
+              key={l.id}
+              style={{
+                fontFamily: MONO,
+                fontSize: 10,
+                color: T.text3,
+                background: dlLecturePillColorFromLec(l) + "22",
+                border: "1px solid " + dlLecturePillColorFromLec(l) + "55",
+                padding: "2px 8px",
+                borderRadius: 6,
+              }}
+            >
+              {l.lectureType || "LEC"} {l.lectureNumber ?? ""}
+            </span>
+          ))}
+        </div>
+      </div>
+    ) : null;
+
   const PatientBanner = () =>
     patientCase ? (
       <div
@@ -3183,6 +4369,7 @@ Region 1 contains: (list structures)`,
   return (
     <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto" }}>
       <PhaseBar />
+      <CrossLectureStrip />
 
       {/* Phase 1: Brain Dump + SAQ */}
       {phase === "brainDump" && (
@@ -3242,9 +4429,27 @@ Region 1 contains: (list structures)`,
                 lineHeight: 1.6,
               }}
             >
-              Before we begin — write down everything you already know about{" "}
-              <strong style={{ color: T.text1 }}>{lectureTitle}</strong>. Don't look anything up. This
-              primes your brain for new information.
+              {isCrossLecture && crossCtx?.lecs?.length ? (
+                <>
+                  Before we begin — write down everything you know about:
+                  <ul style={{ margin: "8px 0 0 0", paddingLeft: 20, color: T.text1 }}>
+                    {(crossCtx.lecs || []).map((l) => (
+                      <li key={l.id} style={{ marginBottom: 4 }}>
+                        <strong>
+                          {l.lectureType || "LEC"} {l.lectureNumber ?? ""} — {l.lectureTitle || l.fileName || ""}
+                        </strong>
+                      </li>
+                    ))}
+                  </ul>
+                  Include any connections you see between them. Don&apos;t look anything up.
+                </>
+              ) : (
+                <>
+                  Before we begin — write down everything you already know about{" "}
+                  <strong style={{ color: T.text1 }}>{lectureTitle}</strong>. Don&apos;t look anything up. This
+                  primes your brain for new information.
+                </>
+              )}
             </div>
             <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 6 }}>
               A few sentences are enough — key terms and main ideas. The evaluation will point out gaps; you don’t need to write an essay.
@@ -3282,7 +4487,11 @@ Region 1 contains: (list structures)`,
             <textarea
               value={brainDump}
               onChange={(e) => setBrainDump(e.target.value)}
-              placeholder="Write everything you know... anatomy, physiology, clinical relevance, drugs, anything."
+              placeholder={
+                isCrossLecture
+                  ? "Write everything you know about each lecture above and how they connect — anatomy, clinical links, mechanisms..."
+                  : "Write everything you know... anatomy, physiology, clinical relevance, drugs, anything."
+              }
               style={{
                 background: T.inputBg,
                 border: "1px solid " + T.border1,
@@ -3520,6 +4729,35 @@ Region 1 contains: (list structures)`,
                   >
                     {idx + 1}. {typeof q === "object" && q?.question != null ? q.question : q}
                   </div>
+                  {typeof q === "object" && Array.isArray(q?.lectureTags) && q.lectureTags.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+                      {q.lectureTags.map((t) => {
+                        const s = String(t);
+                        const short = s.length > 20 ? s.slice(0, 17) + "…" : s;
+                        const bg = dlLectureTagColor(s);
+                        return (
+                          <span
+                            key={s + idx}
+                            title={s}
+                            style={{
+                              fontFamily: MONO,
+                              fontSize: 11,
+                              color: "#fff",
+                              background: bg,
+                              padding: "2px 8px",
+                              borderRadius: 10,
+                              maxWidth: 140,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {short}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   <textarea
                     value={saqAnswers[idx] || ""}
                     onChange={(e) => {
@@ -3656,7 +4894,15 @@ Region 1 contains: (list structures)`,
                 onClick={async () => {
                   setLoading(true);
                   try {
-                    const saqs = await generateSAQs(lectureContent, resolvedObjectives || [], lectureTitle, null);
+                    const saqs = await generateSAQs(
+                      lectureContent,
+                      resolvedObjectives || [],
+                      lectureTitle,
+                      null,
+                      lec,
+                      blockId,
+                      saqCrossAugment || undefined
+                    );
                     const next = normalizeSaqQuestions(saqs);
                     setSaqQuestions((prev) => (next.length > 0 ? next : prev.length > 0 ? prev : []));
                   } catch {
@@ -3832,7 +5078,7 @@ Region 1 contains: (list structures)`,
                     onClick={() => {
                       setPatientCase(null);
                       setLoadingTooLong(false);
-                      generatePatientCase(lectureContent, resolvedObjectives || [], lectureTitle)
+                      generatePatientCase(lectureContent, resolvedObjectives || [], lectureTitle, lec, blockId)
                         .then((result) => {
                           const extracted = extractCaseAndFocusFromRaw(result);
                           setPatientCase(extracted.case ? extracted : { case: `A patient presents with findings relevant to ${lectureTitle || "today's lecture"}.`, focus: "Consider how the core concepts explain this presentation." });
@@ -4125,7 +5371,15 @@ Region 1 contains: (list structures)`,
                   setUsingManualObjectives(true);
                   setLoading(true);
                   try {
-                    const saqs = await generateSAQs(lectureContent, lines, lectureTitle, patientCase?.case ?? null);
+                    const saqs = await generateSAQs(
+                      lectureContent,
+                      lines,
+                      lectureTitle,
+                      patientCase?.case ?? null,
+                      lec,
+                      blockId,
+                      saqCrossAugment || undefined
+                    );
                     const normalized = normalizeSaqQuestions(saqs);
                     setStructureSaqQuestions(normalized.length > 0 ? normalized : []);
                   } catch {
@@ -4313,7 +5567,15 @@ Region 1 contains: (list structures)`,
                 onClick={async () => {
                   setLoading(true);
                   try {
-                    const saqs = await generateSAQs(lectureContent, resolvedObjectives || [], lectureTitle, patientCase?.case ?? null);
+                    const saqs = await generateSAQs(
+                      lectureContent,
+                      resolvedObjectives || [],
+                      lectureTitle,
+                      patientCase?.case ?? null,
+                      lec,
+                      blockId,
+                      saqCrossAugment || undefined
+                    );
                     const normalized = normalizeSaqQuestions(saqs);
                     setStructureSaqQuestions(normalized.length > 0 ? normalized : []);
                   } catch {
@@ -4829,7 +6091,16 @@ Region 1 contains: (list structures)`,
 
       {/* Phase 5: Read & Recall */}
       {phase === "readRecall" && (() => {
-        const lectureText = lectureContent || lec?.fullText || lec?.extractedText || lec?.content || "";
+        const lectureText =
+          isCrossLecture && crossCtx?.lecs?.length
+            ? (crossCtx.lecs || [])
+                .map((l) => {
+                  const title = `[${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}]`;
+                  const content = l.extractedText || l.content || l.fullText || "";
+                  return `${title}\n${content}`;
+                })
+                .join("\n\n────────────────────\n\n")
+            : lectureContent || lec?.fullText || lec?.extractedText || lec?.content || "";
         if (typeof console !== "undefined" && console.log) {
           console.log("Phase 5 render — recallStep:", recallStep, "recallPrompts.length:", recallPrompts.length, "content length:", lectureText?.length);
         }
@@ -5033,7 +6304,9 @@ Region 1 contains: (list structures)`,
                   </h2>
                   <p style={{ fontFamily: MONO, fontSize: 14, color: T.text3, marginBottom: 16 }}>
                     {recallPrompts.length === 0
-                      ? "You've been taught the key concepts. Now close your eyes and recall — what were the main ideas, key terms, and clinical connections from this lecture?"
+                      ? isCrossLecture && crossCtx?.lecs?.length
+                        ? `Recall the key points from all ${crossCtx.lecs.length} lectures above, and describe any connections between them.`
+                        : "You've been taught the key concepts. Now close your eyes and recall — what were the main ideas, key terms, and clinical connections from this lecture?"
                       : "Without looking — write everything you remember from what you just read. Structures, mechanisms, clinical points, anything."}
                   </p>
                   <textarea
@@ -5077,7 +6350,8 @@ Region 1 contains: (list structures)`,
                       setLoading(true);
                       try {
                         const result = await geminiJSON(
-                          `Grade this medical recall attempt 0-100. Raw JSON only: {"score":<0-100>,"feedback":"<15 words max>"}` +
+                          (isCrossLecture ? crossSystemPrefix + "\n\n" : "") +
+                            `Grade this medical recall attempt 0-100. Raw JSON only: {"score":<0-100>,"feedback":"<15 words max>"}` +
                             `\n\nLecture: ${lectureTitle || "Medical lecture"}\nContent excerpt: ${(lectureText || "").slice(0, 1000)}\n\nStudent recall:\n${recallText}`,
                           600
                         );
@@ -5391,7 +6665,7 @@ Region 1 contains: (list structures)`,
                 fontSize: 13,
               }}
             >
-              {lectureTitle}
+              {isCrossLecture && crossCtx?.lecs?.length ? crossLectureTitleLine(crossCtx.lecs) : lectureTitle}
             </div>
           </div>
 
@@ -5561,6 +6835,29 @@ Region 1 contains: (list structures)`,
           </div>
 
           <div>
+            {isCrossLecture && crossCtx?.lecs?.length ? (
+              <div
+                style={{
+                  fontFamily: MONO,
+                  color: T.text2,
+                  fontSize: 12,
+                  marginBottom: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                How confident do you feel about:
+                <ul style={{ margin: "8px 0 0 0", paddingLeft: 18 }}>
+                  {(crossCtx.lecs || []).map((l) => (
+                    <li key={l.id}>
+                      {l.lectureType || "LEC"} {l.lectureNumber ?? ""} — {l.lectureTitle || l.fileName || ""}
+                    </li>
+                  ))}
+                </ul>
+                <div style={{ fontSize: 11, color: T.text3, marginTop: 6 }}>
+                  Single confidence rating applies to all lectures in this session.
+                </div>
+              </div>
+            ) : null}
             <div
               style={{
                 fontFamily: MONO,
@@ -5608,6 +6905,29 @@ Region 1 contains: (list structures)`,
               const nextReview =
                 confidenceLevel === "Low" ? 1
                   : confidenceLevel === "Medium" ? 10 : 30;
+              if (isCrossLecture && crossCtx?.lecs?.length >= 2) {
+                const score =
+                  postMCQScore != null
+                    ? postMCQScore
+                    : results?.length
+                      ? Math.round((results.filter((r) => r.correct).length / results.length) * 100)
+                      : 0;
+                finalizeCrossSession(
+                  crossCtx,
+                  {
+                    score,
+                    preSAQScore,
+                    postMCQScore: score,
+                    confidenceLevel,
+                  },
+                  blockId,
+                  makeTopicKey,
+                  results
+                );
+                if (sessionId && deleteSession) deleteSession(sessionId);
+                onComplete?.();
+                return;
+              }
               const meta = {
                 blockId,
                 topicKey: makeTopicKey
@@ -5623,6 +6943,9 @@ Region 1 contains: (list structures)`,
                 lectureId: resolvedObjectives?.[0]?.linkedLecId ?? null,
               };
               if (sessionId && deleteSession) deleteSession(sessionId);
+              if (meta.lectureId) {
+                dlLogDeepLearnActivityToCompletion(meta.lectureId, blockId, confidenceLevel);
+              }
               onComplete?.(results, meta);
             }}
             style={{
@@ -5671,11 +6994,277 @@ export default function DeepLearn({
   termColor,
   makeTopicKey,
   performanceHistory = {},
+  initialRapidFireMode = false,
 }) {
   const { T } = useTheme();
   const tc = termColor || T.purple;
+
+  // ── Rapid Fire Mode (compressed, no AI generation) ──────────────────────────
+  function buildRapidFireQueue(lec, _blockId, blockObjs) {
+    const lecObjs = (blockObjs || []).filter((o) => o?.linkedLecId === lec?.id);
+
+    // Priority order:
+    // 1. Struggling objectives
+    // 2. In progress objectives
+    // 3. Untested objectives (high Bloom first)
+    // 4. Mastered objectives (low priority, add if queue < 10)
+    const struggling = lecObjs.filter((o) => o?.status === "struggling");
+    const inprogress = lecObjs.filter((o) => o?.status === "inprogress");
+    const untested = lecObjs
+      .filter((o) => !o?.status || o?.status === "untested")
+      .sort((a, b) => (b?.bloom_level || 1) - (a?.bloom_level || 1));
+    const mastered = lecObjs.filter((o) => o?.status === "mastered");
+
+    let queue = [...struggling, ...inprogress, ...untested];
+
+    // If queue is very short, pad with mastered to ensure at least 5 cards
+    if (queue.length < 5) {
+      queue = [...queue, ...mastered.slice(0, 5 - queue.length)];
+    }
+
+    return queue;
+  }
+
+  const rapidFireLec = useMemo(() => {
+    if (!Array.isArray(lecs) || lecs.length === 0) return null;
+    const objs = lecObjectivesProp || [];
+    const linked = objs.find((o) => o?.linkedLecId)?.linkedLecId;
+    if (linked) {
+      const byId = lecs.find((l) => l.id === linked);
+      if (byId) return byId;
+    }
+    const first = objs?.[0];
+    if (first && (first.lectureNumber != null || first.lectureType != null)) {
+      const num = first.lectureNumber;
+      const type = (first.lectureType || "LEC").toUpperCase();
+      const byTypeNum = lecs.find(
+        (l) =>
+          String(l.lectureNumber) === String(num) &&
+          String((l.lectureType || "LEC").toUpperCase()) === String(type)
+      );
+      if (byTypeNum) return byTypeNum;
+    }
+    return lecs[0] || null;
+  }, [lecs, lecObjectivesProp]);
+
+  const initialRfQueue =
+    initialRapidFireMode && rapidFireLec ? buildRapidFireQueue(rapidFireLec, blockId, blockObjectives) : [];
+
+  const [rapidFireMode, setRapidFireMode] = useState(!!initialRapidFireMode);
+  const [rfQueue, setRfQueue] = useState(initialRfQueue);
+  const [rfIndex, setRfIndex] = useState(0);
+  const [rfRevealed, setRfRevealed] = useState(false);
+  const [rfComplete, setRfComplete] = useState(false);
+  const [rfStats, setRfStats] = useState({ mastered: 0, okay: 0, struggling: 0, skipped: 0 });
+  const [rfStartTime, setRfStartTime] = useState(initialRapidFireMode ? Date.now() : null);
+  const [rfElapsedSeconds, setRfElapsedSeconds] = useState(0);
+  const [rfCardOpacity, setRfCardOpacity] = useState(1);
+
+  const rfSessionStrugglingRef = useRef(new Set());
+  const rfSavedRef = useRef(false);
+  const rfInitOnceRef = useRef(false);
+
+  const startRapidFireWithQueue = useCallback(
+    (queue) => {
+      setRfQueue(queue || []);
+      setRfIndex(0);
+      setRfRevealed(false);
+      setRfComplete(false);
+      setRfStats({ mastered: 0, okay: 0, struggling: 0, skipped: 0 });
+      setRfStartTime(Date.now());
+      setRfElapsedSeconds(0);
+      setRfCardOpacity(1);
+      rfSessionStrugglingRef.current.clear();
+      rfSavedRef.current = false;
+      rfInitOnceRef.current = true;
+      setRapidFireMode(true);
+    },
+    []
+  );
+
+  const exitRapidFire = useCallback(() => {
+    setRapidFireMode(false);
+    setRfComplete(false);
+    setRfRevealed(false);
+  }, []);
+
+  useEffect(() => {
+    if (!initialRapidFireMode) return;
+    if (!rapidFireLec) return;
+    if (rfInitOnceRef.current) return;
+    rfInitOnceRef.current = true;
+    startRapidFireWithQueue(buildRapidFireQueue(rapidFireLec, blockId, blockObjectives));
+  }, [initialRapidFireMode, rapidFireLec, blockId, blockObjectives, startRapidFireWithQueue]);
+
+  useEffect(() => {
+    if (!rapidFireMode || rfComplete || !rfStartTime) return;
+    const id = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - rfStartTime) / 1000);
+      setRfElapsedSeconds(elapsed);
+    }, 1000);
+    setRfElapsedSeconds(Math.floor((Date.now() - rfStartTime) / 1000));
+    return () => clearInterval(id);
+  }, [rapidFireMode, rfComplete, rfStartTime]);
+
+  useEffect(() => {
+    if (!rapidFireMode || rfComplete) return;
+    setRfCardOpacity(0);
+    const t = setTimeout(() => setRfCardOpacity(1), 60);
+    return () => clearTimeout(t);
+  }, [rfRevealed, rfIndex, rapidFireMode, rfComplete]);
+
+  const advanceRf = useCallback(() => {
+    setRfRevealed(false);
+    if (rfIndex + 1 >= rfQueue.length) setRfComplete(true);
+    else setRfIndex((prev) => prev + 1);
+  }, [rfIndex, rfQueue.length]);
+
+  const handleRfSkip = useCallback(() => {
+    setRfStats((prev) => ({ ...prev, skipped: prev.skipped + 1 }));
+    advanceRf();
+  }, [advanceRf]);
+
+  const handleRfAssess = useCallback(
+    (newStatus) => {
+      const obj = rfQueue[rfIndex];
+      if (!obj) return;
+
+      // Update objective status in rxt-block-objectives
+      try {
+        const key = "rxt-block-objectives";
+        const stored = JSON.parse(localStorage.getItem(key) || "{}");
+        const bid = blockId;
+        const blockObjs = stored[bid] || [];
+        const idx = blockObjs.findIndex((o) => o?.id === obj?.id);
+        if (idx !== -1) {
+          blockObjs[idx].status = newStatus;
+          blockObjs[idx].lastDrilled = new Date().toISOString();
+          stored[bid] = blockObjs;
+          localStorage.setItem(key, JSON.stringify(stored));
+        }
+      } catch (e) {
+        console.warn("Rapid Fire objective update failed:", e);
+      }
+
+      if (newStatus === "struggling") rfSessionStrugglingRef.current.add(obj.id);
+
+      // Update stats
+      setRfStats((prev) => ({
+        ...prev,
+        mastered: newStatus === "mastered" ? prev.mastered + 1 : prev.mastered,
+        okay: newStatus === "inprogress" ? prev.okay + 1 : prev.okay,
+        struggling: newStatus === "struggling" ? prev.struggling + 1 : prev.struggling,
+      }));
+
+      advanceRf();
+    },
+    [rfQueue, rfIndex, blockId, advanceRf]
+  );
+
+  // Keyboard shortcuts while Rapid Fire is active.
+  useEffect(() => {
+    if (!rapidFireMode) return;
+    const onKeyDown = (e) => {
+      if (e.defaultPrevented) return;
+      const tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target?.isContentEditable) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        exitRapidFire();
+        return;
+      }
+
+      if (rfComplete) return;
+
+      const revealKeys = e.key === " " || e.key === "Spacebar" || e.key === "Enter";
+      if (!rfRevealed && revealKeys) {
+        e.preventDefault();
+        setRfRevealed(true);
+        return;
+      }
+
+      if (rfRevealed) {
+        if (e.key === "1" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          handleRfAssess("struggling");
+        } else if (e.key === "2" || e.key === "ArrowDown") {
+          e.preventDefault();
+          handleRfAssess("inprogress");
+        } else if (e.key === "3" || e.key === "ArrowRight") {
+          e.preventDefault();
+          handleRfAssess("mastered");
+        } else if (e.key === "s" || e.key === "S" || e.key === "ArrowUp") {
+          e.preventDefault();
+          handleRfSkip();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [rapidFireMode, rfComplete, rfRevealed, handleRfAssess, handleRfSkip, exitRapidFire]);
+
+  // Save lightweight rapid-fire session to rxt-performance after completion.
+  useEffect(() => {
+    if (!rfComplete) return;
+    if (!rapidFireLec) return;
+    if (rfSavedRef.current) return;
+    if (!rfStartTime) return;
+
+    try {
+      rfSavedRef.current = true;
+      const key = `${rapidFireLec.id}__${blockId}`;
+      const allPerf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const existing = allPerf[key] || { sessions: [] };
+      const existingSessions = Array.isArray(existing.sessions) ? existing.sessions : [];
+
+      const assessedCount = rfStats.mastered + rfStats.okay + rfStats.struggling;
+      const score = Math.round((rfStats.mastered / Math.max(assessedCount, 1)) * 100);
+      const now = new Date().toISOString();
+
+      const rfSessionRecord = {
+        score,
+        date: now,
+        startedAt: now,
+        completedAt: now,
+        questionCount: assessedCount,
+        difficulty: "rapid_fire",
+        sessionType: "rapid_fire",
+        lectureId: rapidFireLec.id,
+        blockId,
+        topicKey: key,
+        lectureType: rapidFireLec.lectureType ?? null,
+        lectureNumber: rapidFireLec.lectureNumber ?? null,
+        lectureName: rapidFireLec.lectureTitle || rapidFireLec.fileName || rapidFireLec.fileName || null,
+        rfStats: { ...rfStats },
+        durationSeconds: Math.floor((Date.now() - rfStartTime) / 1000),
+      };
+
+      const updatedSessions = [...existingSessions, rfSessionRecord].slice(-50);
+      allPerf[key] = {
+        ...existing,
+        sessions: updatedSessions,
+        lastStudied: now,
+        firstStudied: existing.firstStudied || now,
+        lastScore: score,
+        lectureId: rapidFireLec.id,
+        blockId,
+        lectureType: rfSessionRecord.lectureType ?? existing.lectureType,
+        lectureNumber: rfSessionRecord.lectureNumber ?? existing.lectureNumber,
+        lectureName: rfSessionRecord.lectureName ?? existing.lectureName,
+        currentDifficulty: existing.currentDifficulty || "rapid_fire",
+      };
+      localStorage.setItem("rxt-performance", JSON.stringify(allPerf));
+    } catch (e) {
+      console.warn("Rapid Fire performance save failed:", e);
+    }
+  }, [rfComplete, rapidFireLec, rfStartTime, blockId, rfStats]);
+
   const [phase, setPhase] = useState("config");
   const [sessionParams, setSessionParams] = useState(null);
+  const [crossPrepPayload, setCrossPrepPayload] = useState(null);
+  const [pausedExpanded, setPausedExpanded] = useState(false);
 
   const [savedDeepLearnSessions, setSavedDeepLearnSessions] = useState(() => {
     try {
@@ -5710,17 +7299,51 @@ export default function DeepLearn({
 
   const [pendingDeepLearnStart, setPendingDeepLearnStart] = useState(null);
 
-  const launchDeepLearn = useCallback(
-    (cfg, sid) => {
-      const { selectedTopics, blockId: bid } = cfg;
-      setSessionParams({ sessionType: cfg.sessionType, selectedTopics, blockId: bid, sessionId: sid });
-      setPhase("session");
-    },
-    []
-  );
+  const launchDeepLearn = useCallback((cfg, sid) => {
+    const { selectedTopics, blockId: bid } = cfg;
+    setSessionParams({
+      sessionType: cfg.sessionType,
+      selectedTopics,
+      blockId: bid,
+      sessionId: sid,
+      isCrossLecture: !!cfg.isCrossLecture,
+      crossCtx: cfg.crossCtx || null,
+      displayLectureTitle: cfg.displayLectureTitle || null,
+    });
+    setPhase("session");
+  }, []);
+
+  const crossIdsKey = (topics) =>
+    [...(topics || [])]
+      .map((t) => t.lecId)
+      .filter(Boolean)
+      .sort()
+      .join(",");
 
   const handleStart = useCallback(
     ({ sessionType, selectedTopics, blockId: bid }) => {
+      const lecTopics = (selectedTopics || []).filter((t) => t.lecId);
+      if (lecTopics.length >= 2) {
+        const idsKey = crossIdsKey(lecTopics);
+        const sessionId = `dl_cross_${bid}_${idsKey.replace(/,/g, "_")}_${Date.now()}`;
+        const existingSession = Object.values(savedDeepLearnSessions).find((s) => {
+          if (s.blockId !== bid || s.phase === "summary" || !s.isCrossLecture) return false;
+          const ek = [...(s.crossLectureIds || [])].sort().join(",");
+          return ek === idsKey;
+        });
+        if (existingSession) {
+          setPendingDeepLearnStart({
+            cfg: { sessionType, selectedTopics: lecTopics, blockId: bid, isCrossLecture: true },
+            sessionId,
+            existingSession,
+          });
+          return;
+        }
+        setCrossPrepPayload({ sessionType, selectedTopics: lecTopics, blockId: bid, sessionId });
+        setPhase("crossPrep");
+        return;
+      }
+
       const sessionId = `dl_${bid}_${selectedTopics?.[0]?.lecId}_${Date.now()}`;
       const existingSession = Object.values(savedDeepLearnSessions).find(
         (s) =>
@@ -5763,15 +7386,498 @@ export default function DeepLearn({
         String(o.lectureType || "LEC").toUpperCase() === String(lectureForTopic.lectureType || "LEC").toUpperCase()) ||
       (activityStrForLec && normActivity(o.activity) === normActivity(activityStrForLec))
   );
+
+  const resumedCrossCtx = useMemo(() => {
+    if (!sessionParams?.isCrossLecture) return null;
+    if (sessionParams.crossCtx?.lecs?.length >= 2) return sessionParams.crossCtx;
+    const ids = sessionParams.crossLectureIds?.length
+      ? sessionParams.crossLectureIds
+      : (sessionParams.selectedTopics || []).map((t) => t.lecId).filter(Boolean);
+    const lecObjs = ids.map((id) => lecs.find((l) => l.id === id)).filter(Boolean);
+    if (lecObjs.length < 2) return null;
+    return buildCrossLectureContext(
+      lecObjs,
+      sessionParams.blockId ?? blockId,
+      blockObjectives,
+      performanceHistory,
+      makeTopicKey
+    );
+  }, [
+    sessionParams?.isCrossLecture,
+    sessionParams?.crossCtx,
+    sessionParams?.crossLectureIds,
+    sessionParams?.selectedTopics,
+    sessionParams?.blockId,
+    lecs,
+    blockObjectives,
+    performanceHistory,
+    makeTopicKey,
+    blockId,
+  ]);
+
   const objectivesForSession = sessionParams?.resuming
-    ? sessionParams.objectives || []
-    : firstTopic?.weak
-      ? firstTopic.objectives || []
-      : (lecObjectivesProp && lecObjectivesProp.length > 0)
-        ? lecObjectivesProp
-        : filteredByLec.length > 0
-          ? filteredByLec
-          : (blockObjectives && blockObjectives.length > 0 ? blockObjectives : []);
+    ? sessionParams.objectives?.length
+      ? sessionParams.objectives
+      : resumedCrossCtx?.allObjs || []
+    : sessionParams?.isCrossLecture && resumedCrossCtx
+      ? resumedCrossCtx.allObjs
+      : firstTopic?.weak
+        ? firstTopic.objectives || []
+        : lecObjectivesProp && lecObjectivesProp.length > 0
+          ? lecObjectivesProp
+          : filteredByLec.length > 0
+            ? filteredByLec
+            : blockObjectives && blockObjectives.length > 0
+              ? blockObjectives
+              : [];
+
+  if (rapidFireMode) {
+    const lec = rapidFireLec;
+    const currentObj = rfQueue[rfIndex];
+    const totalCards = rfQueue.length || 0;
+
+    const formatMMSS = (seconds) => {
+      const s = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+      const m = Math.floor(s / 60);
+      const ss = s % 60;
+      return `${m}:${String(ss).padStart(2, "0")}`;
+    };
+
+    const assessedCount = rfStats.mastered + rfStats.okay + rfStats.struggling;
+    const elapsedSeconds = rfStartTime ? Math.floor((Date.now() - rfStartTime) / 1000) : rfElapsedSeconds;
+
+    const insight =
+      rfStats.struggling > rfStats.mastered
+        ? { text: "⚠ Most of these need more work — add them to your review schedule", color: "#A32D2D" }
+        : rfStats.mastered > (totalCards || 1) * 0.7
+          ? { text: "✓ Strong performance — well prepared on these objectives", color: "#27500A" }
+          : { text: "△ Mixed results — focus on the struggling objectives next session", color: "#633806" };
+
+    // Completion screen
+    if (rfComplete) {
+      const pace =
+        elapsedSeconds > 0 ? Math.round(((assessedCount / (elapsedSeconds / 60)) || 0) * 10) / 10 : 0;
+
+      const struggledIds = Array.from(rfSessionStrugglingRef.current);
+      return (
+        <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+          <div style={{ maxWidth: 400, margin: "0 auto", padding: "0 0 20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 18, fontWeight: 500, color: T.text1 }}>⚡ Rapid Fire complete</div>
+              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>{formatMMSS(elapsedSeconds)}</div>
+            </div>
+
+            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 13, marginBottom: 0, textAlign: "center" }}>
+              {assessedCount} objectives reviewed
+            </div>
+
+            <div style={{ display: "flex", gap: 8, margin: "16px 0" }}>
+              {[
+                { label: "✓ Mastered", val: rfStats.mastered, color: "#639922" },
+                { label: "△ Okay", val: rfStats.okay, color: "#BA7517" },
+                { label: "⚠ Struggling", val: rfStats.struggling, color: "#E24B4A" },
+                { label: "→ Skipped", val: rfStats.skipped, color: T.text3 },
+              ].map((cell) => (
+                <div
+                  key={cell.label}
+                  style={{
+                    flex: 1,
+                    background: T.cardBg,
+                    borderRadius: 12,
+                    padding: 12,
+                    textAlign: "center",
+                    border: "1px solid " + T.border1,
+                  }}
+                >
+                  <div style={{ fontFamily: MONO, fontSize: 20, fontWeight: 900, color: cell.color }}>{cell.val}</div>
+                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>{cell.label.replace(/[✓△⚠→]\s*/g, "")}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ fontFamily: MONO, color: T.text2, fontSize: 13, textAlign: "center", marginBottom: 12 }}>
+              {pace} objectives/minute
+            </div>
+
+            <div style={{ fontSize: 13, textAlign: "center", marginBottom: 16, color: insight.color }}>{insight.text}</div>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              {rfStats.struggling > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ids = struggledIds;
+                    const queue =
+                      lec
+                        ? (blockObjectives || []).filter((o) => o?.linkedLecId === lec.id && ids.includes(o?.id))
+                        : [];
+                    startRapidFireWithQueue(queue);
+                  }}
+                  style={{
+                    background: "#FCEBEB",
+                    color: "#A32D2D",
+                    border: "0.5px solid #F09595",
+                    borderRadius: "var(--border-radius-md, 8px)",
+                    padding: "10px 14px",
+                    fontFamily: MONO,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  ⚡ Run again — struggling only
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  exitRapidFire();
+                  const sel = lec
+                    ? [
+                        {
+                          id: lec.id + "_full",
+                          label: lec.lectureTitle,
+                          lecId: lec.id,
+                          weak: false,
+                        },
+                      ]
+                    : [];
+                  if (sel.length > 0) {
+                    handleStart({ sessionType: "deep", selectedTopics: sel, blockId });
+                  }
+                }}
+                style={{
+                  background: "#EEEDFE",
+                  color: "#3C3489",
+                  border: "0.5px solid #AFA9EC",
+                  borderRadius: "var(--border-radius-md, 8px)",
+                  padding: "10px 14px",
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                }}
+              >
+                ▶ Full Deep Learn
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  exitRapidFire();
+                }}
+                style={{
+                  background: T.cardBg,
+                  border: "1px solid " + T.border1,
+                  borderRadius: "var(--border-radius-md, 8px)",
+                  padding: "10px 14px",
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  cursor: "pointer",
+                  color: T.text1,
+                  fontWeight: 700,
+                }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Empty queue
+    if (!lec || totalCards === 0) {
+      return (
+        <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+          <div style={{ maxWidth: 420, margin: "0 auto", background: T.cardBg, borderRadius: 12, border: "1px solid " + T.border1, padding: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: T.text1 }}>⚡ Rapid Fire</div>
+              <button
+                type="button"
+                onClick={exitRapidFire}
+                style={{ fontSize: 12, color: T.text3, border: "none", background: "transparent", cursor: "pointer", fontFamily: MONO }}
+              >
+                ✕ Exit
+              </button>
+            </div>
+            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12, textAlign: "center", padding: 20 }}>
+              No objectives available for this lecture.
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Active session UI
+    const statusColor =
+      currentObj?.status === "mastered"
+        ? "#639922"
+        : currentObj?.status === "inprogress"
+          ? "#BA7517"
+          : currentObj?.status === "struggling"
+            ? "#E24B4A"
+            : T.text3;
+
+    const bloomLevel = currentObj?.bloom_level || 2;
+    const bloomName = LEVEL_NAMES[bloomLevel] || LEVEL_NAMES[2];
+    const bloomColor = LEVEL_COLORS[bloomLevel] || LEVEL_COLORS[2];
+    const bloomBg = (LEVEL_BG && LEVEL_BG[bloomLevel]) || bloomColor + "18";
+
+    const fillColor =
+      rfStats.struggling > rfStats.mastered
+        ? "#E24B4A"
+        : rfStats.mastered > (totalCards || 1) * 0.6
+          ? "#639922"
+          : "#BA7517";
+
+    const timerStr = formatMMSS(rfElapsedSeconds);
+
+    return (
+      <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: T.text1 }}>⚡ Rapid Fire</div>
+            <div style={{ fontSize: 12, color: T.text3 }}>
+              · {(lec.lectureType || "LEC")} {lec.lectureNumber ?? ""}
+            </div>
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 13, color: T.text3 }}>{timerStr}</div>
+          <button
+            type="button"
+            onClick={exitRapidFire}
+            style={{
+              fontSize: 12,
+              color: T.text3,
+              border: "none",
+              background: "transparent",
+              cursor: "pointer",
+              fontFamily: MONO,
+              padding: 0,
+            }}
+          >
+            ✕ Exit
+          </button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ height: 4, borderRadius: 2, background: T.border2 }}>
+              <div
+                style={{
+                  height: "100%",
+                  borderRadius: 2,
+                  width: `${totalCards ? (rfIndex / totalCards) * 100 : 0}%`,
+                  background: fillColor,
+                  transition: "width 0.2s ease",
+                }}
+              />
+            </div>
+          </div>
+          <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, flexShrink: 0 }}>
+            {rfIndex} / {totalCards}
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {rfStats.mastered > 0 && (
+              <span style={{ fontSize: 10, fontFamily: MONO, color: "#639922" }}>✓ {rfStats.mastered}</span>
+            )}
+            {rfStats.okay > 0 && <span style={{ fontSize: 10, fontFamily: MONO, color: "#BA7517" }}>△ {rfStats.okay}</span>}
+            {rfStats.struggling > 0 && (
+              <span style={{ fontSize: 10, fontFamily: MONO, color: "#E24B4A" }}>⚠ {rfStats.struggling}</span>
+            )}
+          </div>
+        </div>
+
+        <div
+          style={{
+            background: T.cardBg,
+            border: "0.5px solid " + T.border2,
+            borderRadius: "var(--border-radius-lg, 12px)",
+            padding: 24,
+            minHeight: 180,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "space-between",
+            cursor: "pointer",
+            transition: "opacity 0.1s ease",
+            opacity: rfCardOpacity,
+          }}
+          onClick={() => {
+            if (!rfRevealed) setRfRevealed(true);
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, gap: 12 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: 11,
+                    color: T.text3,
+                    background: T.pillBg,
+                    border: "1px solid " + T.border1,
+                    borderRadius: 999,
+                    padding: "3px 10px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  {(lec.lectureType || "LEC").toUpperCase()}
+                </span>
+                <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>
+                  {lec.lectureNumber ?? ""}
+                </span>
+                <span
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: 11,
+                    color: T.text3,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: 320,
+                  }}
+                >
+                  {lec.lectureTitle || lec.fileName || ""}
+                </span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+              <span
+                style={{
+                  fontSize: 10,
+                  padding: "2px 8px",
+                  borderRadius: 20,
+                  background: bloomBg,
+                  color: bloomColor,
+                  fontFamily: MONO,
+                  fontWeight: 600,
+                  border: "0.5px solid " + bloomColor + "55",
+                }}
+              >
+                {bloomName}
+              </span>
+              <span style={{ width: 7, height: 7, borderRadius: 999, background: statusColor, display: "inline-block" }} />
+            </div>
+          </div>
+
+          <div
+            style={{
+              fontSize: rfRevealed ? 15 : 17,
+              lineHeight: 1.6,
+              color: rfRevealed ? T.text2 : T.text1,
+              fontWeight: 400,
+              flex: 1,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {currentObj?.text || currentObj?.objective || ""}
+          </div>
+
+          {!rfRevealed ? (
+            <div style={{ fontSize: 11, color: T.text3, textAlign: "center", marginTop: 16 }}>
+              Tap to reveal · or press Space
+            </div>
+          ) : (
+            <>
+              <div style={{ borderTop: "0.5px solid " + T.border2, margin: "12px 0" }} />
+              <div style={{ fontSize: 13, color: T.text2, fontStyle: "italic", marginBottom: 12, textAlign: "center" }}>
+                How well did you know this?
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRfAssess("struggling");
+                  }}
+                  style={{
+                    background: "#FCEBEB",
+                    color: "#A32D2D",
+                    border: "0.5px solid #F09595",
+                    padding: "10px 16px",
+                    fontSize: 13,
+                    borderRadius: "var(--border-radius-md, 8px)",
+                    cursor: "pointer",
+                    fontFamily: MONO,
+                    fontWeight: 700,
+                  }}
+                >
+                  ⚠ Struggling
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRfAssess("inprogress");
+                  }}
+                  style={{
+                    background: "#FAEEDA",
+                    color: "#633806",
+                    border: "0.5px solid #EF9F27",
+                    padding: "10px 16px",
+                    fontSize: 13,
+                    borderRadius: "var(--border-radius-md, 8px)",
+                    cursor: "pointer",
+                    fontFamily: MONO,
+                    fontWeight: 700,
+                  }}
+                >
+                  △ Okay
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRfAssess("mastered");
+                  }}
+                  style={{
+                    background: "#EAF3DE",
+                    color: "#27500A",
+                    border: "0.5px solid #97C459",
+                    padding: "10px 16px",
+                    fontSize: 13,
+                    borderRadius: "var(--border-radius-md, 8px)",
+                    cursor: "pointer",
+                    fontFamily: MONO,
+                    fontWeight: 700,
+                  }}
+                >
+                  ✓ Got it
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRfSkip();
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "0.5px solid " + T.border2,
+                    color: T.text3,
+                    padding: "10px 12px",
+                    fontSize: 12,
+                    borderRadius: "var(--border-radius-md, 8px)",
+                    cursor: "pointer",
+                    fontFamily: MONO,
+                    fontWeight: 700,
+                  }}
+                >
+                  → Skip
+                </button>
+              </div>
+              <div style={{ fontSize: 10, color: T.text3, textAlign: "center", marginTop: 8 }}>
+                Space reveal · 1 struggling · 2 okay · 3 got it · S skip
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
@@ -5782,6 +7888,9 @@ export default function DeepLearn({
             if (phase === "session") {
               setPhase("config");
               setSessionParams(null);
+            } else if (phase === "crossPrep") {
+              setPhase("config");
+              setCrossPrepPayload(null);
             } else {
               onBack();
             }
@@ -5878,7 +7987,29 @@ export default function DeepLearn({
               <button
                 onClick={() => {
                   deleteDeepLearnSession(pendingDeepLearnStart.existingSession.sessionId);
-                  launchDeepLearn(pendingDeepLearnStart.cfg, pendingDeepLearnStart.sessionId);
+                  const cfg = pendingDeepLearnStart.cfg;
+                  if (cfg.isCrossLecture && cfg.selectedTopics?.length >= 2) {
+                    const sel = cfg.selectedTopics
+                      .map((t) => lecs.find((l) => l.id === t.lecId))
+                      .filter(Boolean);
+                    const xctx = buildCrossLectureContext(
+                      sel,
+                      cfg.blockId,
+                      blockObjectives,
+                      performanceHistory,
+                      makeTopicKey
+                    );
+                    launchDeepLearn(
+                      {
+                        ...cfg,
+                        crossCtx: xctx,
+                        displayLectureTitle: crossLectureTitleLine(sel),
+                      },
+                      pendingDeepLearnStart.sessionId
+                    );
+                  } else {
+                    launchDeepLearn(cfg, pendingDeepLearnStart.sessionId);
+                  }
                   setPendingDeepLearnStart(null);
                 }}
                 style={{
@@ -5913,35 +8044,258 @@ export default function DeepLearn({
         </div>
       )}
 
+      {phase === "crossPrep" && crossPrepPayload && (() => {
+        const MONO_X = "'DM Mono','Courier New',monospace";
+        const SERIF_X = "'Playfair Display',Georgia,serif";
+        const bid = crossPrepPayload.blockId;
+        const selectedLecs = crossPrepPayload.selectedTopics
+          .map((t) => lecs.find((l) => l.id === t.lecId))
+          .filter(Boolean);
+        const ctx = buildCrossLectureContext(
+          selectedLecs,
+          bid,
+          blockObjectives,
+          performanceHistory,
+          makeTopicKey
+        );
+        const trunc = (s, n) => {
+          const t = String(s || "");
+          return t.length > n ? t.slice(0, n - 1) + "…" : t;
+        };
+        const scoreChip = (l) => {
+          const perf = readLecPerf(l, bid, performanceHistory, makeTopicKey);
+          const arr = Array.isArray(perf?.sessions) ? perf.sessions : [];
+          const nSess = typeof perf?.sessions === "number" && !Array.isArray(perf?.sessions) ? perf.sessions : arr.length;
+          const sc = perf?.lastScore ?? perf?.score ?? null;
+          const col = sc == null ? T.text3 : Number(sc) >= 70 ? "#639922" : Number(sc) >= 50 ? "#BA7517" : "#E24B4A";
+          const pct = sc != null && Number.isFinite(Number(sc)) ? `${sc}%` : "—";
+          return { nSess, pct, col, label: `${l.lectureType || "LEC"}${l.lectureNumber ?? ""}` };
+        };
+        return (
+          <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto", fontFamily: MONO_X }}>
+            <div style={{ fontSize: 16, fontWeight: 500, color: T.text1, marginBottom: 8, fontFamily: SERIF_X }}>
+              Cross-lecture session
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
+              {selectedLecs.map((l) => {
+                const full = `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}`;
+                const col = dlLecturePillColorFromLec(l);
+                return (
+                  <span
+                    key={l.id}
+                    title={full}
+                    style={{
+                      fontFamily: MONO_X,
+                      fontSize: 11,
+                      background: col + "22",
+                      color: col,
+                      border: "1px solid " + col + "55",
+                      padding: "4px 10px",
+                      borderRadius: 20,
+                      maxWidth: 200,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {trunc(full, 20)}
+                  </span>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              {selectedLecs.map((l) => {
+                const c = scoreChip(l);
+                return (
+                  <span
+                    key={l.id}
+                    style={{
+                      fontFamily: MONO_X,
+                      fontSize: 11,
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid " + T.border1,
+                      color: c.col,
+                      background: T.cardBg,
+                    }}
+                  >
+                    {c.label} · {c.nSess} sessions · {c.pct}
+                  </span>
+                );
+              })}
+            </div>
+            <div style={{ fontFamily: MONO_X, fontSize: 13, color: T.text2, marginBottom: 20 }}>
+              {ctx.weakCount > 0 ? (
+                <>△ {ctx.weakCount} weak objectives across {selectedLecs.length} lectures</>
+              ) : (
+                <>○ No weak objectives — first sessions</>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  launchDeepLearn(
+                    {
+                      sessionType: crossPrepPayload.sessionType,
+                      selectedTopics: crossPrepPayload.selectedTopics,
+                      blockId: bid,
+                      isCrossLecture: true,
+                      crossCtx: ctx,
+                      displayLectureTitle: crossLectureTitleLine(selectedLecs),
+                    },
+                    crossPrepPayload.sessionId
+                  );
+                  setCrossPrepPayload(null);
+                }}
+                style={{
+                  background: T.statusGood || "#10b981",
+                  border: "none",
+                  color: "#fff",
+                  padding: "12px 24px",
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  fontFamily: SERIF_X,
+                  fontSize: 15,
+                  fontWeight: 900,
+                }}
+              >
+                Start Session →
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPhase("config");
+                  setCrossPrepPayload(null);
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: tc,
+                  fontFamily: MONO_X,
+                  fontSize: 12,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                }}
+              >
+                Back
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
       {phase === "config" && (
         <>
           {(() => {
-            const blockSessions = Object.values(savedDeepLearnSessions).filter(
-              (s) => s.blockId === blockId && s.phase !== "summary"
-            );
+            const blockSessions = Object.values(savedDeepLearnSessions)
+              .filter((s) => s.blockId === blockId && s.phase !== "summary")
+              .sort((a, b) => new Date(b.lastSaved || 0) - new Date(a.lastSaved || 0));
             if (!blockSessions.length) return null;
+            const recent = blockSessions[0];
+            const resumeBtnStyle = {
+              background: T.statusWarn,
+              border: "none",
+              color: "#fff",
+              padding: "6px 14px",
+              borderRadius: 7,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 11,
+              fontWeight: 700,
+              flexShrink: 0,
+            };
+            if (!pausedExpanded) {
+              return (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setPausedExpanded(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setPausedExpanded(true);
+                    }
+                  }}
+                  style={{
+                    background: "#FAEEDA",
+                    border: "0.5px solid #EF9F27",
+                    borderRadius: "var(--border-radius-md, 8px)",
+                    padding: "10px 14px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    cursor: "pointer",
+                    marginBottom: 16,
+                  }}
+                >
+                  <span style={{ fontSize: 10, color: "#633806", flexShrink: 0 }}>▸</span>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "#633806", fontFamily: MONO, flexShrink: 0 }}>
+                    {blockSessions.length} paused session{blockSessions.length !== 1 ? "s" : ""}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "#854F0B",
+                      fontFamily: MONO,
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    most recent: {recent?.lectureTitle || "—"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSessionParams({ ...recent, resuming: true });
+                      setPhase("session");
+                    }}
+                    style={resumeBtnStyle}
+                  >
+                    Resume →
+                  </button>
+                </div>
+              );
+            }
             return (
               <div
                 style={{
-                  background: T.statusWarnBg,
-                  border: "1px solid " + T.statusWarnBorder,
-                  borderRadius: 10,
-                  padding: "12px 16px",
+                  background: "#FAEEDA",
+                  border: "0.5px solid #EF9F27",
+                  borderRadius: "var(--border-radius-md, 8px)",
+                  padding: "12px 14px",
                   marginBottom: 16,
                 }}
               >
-                <div
+                <button
+                  type="button"
+                  onClick={() => setPausedExpanded(false)}
                   style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    background: "none",
+                    border: "none",
+                    padding: "0 0 10px 0",
+                    cursor: "pointer",
                     fontFamily: MONO,
-                    color: T.statusWarn,
-                    fontSize: 10,
-                    letterSpacing: 1.5,
-                    marginBottom: 8,
+                    fontSize: 12,
+                    color: "#633806",
+                    width: "100%",
+                    textAlign: "left",
                   }}
                 >
-                  ⏸ PAUSED SESSIONS
-                </div>
-                {blockSessions.map((s) => (
+                  <span style={{ fontSize: 10 }}>▾</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {blockSessions.length} paused session{blockSessions.length !== 1 ? "s" : ""}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#854F0B" }}>· tap to collapse</span>
+                </button>
+                {blockSessions.map((s, idx) => (
                   <div
                     key={s.sessionId}
                     style={{
@@ -5949,20 +8303,11 @@ export default function DeepLearn({
                       alignItems: "center",
                       gap: 10,
                       padding: "8px 0",
-                      borderBottom: "1px solid " + T.statusWarnBorder,
+                      borderBottom: idx < blockSessions.length - 1 ? "1px solid #EF9F27" : "none",
                     }}
                   >
-                    <div style={{ flex: 1 }}>
-                      <div
-                        style={{
-                          fontFamily: MONO,
-                          color: T.text1,
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {s.lectureTitle}
-                      </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: MONO, color: T.text1, fontSize: 12, fontWeight: 700 }}>{s.lectureTitle}</div>
                       <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
                         Phase {phaseNumber(s.phase)} · {s.phase}
                         {" · "}saved{" "}
@@ -5975,25 +8320,17 @@ export default function DeepLearn({
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={() => {
                         setSessionParams({ ...s, resuming: true });
                         setPhase("session");
                       }}
-                      style={{
-                        background: T.statusWarn,
-                        border: "none",
-                        color: "#fff",
-                        padding: "6px 14px",
-                        borderRadius: 7,
-                        cursor: "pointer",
-                        fontFamily: MONO,
-                        fontSize: 11,
-                        fontWeight: 700,
-                      }}
+                      style={resumeBtnStyle}
                     >
                       Resume →
                     </button>
                     <button
+                      type="button"
                       onClick={() => deleteDeepLearnSession(s.sessionId)}
                       style={{
                         background: "none",
@@ -6001,6 +8338,7 @@ export default function DeepLearn({
                         color: T.text3,
                         cursor: "pointer",
                         fontSize: 13,
+                        flexShrink: 0,
                       }}
                       onMouseEnter={(e) => (e.currentTarget.style.color = T.statusBad)}
                       onMouseLeave={(e) => (e.currentTarget.style.color = T.text3)}
@@ -6019,6 +8357,8 @@ export default function DeepLearn({
             questionBanksByFile={questionBanksByFile}
             buildQuestionContext={buildQuestionContext}
             detectStudyMode={detectStudyModeProp}
+            performanceHistory={performanceHistory}
+            makeTopicKey={makeTopicKey}
             onStart={handleStart}
             T={T}
             tc={tc}
@@ -6029,17 +8369,25 @@ export default function DeepLearn({
       {phase === "session" && firstTopic && (
         <DeepLearnSession
           topic={firstTopic}
-          lectureTitle={lectureForTopic?.lectureTitle || firstTopic.label}
+          lectureTitle={
+            sessionParams?.displayLectureTitle ||
+            (sessionParams?.isCrossLecture && resumedCrossCtx
+              ? crossLectureTitleLine(resumedCrossCtx.lecs)
+              : lectureForTopic?.lectureTitle || firstTopic.label)
+          }
           lectureContent={
             sessionParams?.resuming
               ? sessionParams.lectureContent
-              : lectureForTopic?.extractedText || lectureForTopic?.content || lectureForTopic?.fullText || lectureForTopic?.text || ""
+              : sessionParams?.isCrossLecture && resumedCrossCtx
+                ? resumedCrossCtx.combinedContent
+                : lectureForTopic?.extractedText || lectureForTopic?.content || lectureForTopic?.fullText || lectureForTopic?.text || ""
           }
           objectives={objectivesForSession}
           blockId={blockId}
           blockObjectives={blockObjectives}
           getBlockObjectives={getBlockObjectives}
           lec={lectureForTopic}
+          performanceHistory={performanceHistory}
           isFirstPass={isFirstPass}
           questionBanksByFile={questionBanksByFile}
           buildQuestionContext={buildQuestionContext}
@@ -6078,6 +8426,8 @@ export default function DeepLearn({
           initialPreSAQScore={sessionParams?.resuming ? sessionParams.preSAQScore : undefined}
           initialInputMode={sessionParams?.resuming ? sessionParams.inputMode : undefined}
           initialHandwriteDone={sessionParams?.resuming ? sessionParams.handwriteDone : undefined}
+          crossCtx={resumedCrossCtx}
+          skipIntroPrep={!!sessionParams?.isCrossLecture && !sessionParams?.resuming}
         />
       )}
     </div>
