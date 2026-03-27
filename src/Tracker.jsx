@@ -2086,6 +2086,43 @@ function LecturesTabContent({
     if (g.level === "gaps") return { text: `○ ${g.untouched} untouched`, color: t.text3, bg: "transparent", border: t.border2 };
     return { text: "✓ Strong", ...t.statusGoodBg != null ? { bg: t.statusGoodBg, border: t.statusGoodBorder, color: t.statusGood } : { bg: t.statusGood + "15", border: t.statusGood, color: t.statusGood } };
   };
+  const getTrackerObjectivesForBlock = (blockId) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const blockData = stored[blockId] || stored["msk"] || {};
+      if (Array.isArray(blockData)) return blockData;
+      const out = [];
+      Object.values(blockData || {}).forEach((val) => {
+        if (Array.isArray(val)) out.push(...val);
+      });
+      return out;
+    } catch {
+      return [];
+    }
+  };
+  const getLecQuestionLevel = (lec) => {
+    const objs = getTrackerObjectivesForBlock(lec?.blockId || bid || "msk").filter(
+      (o) => o.linkedLecId === lec.id
+    );
+    if (objs.length === 0) return "1st";
+    const avgConsecutive =
+      objs.reduce((sum, o) => sum + (o.consecutiveCorrect || 0), 0) / objs.length;
+    if (avgConsecutive >= 2) return "3rd";
+    if (avgConsecutive >= 1) return "2nd";
+    return "1st";
+  };
+  const startTrackerQuestionSession = (lec) => {
+    window.dispatchEvent(
+      new CustomEvent("rxt-start-drill", {
+        detail: {
+          lecId: lec.id,
+          lecTitle: lec.lectureTitle,
+          mode: "mcq",
+          filter: "all",
+        },
+      })
+    );
+  };
 
   if (blockLecs.length === 0) {
     return <div style={{ textAlign: "center", color: t.text3, padding: 24 }}>No lectures uploaded for this block yet.</div>;
@@ -2296,8 +2333,38 @@ function LecturesTabContent({
                                   )}
                                   {!reviewFlow && (
                                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      <button
+                                        type="button"
+                                        onClick={() => startTrackerQuestionSession(lec)}
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          gap: 6,
+                                          padding: "8px 14px",
+                                          fontSize: 13,
+                                          fontWeight: 500,
+                                          background: "#EEEDFE",
+                                          color: "#3C3489",
+                                          border: "0.5px solid #AFA9EC",
+                                          borderRadius: 8,
+                                          cursor: "pointer",
+                                        }}
+                                      >
+                                        ⚡ Start questions
+                                        <span
+                                          style={{
+                                            fontSize: 10,
+                                            padding: "1px 6px",
+                                            background: "#3C3489",
+                                            color: "white",
+                                            borderRadius: 10,
+                                          }}
+                                        >
+                                          {getLecQuestionLevel(lec)} order
+                                        </span>
+                                      </button>
                                       <button type="button" onClick={() => setReviewFlowByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, confidenceRating: "okay", date: todayISO } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusProgress, color: "#fff", cursor: "pointer", fontWeight: 900 }}>🔁 Log Review</button>
-                                      <button type="button" onClick={() => setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, date: todayISO, activityType: "review", confidenceRating: "okay", durationMinutes: "", note: "" } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, cursor: "pointer", fontWeight: 900 }}>＋ Log Activity</button>
+                                      <button type="button" onClick={() => setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, date: todayISO, activityType: "review", confidenceRating: "okay", durationMinutes: "", note: "", questionCount: "", correctCount: "", showWrongQuestions: false, wrongQuestions: [] } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, cursor: "pointer", fontWeight: 900 }}>＋ Log Activity</button>
                                       <button type="button" onClick={() => setEditByLec((p) => ({ ...(p || {}), [lec.id]: { open: true, completedDate: entry.completedDate, ankiInRotation: !!entry.ankiInRotation } }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, cursor: "pointer", fontWeight: 800 }}>✎ Edit</button>
                                     </div>
                                   )}
@@ -2317,7 +2384,7 @@ function LecturesTabContent({
                                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
                                               {[{ v: "review", label: "📖 Review" }, { v: "anki", label: "🃏 Anki" }, { v: "questions", label: "❓ Questions" }, { v: "notes", label: "📝 Notes" }, { v: "sg_tbl", label: "👥 SG/TBL" }, { v: "manual", label: "✏️ Other" }].map((opt) => {
                                                 const active = flow.activityType === opt.v;
-                                                return <button key={opt.v} type="button" onClick={() => setFlow({ activityType: opt.v })} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 999, border: "1px solid " + (active ? t.statusProgress : t.border1), background: active ? (t.statusProgressBg || (t.statusProgress + "18")) : t.cardBg, color: active ? t.statusProgress : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
+                                                return <button key={opt.v} type="button" onClick={() => setFlow({ activityType: opt.v, ...(opt.v !== "questions" ? { questionCount: "", correctCount: "", showWrongQuestions: false, wrongQuestions: [] } : {}) })} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 999, border: "1px solid " + (active ? t.statusProgress : t.border1), background: active ? (t.statusProgressBg || (t.statusProgress + "18")) : t.cardBg, color: active ? t.statusProgress : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
                                               })}
                                             </div>
                                             <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 8 }}>How did it go?</div>
@@ -2327,13 +2394,84 @@ function LecturesTabContent({
                                                 return <button key={opt.v} type="button" onClick={() => setFlow({ confidenceRating: opt.v })} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 8, border: "1px solid " + (active ? opt.color : t.border1), background: active ? opt.color + "18" : t.cardBg, color: active ? opt.color : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
                                               })}
                                             </div>
+                                            {flow.activityType === "questions" && (
+                                              <div style={{ marginTop: 10, marginBottom: 10, padding: "10px 12px", background: "var(--color-background-secondary)", border: "0.5px solid var(--color-border-tertiary)", borderRadius: 8 }}>
+                                                <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
+                                                  Question session details
+                                                </div>
+                                                <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
+                                                  <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: 11, color: "var(--color-text-secondary)", display: "block", marginBottom: 3 }}>
+                                                      Questions done
+                                                    </label>
+                                                    <input
+                                                      type="number"
+                                                      min="1"
+                                                      max="999"
+                                                      value={flow.questionCount || ""}
+                                                      onChange={(e) => setFlow({ questionCount: e.target.value })}
+                                                      placeholder="40"
+                                                      style={{ width: "100%", fontSize: 14, padding: "7px 10px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 6, background: "var(--color-background-primary)", color: "var(--color-text-primary)", textAlign: "center" }}
+                                                    />
+                                                  </div>
+                                                  <div style={{ fontSize: 18, color: "var(--color-text-tertiary)", paddingTop: 18, flexShrink: 0 }}>
+                                                    /
+                                                  </div>
+                                                  <div style={{ flex: 1 }}>
+                                                    <label style={{ fontSize: 11, color: "var(--color-text-secondary)", display: "block", marginBottom: 3 }}>
+                                                      Correct
+                                                    </label>
+                                                    <input
+                                                      type="number"
+                                                      min="0"
+                                                      max={flow.questionCount || 999}
+                                                      value={flow.correctCount || ""}
+                                                      onChange={(e) => setFlow({ correctCount: e.target.value })}
+                                                      placeholder="32"
+                                                      style={{ width: "100%", fontSize: 14, padding: "7px 10px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 6, background: "var(--color-background-primary)", color: "var(--color-text-primary)", textAlign: "center" }}
+                                                    />
+                                                  </div>
+                                                  {flow.questionCount && flow.correctCount && (
+                                                    <div style={{ flexShrink: 0, paddingTop: 18, minWidth: 50, textAlign: "center" }}>
+                                                      {(() => {
+                                                        const pct = Math.round(parseInt(flow.correctCount, 10) / parseInt(flow.questionCount, 10) * 100);
+                                                        return (
+                                                          <div style={{ fontSize: 18, fontWeight: 600, fontFamily: "var(--font-mono)", color: pct >= 70 ? "#27500A" : pct >= 50 ? "#BA7517" : "#A32D2D" }}>
+                                                            {pct}%
+                                                          </div>
+                                                        );
+                                                      })()}
+                                                    </div>
+                                                  )}
+                                                </div>
+                                                {flow.questionCount && flow.correctCount && !flow.confidenceRating && (
+                                                  <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", display: "flex", alignItems: "center", gap: 8 }}>
+                                                    <span>
+                                                      Suggested: {(() => {
+                                                        const pct = Math.round(parseInt(flow.correctCount, 10) / parseInt(flow.questionCount, 10) * 100);
+                                                        return pct >= 70 ? "✓ Good" : pct >= 50 ? "△ Okay" : "⚠ Struggling";
+                                                      })()}
+                                                    </span>
+                                                    <button
+                                                      onClick={() => {
+                                                        const pct = Math.round(parseInt(flow.correctCount, 10) / parseInt(flow.questionCount, 10) * 100);
+                                                        setFlow({ confidenceRating: pct >= 70 ? "good" : pct >= 50 ? "okay" : "struggling" });
+                                                      }}
+                                                      style={{ fontSize: 11, padding: "2px 8px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 4, background: "transparent", color: "var(--color-text-secondary)", cursor: "pointer" }}
+                                                    >
+                                                      Apply
+                                                    </button>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            )}
                                             <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", marginBottom: 10 }}>
                                               <input value={flow.durationMinutes ?? ""} onChange={(e) => setFlow({ durationMinutes: e.target.value })} placeholder="Duration (min)" style={{ width: 140, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
                                               {flow.activityType === "anki" && <input value={flow.ankiOverdueCount ?? ""} onChange={(e) => setFlow({ ankiOverdueCount: e.target.value })} placeholder="Update overdue? (cards)" style={{ width: 190, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />}
                                               <input value={flow.note ?? ""} onChange={(e) => setFlow({ note: e.target.value })} placeholder="Note (optional)" style={{ flex: 1, minWidth: 200, background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
                                             </div>
                                             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                              <button type="button" onClick={() => { const dur = flow.durationMinutes != null && String(flow.durationMinutes).trim() !== "" ? parseInt(String(flow.durationMinutes), 10) : null; logActivity(lec.id, bid, flow.activityType, flow.confidenceRating, { durationMinutes: Number.isNaN(dur) ? null : dur, note: flow.note ? String(flow.note).trim() : null, date: selectedDate, examDate: examDateForBlock }); if (flow.activityType === "anki" && String(flow.ankiOverdueCount || "").trim() !== "") { const oc = parseInt(String(flow.ankiOverdueCount), 10); if (!Number.isNaN(oc)) updateAnkiCounts(lec.id, bid, null, oc); } setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: null })); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Save ✓</button>
+                                              <button type="button" onClick={() => { const dur = flow.durationMinutes != null && String(flow.durationMinutes).trim() !== "" ? parseInt(String(flow.durationMinutes), 10) : null; const options = { durationMinutes: Number.isNaN(dur) ? null : dur, note: flow.note ? String(flow.note).trim() : null, date: selectedDate, examDate: examDateForBlock }; if (flow.activityType === "questions" && flow.questionCount) { const total = parseInt(flow.questionCount, 10) || 0; const correct = parseInt(flow.correctCount, 10) || 0; options.questionCount = total; options.correctCount = correct; options.questionScore = total > 0 ? Math.round((correct / total) * 100) : null; options.note = options.note || `${correct}/${total} correct (${options.questionScore}%)`; } logActivity(lec.id, bid, flow.activityType, flow.confidenceRating, options); if (flow.activityType === "anki" && String(flow.ankiOverdueCount || "").trim() !== "") { const oc = parseInt(String(flow.ankiOverdueCount), 10); if (!Number.isNaN(oc)) updateAnkiCounts(lec.id, bid, null, oc); } setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: null })); }} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "none", background: t.statusGood, color: "#fff", cursor: "pointer", fontWeight: 900 }}>Save ✓</button>
                                               <button type="button" onClick={() => setActivityFlowByLec((p) => ({ ...(p || {}), [lec.id]: null }))} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + t.border1, background: t.cardBg, color: t.text3, cursor: "pointer" }}>Cancel</button>
                                             </div>
                                           </>
@@ -2992,6 +3130,51 @@ export default function Tracker({
   const [quickLogWrongOnlyKey, setQuickLogWrongOnlyKey] = useState(null);
   /** Brief flash under ✓ Done after logging weak concepts */
   const [weakConceptFlash, setWeakConceptFlash] = useState(null); // { key: string, count: number } | null
+
+  function getTrackerObjectivesForBlock(blockId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const blockData = stored[blockId] || stored["msk"] || {};
+      if (Array.isArray(blockData)) return blockData;
+      const out = [];
+      Object.values(blockData || {}).forEach((val) => {
+        if (Array.isArray(val)) out.push(...val);
+      });
+      return out;
+    } catch {
+      return [];
+    }
+  }
+
+  function getLecQuestionLevel(lec) {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const mskData = stored["msk"] || {};
+      const allObjs = [...(mskData.imported || []), ...(mskData.extracted || [])];
+      const lecObjs = allObjs.filter((o) => o.linkedLecId === lec.id);
+      if (lecObjs.length === 0) return "1st";
+      const avgConsecutive =
+        lecObjs.reduce((sum, o) => sum + (o.consecutiveCorrect || 0), 0) / lecObjs.length;
+      if (avgConsecutive >= 2) return "3rd";
+      if (avgConsecutive >= 1) return "2nd";
+      return "1st";
+    } catch {
+      return "1st";
+    }
+  }
+
+  function startTrackerQuestionSession(lec) {
+    window.dispatchEvent(
+      new CustomEvent("rxt-start-drill", {
+        detail: {
+          lecId: lec.id,
+          lecTitle: lec.lectureTitle,
+          mode: "mcq",
+          filter: "all",
+        },
+      })
+    );
+  }
   const [hasSeenClickHint, setHasSeenClickHint] = useState(() => {
     try {
       return localStorage.getItem("rxt-click-hint-seen") === "1";
@@ -3184,7 +3367,11 @@ export default function Tracker({
   }, [activeBlock?.id]);
 
   useEffect(() => {
-    const handler = () => setRefreshKey((k) => k + 1);
+    const handler = () => {
+      // Defer so we never setState on Tracker while another component (e.g. App) is still rendering;
+      // rxt-completion-updated can fire synchronously from dispatchEvent during a parent render.
+      queueMicrotask(() => setRefreshKey((k) => k + 1));
+    };
     window.addEventListener("rxt-completion-updated", handler);
     return () => window.removeEventListener("rxt-completion-updated", handler);
   }, []);
@@ -3776,7 +3963,7 @@ export default function Tracker({
           ))}
         </div>
 
-        {tab==="tracker" && <>
+        {tab==="tracker" && activeTab !== "weakConcepts" && <>
           {/* Block filters */}
           <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
             {[
@@ -3881,18 +4068,20 @@ export default function Tracker({
         </>}
 
         {/* Right side */}
-        <div style={{ marginLeft:"auto", display:"flex", gap:7, alignItems:"center" }}>
-          {critCount>0 && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⚠</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{critCount} critical</span></div>}
-          {ovdCount>0  && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⏰</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{ovdCount} overdue</span></div>}
-          {[["Rows",rows.length],["Done",rows.filter(r=>r.preRead&&r.lecture&&r.postReview&&r.anki).length]].map(([l,v])=>(
-            <div key={l} style={{ background:t.cardBg,borderRadius:6,padding:"3px 10px",display:"flex",gap:5,alignItems:"center", border:"1px solid "+t.border1 }}>
-              <span style={{ color:t.text4,fontSize:13 }}>{l}</span>
-              <span style={{ color:t.text1,fontSize:13,fontWeight:600 }}>{v}</span>
-            </div>
-          ))}
-          <button onClick={()=>setShowAdd(true)} style={{ background:t.statusBad,border:"none",color:t.text1,padding:"6px 14px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:13,fontWeight:700 }}>+ Add Row</button>
-          {saveMsg&&<span style={{ fontSize:13,color:saveMsg==="saved"?t.statusGood:t.statusWarn }}>{saveMsg==="saving"?"⟳ Saving…":"✓ Saved"}</span>}
-        </div>
+        {activeTab !== "weakConcepts" && (
+          <div style={{ marginLeft:"auto", display:"flex", gap:7, alignItems:"center" }}>
+            {critCount>0 && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⚠</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{critCount} critical</span></div>}
+            {ovdCount>0  && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⏰</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{ovdCount} overdue</span></div>}
+            {[["Rows",rows.length],["Done",rows.filter(r=>r.preRead&&r.lecture&&r.postReview&&r.anki).length]].map(([l,v])=>(
+              <div key={l} style={{ background:t.cardBg,borderRadius:6,padding:"3px 10px",display:"flex",gap:5,alignItems:"center", border:"1px solid "+t.border1 }}>
+                <span style={{ color:t.text4,fontSize:13 }}>{l}</span>
+                <span style={{ color:t.text1,fontSize:13,fontWeight:600 }}>{v}</span>
+              </div>
+            ))}
+            <button onClick={()=>setShowAdd(true)} style={{ background:t.statusBad,border:"none",color:t.text1,padding:"6px 14px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:13,fontWeight:700 }}>+ Add Row</button>
+            {saveMsg&&<span style={{ fontSize:13,color:saveMsg==="saved"?t.statusGood:t.statusWarn }}>{saveMsg==="saving"?"⟳ Saving…":"✓ Saved"}</span>}
+          </div>
+        )}
       </div>
 
       {/* ── TRACKER TABLE ──────────────────────────────── */}
@@ -4149,6 +4338,146 @@ export default function Tracker({
                 return 0;
               });
 
+              const strugglingCount = searchedItems.filter((item) => {
+                const key = `${item.lec.id}__${item.blockId}`;
+                return completions[key]?.lastConfidence === "struggling";
+              }).length;
+
+              const todayActionRowOuter = {
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginTop: 6,
+                paddingTop: 6,
+                borderTop: "0.5px solid var(--color-border-tertiary)",
+              };
+
+              const renderTodayTaskActions = (lec, blockId, done) => {
+                if (!lec?.id) return null;
+                const lecTitle = lec.lectureTitle || lec.title || lec.filename || "";
+                const entry = completions[`${lec.id}__${blockId}`];
+                const struggling = entry?.lastConfidence === "struggling";
+                if (done) {
+                  return (
+                    <div style={todayActionRowOuter} onClick={(e) => e.stopPropagation()}>
+                      <span style={{ fontSize: 11, color: "#27500A" }}>✓ Logged today</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.dispatchEvent(
+                            new CustomEvent("rxt-start-drill", {
+                              detail: {
+                                lecId: lec.id,
+                                lecTitle,
+                                mode: "mcq",
+                                filter: "struggling",
+                              },
+                            })
+                          );
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          padding: "3px 8px",
+                          fontSize: 10,
+                          background: "transparent",
+                          color: "var(--color-text-tertiary)",
+                          border: "0.5px solid var(--color-border-tertiary)",
+                          borderRadius: 5,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ⚡ More questions
+                      </button>
+                    </div>
+                  );
+                }
+                return (
+                  <div style={todayActionRowOuter} onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.dispatchEvent(
+                          new CustomEvent("rxt-start-drill", {
+                            detail: {
+                              lecId: lec.id,
+                              lecTitle,
+                              mode: "mcq",
+                              filter: "all",
+                            },
+                          })
+                        );
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        fontWeight: 500,
+                        background: "#EEEDFE",
+                        color: "#3C3489",
+                        border: "0.5px solid #AFA9EC",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      ⚡ Questions
+                      <span
+                        style={{
+                          fontSize: 9,
+                          padding: "1px 5px",
+                          background: "#3C3489",
+                          color: "white",
+                          borderRadius: 8,
+                        }}
+                      >
+                        {getLecQuestionLevel(lec)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.dispatchEvent(
+                          new CustomEvent("rxt-start-drill", {
+                            detail: {
+                              lecId: lec.id,
+                              lecTitle,
+                              mode: "flashcard",
+                              filter: "all",
+                            },
+                          })
+                        );
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        padding: "4px 10px",
+                        fontSize: 11,
+                        background: "transparent",
+                        color: "var(--color-text-secondary)",
+                        border: "0.5px solid var(--color-border-secondary)",
+                        borderRadius: 6,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      🧠 Flashcards
+                    </button>
+                    <div style={{ flex: 1 }} />
+                    {struggling && (
+                      <span style={{ fontSize: 10, color: "#A32D2D", flexShrink: 0 }}>⚠ struggling</span>
+                    )}
+                  </div>
+                );
+              };
+
               const hasAny = overdueList.length > 0 || todayLectures.length > 0 || reviewsDue.length > 0;
               if (!hasAny) {
                 return (
@@ -4164,6 +4493,51 @@ export default function Tracker({
                   {!hasSeenClickHint && (
                     <div style={{ fontSize: 11, color: t.text3, textAlign: "center", padding: "6px 0", marginBottom: 8, fontFamily: MONO }}>
                       Tap any row to log activity
+                    </div>
+                  )}
+                  {strugglingCount > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "8px 12px",
+                        background: "#FCEBEB",
+                        border: "0.5px solid #F09595",
+                        borderRadius: 8,
+                        marginBottom: 10,
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ flex: 1, color: "#A32D2D" }}>
+                        ⚠ {strugglingCount} lectures still struggling
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          window.dispatchEvent(
+                            new CustomEvent("rxt-start-drill", {
+                              detail: {
+                                lecId: null,
+                                mode: "mcq",
+                                filter: "struggling",
+                              },
+                            })
+                          );
+                        }}
+                        style={{
+                          padding: "4px 12px",
+                          fontSize: 11,
+                          background: "#FCEBEB",
+                          color: "#A32D2D",
+                          border: "0.5px solid #F09595",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                          fontWeight: 500,
+                        }}
+                      >
+                        ⚡ Drill all struggling →
+                      </button>
                     </div>
                   )}
                   {/* OVERDUE */}
@@ -4207,21 +4581,14 @@ export default function Tracker({
                           return (
                             <React.Fragment key={`${lid}__${ebid}`}>
                               <div
-                                tabIndex={done ? -1 : 0}
-                                role={done ? undefined : "button"}
-                                aria-expanded={done ? undefined : isOpen}
-                                onClick={handleRowToggle}
-                                onKeyDown={handleRowKeyDown}
                                 style={{
-                                  ...cardStyle,
+                                  border: "0.5px solid " + t.border2,
                                   borderLeft: `3px solid ${t.statusBad}`,
-                                  cursor: done ? "default" : "pointer",
-                                  transition: "background 0.1s",
+                                  borderRadius: isOpen && !done ? "10px 10px 0 0" : "0 10px 10px 0",
+                                  overflow: "hidden",
                                   background: isOpen ? t.inputBg : t.cardBg,
-                                  borderBottom: isOpen ? "none" : "0.5px solid " + t.border2,
-                                  borderRadius: isOpen ? "10px 10px 0 0" : "0 10px 10px 0",
-                                  outline: "none",
                                   opacity: done ? 0.55 : 1,
+                                  transition: "background 0.1s",
                                 }}
                                 onMouseEnter={(ev) => {
                                   if (done) return;
@@ -4232,63 +4599,112 @@ export default function Tracker({
                                   ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
                                 }}
                               >
-                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {title}
+                                <div
+                                  tabIndex={done ? -1 : 0}
+                                  role={done ? undefined : "button"}
+                                  aria-expanded={done ? undefined : isOpen}
+                                  onClick={handleRowToggle}
+                                  onKeyDown={handleRowKeyDown}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    minHeight: 44,
+                                    padding: "8px 12px",
+                                    cursor: done ? "default" : "pointer",
+                                    outline: "none",
+                                  }}
+                                >
+                                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                    <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {title}
+                                    </div>
+                                    <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      Overdue {late}d · Last: {lastIcon} {lastDate} · {confLine}
+                                    </div>
                                   </div>
-                                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    Overdue {late}d · Last: {lastIcon} {lastDate} · {confLine}
-                                  </div>
+                                  <span style={{ fontFamily: MONO, fontSize: 10, padding: "4px 10px", borderRadius: 999, background: lateColor + "18", border: "1px solid " + lateColor, color: lateColor, fontWeight: 900, flexShrink: 0 }}>
+                                    {lateLabel}
+                                  </span>
+                                  {done ? (
+                                    renderDonePill(entry)
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        title="Snooze 1 day"
+                                        onClick={(ev) => {
+                                          ev.stopPropagation();
+                                          snoozeReview(lid, ebid);
+                                          if (quickLogOpenId === lid) setQuickLogOpenId(null);
+                                          setRefreshKey((k) => k + 1);
+                                        }}
+                                        style={{
+                                          width: 24,
+                                          height: 24,
+                                          borderRadius: 4,
+                                          border: "0.5px solid " + t.border1,
+                                          background: "transparent",
+                                          color: t.text3,
+                                          cursor: "pointer",
+                                          fontSize: 12,
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          flexShrink: 0,
+                                          padding: 0,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        ⏱
+                                      </button>
+                                      <span
+                                        style={{
+                                          fontSize: 12,
+                                          color: isOpen ? t.text2 : t.text3,
+                                          marginLeft: "auto",
+                                          flexShrink: 0,
+                                          paddingLeft: 8,
+                                          display: "inline-block",
+                                          transform: isOpen ? "rotate(90deg)" : "none",
+                                        }}
+                                      >
+                                        ›
+                                      </span>
+                                    </>
+                                  )}
                                 </div>
-                                <span style={{ fontFamily: MONO, fontSize: 10, padding: "4px 10px", borderRadius: 999, background: lateColor + "18", border: "1px solid " + lateColor, color: lateColor, fontWeight: 900, flexShrink: 0 }}>
-                                  {lateLabel}
-                                </span>
-                                {done ? (
-                                  renderDonePill(entry)
-                                ) : (
-                                  <>
-                                    <button
-                                      type="button"
-                                      title="Snooze 1 day"
-                                      onClick={(ev) => {
-                                        ev.stopPropagation();
-                                        snoozeReview(lid, ebid);
-                                        if (quickLogOpenId === lid) setQuickLogOpenId(null);
+                                <div style={{ padding: "0 12px 8px" }}>{renderTodayTaskActions(lec, ebid, done)}</div>
+                                {!done && isOpen && lec && (
+                                  <div
+                                    style={{
+                                      borderRadius: "0 0 10px 10px",
+                                      borderTop: "0.5px solid " + t.border2,
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    <QuickLogFormContent
+                                      key={lec.id}
+                                      lec={lec}
+                                      blockId={ebid}
+                                      examDate={examDateE}
+                                      todayStr={todayStr}
+                                      logActivity={logActivity}
+                                      onWrongConceptsLogged={(n) => {
+                                        if (n > 0) {
+                                          setWeakConceptFlash({
+                                            key: `${lid}__${ebid}`,
+                                            count: n,
+                                          });
+                                        }
+                                      }}
+                                      onSave={() => {
+                                        setQuickLogOpenId(null);
                                         setRefreshKey((k) => k + 1);
                                       }}
-                                      style={{
-                                        width: 24,
-                                        height: 24,
-                                        borderRadius: 4,
-                                        border: "0.5px solid " + t.border1,
-                                        background: "transparent",
-                                        color: t.text3,
-                                        cursor: "pointer",
-                                        fontSize: 12,
-                                        display: "flex",
-                                        alignItems: "center",
-                                        justifyContent: "center",
-                                        flexShrink: 0,
-                                        padding: 0,
-                                        fontFamily: MONO,
-                                      }}
-                                    >
-                                      ⏱
-                                    </button>
-                                    <span
-                                      style={{
-                                        fontSize: 12,
-                                        color: isOpen ? t.text2 : t.text3,
-                                        marginLeft: "auto",
-                                        flexShrink: 0,
-                                        paddingLeft: 8,
-                                        display: "inline-block",
-                                        transform: isOpen ? "rotate(90deg)" : "none",
-                                      }}
-                                    >
-                                      ›
-                                    </span>
-                                  </>
+                                      onCancel={() => setQuickLogOpenId(null)}
+                                    />
+                                  </div>
                                 )}
                               </div>
                               {done && weakConceptFlash?.key === `${lid}__${ebid}` && (
@@ -4353,37 +4769,6 @@ export default function Tracker({
                                   />
                                 </div>
                               )}
-                              {!done && isOpen && lec && (
-                                <div
-                                  style={{
-                                    borderRadius: "0 0 10px 10px",
-                                    borderTop: "0.5px solid " + t.border2,
-                                    overflow: "hidden",
-                                  }}
-                                >
-                                  <QuickLogFormContent
-                                    key={lec.id}
-                                    lec={lec}
-                                    blockId={ebid}
-                                    examDate={examDateE}
-                                    todayStr={todayStr}
-                                    logActivity={logActivity}
-                                    onWrongConceptsLogged={(n) => {
-                                      if (n > 0) {
-                                        setWeakConceptFlash({
-                                          key: `${lid}__${ebid}`,
-                                          count: n,
-                                        });
-                                      }
-                                    }}
-                                    onSave={() => {
-                                      setQuickLogOpenId(null);
-                                      setRefreshKey((k) => k + 1);
-                                    }}
-                                    onCancel={() => setQuickLogOpenId(null)}
-                                  />
-                                </div>
-                              )}
                             </React.Fragment>
                           );
                         })}
@@ -4423,20 +4808,13 @@ export default function Tracker({
                           return (
                             <React.Fragment key={lec.id}>
                               <div
-                                tabIndex={done ? -1 : 0}
-                                role={done ? undefined : "button"}
-                                aria-expanded={done ? undefined : isOpen}
-                                onClick={handleRowToggle}
-                                onKeyDown={handleRowKeyDown}
                                 style={{
-                                  ...cardStyle,
-                                  cursor: done ? "default" : "pointer",
-                                  transition: "background 0.1s",
+                                  border: "0.5px solid " + t.border2,
+                                  borderRadius: isOpen && !done ? "10px 10px 0 0" : 10,
+                                  overflow: "hidden",
                                   background: isOpen ? t.inputBg : t.cardBg,
-                                  borderBottom: isOpen ? "none" : "0.5px solid " + t.border2,
-                                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
-                                  outline: "none",
                                   opacity: done ? 0.55 : 1,
+                                  transition: "background 0.1s",
                                 }}
                                 onMouseEnter={(ev) => {
                                   if (done) return;
@@ -4447,34 +4825,77 @@ export default function Tracker({
                                   ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
                                 }}
                               >
-                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {lec.lectureTitle || lec.title || lec.filename}
+                                <div
+                                  tabIndex={done ? -1 : 0}
+                                  role={done ? undefined : "button"}
+                                  aria-expanded={done ? undefined : isOpen}
+                                  onClick={handleRowToggle}
+                                  onKeyDown={handleRowKeyDown}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    minHeight: 44,
+                                    padding: "8px 12px",
+                                    cursor: done ? "default" : "pointer",
+                                    outline: "none",
+                                  }}
+                                >
+                                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                    <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {lec.lectureTitle || lec.title || lec.filename}
+                                    </div>
+                                    <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {week} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                    </div>
                                   </div>
-                                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {week} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
-                                  </div>
-                                </div>
-                                {typePill(lec.lectureType)}
-                                <span style={{ fontFamily: MONO, fontSize: 11, color: sessions === 0 ? t.text3 : t.statusProgress, fontWeight: 900 }}>
-                                  {sessions === 0 ? "○ New" : `◑ ${sessions}x`}
-                                </span>
-                                {done ? (
-                                  renderDonePill(entry)
-                                ) : (
-                                  <span
-                                    style={{
-                                      fontSize: 12,
-                                      color: isOpen ? t.text2 : t.text3,
-                                      marginLeft: "auto",
-                                      flexShrink: 0,
-                                      paddingLeft: 8,
-                                      display: "inline-block",
-                                      transform: isOpen ? "rotate(90deg)" : "none",
-                                    }}
-                                  >
-                                    ›
+                                  {typePill(lec.lectureType)}
+                                  <span style={{ fontFamily: MONO, fontSize: 11, color: sessions === 0 ? t.text3 : t.statusProgress, fontWeight: 900 }}>
+                                    {sessions === 0 ? "○ New" : `◑ ${sessions}x`}
                                   </span>
+                                  {done ? (
+                                    renderDonePill(entry)
+                                  ) : (
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        color: isOpen ? t.text2 : t.text3,
+                                        marginLeft: "auto",
+                                        flexShrink: 0,
+                                        paddingLeft: 8,
+                                        display: "inline-block",
+                                        transform: isOpen ? "rotate(90deg)" : "none",
+                                      }}
+                                    >
+                                      ›
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ padding: "0 12px 8px" }}>{renderTodayTaskActions(lec, lbid, done)}</div>
+                                {!done && isOpen && (
+                                  <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
+                                    <QuickLogFormContent
+                                      key={lec.id}
+                                      lec={lec}
+                                      blockId={lbid}
+                                      examDate={examDateL}
+                                      todayStr={todayStr}
+                                      logActivity={logActivity}
+                                      onWrongConceptsLogged={(n) => {
+                                        if (n > 0) {
+                                          setWeakConceptFlash({
+                                            key: `${lec.id}__${lbid}`,
+                                            count: n,
+                                          });
+                                        }
+                                      }}
+                                      onSave={() => {
+                                        setQuickLogOpenId(null);
+                                        setRefreshKey((k) => k + 1);
+                                      }}
+                                      onCancel={() => setQuickLogOpenId(null)}
+                                    />
+                                  </div>
                                 )}
                               </div>
                               {done && weakConceptFlash?.key === `${lec.id}__${lbid}` && (
@@ -4536,31 +4957,6 @@ export default function Tracker({
                                       setQuickLogWrongOnlyKey(null);
                                       setRefreshKey((k) => k + 1);
                                     }}
-                                  />
-                                </div>
-                              )}
-                              {!done && isOpen && (
-                                <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
-                                  <QuickLogFormContent
-                                    key={lec.id}
-                                    lec={lec}
-                                    blockId={lbid}
-                                    examDate={examDateL}
-                                    todayStr={todayStr}
-                                    logActivity={logActivity}
-                                    onWrongConceptsLogged={(n) => {
-                                      if (n > 0) {
-                                        setWeakConceptFlash({
-                                          key: `${lec.id}__${lbid}`,
-                                          count: n,
-                                        });
-                                      }
-                                    }}
-                                    onSave={() => {
-                                      setQuickLogOpenId(null);
-                                      setRefreshKey((k) => k + 1);
-                                    }}
-                                    onCancel={() => setQuickLogOpenId(null)}
                                   />
                                 </div>
                               )}
@@ -4607,20 +5003,13 @@ export default function Tracker({
                           return (
                             <React.Fragment key={lec.id}>
                               <div
-                                tabIndex={done ? -1 : 0}
-                                role={done ? undefined : "button"}
-                                aria-expanded={done ? undefined : isOpen}
-                                onClick={handleRowToggle}
-                                onKeyDown={handleRowKeyDown}
                                 style={{
-                                  ...cardStyle,
-                                  cursor: done ? "default" : "pointer",
-                                  transition: "background 0.1s",
+                                  border: "0.5px solid " + t.border2,
+                                  borderRadius: isOpen && !done ? "10px 10px 0 0" : 10,
+                                  overflow: "hidden",
                                   background: isOpen ? t.inputBg : t.cardBg,
-                                  borderBottom: isOpen ? "none" : "0.5px solid " + t.border2,
-                                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
-                                  outline: "none",
                                   opacity: done ? 0.55 : 1,
+                                  transition: "background 0.1s",
                                 }}
                                 onMouseEnter={(ev) => {
                                   if (done) return;
@@ -4631,47 +5020,90 @@ export default function Tracker({
                                   ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
                                 }}
                               >
-                                <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {lec.lectureTitle || lec.title || lec.filename}
+                                <div
+                                  tabIndex={done ? -1 : 0}
+                                  role={done ? undefined : "button"}
+                                  aria-expanded={done ? undefined : isOpen}
+                                  onClick={handleRowToggle}
+                                  onKeyDown={handleRowKeyDown}
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    minHeight: 44,
+                                    padding: "8px 12px",
+                                    cursor: done ? "default" : "pointer",
+                                    outline: "none",
+                                  }}
+                                >
+                                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                                    <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {lec.lectureTitle || lec.title || lec.filename}
+                                    </div>
+                                    <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                      {t0._matchReason || "Review"} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                    </div>
                                   </div>
-                                  <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                    {t0._matchReason || "Review"} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                  <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                                    {padded.map((c, i) => (
+                                      <div
+                                        key={i}
+                                        style={{
+                                          width: 8,
+                                          height: 8,
+                                          borderRadius: 999,
+                                          background: c ? dotColor(c) : "transparent",
+                                          border: c ? "none" : "1px solid " + t.border2,
+                                        }}
+                                      />
+                                    ))}
                                   </div>
-                                </div>
-                                <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                                  {padded.map((c, i) => (
-                                    <div
-                                      key={i}
-                                      style={{
-                                        width: 8,
-                                        height: 8,
-                                        borderRadius: 999,
-                                        background: c ? dotColor(c) : "transparent",
-                                        border: c ? "none" : "1px solid " + t.border2,
-                                      }}
-                                    />
-                                  ))}
-                                </div>
-                                <span style={{ fontFamily: MONO, fontSize: 11, padding: "4px 10px", borderRadius: 999, background: (conf.bg || t.inputBg), border: "1px solid " + (conf.border || t.border1), color: conf.color, fontWeight: 900 }}>
-                                  {conf.label}
-                                </span>
-                                {done ? (
-                                  renderDonePill(entry)
-                                ) : (
-                                  <span
-                                    style={{
-                                      fontSize: 12,
-                                      color: isOpen ? t.text2 : t.text3,
-                                      marginLeft: "auto",
-                                      flexShrink: 0,
-                                      paddingLeft: 8,
-                                      display: "inline-block",
-                                      transform: isOpen ? "rotate(90deg)" : "none",
-                                    }}
-                                  >
-                                    ›
+                                  <span style={{ fontFamily: MONO, fontSize: 11, padding: "4px 10px", borderRadius: 999, background: (conf.bg || t.inputBg), border: "1px solid " + (conf.border || t.border1), color: conf.color, fontWeight: 900 }}>
+                                    {conf.label}
                                   </span>
+                                  {done ? (
+                                    renderDonePill(entry)
+                                  ) : (
+                                    <span
+                                      style={{
+                                        fontSize: 12,
+                                        color: isOpen ? t.text2 : t.text3,
+                                        marginLeft: "auto",
+                                        flexShrink: 0,
+                                        paddingLeft: 8,
+                                        display: "inline-block",
+                                        transform: isOpen ? "rotate(90deg)" : "none",
+                                      }}
+                                    >
+                                      ›
+                                    </span>
+                                  )}
+                                </div>
+                                <div style={{ padding: "0 12px 8px" }}>{renderTodayTaskActions(lec, lbid, done)}</div>
+                                {!done && isOpen && (
+                                  <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
+                                    <QuickLogFormContent
+                                      key={lec.id}
+                                      lec={lec}
+                                      blockId={lbid}
+                                      examDate={examDateR}
+                                      todayStr={todayStr}
+                                      logActivity={logActivity}
+                                      onWrongConceptsLogged={(n) => {
+                                        if (n > 0) {
+                                          setWeakConceptFlash({
+                                            key: `${lec.id}__${lbid}`,
+                                            count: n,
+                                          });
+                                        }
+                                      }}
+                                      onSave={() => {
+                                        setQuickLogOpenId(null);
+                                        setRefreshKey((k) => k + 1);
+                                      }}
+                                      onCancel={() => setQuickLogOpenId(null)}
+                                    />
+                                  </div>
                                 )}
                               </div>
                               {done && weakConceptFlash?.key === `${lec.id}__${lbid}` && (
@@ -4733,31 +5165,6 @@ export default function Tracker({
                                       setQuickLogWrongOnlyKey(null);
                                       setRefreshKey((k) => k + 1);
                                     }}
-                                  />
-                                </div>
-                              )}
-                              {!done && isOpen && (
-                                <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
-                                  <QuickLogFormContent
-                                    key={lec.id}
-                                    lec={lec}
-                                    blockId={lbid}
-                                    examDate={examDateR}
-                                    todayStr={todayStr}
-                                    logActivity={logActivity}
-                                    onWrongConceptsLogged={(n) => {
-                                      if (n > 0) {
-                                        setWeakConceptFlash({
-                                          key: `${lec.id}__${lbid}`,
-                                          count: n,
-                                        });
-                                      }
-                                    }}
-                                    onSave={() => {
-                                      setQuickLogOpenId(null);
-                                      setRefreshKey((k) => k + 1);
-                                    }}
-                                    onCancel={() => setQuickLogOpenId(null)}
                                   />
                                 </div>
                               )}

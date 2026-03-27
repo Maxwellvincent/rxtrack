@@ -1,4 +1,12 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import {
+  supabase,
+  signInWithGoogle,
+  signOut,
+  pushAllLocalDataToSupabase,
+  pullAllDataFromSupabase,
+  scheduleSyncToSupabase,
+} from "./supabase";
 import Tracker, { getConfidenceTrend, addLectureToTodayReview as addLectureToTodayReviewFromTracker } from "./Tracker";
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
@@ -53,34 +61,372 @@ function getLecText(lec) {
   return (lec.extractedText || lec.content || lec.fullText || "");
 }
 
-/** rxt-block-objectives: read entry for blockId, with "msk" fallback. */
+/** Truncate long titles at a word boundary; full string in `title` attribute for tooltips. */
+function smartTruncate(title, maxChars = 45) {
+  const s = String(title || "").trim();
+  if (!s || s.length <= maxChars) return s;
+  const truncated = s.slice(0, maxChars);
+  const lastSpace = truncated.lastIndexOf(" ");
+  return lastSpace > maxChars * 0.7 ? truncated.slice(0, lastSpace) + "…" : truncated + "…";
+}
+
+/** Blocks live under `rxt-terms` → `blocks` (not `rxt-blocks`). */
+function getAllBlocksFromTerms() {
+  try {
+    const terms = JSON.parse(localStorage.getItem("rxt-terms") || "[]");
+    return terms.flatMap((t) =>
+      (t.blocks || []).map((b) => ({
+        ...b,
+        termId: t.id,
+        termName: t.name,
+      }))
+    );
+  } catch (e) {
+    return [];
+  }
+}
+
+function getBlockById(blockId) {
+  return getAllBlocksFromTerms().find((b) => b.id === blockId) || null;
+}
+
+function getBlockDisplayName(blockId) {
+  const block = getBlockById(blockId);
+  if (block?.name) return block.name;
+  return blockId?.toUpperCase() || "Unknown";
+}
+
+/**
+ * Current block from `rxt-terms`: active → first not complete → last.
+ * Pass `terms` (React state) when available; otherwise reads localStorage.
+ */
+function getActiveBlockFromTerms(termsMaybe) {
+  try {
+    const terms = termsMaybe ?? JSON.parse(localStorage.getItem("rxt-terms") || "[]");
+    if (!Array.isArray(terms) || !terms.length) return null;
+    const allBlocks = terms.flatMap((t) =>
+      (t.blocks || []).map((b) => ({
+        ...b,
+        termId: t.id,
+        termName: t.name,
+      }))
+    );
+    const notComplete = (s) =>
+      s !== "complete" && s !== "completed" && s !== "done";
+    return (
+      allBlocks.find((b) => b.status === "active") ||
+      allBlocks.find((b) => notComplete(b.status)) ||
+      allBlocks[allBlocks.length - 1] ||
+      null
+    );
+  } catch (e) {
+    console.error("getActiveBlockFromTerms:", e);
+    return null;
+  }
+}
+
+/** Lectures in rxt-lec-meta for one block (authoritative filter by blockId). */
+function getBlockLecsFromMeta(blockId) {
+  try {
+    const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    if (!blockId) return [];
+    return allLecs.filter((l) => l.blockId === blockId);
+  } catch (e) {
+    return [];
+  }
+}
+
+/** rxt-block-objectives: read entry for blockId. Legacy "msk" slot only when blockId is msk. */
 function getBlockObjectivesStoredRaw(stored, blockId) {
   if (!stored || typeof stored !== "object") return null;
+  if (blockId == null || blockId === "") return null;
   if (stored[blockId] !== undefined) return stored[blockId];
-  if (stored.msk !== undefined) return stored.msk;
+  if (blockId === "msk" && stored.msk !== undefined) return stored.msk;
   return null;
 }
 
 /** Key to write block objectives under (preserves existing storage slot). */
 function blockObjectivesStorageKey(stored, blockId) {
   if (!stored || typeof stored !== "object") return blockId;
+  if (blockId == null || blockId === "") return blockId;
   if (stored[blockId] !== undefined) return blockId;
-  if (stored.msk !== undefined) return "msk";
+  if (blockId === "msk" && stored.msk !== undefined) return "msk";
   return blockId;
 }
 
 /** React state shape matches localStorage — same fallback as getBlockObjectivesStoredRaw. */
 function pickBlockObjectivesState(state, bid) {
   if (!state || typeof state !== "object") return { imported: [], extracted: [] };
-  if (state[bid] !== undefined && state[bid] !== null) return state[bid];
-  if (state.msk !== undefined && state.msk !== null) return state.msk;
-  return { imported: [], extracted: [] };
+  const entry =
+    state[bid] !== undefined && state[bid] != null
+      ? state[bid]
+      : bid === "msk" && state.msk !== undefined && state.msk != null
+        ? state.msk
+        : null;
+  if (entry == null) return { imported: [], extracted: [] };
+  if (Array.isArray(entry)) return { imported: entry, extracted: [] };
+  return {
+    imported: Array.isArray(entry.imported) ? entry.imported : [],
+    extracted: Array.isArray(entry.extracted) ? entry.extracted : [],
+  };
+}
+
+/** Flatten one block entry: legacy flat array or nested { imported, extracted, … }. */
+function flattenBlockObjectiveEntry(blockData) {
+  if (blockData == null) return [];
+  if (Array.isArray(blockData)) return [...blockData];
+  const allObjs = [];
+  Object.values(blockData).forEach((val) => {
+    if (Array.isArray(val)) allObjs.push(...val);
+  });
+  return allObjs;
 }
 
 /**
- * Lectures for the active block: exact blockId match, then name match, then MSK canonical id "msk"
- * when the block is MSK (fixes meta saved with blockId "msk" vs term block id).
+ * Read all objectives for a block from localStorage (nested or flat).
  */
+function getMSKObjectives(blockId) {
+  try {
+    if (blockId == null || blockId === "") return [];
+    const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+    const blockData = getBlockObjectivesStoredRaw(stored, blockId);
+    if (blockData == null) return [];
+    return flattenBlockObjectiveEntry(blockData);
+  } catch (e) {
+    console.error("getMSKObjectives failed:", e);
+    return [];
+  }
+}
+
+/** Drop duplicate objective rows by id (keeps first occurrence). */
+function dedupeObjectivesById(updatedObjs) {
+  const seen = new Set();
+  const out = [];
+  for (const o of updatedObjs || []) {
+    if (!o || typeof o !== "object") continue;
+    if (o.id == null) {
+      out.push(o);
+      continue;
+    }
+    if (seen.has(o.id)) continue;
+    seen.add(o.id);
+    out.push(o);
+  }
+  return out;
+}
+
+/** Progressive lecture quiz difficulty from objective mastery (aligned with drill-style progression). */
+function getLecQuizLevel(lecId, blockId) {
+  try {
+    if (!lecId || !blockId) {
+      return {
+        level: 1,
+        label: "1st order",
+        description: "Direct recall",
+        bloomRange: [1, 2],
+        distribution: { l1: 100, l2: 0, l3: 0 },
+      };
+    }
+    const objs = getMSKObjectives(blockId).filter((o) => o.linkedLecId === lecId);
+
+    if (objs.length === 0) {
+      return {
+        level: 1,
+        label: "1st order",
+        description: "Direct recall",
+        bloomRange: [1, 2],
+        distribution: { l1: 100, l2: 0, l3: 0 },
+      };
+    }
+
+    const avgConsecutive =
+      objs.reduce((sum, o) => sum + (o.consecutiveCorrect || 0), 0) / objs.length;
+    const mastered = objs.filter((o) => o.status === "mastered").length;
+    const total = objs.length;
+    const masteredPct = total > 0 ? mastered / total : 0;
+
+    if (avgConsecutive >= 2 && masteredPct >= 0.6) {
+      return {
+        level: 3,
+        label: "3rd order",
+        description: "Clinical reasoning & integration",
+        bloomRange: [4, 6],
+        distribution: { l1: 15, l2: 35, l3: 50 },
+      };
+    }
+    if (avgConsecutive >= 1 || masteredPct >= 0.3) {
+      return {
+        level: 2,
+        label: "2nd order",
+        description: "Application & clinical scenarios",
+        bloomRange: [3, 4],
+        distribution: { l1: 30, l2: 50, l3: 20 },
+      };
+    }
+    return {
+      level: 1,
+      label: "1st order",
+      description: "Direct recall & understanding",
+      bloomRange: [1, 2],
+      distribution: { l1: 60, l2: 30, l3: 10 },
+    };
+  } catch (e) {
+    return {
+      level: 1,
+      label: "1st order",
+      description: "Direct recall",
+      bloomRange: [1, 2],
+      distribution: { l1: 100, l2: 0, l3: 0 },
+    };
+  }
+}
+
+function inferQuestionLevel(questionText) {
+  const text = (questionText || "").toLowerCase();
+  if (
+    text.includes("patient") &&
+    (text.includes("most likely") || text.includes("best next") || text.includes("most appropriate"))
+  ) {
+    return 3;
+  }
+  if (
+    text.includes("patient") ||
+    text.includes("presents with") ||
+    text.includes("which of the following explains") ||
+    text.includes("mechanism")
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+/**
+ * After a lecture quiz, roll up score into objective rows (uses existing save path).
+ * Does not modify getMSKObjectives / saveMSKObjectives implementations.
+ */
+function writeQuizResultsToObjectives(lecId, blockId, score, quizLevel) {
+  try {
+    const objs = getMSKObjectives(blockId);
+    const lecObjs = objs.filter((o) => o.linkedLecId === lecId);
+    if (lecObjs.length === 0) return { levelAdvanced: false };
+
+    const newStatus =
+      score >= 70 ? "mastered" : score >= 50 ? "inprogress" : "struggling";
+    const wasCorrect = score >= 70;
+
+    const updatedObjs = objs.map((obj) => {
+      if (obj.linkedLecId !== lecId) return obj;
+      const prevConsecutive = obj.consecutiveCorrect || 0;
+      const nextStatus = (() => {
+        if (obj.status === "mastered" && score >= 50) return "mastered";
+        if (obj.status === "struggling" && score >= 70) return "inprogress";
+        return newStatus;
+      })();
+      return {
+        ...obj,
+        status: nextStatus,
+        consecutiveCorrect: wasCorrect ? prevConsecutive + 1 : 0,
+        drillCount: (obj.drillCount || 0) + 1,
+        lastDrilledAt: new Date().toISOString(),
+        lastQuizScore: score,
+        lastQuizzed: new Date().toISOString(),
+      };
+    });
+
+    saveMSKObjectives(blockId, updatedObjs);
+    window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+
+    const newLevel = getLecQuizLevel(lecId, blockId);
+    const prevLevel = quizLevel?.level ?? 1;
+    if (newLevel.level > prevLevel) {
+      return { levelAdvanced: true, newLevel };
+    }
+    return { levelAdvanced: false, newLevel };
+  } catch (e) {
+    console.error("writeQuizResultsToObjectives:", e);
+    return { levelAdvanced: false };
+  }
+}
+
+/**
+ * Persist objectives for a block, preserving nested sub-arrays (imported / extracted) when present.
+ */
+function saveMSKObjectives(blockId, updatedObjs) {
+  try {
+    if (blockId == null || blockId === "") return;
+    const key = "rxt-block-objectives";
+    const stored = JSON.parse(localStorage.getItem(key) || "{}");
+
+    // CPR 1 uses a flat array format (no imported/extracted split)
+    if (blockId === "cpr1") {
+      stored[blockId] = dedupeObjectivesById(updatedObjs);
+      safeSetItem(key, stored);
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      return;
+    }
+
+    const raw = getBlockObjectivesStoredRaw(stored, blockId);
+    const blockData = raw != null ? raw : {};
+
+    if (Array.isArray(blockData)) {
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = dedupeObjectivesById(updatedObjs);
+    } else {
+      const idToSubKey = {};
+      Object.entries(blockData).forEach(([subKey, arr]) => {
+        if (!Array.isArray(arr)) return;
+        arr.forEach((o) => {
+          if (o && o.id != null) idToSubKey[o.id] = subKey;
+        });
+      });
+
+      const newBlockData = {};
+      Object.keys(blockData).forEach((k) => {
+        const v = blockData[k];
+        newBlockData[k] = Array.isArray(v) ? [] : v;
+      });
+
+      (dedupeObjectivesById(updatedObjs) || []).forEach((obj) => {
+        if (!obj || obj.id == null) return;
+        const subKey = idToSubKey[obj.id] || "imported";
+        if (!Array.isArray(newBlockData[subKey])) newBlockData[subKey] = [];
+        newBlockData[subKey].push(obj);
+      });
+
+      Object.keys(newBlockData).forEach((k) => {
+        if (Array.isArray(newBlockData[k])) {
+          newBlockData[k] = dedupeObjectivesById(newBlockData[k]);
+        }
+      });
+
+      const wk = blockObjectivesStorageKey(stored, blockId);
+      stored[wk] = newBlockData;
+    }
+
+    safeSetItem(key, stored);
+    window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+  } catch (e) {
+    console.error("saveMSKObjectives failed:", e);
+  }
+}
+
+/** Per-lecture objective coverage from flattened storage read. */
+function getCoverageForLec(lecId, blockId) {
+  try {
+    const objs = getMSKObjectives(blockId).filter((o) => o.linkedLecId === lecId);
+    const total = objs.length;
+    const mastered = objs.filter((o) => o.status === "mastered").length;
+    const inprogress = objs.filter((o) => o.status === "inprogress").length;
+    const struggling = objs.filter((o) => o.status === "struggling").length;
+    const untested = total - mastered - inprogress - struggling;
+    const coverage = total > 0 ? Math.round(((mastered + inprogress) / total) * 100) : 0;
+    return { total, mastered, inprogress, struggling, untested, coverage };
+  } catch (e) {
+    return { total: 0, mastered: 0, inprogress: 0, struggling: 0, untested: 0, coverage: 0 };
+  }
+}
+
+/** Lectures for a block: strict `blockId` match on lecture metadata. */
 function getBlockLecs(allLecs, activeBlock, fallbackBlockId) {
   const block =
     activeBlock ??
@@ -90,23 +436,7 @@ function getBlockLecs(allLecs, activeBlock, fallbackBlockId) {
   if (!block?.id) return [];
   const list = (allLecs || []).filter(Boolean);
   const bid = block.id;
-  const nameLower = (block.name || "").toLowerCase().trim();
-
-  let lecs = list.filter((l) => l.blockId === bid);
-  if (lecs.length === 0 && nameLower) {
-    lecs = list.filter((l) => String(l.blockId || "").toLowerCase() === nameLower);
-  }
-  if (lecs.length === 0) {
-    const treatAsMsk =
-      bid === "msk" ||
-      nameLower === "msk" ||
-      /(^|\s)msk(\s|$)/i.test(block.name || "");
-    if (treatAsMsk) {
-      lecs = list.filter((l) => l.blockId === "msk" || l.blockId === bid);
-    }
-  }
-
-  return lecs;
+  return list.filter((l) => l.blockId === bid);
 }
 
 /**
@@ -116,16 +446,7 @@ function getBlockLecs(allLecs, activeBlock, fallbackBlockId) {
 function buildDrillSummary(drillQueue, drillStats, blockId) {
   let blockObjs = [];
   try {
-    const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-    const raw = getBlockObjectivesStoredRaw(stored, blockId);
-    if (Array.isArray(raw)) {
-      blockObjs = raw;
-    } else if (raw && typeof raw === "object") {
-      blockObjs = [
-        ...(Array.isArray(raw.imported) ? raw.imported : []),
-        ...(Array.isArray(raw.extracted) ? raw.extracted : []),
-      ];
-    }
+    blockObjs = getMSKObjectives(blockId);
   } catch {
     blockObjs = [];
   }
@@ -231,6 +552,104 @@ function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
   } catch (e) {
     console.error("saveWeakConcepts failed:", e);
+  }
+}
+
+function syncStrugglingToWeakConcepts(blockId) {
+  try {
+    const allObjs = getMSKObjectives(blockId);
+    const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+
+    const struggling = allObjs.filter((o) => o.status === "struggling");
+
+    if (struggling.length === 0) return;
+
+    const wcStored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    const blockConcepts = [...(wcStored[blockId] || (blockId === "msk" ? wcStored["msk"] : []) || [])];
+
+    const existingConcepts = new Set(
+      blockConcepts.map((c) => (c.concept || "").toLowerCase().trim())
+    );
+
+    let added = 0;
+
+    const newId = () =>
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `wc-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+    struggling.forEach((obj) => {
+      const objText = (obj.objective || obj.text || "").trim();
+      if (objText.length < 10) return;
+
+      const words = objText.split(/\s+/);
+      const conceptName = words
+        .slice(0, 6)
+        .join(" ")
+        .replace(/[.,;:!?]$/, "");
+
+      const conceptKey = conceptName.toLowerCase();
+      if (existingConcepts.has(conceptKey)) return;
+
+      const lec = allLecs.find((l) => l.id === obj.linkedLecId);
+      const lecLabel = lec
+        ? `${lec.lectureType} ${lec.lectureNumber} — ${lec.lectureTitle || ""}`
+        : "";
+
+      const blockName = getBlockDisplayName(blockId);
+
+      blockConcepts.push({
+        id: newId(),
+        concept: conceptName,
+        description: objText.slice(0, 150),
+        blockId,
+        blockName,
+        linkedLecIds: [obj.linkedLecId].filter(Boolean),
+        lectureLabels: [lecLabel].filter(Boolean),
+        missCount: obj.drillCount || 1,
+        lastMissed: obj.lastDrilledAt || new Date().toISOString(),
+        lastCorrect: null,
+        consecutiveCorrect: obj.consecutiveCorrect || 0,
+        totalAttempts: obj.drillCount || 1,
+        masteryLevel: "struggling",
+        questionHistory: [],
+        sourceQuestions: [
+          {
+            question: objText,
+            wrongAnswer: "Marked struggling in drill",
+            correctAnswer: "",
+            date: obj.lastDrilledAt || new Date().toISOString(),
+            source: "drill",
+          },
+        ],
+        dateFirstSeen: obj.lastDrilledAt || new Date().toISOString(),
+        linkedObjId: obj.id,
+        tags: [],
+        fromObjective: true,
+      });
+
+      existingConcepts.add(conceptKey);
+      added++;
+    });
+
+    const actualKey =
+      wcStored[blockId] !== undefined ? blockId : blockId === "msk" && wcStored["msk"] !== undefined ? "msk" : blockId;
+    wcStored[actualKey] = blockConcepts;
+
+    const lifetime = [...(wcStored["lifetime"] || [])];
+    blockConcepts.forEach((c) => {
+      const exists = lifetime.find((l) => l.concept === c.concept && l.blockId === c.blockId);
+      if (!exists) lifetime.push({ ...c });
+    });
+    wcStored["lifetime"] = lifetime;
+
+    localStorage.setItem("rxt-weak-concepts", JSON.stringify(wcStored));
+
+    window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
+
+    console.log(`Synced ${added} struggling objectives`, `to weak concepts`);
+  } catch (e) {
+    console.error("syncStrugglingToWeakConcepts:", e);
   }
 }
 
@@ -779,6 +1198,77 @@ const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 // ─────────────────────────────────────────────
 // PERSISTENT STORAGE
 // ─────────────────────────────────────────────
+function safeSetItem(key, value) {
+  try {
+    const serialized =
+      typeof value === "string" ? value : JSON.stringify(value);
+
+    const currentSize = serialized.length * 2;
+    if (currentSize > 1024 * 1024) {
+      console.warn(
+        `Large write to ${key}:`,
+        (currentSize / 1024 / 1024).toFixed(2) + "MB"
+      );
+    }
+
+    localStorage.setItem(key, serialized);
+    return true;
+  } catch (e) {
+    if (e?.name === "QuotaExceededError") {
+      console.error("localStorage FULL — clearing caches");
+      try {
+        localStorage.removeItem("rxt-learning-profile");
+        localStorage.removeItem("rxt-objectives-backup");
+        localStorage.removeItem("rxt-weak-areas");
+        localStorage.removeItem("rxt-dl-sessions");
+      } catch {}
+
+      try {
+        const serialized =
+          typeof value === "string" ? value : JSON.stringify(value);
+        localStorage.setItem(key, serialized);
+        return true;
+      } catch (e2) {
+        console.error("Still failed after clearing:", e2);
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
+function updateLearningProfile(newData) {
+  try {
+    const existing = JSON.parse(
+      localStorage.getItem("rxt-learning-profile") || "{}"
+    );
+
+    const updated = { ...existing, ...newData };
+
+    if (updated.sessionHistory?.length > 50) {
+      updated.sessionHistory = updated.sessionHistory.slice(-50);
+    }
+    if (updated.weakTopics?.length > 100) {
+      updated.weakTopics = updated.weakTopics.slice(-100);
+    }
+    if (updated.strongTopics?.length > 100) {
+      updated.strongTopics = updated.strongTopics.slice(-100);
+    }
+
+    const serialized = JSON.stringify(updated);
+    if (serialized.length > 500000) {
+      console.warn("rxt-learning-profile too large, trimming...");
+      updated.sessionHistory = (updated.sessionHistory || []).slice(-20);
+      updated.weakTopics = (updated.weakTopics || []).slice(-50);
+      updated.strongTopics = (updated.strongTopics || []).slice(-50);
+    }
+
+    safeSetItem("rxt-learning-profile", updated);
+  } catch (e) {
+    console.error("updateLearningProfile failed:", e);
+  }
+}
+
 async function sGet(key) {
   try {
     const r = localStorage.getItem(key);
@@ -788,11 +1278,8 @@ async function sGet(key) {
   }
 }
 async function sSet(key, val) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-  } catch (e) {
-    console.warn("storage set failed", key, e);
-  }
+  const ok = safeSetItem(key, val);
+  if (!ok) console.warn("storage set failed", key);
 }
 
 function deduplicateTrackerRows(rows) {
@@ -839,6 +1326,101 @@ async function saveLectures(lectures) {
   await sSet("rxt-lec-meta", meta);
   for (const l of lectures) {
     if (l.fullText) await sSet("rxt-lec-" + l.id, l.fullText);
+  }
+}
+
+function compressOldLectures(currentBlockId) {
+  try {
+    const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+
+    let saved = 0;
+    (lecs || []).forEach((lec) => {
+      if (!lec) return;
+      if (lec.blockId === currentBlockId) return;
+      if (!lec.chunks?.length) return;
+
+      const before = JSON.stringify(lec.chunks).length;
+      lec.chunks = lec.chunks.slice(0, 2);
+      saved += before - JSON.stringify(lec.chunks).length;
+    });
+
+    if (saved > 0) {
+      safeSetItem("rxt-lec-meta", lecs);
+      console.log(
+        "Compressed old lecture chunks:",
+        (saved / 1024 / 1024).toFixed(2) + "MB saved"
+      );
+    }
+  } catch (e) {
+    console.error("compressOldLectures failed:", e);
+  }
+}
+
+function compressObjectiveStore() {
+  try {
+    const key = "rxt-block-objectives";
+    const stored = JSON.parse(localStorage.getItem(key) || "{}");
+    if (!stored || typeof stored !== "object") return;
+
+    let savedBytes = 0;
+
+    const processObjs = (objs) => {
+      return (objs || []).map((obj) => {
+        if (!obj || typeof obj !== "object") return obj;
+
+        if (!obj.status || obj.status === "untested" || obj.status === "struggling") {
+          return obj;
+        }
+
+        const before = JSON.stringify(obj).length;
+        const txt = (obj.objective || obj.text || "").toString();
+        const compressed = {
+          id: obj.id,
+          blockId: obj.blockId,
+          linkedLecId: obj.linkedLecId,
+          objective: txt.slice(0, 200),
+          text: txt.slice(0, 200),
+          status: obj.status,
+          bloom_level: obj.bloom_level,
+          lectureType: obj.lectureType,
+          lectureNumber: obj.lectureNumber,
+          code: obj.code,
+          consecutiveCorrect: obj.consecutiveCorrect,
+          drillCount: obj.drillCount,
+          manuallyAligned: obj.manuallyAligned,
+          aiAligned: obj.aiAligned,
+          lastDrilledAt: obj.lastDrilledAt,
+        };
+        savedBytes += before - JSON.stringify(compressed).length;
+        return compressed;
+      });
+    };
+
+    Object.keys(stored).forEach((blockId) => {
+      const blockData = stored[blockId];
+      if (Array.isArray(blockData)) {
+        stored[blockId] = processObjs(blockData);
+        return;
+      }
+      if (blockData && typeof blockData === "object") {
+        Object.keys(blockData).forEach((sk) => {
+          if (Array.isArray(blockData[sk])) {
+            blockData[sk] = processObjs(blockData[sk]);
+          }
+        });
+      }
+    });
+
+    const newSerialized = JSON.stringify(stored);
+    safeSetItem(key, newSerialized);
+    console.log(
+      "Compressed objectives:",
+      (savedBytes / 1024 / 1024).toFixed(2) + "MB saved",
+      "new size:",
+      ((newSerialized.length * 2) / 1024 / 1024).toFixed(2) + "MB"
+    );
+  } catch (e) {
+    console.error("compressObjectiveStore failed:", e);
   }
 }
 function deduplicateLectures(lecs) {
@@ -900,7 +1482,7 @@ function reconcileCompletionOnUpload(newLec) {
         lectureNumber: newLec.lectureNumber,
       };
       delete completions[matchKey];
-      localStorage.setItem("rxt-completion", JSON.stringify(completions));
+      safeSetItem("rxt-completion", completions);
       console.log(`Reconciled completion: ${matchKey} → ${newKey}`);
     }
   } catch (e) {
@@ -994,7 +1576,7 @@ function logActivityToCompletion(lectureId, blockId, activityType, confidenceRat
       reviewDates,
       activityLog,
     };
-    localStorage.setItem("rxt-completion", JSON.stringify(store));
+    safeSetItem("rxt-completion", store);
     window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
     window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
   } catch (e) {
@@ -1400,7 +1982,7 @@ const getReviewInterval = (confidenceLevel, isCurrentBlock, blockAgeMonths) => {
   return confidenceLevel === "High" ? 90 : confidenceLevel === "Medium" ? 60 : 30;
 };
 
-const buildExamPromptFromContext = (count, objectives, context, difficulty) => {
+const buildExamPromptFromContext = (count, objectives, context, difficulty, quizLevelAugment = "") => {
   const { relevantQs = [], lectureChunks = "", styleAnalysis, stylePrefs } = context || {};
   const diff = (difficulty || "medium").toString().toUpperCase();
   const targetObjectives = (objectives || []).slice(0, 20);
@@ -1476,6 +2058,7 @@ const buildExamPromptFromContext = (count, objectives, context, difficulty) => {
     styleSection +
     contentSection +
     bloomSection +
+    (quizLevelAugment ? `\n${quizLevelAugment}\n\n` : "") +
     `\nOBJECTIVES TO COVER:\n${objList}\n\n` +
     `RULES:\n` +
     `- Every stem MUST end with a "?" question\n` +
@@ -1483,7 +2066,7 @@ const buildExamPromptFromContext = (count, objectives, context, difficulty) => {
     `- Keep explanations under 60 words\n` +
     `- Never truncate — complete all ${count} questions\n\n` +
     `Return ONLY complete JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveCovered":"...","topic":"...","difficulty":"${diff}","usedUploadedStyle":${relevantQs.length > 0}}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveCovered":"...","topic":"...","difficulty":"${diff}","usedUploadedStyle":${relevantQs.length > 0},"level":1}]}`
   );
 };
 
@@ -1572,6 +2155,102 @@ function detectLectureInfo(filename) {
     partSuffix,
     rawNumber: lectureNumber,
   };
+}
+
+/** DLA 01 Part A / Part B style filenames — used to auto-merge multi-part uploads. */
+function detectPartInfo(filename) {
+  const clean = String(filename || "")
+    .replace(/\.pdf$/i, "")
+    .replace(/\.txt$/i, "")
+    .trim();
+
+  const patterns = [
+    /\s*_\s*part\s*([a-z0-9]+)\s*_/i,
+    /\(\s*part\s*([a-z0-9]+)\s*\)/i,
+    /[-–]\s*part\s*([a-z0-9]+)\s*$/i,
+    /_part\s*([a-z0-9]+)_?\s*$/i,
+    /\bpart\s*([a-z0-9]+)\s*$/i,
+    /[-–]\s*([AB])\s*$/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = clean.match(pattern);
+    if (!match) continue;
+    const partId = String(match[1]).toLowerCase();
+
+    const baseName = clean
+      .replace(/\s*_\s*part\s*[a-z0-9]+\s*_/gi, " ")
+      .replace(/\(\s*part\s*[a-z0-9]+\s*\)/gi, " ")
+      .replace(/[-–]\s*part\s*[a-z0-9]+\s*$/gi, "")
+      .replace(/_part\s*[a-z0-9]+_?\s*$/gi, "")
+      .replace(/\bpart\s*[a-z0-9]+\s*$/gi, "")
+      .replace(/[-–]\s*[AB]\s*$/gi, "")
+      .replace(/_+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+    return {
+      isPart: true,
+      partId,
+      isPartA: partId === "a" || partId === "1",
+      isPartB: partId === "b" || partId === "2",
+      baseName,
+    };
+  }
+
+  return { isPart: false };
+}
+
+/** Part A + Part B rows in the same block that were uploaded separately — offer manual merge. */
+function detectSplitLecturePairs(blockLecs) {
+  const pairs = [];
+  const processed = new Set();
+  const list = (blockLecs || []).filter((l) => l && !l.partABMerged);
+
+  list.forEach((lec) => {
+    if (processed.has(lec.id)) return;
+    const info = detectPartInfo(lec.filename || lec.fileName || lec.lectureTitle || "");
+    if (!info.isPart || !info.isPartA) return;
+
+    const partB = list.find((other) => {
+      if (other.id === lec.id) return false;
+      if (processed.has(other.id)) return false;
+      const otherInfo = detectPartInfo(other.filename || other.fileName || other.lectureTitle || "");
+      if (!otherInfo.isPart || !otherInfo.isPartB) return false;
+
+      const aNorm = info.baseName.toLowerCase().replace(/\s+/g, " ").trim();
+      const bNorm = otherInfo.baseName.toLowerCase().replace(/\s+/g, " ").trim();
+      const aWords = new Set(aNorm.split(" ").filter((w) => w.length > 3));
+      const bWords = bNorm.split(" ").filter((w) => w.length > 3);
+      const matches = bWords.filter((w) => aWords.has(w)).length;
+      return matches / Math.max(aWords.size, 1) >= 0.6;
+    });
+
+    if (partB) {
+      pairs.push({ partA: lec, partB });
+      processed.add(lec.id);
+      processed.add(partB.id);
+    }
+  });
+
+  return pairs;
+}
+
+function findMatchingPartALecture(allLecs, blockId, partBInfo) {
+  if (!partBInfo?.isPart || !partBInfo.isPartB || !blockId) return null;
+  const bNorm = partBInfo.baseName.toLowerCase().replace(/\s+/g, " ").trim();
+  const bWords = bNorm.split(" ").filter((w) => w.length > 3);
+
+  return (allLecs || []).find((l) => {
+    if (!l || l.blockId !== blockId || l.partABMerged) return false;
+    const aPartInfo = detectPartInfo(l.filename || l.fileName || l.lectureTitle || "");
+    if (!aPartInfo.isPart || !aPartInfo.isPartA) return false;
+    const aNorm = aPartInfo.baseName.toLowerCase().replace(/\s+/g, " ").trim();
+    const aWords = new Set(aNorm.split(" ").filter((w) => w.length > 3));
+    if (aWords.size === 0 && bWords.length === 0) return aNorm === bNorm;
+    const matches = bWords.filter((w) => aWords.has(w)).length;
+    return matches / Math.max(aWords.size, bWords.length, 1) >= 0.7;
+  });
 }
 
 const detectLectureNumber = (fileName, title = "", type = "LEC") => {
@@ -3048,12 +3727,18 @@ function WeakConceptsTabPanel({
 }) {
   const [scope, setScope] = useState("block");
   const [expanded, setExpanded] = useState({});
+  const [expandedConcept, setExpandedConcept] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
 
   const { block: blockConcepts, lifetime: lifetimeConcepts } = useMemo(
     () => getWeakConcepts(blockId || ""),
     [blockId, refreshKey, scope]
   );
+
+  useEffect(() => {
+    if (!blockId) return;
+    syncStrugglingToWeakConcepts(blockId);
+  }, [blockId]);
 
   const list = scope === "block" ? blockConcepts : lifetimeConcepts;
   const sorted = [...list].sort((a, b) => {
@@ -3068,35 +3753,63 @@ function WeakConceptsTabPanel({
   const developingN = list.filter((c) => c.masteryLevel === "developing").length;
   const masteredN = list.filter((c) => c.masteryLevel === "mastered").length;
 
-  const topMissed = [...lifetimeConcepts]
-    .sort((a, b) => (b.missCount || 0) - (a.missCount || 0))
-    .slice(0, 5);
-
-  const blockIdsInApp = useMemo(
-    () => new Set((terms || []).flatMap((t) => (t.blocks || []).map((b) => b.id))),
-    [terms]
-  );
-  const lecBlockIds = useMemo(() => {
-    const m = new Set();
-    (lectures || []).forEach((l) => {
-      if (l.blockId) m.add(l.blockId);
+  const groupedConcepts = useMemo(() => {
+    const groups = {};
+    blockConcepts.forEach((c) => {
+      const lecLabel = c.lectureLabels?.[0] || "Unlinked";
+      if (!groups[lecLabel]) {
+        groups[lecLabel] = {
+          label: lecLabel,
+          concepts: [],
+          worstStatus: "mastered",
+        };
+      }
+      groups[lecLabel].concepts.push(c);
+      if (c.masteryLevel === "struggling") {
+        groups[lecLabel].worstStatus = "struggling";
+      } else if (c.masteryLevel === "developing" && groups[lecLabel].worstStatus !== "struggling") {
+        groups[lecLabel].worstStatus = "developing";
+      }
     });
-    return m;
-  }, [lectures]);
-  const missingBlocks = [...blockIdsInApp].filter((id) => !lecBlockIds.has(id));
+    return Object.values(groups).sort((a, b) => {
+      const aStruggling = a.concepts.filter((c) => c.masteryLevel === "struggling").length;
+      const bStruggling = b.concepts.filter((c) => c.masteryLevel === "struggling").length;
+      return bStruggling - aStruggling;
+    });
+  }, [blockConcepts]);
 
-  const byBlock =
-    scope === "lifetime"
-      ? (() => {
-          const g = {};
-          sorted.forEach((c) => {
-            const bid = c.blockId || "unknown";
-            if (!g[bid]) g[bid] = [];
-            g[bid].push(c);
-          });
-          return g;
-        })()
-      : { [blockId || "x"]: sorted };
+  const lifetimeGrouped = useMemo(() => {
+    const byBlock = {};
+    lifetimeConcepts.forEach((c) => {
+      const bid = c.blockId || "unknown";
+      const blockLabel = getBlockDisplayName(bid);
+      if (!byBlock[bid]) {
+        byBlock[bid] = {
+          blockId: bid,
+          blockName: blockLabel,
+          lectures: {},
+        };
+      }
+      const lecLabel = c.lectureLabels?.[0] || "Unlinked";
+      if (!byBlock[bid].lectures[lecLabel]) {
+        byBlock[bid].lectures[lecLabel] = {
+          label: lecLabel,
+          concepts: [],
+          worstStatus: "mastered",
+        };
+      }
+      byBlock[bid].lectures[lecLabel].concepts.push(c);
+      if (c.masteryLevel === "struggling") {
+        byBlock[bid].lectures[lecLabel].worstStatus = "struggling";
+      } else if (
+        c.masteryLevel === "developing" &&
+        byBlock[bid].lectures[lecLabel].worstStatus !== "struggling"
+      ) {
+        byBlock[bid].lectures[lecLabel].worstStatus = "developing";
+      }
+    });
+    return Object.values(byBlock);
+  }, [lifetimeConcepts]);
 
   return (
     <div style={{ fontFamily: MONO, color: T.text1 }}>
@@ -3131,95 +3844,465 @@ function WeakConceptsTabPanel({
         </button>
       </div>
 
-      {scope === "lifetime" && (
-        <div style={{ marginBottom: 12, fontSize: 12, color: T.text2, lineHeight: 1.5 }}>
-          Across {Object.keys(byBlock).filter((k) => k !== "unknown").length || 1} block(s), you have struggled with{" "}
-          {lifetimeConcepts.length} concept(s) in the lifetime list.
-          {topMissed.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Top missed</div>
-              <ol style={{ margin: 0, paddingLeft: 18 }}>
-                {topMissed.map((c) => (
-                  <li key={c.id}>
-                    {c.concept}{" "}
-                    <span style={{ color: T.text3 }}>({c.blockName || c.blockId})</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
-          {missingBlocks.length > 0 && (
-            <div style={{ marginTop: 8, color: "#BA7517", fontSize: 11 }}>
-              Load other blocks in the app to include their lectures in comprehensive review.
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={onComprehensiveReview}
+      {(scope === "block" || scope === "lifetime") && blockId && (
+        <>
+          <div
             style={{
-              marginTop: 10,
-              padding: "8px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              padding: "10px 14px",
+              background: "var(--color-background-secondary)",
               borderRadius: 8,
-              border: "none",
-              background: "#3C3489",
-              color: "#fff",
-              cursor: "pointer",
-              fontSize: 12,
+              marginBottom: 12,
             }}
           >
-            Start comprehensive review
-          </button>
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, background: "#FCEBEB", color: "#A32D2D" }}>
-          ⚠ {strugglingN} struggling
-        </span>
-        <span style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, background: "#FAEEDA", color: "#633806" }}>
-          △ {developingN} developing
-        </span>
-        <span style={{ fontSize: 11, padding: "4px 8px", borderRadius: 6, background: "#EAF3DE", color: "#27500A" }}>
-          ✓ {masteredN} mastered
-        </span>
-      </div>
-
-      {scope === "lifetime"
-        ? Object.entries(byBlock).map(([bid, concepts]) => (
-            <div key={bid} style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: T.text2 }}>
-                {bid === "unknown" ? "Unknown block" : concepts[0]?.blockName || bid}
-              </div>
-              {concepts.map((c) => (
-                <WeakConceptCard
-                  key={c.id}
-                  c={c}
-                  bid={bid === "unknown" ? blockId : bid}
-                  T={T}
-                  MONO={MONO}
-                  lecTypeBadge={lecTypeBadge}
-                  expanded={!!expanded[c.id]}
-                  onToggle={() => setExpanded((p) => ({ ...p, [c.id]: !p[c.id] }))}
-                  onDrill={() => onDrillConcept(c, bid === "unknown" ? blockId : bid)}
-                  onMarkMastered={() => markWeakConceptMastered(bid === "unknown" ? blockId : bid, c.id)}
-                />
-              ))}
+            <div>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  color: "#E24B4A",
+                }}
+              >
+                {blockConcepts.filter((c) => c.masteryLevel === "struggling").length}
+              </span>
+              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginLeft: 4 }}>struggling</span>
             </div>
-          ))
-        : sorted.map((c) => (
-            <WeakConceptCard
-              key={c.id}
-              c={c}
-              bid={blockId}
-              T={T}
-              MONO={MONO}
-              lecTypeBadge={lecTypeBadge}
-              expanded={!!expanded[c.id]}
-              onToggle={() => setExpanded((p) => ({ ...p, [c.id]: !p[c.id] }))}
-              onDrill={() => onDrillConcept(c, blockId)}
-              onMarkMastered={() => markWeakConceptMastered(blockId, c.id)}
-            />
+            <div style={{ width: "0.5px", height: 24, background: "var(--color-border-tertiary)" }} />
+            <div>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  color: "#BA7517",
+                }}
+              >
+                {blockConcepts.filter((c) => c.masteryLevel === "developing").length}
+              </span>
+              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginLeft: 4 }}>developing</span>
+            </div>
+            <div style={{ width: "0.5px", height: 24, background: "var(--color-border-tertiary)" }} />
+            <div>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 600,
+                  fontFamily: "var(--font-mono)",
+                  color: "#639922",
+                }}
+              >
+                {blockConcepts.filter((c) => c.masteryLevel === "mastered").length}
+              </span>
+              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginLeft: 4 }}>mastered</span>
+            </div>
+            <div style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={() => {
+                syncStrugglingToWeakConcepts(blockId);
+                onRefresh?.();
+              }}
+              style={{
+                fontSize: 11,
+                padding: "4px 10px",
+                border: "0.5px solid var(--color-border-secondary)",
+                borderRadius: 6,
+                background: "transparent",
+                color: "var(--color-text-tertiary)",
+                cursor: "pointer",
+              }}
+            >
+              ↻ Sync from objectives
+            </button>
+            <button
+              type="button"
+              onClick={onComprehensiveReview}
+              style={{
+                fontSize: 11,
+                padding: "4px 10px",
+                border: "none",
+                borderRadius: 6,
+                background: "#3C3489",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              Start comprehensive review
+            </button>
+          </div>
+
+          {scope === "block" &&
+            groupedConcepts.map((group) => (
+            <div key={group.label} style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 10px",
+                  background:
+                    group.worstStatus === "struggling"
+                      ? "#FCEBEB"
+                      : group.worstStatus === "developing"
+                        ? "#FAEEDA"
+                        : "var(--color-background-secondary)",
+                  borderRadius: 6,
+                  marginBottom: 6,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color:
+                      group.worstStatus === "struggling"
+                        ? "#A32D2D"
+                        : group.worstStatus === "developing"
+                          ? "#633806"
+                          : "var(--color-text-secondary)",
+                    flex: 1,
+                  }}
+                >
+                  {group.label}
+                </span>
+                <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                  {group.concepts.filter((c) => c.masteryLevel === "struggling").length} struggling · {group.concepts.length}{" "}
+                  total
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const lecId = group.concepts[0]?.linkedLecIds?.[0];
+                    if (lecId) {
+                      window.dispatchEvent(
+                        new CustomEvent("rxt-start-drill", {
+                          detail: { lecId, mode: "mcq", filter: "struggling" },
+                        })
+                      );
+                    }
+                  }}
+                  style={{
+                    fontSize: 10,
+                    padding: "2px 8px",
+                    border: "0.5px solid",
+                    borderRadius: 4,
+                    cursor: "pointer",
+                    background: "transparent",
+                    color: group.worstStatus === "struggling" ? "#A32D2D" : "#633806",
+                    borderColor: group.worstStatus === "struggling" ? "#F09595" : "#EF9F27",
+                  }}
+                >
+                  ⚡ Drill
+                </button>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 10 }}>
+                {group.concepts
+                  .sort((a, b) => {
+                    if (a.masteryLevel !== b.masteryLevel) {
+                      const order = { struggling: 0, developing: 1, mastered: 2 };
+                      return (order[a.masteryLevel] || 0) - (order[b.masteryLevel] || 0);
+                    }
+                    return (b.missCount || 0) - (a.missCount || 0);
+                  })
+                  .map((c) => (
+                    <div
+                      key={c.id}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setExpandedConcept(expandedConcept === c.id ? null : c.id);
+                        }
+                      }}
+                      onClick={() => setExpandedConcept(expandedConcept === c.id ? null : c.id)}
+                      style={{
+                        padding: "4px 10px",
+                        borderRadius: 20,
+                        fontSize: 11,
+                        cursor: "pointer",
+                        border: "0.5px solid",
+                        background:
+                          c.masteryLevel === "struggling"
+                            ? "#FCEBEB"
+                            : c.masteryLevel === "developing"
+                              ? "#FAEEDA"
+                              : "#EAF3DE",
+                        color:
+                          c.masteryLevel === "struggling"
+                            ? "#A32D2D"
+                            : c.masteryLevel === "developing"
+                              ? "#633806"
+                              : "#27500A",
+                        borderColor:
+                          c.masteryLevel === "struggling"
+                            ? "#F09595"
+                            : c.masteryLevel === "developing"
+                              ? "#EF9F27"
+                              : "#97C459",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                      }}
+                    >
+                      <span>{c.masteryLevel === "struggling" ? "⚠" : c.masteryLevel === "developing" ? "△" : "✓"}</span>
+                      <span>{c.concept}</span>
+                      {c.missCount > 1 && (
+                        <span style={{ fontSize: 9, opacity: 0.7 }}>×{c.missCount}</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+              {group.concepts.map((c) =>
+                expandedConcept === c.id ? (
+                  <div
+                    key={`exp-${c.id}`}
+                    style={{
+                      margin: "8px 0 4px 10px",
+                      padding: "10px 12px",
+                      background: "var(--color-background-primary)",
+                      border: "0.5px solid var(--color-border-tertiary)",
+                      borderRadius: 8,
+                      fontSize: 12,
+                    }}
+                  >
+                    <div style={{ color: "var(--color-text-primary)", lineHeight: 1.5, marginBottom: 8 }}>
+                      {c.description}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => onDrillConcept(c, blockId)}
+                        style={{
+                          fontSize: 11,
+                          padding: "4px 10px",
+                          background: "#EEEDFE",
+                          color: "#3C3489",
+                          border: "0.5px solid #AFA9EC",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ⚡ Drill this
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          recordConceptCorrect(blockId, c.id);
+                          setExpandedConcept(null);
+                          onRefresh?.();
+                        }}
+                        style={{
+                          fontSize: 11,
+                          padding: "4px 10px",
+                          background: "#EAF3DE",
+                          color: "#27500A",
+                          border: "0.5px solid #97C459",
+                          borderRadius: 6,
+                          cursor: "pointer",
+                        }}
+                      >
+                        ✓ Mark resolved
+                      </button>
+                    </div>
+                  </div>
+                ) : null
+              )}
+            </div>
           ))}
+
+          {scope === "lifetime" &&
+            lifetimeGrouped.map((blockGroup) => (
+              <div key={blockGroup.blockId} style={{ marginBottom: 20 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--color-text-primary)",
+                    padding: "6px 0",
+                    marginBottom: 8,
+                    borderBottom: "1.5px solid var(--color-border-secondary)",
+                  }}
+                >
+                  {blockGroup.blockName}
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 400,
+                      color: "var(--color-text-tertiary)",
+                      marginLeft: 8,
+                    }}
+                  >
+                    {Object.values(blockGroup.lectures)
+                      .flatMap((l) => l.concepts)
+                      .filter((c) => c.masteryLevel === "struggling").length}{" "}
+                    struggling
+                  </span>
+                </div>
+                {Object.values(blockGroup.lectures)
+                  .sort((a, b) => {
+                    const aS = a.concepts.filter((c) => c.masteryLevel === "struggling").length;
+                    const bS = b.concepts.filter((c) => c.masteryLevel === "struggling").length;
+                    return bS - aS;
+                  })
+                  .map((group) => (
+                    <div key={`${blockGroup.blockId}__${group.label}`} style={{ marginBottom: 12 }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "6px 10px",
+                          background:
+                            group.worstStatus === "struggling"
+                              ? "#FCEBEB"
+                              : group.worstStatus === "developing"
+                                ? "#FAEEDA"
+                                : "var(--color-background-secondary)",
+                          borderRadius: 6,
+                          marginBottom: 6,
+                        }}
+                      >
+                        <span
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color:
+                              group.worstStatus === "struggling"
+                                ? "#A32D2D"
+                                : group.worstStatus === "developing"
+                                  ? "#633806"
+                                  : "var(--color-text-secondary)",
+                            flex: 1,
+                          }}
+                        >
+                          {group.label}
+                        </span>
+                        <span style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                          {group.concepts.filter((c) => c.masteryLevel === "struggling").length} struggling · {group.concepts.length}{" "}
+                          total
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 10 }}>
+                        {group.concepts
+                          .sort((a, b) => {
+                            if (a.masteryLevel !== b.masteryLevel) {
+                              const order = { struggling: 0, developing: 1, mastered: 2 };
+                              return (order[a.masteryLevel] || 0) - (order[b.masteryLevel] || 0);
+                            }
+                            return (b.missCount || 0) - (a.missCount || 0);
+                          })
+                          .map((c) => (
+                            <div
+                              key={c.id}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  setExpandedConcept(expandedConcept === c.id ? null : c.id);
+                                }
+                              }}
+                              onClick={() => setExpandedConcept(expandedConcept === c.id ? null : c.id)}
+                              style={{
+                                padding: "4px 10px",
+                                borderRadius: 20,
+                                fontSize: 11,
+                                cursor: "pointer",
+                                border: "0.5px solid",
+                                background:
+                                  c.masteryLevel === "struggling"
+                                    ? "#FCEBEB"
+                                    : c.masteryLevel === "developing"
+                                      ? "#FAEEDA"
+                                      : "#EAF3DE",
+                                color:
+                                  c.masteryLevel === "struggling"
+                                    ? "#A32D2D"
+                                    : c.masteryLevel === "developing"
+                                      ? "#633806"
+                                      : "#27500A",
+                                borderColor:
+                                  c.masteryLevel === "struggling"
+                                    ? "#F09595"
+                                    : c.masteryLevel === "developing"
+                                      ? "#EF9F27"
+                                      : "#97C459",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 5,
+                              }}
+                            >
+                              <span>{c.masteryLevel === "struggling" ? "⚠" : c.masteryLevel === "developing" ? "△" : "✓"}</span>
+                              <span>{c.concept}</span>
+                              {(c.missCount || 0) > 1 && <span style={{ fontSize: 9, opacity: 0.7 }}>×{c.missCount}</span>}
+                            </div>
+                          ))}
+                      </div>
+                      {group.concepts.map((c) =>
+                        expandedConcept === c.id ? (
+                          <div
+                            key={`exp-${c.id}`}
+                            style={{
+                              margin: "8px 0 4px 10px",
+                              padding: "10px 12px",
+                              background: "var(--color-background-primary)",
+                              border: "0.5px solid var(--color-border-tertiary)",
+                              borderRadius: 8,
+                              fontSize: 12,
+                            }}
+                          >
+                            <div style={{ color: "var(--color-text-primary)", lineHeight: 1.5, marginBottom: 8 }}>
+                              {c.description}
+                            </div>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                type="button"
+                                onClick={() => onDrillConcept(c, c.blockId || blockId)}
+                                style={{
+                                  fontSize: 11,
+                                  padding: "4px 10px",
+                                  background: "#EEEDFE",
+                                  color: "#3C3489",
+                                  border: "0.5px solid #AFA9EC",
+                                  borderRadius: 6,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ⚡ Drill this
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  recordConceptCorrect(c.blockId || blockId, c.id);
+                                  setExpandedConcept(null);
+                                  onRefresh?.();
+                                }}
+                                style={{
+                                  fontSize: 11,
+                                  padding: "4px 10px",
+                                  background: "#EAF3DE",
+                                  color: "#27500A",
+                                  border: "0.5px solid #97C459",
+                                  borderRadius: 6,
+                                  cursor: "pointer",
+                                }}
+                              >
+                                ✓ Mark resolved
+                              </button>
+                            </div>
+                          </div>
+                        ) : null
+                      )}
+                    </div>
+                  ))}
+              </div>
+            ))}
+        </>
+      )}
 
       <div style={{ marginTop: 16, borderTop: "1px solid var(--color-border-tertiary)", paddingTop: 12 }}>
         <button type="button" onClick={() => setAddOpen((o) => !o)} style={{ fontSize: 12, marginBottom: 8, cursor: "pointer" }}>
@@ -3918,6 +5001,7 @@ function Session({
             resultsWithObjectives.find((x) => x?.lectureRef)?.lectureRef ??
             null,
           lectureTitle: cfg.subject || null,
+          quizLevelSnap: cfg.quizLevelSnap || null,
         },
       });
       setResults(nr);
@@ -4103,6 +5187,27 @@ function Session({
             </div>
           </div>
         )}
+        {cfg?.mode === "objectives" && quizSavedState?.saved && quizSavedState?.levelAdvanced && quizSavedState?.levelUpNewLevel && (
+          <div
+            style={{
+              margin: "16px 0",
+              padding: "14px 18px",
+              background: "#EEEDFE",
+              border: "1.5px solid #AFA9EC",
+              borderRadius: 12,
+              textAlign: "center",
+              maxWidth: 540,
+              width: "100%",
+              boxSizing: "border-box",
+            }}
+          >
+            <div style={{ fontSize: 20, marginBottom: 6 }}>🎯</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: "#3C3489", marginBottom: 4 }}>
+              Level up — {quizSavedState.levelUpNewLevel.label}
+            </div>
+            <div style={{ fontSize: 12, color: "#5B52A3" }}>Next quiz: {quizSavedState.levelUpNewLevel.description}</div>
+          </div>
+        )}
         {cfg?.mode === "objectives" && quizSavedState?.saved && quizTargetLecture && quizBlockId && onAddLectureToTodayReview && (
           <div
             style={{
@@ -4168,11 +5273,67 @@ function Session({
         <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>{idx + 1}/{vigs.length}</span>
       </div>
 
+      {cfg?.quizLevelSnap && cfg?.mode === "objectives" && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "10px 14px",
+            background:
+              cfg.quizLevelSnap.level === 3 ? "#EEEDFE" : cfg.quizLevelSnap.level === 2 ? "#FAEEDA" : "var(--color-background-secondary)",
+            border: "0.5px solid",
+            borderColor:
+              cfg.quizLevelSnap.level === 3 ? "#AFA9EC" : cfg.quizLevelSnap.level === 2 ? "#EF9F27" : "var(--color-border-secondary)",
+            borderRadius: 8,
+            marginBottom: 0,
+          }}
+        >
+          <div style={{ flex: 1 }}>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color:
+                  cfg.quizLevelSnap.level === 3 ? "#3C3489" : cfg.quizLevelSnap.level === 2 ? "#633806" : "var(--color-text-secondary)",
+              }}
+            >
+              {cfg.quizLevelSnap.label} quiz
+            </div>
+            <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>{cfg.quizLevelSnap.description}</div>
+          </div>
+          <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", textAlign: "right" }}>
+            <div>{cfg.quizLevelSnap.distribution.l1}% recall</div>
+            <div>{cfg.quizLevelSnap.distribution.l2}% application</div>
+            {cfg.quizLevelSnap.distribution.l3 > 0 && <div>{cfg.quizLevelSnap.distribution.l3}% reasoning</div>}
+          </div>
+        </div>
+      )}
+
       {/* Difficulty + topic */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontFamily: MONO, background: dc + "18", color: dc, fontSize: 13, padding: "3px 10px", borderRadius: 20, letterSpacing: 1.5, border: "1px solid " + dc + "30" }}>
           {(difficulty || "medium").toUpperCase()}
         </span>
+        {(() => {
+          const ql = v.qLevel ?? inferQuestionLevel(v.stem);
+          return (
+            <span
+              style={{
+                fontSize: 9,
+                padding: "1px 7px",
+                borderRadius: 10,
+                border: "0.5px solid",
+                fontWeight: 500,
+                background: ql === 3 ? "#EEEDFE" : ql === 2 ? "#FAEEDA" : "var(--color-background-secondary)",
+                color: ql === 3 ? "#3C3489" : ql === 2 ? "#633806" : "var(--color-text-secondary)",
+                borderColor: ql === 3 ? "#AFA9EC" : ql === 2 ? "#EF9F27" : "var(--color-border-tertiary)",
+              }}
+            >
+              L{ql}
+            </span>
+          );
+        })()}
         {v.topic && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>{v.topic}</span>}
       </div>
 
@@ -4748,15 +5909,22 @@ function WeekGroup({
 // ─────────────────────────────────────────────
 // LECTURE LIST ROW (compact list view)
 // ─────────────────────────────────────────────
-function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, handleRapidFireStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {}, reanalyzeLecture, compactLayout, scheduleEditMode, getLecPerf, hideRow, hideRowDiv, quizLoadingId = null, quizErrorId = null }) {
+function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, handleRapidFireStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {}, reanalyzeLecture, compactLayout, scheduleEditMode, getLecPerf, hideRow, hideRowDiv, quizLoadingId = null, quizErrorId = null, getLecQuizLevel = null, deleteConfirmId = null, setDeleteConfirmId = null, onDeleteLecture = null, editingLecId = null, setEditingLecId = null, editingTitle = "", setEditingTitle = null, renameLecture = null, hoveredLectureRowId = null, setHoveredLectureRowId = null, smartTruncateTitle = null }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const [quizLoading, setQuizLoading] = useState(false);
+  const renameEscapeRef = useRef(false);
   const isLectureQuizLoading = quizLoadingId === lec.id;
   const isLectureQuizError = quizErrorId === lec.id;
 
   const lecSessions = (sessions || []).filter(s => s.lectureId === lec.id);
   const sessionCount = lecSessions.length;
+  const lineTitleForRow = (() => {
+    const t = (lec.lectureTitle || "").trim();
+    const fn = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
+    if (t && t.toLowerCase() !== fn.toLowerCase()) return t;
+    return t || fn;
+  })();
   const isMergeSelected = mergeSelected.includes(lec.id);
   const objectivesList = allBlockObjectives ?? allObjectives ?? [];
   const lecObjs = objectivesList.filter(
@@ -4779,14 +5947,11 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
   const typePillStyle = COMPACT_PILL[compactTypeKey] || COMPACT_PILL.LEC;
 
   if (compactLayout) {
-    const title = (() => {
-      const t = (lec.lectureTitle || "").trim();
-      const fn = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
-      if (t && t.toLowerCase() !== fn.toLowerCase()) return t;
-      return t || fn;
-    })();
+    const title = lineTitleForRow;
     return (
-      <div style={{
+      <div
+        className="lecture-row"
+        style={{
         borderRadius: isExpanded ? 12 : 8,
         border: "1px solid " + (isMergeSelected ? T.amberBorder : isExpanded ? tc : T.border1),
         background: isMergeSelected ? T.amberBg : (isExpanded ? T.cardBg : "transparent"),
@@ -4808,8 +5973,14 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
             cursor: scheduleEditMode ? "default" : "pointer",
             transition: "background 0.12s",
           }}
-          onMouseEnter={e => !scheduleEditMode && !isExpanded && !isMergeSelected && (e.currentTarget.style.background = T.inputBg)}
-          onMouseLeave={e => !scheduleEditMode && !isExpanded && !isMergeSelected && (e.currentTarget.style.background = "transparent")}
+          onMouseEnter={(e) => {
+            setHoveredLectureRowId?.(lec.id);
+            if (!scheduleEditMode && !isExpanded && !isMergeSelected) e.currentTarget.style.background = T.inputBg;
+          }}
+          onMouseLeave={(e) => {
+            setHoveredLectureRowId?.(null);
+            if (!scheduleEditMode && !isExpanded && !isMergeSelected) e.currentTarget.style.background = "transparent";
+          }}
         >
           {mergeMode && (
             <div
@@ -4836,9 +6007,117 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
           <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3, minWidth: 20, textAlign: "right", flexShrink: 0 }}>
             {lec.lectureNumber ?? "—"}
           </span>
-          <span style={{ flex: 1, fontSize: 13, color: T.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>
-            {title}
-          </span>
+          <div
+            style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}
+            onMouseEnter={() => setHoveredLectureRowId?.(lec.id)}
+            onMouseLeave={() => setHoveredLectureRowId?.(null)}
+          >
+            {editingLecId === lec.id && renameLecture && setEditingLecId && setEditingTitle ? (
+              <input
+                autoFocus
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onBlur={() => {
+                  if (renameEscapeRef.current) {
+                    renameEscapeRef.current = false;
+                    return;
+                  }
+                  renameLecture(lec.id, editingTitle);
+                  setEditingLecId(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    renameLecture(lec.id, editingTitle);
+                    setEditingLecId(null);
+                  }
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    renameEscapeRef.current = true;
+                    setEditingLecId(null);
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  fontSize: 14,
+                  fontWeight: 500,
+                  fontFamily: MONO,
+                  padding: "2px 6px",
+                  border: "1.5px solid #2563eb",
+                  borderRadius: 4,
+                  background: "var(--color-background-primary)",
+                  color: "var(--color-text-primary)",
+                  width: "100%",
+                  maxWidth: 400,
+                  outline: "none",
+                }}
+              />
+            ) : (
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 500,
+                  fontFamily: MONO,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                  minWidth: 0,
+                  color: T.text1,
+                  cursor: renameLecture ? "text" : "default",
+                }}
+                title={title}
+                onDoubleClick={(e) => {
+                  if (!renameLecture || !setEditingLecId || !setEditingTitle) return;
+                  e.stopPropagation();
+                  setEditingLecId(lec.id);
+                  setEditingTitle(lec.lectureTitle || title || "");
+                }}
+              >
+                {smartTruncateTitle ? smartTruncateTitle(title) : title}
+              </span>
+            )}
+            {renameLecture && setEditingLecId && setEditingTitle && editingLecId !== lec.id && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setEditingLecId(lec.id);
+                  setEditingTitle((lec.lectureTitle || title || "").trim());
+                }}
+                style={{
+                  opacity: hoveredLectureRowId === lec.id ? 1 : 0,
+                  fontSize: 11,
+                  padding: "2px 6px",
+                  background: "transparent",
+                  border: "0.5px solid var(--color-border-tertiary)",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  color: "var(--color-text-tertiary)",
+                  flexShrink: 0,
+                }}
+                title="Rename lecture"
+              >
+                ✎
+              </button>
+            )}
+          </div>
+          {lec.partABMerged && (
+            <span
+              style={{
+                fontSize: 9,
+                padding: "1px 6px",
+                borderRadius: 4,
+                background: "#EEF4FF",
+                color: "#185FA5",
+                border: "0.5px solid #93C5FD",
+                flexShrink: 0,
+                fontFamily: MONO,
+              }}
+            >
+              Parts A+B
+            </span>
+          )}
           {scheduleEditMode && (
             <>
               <select
@@ -4866,6 +6145,26 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
               <div style={{ width: (compactScore / 100 * 100) + "%", height: "100%", background: compactScoreColor || T.border1, borderRadius: 2 }} />
             )}
           </div>
+          {getLecQuizLevel && bid && (() => {
+            const ql = getLecQuizLevel(lec.id, bid);
+            const level = ql.level;
+            return (
+              <span
+                style={{
+                  fontSize: 10,
+                  padding: "2px 7px",
+                  borderRadius: 10,
+                  border: "0.5px solid",
+                  background: level === 3 ? "#EEEDFE" : level === 2 ? "#FAEEDA" : "transparent",
+                  color: level === 3 ? "#3C3489" : level === 2 ? "#633806" : "var(--color-text-tertiary)",
+                  borderColor: level === 3 ? "#AFA9EC" : level === 2 ? "#EF9F27" : "var(--color-border-tertiary)",
+                  flexShrink: 0,
+                }}
+              >
+                {ql.label}
+              </span>
+            );
+          })()}
           <span style={{ fontFamily: MONO, fontSize: 11, minWidth: 32, textAlign: "right", flexShrink: 0, color: compactScore != null && compactScore > 0 ? compactScoreColor : T.text3 }}>
             {compactScore != null && compactScore > 0 ? compactScore + "%" : "—"}
           </span>
@@ -4886,7 +6185,7 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
         </div>
         {isExpanded && (
           <div style={{ padding: "0 16px 16px", borderTop: "1px solid " + T.border1 }}>
-            <LecListRow lec={lec} index={index} tc={tc} T={T} sessions={sessions} onOpen={onOpen} onClose={onClose} isExpanded={true} onStart={onStart} onDeepLearn={onDeepLearn} handleDeepLearnStart={handleDeepLearnStart} handleRapidFireStart={handleRapidFireStart} setAnkiLogTarget={setAnkiLogTarget} detectStudyMode={detectStudyModeFn} onUpdateLec={onUpdateLec} mergeMode={mergeMode} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle} bulkWeekTarget={bulkWeekTarget} allObjectives={allObjectives} allBlockObjectives={allBlockObjectives} getBlockObjectives={getBlockObjectives} updateObjective={updateObjective} currentBlock={currentBlock} startObjectiveQuiz={startObjectiveQuiz} quizLoadingId={quizLoadingId} quizErrorId={quizErrorId} getLectureSubtopicCompletion={getLectureSubtopicCompletion} getLecCompletion={getLecCompletion} makeSubtopicKey={makeSubtopicKey} performanceHistory={performanceHistory} reanalyzeLecture={reanalyzeLecture} hideRowDiv />
+            <LecListRow lec={lec} index={index} tc={tc} T={T} sessions={sessions} onOpen={onOpen} onClose={onClose} isExpanded={true} onStart={onStart} onDeepLearn={onDeepLearn} handleDeepLearnStart={handleDeepLearnStart} handleRapidFireStart={handleRapidFireStart} setAnkiLogTarget={setAnkiLogTarget} detectStudyMode={detectStudyModeFn} onUpdateLec={onUpdateLec} mergeMode={mergeMode} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle} bulkWeekTarget={bulkWeekTarget} allObjectives={allObjectives} allBlockObjectives={allBlockObjectives} getBlockObjectives={getBlockObjectives} updateObjective={updateObjective} currentBlock={currentBlock} startObjectiveQuiz={startObjectiveQuiz} quizLoadingId={quizLoadingId} quizErrorId={quizErrorId} getLectureSubtopicCompletion={getLectureSubtopicCompletion} getLecCompletion={getLecCompletion} makeSubtopicKey={makeSubtopicKey} performanceHistory={performanceHistory} reanalyzeLecture={reanalyzeLecture} hideRowDiv getLecQuizLevel={getLecQuizLevel} deleteConfirmId={deleteConfirmId} setDeleteConfirmId={setDeleteConfirmId} onDeleteLecture={onDeleteLecture} editingLecId={editingLecId} setEditingLecId={setEditingLecId} editingTitle={editingTitle} setEditingTitle={setEditingTitle} renameLecture={renameLecture} hoveredLectureRowId={hoveredLectureRowId} setHoveredLectureRowId={setHoveredLectureRowId} smartTruncateTitle={smartTruncateTitle} />
           </div>
         )}
       </div>
@@ -4913,8 +6212,14 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
           cursor: "pointer",
           transition: "padding 0.18s",
         }}
-        onMouseEnter={e => !isExpanded && !isMergeSelected && (e.currentTarget.style.background = T.inputBg)}
-        onMouseLeave={e => !isExpanded && !isMergeSelected && (e.currentTarget.style.background = "transparent")}
+        onMouseEnter={(e) => {
+          setHoveredLectureRowId?.(lec.id);
+          if (!isExpanded && !isMergeSelected) e.currentTarget.style.background = T.inputBg;
+        }}
+        onMouseLeave={(e) => {
+          setHoveredLectureRowId?.(null);
+          if (!isExpanded && !isMergeSelected) e.currentTarget.style.background = "transparent";
+        }}
       >
         {mergeMode && (
           <div
@@ -5023,14 +6328,119 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
           </button>
         )}
         <div style={{ width: 6, height: 6, borderRadius: "50%", background: tc, flexShrink: 0 }} />
-        <span style={{ fontFamily: SERIF, color: T.text1, fontSize: 15, fontWeight: 700, lineHeight: 1.4, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {(() => {
-            const title = (lec.lectureTitle || "").trim();
-            const fileName = (lec.fileName || lec.filename || "").replace(/\.pdf$/i, "").trim();
-            if (title && title.toLowerCase() !== fileName.toLowerCase()) return title;
-            return title || fileName;
-          })()}
-        </span>
+        <div
+          style={{ flex: 1, display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}
+          onMouseEnter={() => setHoveredLectureRowId?.(lec.id)}
+          onMouseLeave={() => setHoveredLectureRowId?.(null)}
+        >
+          {editingLecId === lec.id && renameLecture && setEditingLecId && setEditingTitle ? (
+            <input
+              autoFocus
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onBlur={() => {
+                if (renameEscapeRef.current) {
+                  renameEscapeRef.current = false;
+                  return;
+                }
+                renameLecture(lec.id, editingTitle);
+                setEditingLecId(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  renameLecture(lec.id, editingTitle);
+                  setEditingLecId(null);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  renameEscapeRef.current = true;
+                  setEditingLecId(null);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontSize: 15,
+                fontWeight: 700,
+                fontFamily: SERIF,
+                padding: "2px 6px",
+                border: "1.5px solid #2563eb",
+                borderRadius: 4,
+                background: "var(--color-background-primary)",
+                color: "var(--color-text-primary)",
+                width: "100%",
+                maxWidth: 400,
+                outline: "none",
+                lineHeight: 1.4,
+              }}
+            />
+          ) : (
+            <span
+              style={{
+                fontFamily: SERIF,
+                color: T.text1,
+                fontSize: 15,
+                fontWeight: 700,
+                lineHeight: 1.4,
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+                cursor: renameLecture ? "text" : "default",
+              }}
+              title={lineTitleForRow}
+              onDoubleClick={(e) => {
+                if (!renameLecture || !setEditingLecId || !setEditingTitle) return;
+                e.stopPropagation();
+                setEditingLecId(lec.id);
+                setEditingTitle(lineTitleForRow);
+              }}
+            >
+              {smartTruncateTitle ? smartTruncateTitle(lineTitleForRow) : lineTitleForRow}
+            </span>
+          )}
+          {renameLecture && setEditingLecId && setEditingTitle && editingLecId !== lec.id && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingLecId(lec.id);
+                setEditingTitle(lineTitleForRow);
+              }}
+              style={{
+                opacity: hoveredLectureRowId === lec.id ? 1 : 0,
+                fontSize: 11,
+                padding: "2px 6px",
+                background: "transparent",
+                border: "0.5px solid var(--color-border-tertiary)",
+                borderRadius: 4,
+                cursor: "pointer",
+                color: "var(--color-text-tertiary)",
+                flexShrink: 0,
+              }}
+              title="Rename lecture"
+            >
+              ✎
+            </button>
+          )}
+        </div>
+        {lec.partABMerged && (
+          <span
+            style={{
+              fontSize: 9,
+              padding: "1px 6px",
+              borderRadius: 4,
+              background: "#EEF4FF",
+              color: "#185FA5",
+              border: "0.5px solid #93C5FD",
+              flexShrink: 0,
+              fontFamily: MONO,
+            }}
+          >
+            Parts A+B
+          </span>
+        )}
         {lec.isMerged && (
           <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: MONO, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5, flexShrink: 0 }}>MERGED</span>
         )}
@@ -5464,6 +6874,45 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                     {untested > 0 && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>○ {untested}</span>}
                   </div>
                 </div>
+                {getLecQuizLevel && currentBlock?.id && (() => {
+                  const quizLevel = getLecQuizLevel(lec.id, currentBlock.id);
+                  return (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        padding: "10px 14px",
+                        background:
+                          quizLevel.level === 3 ? "#EEEDFE" : quizLevel.level === 2 ? "#FAEEDA" : "var(--color-background-secondary)",
+                        border: "0.5px solid",
+                        borderColor:
+                          quizLevel.level === 3 ? "#AFA9EC" : quizLevel.level === 2 ? "#EF9F27" : "var(--color-border-secondary)",
+                        borderRadius: 8,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <div style={{ flex: 1 }}>
+                        <div
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 500,
+                            color:
+                              quizLevel.level === 3 ? "#3C3489" : quizLevel.level === 2 ? "#633806" : "var(--color-text-secondary)",
+                          }}
+                        >
+                          {quizLevel.label} quiz
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginTop: 2 }}>{quizLevel.description}</div>
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", textAlign: "right" }}>
+                        <div>{quizLevel.distribution.l1}% recall</div>
+                        <div>{quizLevel.distribution.l2}% application</div>
+                        {quizLevel.distribution.l3 > 0 && <div>{quizLevel.distribution.l3}% reasoning</div>}
+                      </div>
+                    </div>
+                  );
+                })()}
                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   {expandedObjs.map((obj, i) => {
                     const statusColor = getObjStatusColor(T, obj.status);
@@ -5676,6 +7125,78 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
               );
             })()}
           </div>
+          {onDeleteLecture && setDeleteConfirmId && (
+            <div
+              style={{
+                marginTop: 16,
+                paddingTop: 12,
+                borderTop: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 8,
+              }}
+            >
+              {deleteConfirmId === lec.id ? (
+                <>
+                  <span style={{ fontSize: 12, color: "#A32D2D", fontFamily: MONO }}>Delete this lecture and all its objectives?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onDeleteLecture(lec.id);
+                      setDeleteConfirmId(null);
+                      onClose();
+                    }}
+                    style={{
+                      fontSize: 12,
+                      padding: "5px 12px",
+                      background: "#E24B4A",
+                      color: "white",
+                      border: "none",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontFamily: MONO,
+                    }}
+                  >
+                    Yes, delete
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmId(null)}
+                    style={{
+                      fontSize: 12,
+                      padding: "5px 12px",
+                      background: "transparent",
+                      color: "var(--color-text-secondary, " + T.text3 + ")",
+                      border: "0.5px solid var(--color-border-secondary, " + T.border1 + ")",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontFamily: MONO,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmId(lec.id)}
+                  style={{
+                    fontSize: 11,
+                    padding: "4px 10px",
+                    background: "transparent",
+                    color: "var(--color-text-tertiary, " + T.text3 + ")",
+                    border: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    fontFamily: MONO,
+                  }}
+                >
+                  🗑 Delete lecture
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -5685,7 +7206,20 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
 // ─────────────────────────────────────────────
 // BLOCK WEAK OBJECTIVES BREAKDOWN (collapsible)
 // ─────────────────────────────────────────────
-function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, T, tc, startObjectiveQuiz, updateObjective, lecTypeBadge, quizLoadingId = null, quizErrorId = null }) {
+function BlockWeakObjectivesBreakdown({
+  blockObjs,
+  lecs,
+  blockId,
+  currentBlock,
+  T,
+  tc,
+  startObjectiveQuiz,
+  updateObjective,
+  lecTypeBadge,
+  quizLoadingId = null,
+  quizErrorId = null,
+  getLecQuizLevel = null,
+}) {
   const [showWeak, setShowWeak] = useState(false);
   const weakObjs = (blockObjs || []).filter(
     (o) => o.status === "struggling" || o.status === "untested"
@@ -5843,6 +7377,27 @@ function BlockWeakObjectivesBreakdown({ blockObjs, lecs, blockId, currentBlock, 
                   >
                     {group.label}
                   </span>
+                  {getLecQuizLevel && group.lec?.id && blockId && (() => {
+                    const ql = getLecQuizLevel(group.lec.id, blockId);
+                    const level = ql.level;
+                    return (
+                      <span
+                        style={{
+                          fontSize: 10,
+                          padding: "2px 7px",
+                          borderRadius: 10,
+                          border: "0.5px solid",
+                          background: level === 3 ? "#EEEDFE" : level === 2 ? "#FAEEDA" : "transparent",
+                          color: level === 3 ? "#3C3489" : level === 2 ? "#633806" : "var(--color-text-tertiary)",
+                          borderColor: level === 3 ? "#AFA9EC" : level === 2 ? "#EF9F27" : "var(--color-border-tertiary)",
+                          flexShrink: 0,
+                          fontFamily: MONO,
+                        }}
+                      >
+                        {ql.label}
+                      </span>
+                    );
+                  })()}
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                     {struggling.length > 0 && (
                       <span
@@ -6159,7 +7714,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
                   const extracted = (data.extracted || []).map(unlink);
                   const next = { ...prev, [wk]: { ...data, imported, extracted } };
                   try {
-                    localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+                    safeSetItem("rxt-block-objectives", next);
                   } catch {}
                   return next;
                 });
@@ -8293,40 +9848,29 @@ function packBlockObjectivesRaw(imported, extracted, legacyFlat, rawObj) {
 /** Clear linkedLecId when it does not exist in rxt-lec-meta (global). */
 function validateAndRepairLinkedIds(blockId) {
   try {
-    const objKey = "rxt-block-objectives";
-    const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
-    const raw = getBlockObjectivesStoredRaw(stored, blockId);
-    if (!raw) return { invalidated: 0, repaired: 0 };
-
-    const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
     const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
     const validIds = new Set((allLecs || []).map((l) => l?.id).filter(Boolean));
 
     let invalidated = 0;
+    const objs = getMSKObjectives(blockId);
+    if (!objs.length) return { invalidated: 0, repaired: 0 };
 
-    const repairArr = (arr) =>
-      (arr || []).map((obj) => {
-        if (!obj?.linkedLecId) return obj;
-        if (validIds.has(obj.linkedLecId)) return obj;
-        invalidated++;
-        return {
-          ...obj,
-          linkedLecId: null,
-          sourceFile: null,
-          invalidatedAt: new Date().toISOString(),
-          invalidReason: "lecture_not_found",
-        };
-      });
-
-    const nextImported = repairArr(imported);
-    const nextExtracted = repairArr(extracted);
+    const repaired = objs.map((obj) => {
+      if (!obj?.linkedLecId) return obj;
+      if (validIds.has(obj.linkedLecId)) return obj;
+      invalidated++;
+      return {
+        ...obj,
+        linkedLecId: null,
+        sourceFile: null,
+        invalidatedAt: new Date().toISOString(),
+        invalidReason: "lecture_not_found",
+      };
+    });
 
     if (invalidated > 0) {
-      const wk = blockObjectivesStorageKey(stored, blockId);
-      stored[wk] = packBlockObjectivesRaw(nextImported, nextExtracted, legacyFlat, rawObj);
-      localStorage.setItem(objKey, JSON.stringify(stored));
+      saveMSKObjectives(blockId, repaired);
       console.log(`Invalidated ${invalidated} objectives with broken linkedLecId`);
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
     }
 
     return { invalidated, repaired: 0 };
@@ -8339,12 +9883,8 @@ function validateAndRepairLinkedIds(blockId) {
 /** Flag likely wrong objective ↔ lecture pairings (AI-aligned only). */
 function detectContentMismatches(blockId) {
   try {
-    const objKey = "rxt-block-objectives";
-    const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
-    const raw = getBlockObjectivesStoredRaw(stored, blockId);
-    if (!raw) return [];
-    const { imported, extracted } = parseBlockObjectivesRaw(raw);
-    const objs = [...(imported || []), ...(extracted || [])];
+    const objs = getMSKObjectives(blockId);
+    if (!objs.length) return [];
     const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
 
     const mismatches = [];
@@ -8488,6 +10028,157 @@ function deduplicateExtractedObjectives(objs) {
   return [...seen.values()];
 }
 
+function findObjectivesChunk(chunks) {
+  return (chunks || []).find((c) => {
+    const text = (c?.text || "").toString();
+    return (
+      text.includes("SOM.MK.II") &&
+      (text.toLowerCase().includes("objectives") ||
+        /SOM\.[A-Z0-9.]+\s+[A-Z]/.test(text))
+    );
+  });
+}
+
+function buildObjEntry(code, objText, lec, blockId) {
+  const bloomVerbs = {
+    1: ["list", "recall", "name", "state", "identify", "define"],
+    2: ["describe", "explain", "summarize", "classify", "outline"],
+    3: ["apply", "demonstrate", "use", "solve", "calculate"],
+    4: ["analyze", "compare", "contrast", "differentiate"],
+    5: ["evaluate", "justify", "critique", "assess"],
+    6: ["design", "create", "construct", "develop", "synthesize"],
+  };
+
+  const text = (objText || "").toString().trim();
+  const firstWord = (text.split(/\s+/)[0] || "").toLowerCase();
+  let bloomLevel = 2;
+  for (const [level, verbs] of Object.entries(bloomVerbs)) {
+    if (verbs.some((v) => firstWord.startsWith(v))) {
+      bloomLevel = parseInt(level, 10);
+      break;
+    }
+  }
+
+  const newId =
+    typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid();
+  const codeTrim = (code || "").toString().trim();
+
+  return {
+    id: newId,
+    blockId,
+    linkedLecId: lec.id,
+    sourceFile: lec.id,
+    objective: text,
+    text,
+    code: codeTrim,
+    objectiveCode: codeTrim,
+    lectureType: lec.lectureType,
+    lectureNumber: lec.lectureNumber,
+    bloom_level: bloomLevel,
+    bloom_level_name: ["", "Remember", "Understand", "Apply", "Analyze", "Evaluate", "Create"][bloomLevel],
+    status: "untested",
+    manuallyAligned: false,
+    aiAligned: false,
+  };
+}
+
+function extractFromTableText(text, lec, blockId) {
+  if (!text) return [];
+  const src = text.toString();
+  const results = [];
+  const seen = new Set();
+
+  // Pattern 1: "SOM.CODE   Objective text" on the same line
+  const linePattern = /(SOM\.[A-Z0-9.]+)\s{2,}([A-Z][^\n]{10,})/g;
+  let match;
+  while ((match = linePattern.exec(src)) !== null) {
+    const code = match[1].trim();
+    const objText = match[2].trim();
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    results.push(buildObjEntry(code, objText, lec, blockId));
+  }
+  if (results.length >= 3) return results;
+
+  // Pattern 2: code and text on separate lines (or embedded code with trailing text)
+  const lines = src
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    const codeOnly = line.match(/^(SOM\.[A-Z0-9.]+(?:\s*\|\s*\d+)?)\s*$/);
+    if (codeOnly) {
+      const code = codeOnly[1].replace(/\s*\|\s*\d+$/, "").trim();
+      if (!code || seen.has(code)) continue;
+
+      let objText = "";
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+        const next = lines[j];
+        if (/^SOM\./.test(next)) break;
+        if (/^BPM1\s*\|/i.test(next)) continue;
+        if (next.length > 15 && /^[A-Z]/.test(next)) {
+          objText = next;
+          break;
+        }
+      }
+
+      if (objText.length > 10) {
+        seen.add(code);
+        results.push(buildObjEntry(code, objText, lec, blockId));
+      }
+      continue;
+    }
+
+    const embeddedCode = line.match(/SOM\.[A-Z0-9.]+/)?.[0] || null;
+    if (embeddedCode && !seen.has(embeddedCode)) {
+      const afterCode = line.replace(embeddedCode, "").trim();
+      if (afterCode.length > 15) {
+        seen.add(embeddedCode);
+        results.push(buildObjEntry(embeddedCode, afterCode, lec, blockId));
+      }
+    }
+  }
+
+  return results;
+}
+
+function extractInlineSOMCodes(chunks, lec, blockId, alreadyFound) {
+  const results = [];
+  const seen = new Set(alreadyFound || []);
+
+  (chunks || []).forEach((chunk) => {
+    const text = (chunk?.text || "").toString();
+    const codes = text.match(/SOM\.[A-Z0-9.]+/g) || [];
+    codes.forEach((code) => {
+      if (!code || seen.has(code)) return;
+      seen.add(code);
+
+      const slideLines = text
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(
+          (l) =>
+            l.length > 10 &&
+            !/^SOM\./.test(l) &&
+            !/^BPM1\s*\|/i.test(l) &&
+            !/^•/.test(l)
+        );
+
+      const slideTitle = slideLines[0] || "";
+      if (slideTitle.length > 10) {
+        results.push(
+          buildObjEntry(code, `Content related to: ${slideTitle}`, lec, blockId)
+        );
+      }
+    });
+  });
+
+  return results;
+}
+
 async function extractObjectivesChunk(text, lec, blockId) {
   const systemPrompt = `Extract ALL learning objectives from this medical lecture text.
 Return JSON only. No markdown. Start with {
@@ -8560,6 +10251,32 @@ async function extractObjectivesFromLecture(rawText, lec, blockId) {
   const bid = blockId ?? lec?.blockId;
   const fullText = prepareTextForObjectiveExtraction(rawText || "");
   if (!fullText.trim()) return [];
+
+  const isCPR = typeof bid === "string" && bid.toLowerCase().startsWith("cpr");
+  if (isCPR && lec?.chunks?.length) {
+    const objChunk = findObjectivesChunk(lec.chunks);
+    if (objChunk) {
+      console.log("Found objectives chunk, extracting...");
+      const fromChunk = extractFromTableText(objChunk.text || "", lec, bid);
+      if (fromChunk.length >= 3) {
+        const inlineObjs = extractInlineSOMCodes(
+          lec.chunks,
+          lec,
+          bid,
+          new Set(fromChunk.map((o) => o.code).filter(Boolean))
+        );
+        const all = [...fromChunk, ...inlineObjs];
+        console.log("Extracted", all.length, "objectives from chunks");
+        return deduplicateExtractedObjectives(all);
+      }
+    }
+
+    const allChunkText = lec.chunks.map((c) => c?.text || "").join("\n");
+    const fromAllChunks = extractFromTableText(allChunkText, lec, bid);
+    if (fromAllChunks.length >= 3) return deduplicateExtractedObjectives(fromAllChunks);
+  }
+
+  // Fallback: use AI on cleaned fullText
   if (fullText.length <= 6000) {
     return deduplicateExtractedObjectives(await extractObjectivesChunk(fullText, lec, bid));
   }
@@ -8575,7 +10292,9 @@ async function extractObjectivesFromLecture(rawText, lec, blockId) {
   const allSettled = [];
   for (let i = 0; i < chunks.length; i += limit) {
     const batch = chunks.slice(i, i + limit);
-    const settled = await Promise.allSettled(batch.map((chunk) => extractObjectivesChunk(chunk, lec, bid)));
+    const settled = await Promise.allSettled(
+      batch.map((chunk) => extractObjectivesChunk(chunk, lec, bid))
+    );
     allSettled.push(...settled);
   }
   const allObjs = allSettled
@@ -8864,13 +10583,36 @@ function sortBlockLecsForDrill(a, b) {
   return (parseInt(a.lectureNumber, 10) || 0) - (parseInt(b.lectureNumber, 10) || 0);
 }
 
-function buildDrillQueue(blockObjs, filter, lecFilter) {
-  let pool = [...(blockObjs || [])];
+/** Lecture + optional allowlist scope; matches the pool buildDrillQueue starts from (before status filter). */
+function getDrillPoolBase(blockId, lecFilter, drillIdAllowlist) {
+  let pool = [...getMSKObjectives(blockId)];
   if (lecFilter && lecFilter !== "all") {
     pool = pool.filter((o) => o.linkedLecId === lecFilter);
   }
-  if (filter === "untested") pool = pool.filter((o) => !o.status || o.status === "untested");
-  else if (filter === "weak")
+  if (drillIdAllowlist?.length) {
+    const allow = new Set(drillIdAllowlist);
+    pool = pool.filter((o) => allow.has(o.id));
+  }
+  return pool;
+}
+
+/** Normalize pill / saved values so buildDrillQueue branches stay in sync. */
+function normalizeDrillObjectiveFilter(filter) {
+  if (filter == null || filter === "") return "weak_untested";
+  const f = String(filter);
+  if (f === "weak" || f === "weak+untested") return "weak_untested";
+  return f;
+}
+
+function buildDrillQueue(blockId, filter, lecFilter) {
+  let pool = [...getMSKObjectives(blockId)];
+  if (lecFilter && lecFilter !== "all") {
+    pool = pool.filter((o) => o.linkedLecId === lecFilter);
+  }
+  const nf = normalizeDrillObjectiveFilter(filter);
+  if (nf === "untested") {
+    pool = pool.filter((o) => !o.status || o.status === "untested");
+  } else if (nf === "weak_untested") {
     pool = pool.filter(
       (o) =>
         o.status === "struggling" ||
@@ -8878,7 +10620,10 @@ function buildDrillQueue(blockObjs, filter, lecFilter) {
         !o.status ||
         o.status === "untested"
     );
-  else if (filter === "struggling") pool = pool.filter((o) => o.status === "struggling");
+  } else if (nf === "struggling") {
+    pool = pool.filter((o) => o.status === "struggling");
+  }
+  // "all" — no status filter
 
   const order = { struggling: 0, inprogress: 1, untested: 2, mastered: 3 };
   pool.sort((a, b) => {
@@ -8889,6 +10634,87 @@ function buildDrillQueue(blockObjs, filter, lecFilter) {
   });
 
   return pool;
+}
+
+/** Match Tracker Today-tab "1st / 2nd / 3rd order" from block objectives storage. */
+function getDrillLecQuestionOrder(lecId, blockId) {
+  if (!lecId || !blockId) return "1st";
+  try {
+    const allObjs = getMSKObjectives(blockId);
+    const lecObjs = allObjs.filter((o) => o.linkedLecId === lecId);
+    if (lecObjs.length === 0) return "1st";
+    const avgConsecutive =
+      lecObjs.reduce((sum, o) => sum + (o.consecutiveCorrect || 0), 0) / lecObjs.length;
+    if (avgConsecutive >= 2) return "3rd";
+    if (avgConsecutive >= 1) return "2nd";
+    return "1st";
+  } catch {
+    return "1st";
+  }
+}
+
+function newSyntheticObjectiveId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `rxt-syn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Search + select for reassigning a drill objective to another lecture (MCQ drill card). */
+function LectureAssignDropdown({ blockLecs, currentLecId, objId, onAssign }) {
+  const [q, setQ] = useState("");
+  const filtered = useMemo(() => {
+    const list = blockLecs || [];
+    const s = q.trim().toLowerCase();
+    if (!s) return list;
+    return list.filter((l) => {
+      const title = (l.lectureTitle || l.fileName || l.filename || "").toLowerCase();
+      const num = String(l.lectureNumber ?? "");
+      const typ = String(l.lectureType || "").toLowerCase();
+      return title.includes(s) || num.includes(s) || typ.includes(s);
+    });
+  }, [blockLecs, q]);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      <input
+        type="search"
+        placeholder="Search lectures..."
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        style={{
+          width: "100%",
+          fontSize: 12,
+          padding: "6px 8px",
+          borderRadius: 6,
+          border: "0.5px solid var(--color-border-secondary)",
+          fontFamily: "inherit",
+          boxSizing: "border-box",
+        }}
+      />
+      <select
+        value={currentLecId || ""}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v) onAssign(objId, v);
+        }}
+        style={{
+          width: "100%",
+          fontSize: 12,
+          padding: "6px 8px",
+          borderRadius: 6,
+          border: "0.5px solid var(--color-border-secondary)",
+          fontFamily: "'DM Mono', 'Courier New', monospace",
+          boxSizing: "border-box",
+        }}
+      >
+        <option value="">— choose lecture —</option>
+        {filtered.map((l) => (
+          <option key={l.id} value={l.id}>
+            {(l.lectureType || "LEC")} {l.lectureNumber ?? ""} — {l.lectureTitle || l.fileName || l.id}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 function resolveDrillLectureForObj(obj, blockLecsList) {
@@ -9191,7 +11017,7 @@ function validateLecId(returnedId, lecById) {
  */
 async function runSmartAlignmentCore(blockId, lectures, setAlignmentProgress, setBlockObjectives, blockMeta) {
   void lectures;
-  const objKey = "rxt-block-objectives";
+  void setBlockObjectives;
 
   let allLecs = [];
   try {
@@ -9205,22 +11031,21 @@ async function runSmartAlignmentCore(blockId, lectures, setAlignmentProgress, se
     if (l?.id) lecById[l.id] = l;
   });
 
-  const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
-  const raw = getBlockObjectivesStoredRaw(stored, blockId);
-  const parsed = parseBlockObjectivesRaw(raw);
-  let { imported, extracted, legacyFlat, rawObj } = parsed;
-  let imp = [...(imported || [])];
-  let ext = [...(extracted || [])];
-  const allObjs = [...imp, ...ext];
+  let objs = [...getMSKObjectives(blockId)];
+  const allObjs = objs;
 
   if (blockLecs.length === 0) {
     return { noLectures: true, aligned: 0, failed: 0, allAlreadyLinked: false, totalUnlinked: 0 };
   }
 
   const unlinked = allObjs.filter((o) => {
+    // Never overwrite manual assignments
+    if (o.manuallyAligned) return false;
+
     const lid = o?.linkedLecId;
+    if (lid && lecById[lid]) return false; // already points to a real lecture
     if (!lid || lid === "imported" || lid === "unknown") return true;
-    return !lecById[lid];
+    return true; // needs alignment (linkedLecId missing or invalid)
   });
 
   const totalUnlinkedStart = unlinked.length;
@@ -9236,17 +11061,10 @@ async function runSmartAlignmentCore(blockId, lectures, setAlignmentProgress, se
   };
 
   const patchById = (id, patch) => {
-    let ix = imp.findIndex((o) => o.id === id);
-    if (ix !== -1) {
-      imp[ix] = { ...imp[ix], ...patch };
-      return true;
-    }
-    ix = ext.findIndex((o) => o.id === id);
-    if (ix !== -1) {
-      ext[ix] = { ...ext[ix], ...patch };
-      return true;
-    }
-    return false;
+    const ix = objs.findIndex((o) => o.id === id);
+    if (ix === -1) return false;
+    objs[ix] = { ...objs[ix], ...patch };
+    return true;
   };
 
   setAlignmentProgress(`Aligning ${unlinked.length} objectives to ${blockLecs.length} lectures...`);
@@ -9444,12 +11262,22 @@ ${objList}`;
     }
   }
 
+  // Refresh objective state right before applying results (user may assign while AI is running)
+  objs = [...getMSKObjectives(blockId)];
+
   const alignedAt = new Date().toISOString();
   results.forEach((lecId, objId) => {
-    if (!lecById[lecId]) {
-      console.error(`Skipping invalid lecId: ${lecId}`);
+    if (!lecById[lecId]) return; // invalid ID
+
+    const idx = objs.findIndex((o) => o.id === objId);
+    if (idx === -1) return;
+
+    // NEVER overwrite manual assignments
+    if (objs[idx].manuallyAligned) {
+      console.log("Skipping manually assigned:", String(objId).slice(0, 8));
       return;
     }
+
     patchById(objId, {
       linkedLecId: lecId,
       sourceFile: lecId,
@@ -9458,11 +11286,7 @@ ${objList}`;
     });
   });
 
-  const objWriteKey = blockObjectivesStorageKey(stored, blockId);
-  stored[objWriteKey] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-  localStorage.setItem(objKey, JSON.stringify(stored));
-  setBlockObjectives({ ...stored });
-  window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+  saveMSKObjectives(blockId, objs);
 
   const stillRemaining = unlinked.filter((o) => !results.has(o.id)).length;
   const aligned = results.size;
@@ -9518,37 +11342,74 @@ export default function App() {
   const [aiProvider, setAiProvider] = useState(DEFAULT_PROVIDER);
 
   const [view,    setView]    = useState("block");
-  const [termId,  setTermId]  = useState("term1");
-  const [blockId, setBlockId] = useState(() => {
-    try {
-      const saved = localStorage.getItem("rxt-current-block");
-      if (saved) return saved;
-      const allBlocks = DEFAULT_TERMS.flatMap((t) => t.blocks || []);
-      if (!allBlocks.length) return null;
-      const inProgress = allBlocks.find((b) => b.status === "inprogress" || b.status === "active");
-      if (inProgress) return inProgress.id;
-      const notDone = allBlocks.find((b) => b.status !== "completed" && b.status !== "done" && b.status !== "complete");
-      if (notDone) return notDone.id;
-      return allBlocks[allBlocks.length - 1]?.id || allBlocks[0]?.id;
-    } catch {
-      return null;
+  const [termId, setTermId] = useState("term1");
+  const [activeBlock, setActiveBlock] = useState(() => getActiveBlockFromTerms());
+  const blockId = activeBlock?.id ?? null;
+
+  const setBlockId = useCallback(
+    (bid) => {
+      if (bid == null || bid === "") {
+        setActiveBlock(null);
+        try {
+          if (typeof window !== "undefined") localStorage.removeItem("rxt-current-block");
+        } catch {}
+        return;
+      }
+      const flat = (terms || []).flatMap((t) =>
+        (t.blocks || []).map((b) => ({ ...b, termId: t.id, termName: t.name }))
+      );
+      let block = flat.find((b) => b.id === bid);
+      if (!block) {
+        block = getAllBlocksFromTerms().find((b) => b.id === bid);
+      }
+      if (!block) {
+        const term = (terms || []).find((t) => t.blocks?.some((b) => b.id === bid));
+        block = { id: bid, name: String(bid), termId: term?.id, termName: term?.name };
+      }
+      setActiveBlock(block);
+      if (block.termId) setTermId(block.termId);
+      try {
+        if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
+      } catch {}
+    },
+    [terms]
+  );
+
+  useEffect(() => {
+    const blockFromTerms = getActiveBlockFromTerms();
+    if (!blockFromTerms) return;
+    if (blockFromTerms.id !== activeBlock?.id) {
+      console.log("Correcting activeBlock from", activeBlock?.id, "to", blockFromTerms.id);
+      setActiveBlock(blockFromTerms);
     }
-  });
-  const activeTerm  = terms.find(t => t.id === termId);
-  const activeBlock = activeTerm?.blocks.find(b => b.id === blockId);
+  }, []);
+
+  const activeTerm = terms.find((t) => t.id === termId);
+  const allBlocksFlat = useMemo(() => {
+    const fromState = (terms || []).flatMap((t) =>
+      (t.blocks || []).map((b) => ({ ...b, termId: t.id, termName: t.name }))
+    );
+    if (fromState.length) return fromState;
+    return getAllBlocksFromTerms();
+  }, [terms]);
   const blocksFromTerms = useMemo(
     () => (terms || []).flatMap((t) => t.blocks || []),
     [terms]
   );
-  /** Block row from terms (or active) so getBlockLecs can match MSK / name vs stored blockId. */
+  /** Block row from terms (or active) for metadata. */
   const resolveBlockMeta = useCallback(
     (bid) => {
       if (!bid) return null;
       if (activeBlock?.id === bid) return activeBlock;
-      return blocksFromTerms.find((b) => b.id === bid) || { id: bid };
+      return blocksFromTerms.find((b) => b.id === bid) || getBlockById(bid) || { id: bid };
     },
     [activeBlock, blocksFromTerms]
   );
+  const splitLecturePairs = useMemo(() => {
+    const bid = blockId;
+    if (!bid) return [];
+    return detectSplitLecturePairs(getBlockLecs(lectures, resolveBlockMeta(bid)));
+  }, [lectures, blockId, resolveBlockMeta]);
   const [tab,     setTab]     = useState("lectures");
   const [drillMode, setDrillMode] = useState(false);
   const [drillQueue, setDrillQueue] = useState([]);
@@ -9569,9 +11430,20 @@ export default function App() {
   const [saveConfirmed, setSaveConfirmed] = useState(null);
   const [exitConfirmVisible, setExitConfirmVisible] = useState(false);
   const [drillResumeSnapshot, setDrillResumeSnapshot] = useState(null);
-  const [drillFilter, setDrillFilter] = useState("weak");
+  const [drillFilter, setDrillFilter] = useState("weak_untested");
   const [drillLecFilter, setDrillLecFilter] = useState("all");
+  /** Block id for the active drill session (used when syncing to rxt-completion). */
+  const [drillBlockId, setDrillBlockId] = useState("msk");
+  const [drillTargetCount, setDrillTargetCount] = useState(20);
+  const [showDrillSetup, setShowDrillSetup] = useState(false);
+  const [pendingDrillConfig, setPendingDrillConfig] = useState(null);
+  /** When set, progress UI uses this cap (Tracker setup); otherwise full queue length. */
+  const [drillSessionQuestionTarget, setDrillSessionQuestionTarget] = useState(null);
+  const [drillSetupLaunching, setDrillSetupLaunching] = useState(false);
   const [drillIdAllowlist, setDrillIdAllowlist] = useState(null);
+  /** null = hidden, string = objective id whose reassign panel is open */
+  const [showReassignPanel, setShowReassignPanel] = useState(null);
+  const [reassignedConfirm, setReassignedConfirm] = useState(null);
   const [drillCardOpacity, setDrillCardOpacity] = useState(1);
   const [drillStyle, setDrillStyle] = useState(() => {
     try {
@@ -9682,6 +11554,8 @@ export default function App() {
   const uploadInputRef = useRef(null);
   const uploadRetryFilesRef = useRef(new Map());
   const uploadFileByQueueIdRef = useRef(new Map());
+  /** Prevents duplicate objective extraction for the same lecture id within one upload batch. */
+  const uploadObjectivesExtractedRef = useRef(new Set());
   const uploadForceUniqueRef = useRef(new Map());
   const uploadForceOcrQueueIdRef = useRef(new Set());
   const uploadCollisionResumeRef = useRef(new Map());
@@ -9745,6 +11619,24 @@ export default function App() {
     if (typeof window !== "undefined") localStorage.setItem("rxt-lec-view", v);
   };
   const [expandedLec, setExpandedLec] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [editingLecId, setEditingLecId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const [hoveredLectureRowId, setHoveredLectureRowId] = useState(null);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showImportScreen, setShowImportScreen] = useState(false);
+  const [importJson, setImportJson] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const userRef = useRef(null);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+  const handleUserSignedInDedupRef = useRef({ id: null, t: 0 });
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState(() => ({ unscheduled: true }));
 
@@ -9777,28 +11669,7 @@ export default function App() {
     try {
       const raw = localStorage.getItem("rxt-block-objectives") || "{}";
       const stored = JSON.parse(raw);
-      console.log("Loading objectives from localStorage:", Object.keys(stored || {}).map((k) => ({ blockId: k, imported: (stored[k]?.imported || []).length, extracted: (stored[k]?.extracted || []).length })));
-
-      const allBlocks = DEFAULT_TERMS.flatMap((t) => t.blocks || []);
-      const ftm2Block = findBlockForObjectives(allBlocks, "FTM 2");
-      const ftm2Id = ftm2Block?.id || "ftm2_default";
-
-      console.log("FTM2 block found:", ftm2Id, ftm2Block?.name);
-      console.log("FTM2 objectives in JSON:", FTM2_DATA?.objectives?.length);
-      console.log("Already stored:", stored[ftm2Id]?.imported?.length || 0);
-
-      const storedCount = stored[ftm2Id]?.imported?.length || 0;
-      const isFTMBlock = ftm2Block && /ftm/i.test(ftm2Block.name || "");
-      if (storedCount < 300 && FTM2_DATA?.objectives?.length > 0 && isFTMBlock) {
-        console.log("Seeding FTM2 objectives:", FTM2_DATA.objectives.length);
-        stored[ftm2Id] = {
-          imported: FTM2_DATA.objectives,
-          extracted: stored[ftm2Id]?.extracted || [],
-        };
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(stored));
-      }
-
-      return stored;
+      return stored && typeof stored === "object" ? stored : {};
     } catch (e) {
       console.error("blockObjectives init error:", e);
       return {};
@@ -9814,10 +11685,60 @@ export default function App() {
     }
   }, []);
 
+  const loadBlockObjectives = useCallback((blockId) => {
+    if (!blockId) return [];
+    const objs = getMSKObjectives(blockId);
+    if (import.meta.env.DEV) {
+      console.log("Loaded", objs.length, "objectives for", blockId);
+    }
+    return objs;
+  }, []);
+
   const [alignmentStatus, setAlignmentStatus] = useState(null);
   const [alignmentProgress, setAlignmentProgress] = useState("");
   const [alignmentDoneSummary, setAlignmentDoneSummary] = useState(null);
+  const [showUndoAlignment, setShowUndoAlignment] = useState(false);
+  const [undoTimer, setUndoTimer] = useState(null);
+  const [dedupeStatus, setDedupeStatus] = useState(null);
+  const [dedupeProgress, setDedupeProgress] = useState("");
+
+  useEffect(() => {
+    if (dedupeStatus !== "done") return;
+    const timer = setTimeout(() => {
+      setDedupeStatus(null);
+      setDedupeProgress("");
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [dedupeStatus]);
+
+  useEffect(() => {
+    if (activeBlock?.id !== "cpr1") return;
+    try {
+      const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      const cprLecs = lecs.filter((l) => l.blockId === "cpr1");
+      if (cprLecs.length === 0) {
+        const cache = JSON.parse(localStorage.getItem("rxt-upload-cache") || "{}");
+        const cleaned = {};
+        Object.entries(cache).forEach(([key, val]) => {
+          if (!key.toLowerCase().includes("cpr")) {
+            cleaned[key] = val;
+          }
+        });
+        localStorage.setItem("rxt-upload-cache", JSON.stringify(cleaned));
+        console.log("Cleared CPR upload cache entries");
+      }
+    } catch (e) {
+      console.warn("CPR upload cache:", e);
+    }
+  }, [activeBlock?.id]);
+
   const [unlinkedTabFocusKey, setUnlinkedTabFocusKey] = useState(0);
+  const [unlinkedRefreshKey, setUnlinkedRefreshKey] = useState(0);
+
+  // Track manual assignments so we can warn before AI alignment.
+  const manualCount = useMemo(() => {
+    return getMSKObjectives(activeBlock?.id ?? blockId).filter((o) => o.manuallyAligned).length;
+  }, [activeBlock?.id, blockId, unlinkedRefreshKey]);
   const [contentMismatches, setContentMismatches] = useState([]);
   const [showMismatchReview, setShowMismatchReview] = useState(false);
   const alignmentDoneTimerRef = useRef(null);
@@ -9853,11 +11774,15 @@ export default function App() {
 
   useEffect(() => {
     const handler = () => {
-      refreshObjectivesFromStorage();
-      try {
-        const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
-        setPerformanceHistory(perf || {});
-      } catch {}
+      // Defer: these events can be dispatched synchronously during another component's render;
+      // updating App state in the same stack causes React cross-render warnings.
+      queueMicrotask(() => {
+        refreshObjectivesFromStorage();
+        try {
+          const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+          setPerformanceHistory(perf || {});
+        } catch {}
+      });
     };
     window.addEventListener("rxt-objectives-updated", handler);
     window.addEventListener("rxt-completion-updated", handler);
@@ -9868,13 +11793,15 @@ export default function App() {
   }, [refreshObjectivesFromStorage]);
 
   useEffect(() => {
-    const handler = () => setCoverageRefreshKey((k) => k + 1);
+    const handler = () =>
+      queueMicrotask(() => setCoverageRefreshKey((k) => k + 1));
     window.addEventListener("rxt-objectives-updated", handler);
     return () => window.removeEventListener("rxt-objectives-updated", handler);
   }, []);
 
   useEffect(() => {
-    const handler = () => setLecturesRefreshKey((k) => k + 1);
+    const handler = () =>
+      queueMicrotask(() => setLecturesRefreshKey((k) => k + 1));
     window.addEventListener("rxt-objectives-updated", handler);
     return () => window.removeEventListener("rxt-objectives-updated", handler);
   }, []);
@@ -9886,25 +11813,41 @@ export default function App() {
     }
   }, [activeBlock?.id, refreshObjectivesFromStorage]);
 
-  const getBlockObjectives = (bid) => {
-    const data = pickBlockObjectivesState(blockObjectives, bid);
-    const all = [...(data.imported || []), ...(data.extracted || [])];
-    const seen = new Set();
-    return all.filter((obj) => {
-      const key = (obj.objective || "").slice(0, 60).toLowerCase().replace(/\W/g, "");
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
+  const getBlockObjectives = useCallback(
+    (bid) => {
+      if (!bid) return [];
+      const all = loadBlockObjectives(bid);
+      const seen = new Set();
+      return all.filter((obj) => {
+        const key = (obj.objective || obj.text || "")
+          .slice(0, 60)
+          .toLowerCase()
+          .replace(/\W/g, "");
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    },
+    [loadBlockObjectives, blockObjectives, unlinkedRefreshKey]
+  );
+
+  const unlinkedObjs = useMemo(() => {
+    try {
+      const objs = getMSKObjectives(activeBlock?.id ?? blockId);
+      const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      const validLecIds = new Set((allLecs || []).map((l) => l?.id).filter(Boolean));
+      return objs.filter(
+        (o) => !o.linkedLecId || !validLecIds.has(o.linkedLecId)
+      );
+    } catch {
+      return [];
+    }
+  }, [activeBlock?.id, blockId, unlinkedRefreshKey, blockObjectives]);
 
   /** Read + dedupe block objectives from localStorage (same rules as getBlockObjectives). */
   const readBlockObjectivesDedupedFromStorage = useCallback((bid) => {
     try {
-      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted } = parseBlockObjectivesRaw(raw);
-      const all = [...(imported || []), ...(extracted || [])];
+      const all = getMSKObjectives(bid);
       const seen = new Set();
       return all.filter((obj) => {
         const key = (obj.objective || "").slice(0, 60).toLowerCase().replace(/\W/g, "");
@@ -9921,49 +11864,39 @@ export default function App() {
     (blockBid) => {
       try {
         if (!blockBid) return;
-        const objKey = "rxt-block-objectives";
-        const stored = JSON.parse(localStorage.getItem(objKey) || "{}");
-        const raw = getBlockObjectivesStoredRaw(stored, blockBid);
-        const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
         const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockBid));
         let repaired = 0;
-        const repairArr = (arr) =>
-          (arr || []).map((obj) => {
-            if (obj.linkedLecId) return obj;
-            const matchedLec = blockLecs.find(
-              (l) =>
-                String(l.lectureType || "LEC") === String(obj.lectureType || "LEC") &&
-                String(l.lectureNumber) === String(obj.lectureNumber)
-            );
-            if (matchedLec) {
-              repaired++;
-              return { ...obj, linkedLecId: matchedLec.id, sourceFile: matchedLec.id };
-            }
-            return obj;
-          });
-        const imp = repairArr(imported);
-        const ext = repairArr(extracted);
+        const flat = getMSKObjectives(blockBid).map((obj) => {
+          if (obj.linkedLecId) return obj;
+          const matchedLec = blockLecs.find(
+            (l) =>
+              String(l.lectureType || "LEC") === String(obj.lectureType || "LEC") &&
+              String(l.lectureNumber) === String(obj.lectureNumber)
+          );
+          if (matchedLec) {
+            repaired++;
+            return { ...obj, linkedLecId: matchedLec.id, sourceFile: matchedLec.id };
+          }
+          return obj;
+        });
         if (repaired > 0) {
-          const wk = blockObjectivesStorageKey(stored, blockBid);
-          stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-          localStorage.setItem(objKey, JSON.stringify(stored));
-          setBlockObjectives(stored);
-          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+          saveMSKObjectives(blockBid, flat);
           console.log(`Repaired ${repaired} unlinked objectives`);
         }
       } catch (e) {
         console.error("repairUnlinkedObjectives failed:", e);
       }
     },
-    [lectures, resolveBlockMeta, setBlockObjectives]
+    [lectures, resolveBlockMeta]
   );
 
   const coverageObjectivesMemo = useMemo(() => {
     void coverageRefreshKey;
+    void unlinkedObjs;
     const bid = activeBlock?.id ?? blockId;
     if (!bid) return [];
     return readBlockObjectivesDedupedFromStorage(bid);
-  }, [activeBlock?.id, blockId, coverageRefreshKey, readBlockObjectivesDedupedFromStorage]);
+  }, [activeBlock?.id, blockId, coverageRefreshKey, readBlockObjectivesDedupedFromStorage, unlinkedObjs]);
 
   useEffect(() => {
     if (tab !== "objectives" || !activeBlock?.id) return;
@@ -9976,13 +11909,7 @@ export default function App() {
     try {
       if (!bid) return;
       const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
-      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const parsed = parseBlockObjectivesRaw(raw);
-      const imported = [...(parsed.imported || [])];
-      const extracted = [...(parsed.extracted || [])];
-      const impLen = imported.length;
-      const all = [...imported, ...extracted];
+      const all = [...getMSKObjectives(bid)];
       const backfillKey = `rxt-backfill-done-${bid}`;
       if (localStorage.getItem(backfillKey)) return;
       let changed = false;
@@ -10008,10 +11935,7 @@ export default function App() {
         });
       });
       if (changed) {
-        const wk = blockObjectivesStorageKey(stored, bid);
-        stored[wk] = packBlockObjectivesRaw(all.slice(0, impLen), all.slice(impLen), parsed.legacyFlat, parsed.rawObj);
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(stored));
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        saveMSKObjectives(bid, all);
       }
       localStorage.setItem(backfillKey, "1");
     } catch (e) {
@@ -10029,7 +11953,7 @@ export default function App() {
         const aligned = alignObjectivesToLectures(blockId, objs, blockLecs);
         const next = { ...prev, [wk]: { ...data, imported: aligned } };
         try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          safeSetItem("rxt-block-objectives", next);
         } catch {}
         return next;
       });
@@ -10125,7 +12049,7 @@ export default function App() {
       repairedOut = repaired;
       const next = { ...prev, [writeKey]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
       try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        safeSetItem("rxt-block-objectives", next);
       } catch (e) {
         console.error(e);
       }
@@ -10348,7 +12272,7 @@ export default function App() {
       repairUnknownActivityRef.current = true;
       setBlockObjectives(next);
       try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        safeSetItem("rxt-block-objectives", next);
       } catch {}
     }
   }, [blockObjectives, lectures, resolveBlockMeta, setBlockObjectives]);
@@ -10430,7 +12354,7 @@ export default function App() {
       }
       const next = { ...prev, [bid]: { ...cur, imported: cleanedImported, extracted: cleanedExtracted } };
       try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        safeSetItem("rxt-block-objectives", next);
       } catch {}
       return next;
     });
@@ -10464,7 +12388,7 @@ export default function App() {
       });
       if (changed) {
         try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+          safeSetItem("rxt-block-objectives", updated);
         } catch {}
       }
       return changed ? updated : prev;
@@ -10599,7 +12523,7 @@ export default function App() {
 
     if (migrated > 0) {
       try {
-        localStorage.setItem("rxt-performance", JSON.stringify(updatedPerf));
+        safeSetItem("rxt-performance", updatedPerf);
       } catch (e) {
         console.warn("Failed to persist resynced performance", e);
       }
@@ -10627,7 +12551,7 @@ export default function App() {
       const next = { ...prev };
       delete next[oldKey];
       try {
-        localStorage.setItem("rxt-performance", JSON.stringify(next));
+        safeSetItem("rxt-performance", next);
       } catch (e) {
         console.warn("Failed to persist dismissal", e);
       }
@@ -10664,7 +12588,7 @@ export default function App() {
 
         delete next[oldKey];
         try {
-          localStorage.setItem("rxt-performance", JSON.stringify(next));
+          safeSetItem("rxt-performance", next);
         } catch (e) {
           console.warn("Failed to persist manual mapping", e);
         }
@@ -10712,7 +12636,7 @@ export default function App() {
 
       console.log(`✅ Cleanup done. Removed ${removed} orphaned keys.`);
       try {
-        localStorage.setItem("rxt-performance", JSON.stringify(cleaned));
+        safeSetItem("rxt-performance", cleaned);
       } catch {}
       return cleaned;
     });
@@ -10803,7 +12727,7 @@ export default function App() {
         allPerf[newKey] = allPerf[oldKey];
         delete allPerf[oldKey];
         try {
-          localStorage.setItem("rxt-performance", JSON.stringify(allPerf));
+          safeSetItem("rxt-performance", allPerf);
         } catch (e) {
           console.warn("Failed to persist performance migration", e);
         }
@@ -10816,6 +12740,141 @@ export default function App() {
       }
     },
     []
+  );
+
+  const mergeSplitLectures = useCallback(
+    async (partAId, partBId, blockBid) => {
+      try {
+        let allLecs = [];
+        try {
+          allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+        } catch {
+          allLecs = [];
+        }
+        const partA = allLecs.find((l) => l.id === partAId);
+        const partB = allLecs.find((l) => l.id === partBId);
+        if (!partA || !partB) {
+          console.error("mergeSplitLectures: could not find both lectures");
+          return false;
+        }
+
+        const mergedChunks = [
+          ...(partA.chunks || []),
+          { text: "\n\n--- Part B ---\n\n" },
+          ...(partB.chunks || []),
+        ];
+        const combinedText = mergedChunks.map((c) => c.text || "").join("\n");
+
+        let mergedTitle = (partA.lectureTitle || "")
+          .replace(/[_\s(]\s*part\s*[a-z0-9]\s*[_)]/gi, "")
+          .replace(/[-–]\s*part\s*[a-z0-9]\s*$/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+        if (!mergedTitle) mergedTitle = (partA.filename || "Lecture").replace(/\.pdf$/i, "");
+
+        let mergedLec = {
+          ...partA,
+          lectureTitle: mergedTitle,
+          filename: `${mergedTitle} (Parts A+B)`,
+          chunks: mergedChunks,
+          fullText: combinedText,
+          mergedFrom: [
+            { id: partA.id, title: partA.filename || partA.lectureTitle, num: partA.lectureNumber },
+            { id: partB.id, title: partB.filename || partB.lectureTitle, num: partB.lectureNumber, partLabel: "B" },
+          ],
+          mergedAt: new Date().toISOString(),
+          partABMerged: true,
+        };
+
+        const updatedLecs = allLecs.filter((l) => l.id !== partBId).map((l) => (l.id === partAId ? mergedLec : l));
+        try {
+          localStorage.setItem("rxt-lec-meta", JSON.stringify(updatedLecs));
+        } catch (e) {
+          console.error("mergeSplitLectures persist failed:", e);
+        }
+
+        setLecs((prev) => {
+          const next = prev.filter((l) => l.id !== partBId).map((l) => (l.id === partAId ? mergedLec : l));
+          saveLectures(next);
+          return next;
+        });
+
+        const flatAll = getMSKObjectives(blockBid);
+        const withoutBoth = flatAll.filter(
+          (o) => o.linkedLecId !== partAId && o.linkedLecId !== partBId
+        );
+
+        let newObjs = [];
+        try {
+          newObjs = await extractObjectivesFromLecture(combinedText, mergedLec, blockBid);
+        } catch (e) {
+          console.warn("mergeSplitLectures extractObjectivesFromLecture:", e);
+        }
+
+        if (newObjs.length > 0) {
+          const mapped = newObjs.map((o) => {
+            const enriched = enrichObjectiveWithBloom(o, mergedLec.lectureType || "LEC");
+            return {
+              ...enriched,
+              id:
+                enriched.id ||
+                (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid()),
+              linkedLecId: mergedLec.id,
+              lectureType: mergedLec.lectureType,
+              lectureNumber: mergedLec.lectureNumber,
+              activity: `${mergedLec.lectureType || "LEC"}${mergedLec.lectureNumber}`,
+              sourceFile: mergedLec.id,
+            };
+          });
+          saveMSKObjectives(blockBid, [...withoutBoth, ...mapped]);
+        } else {
+          const relink = flatAll.map((o) =>
+            o.linkedLecId === partBId ? { ...o, linkedLecId: partAId, sourceFile: partAId } : o
+          );
+          saveMSKObjectives(blockBid, relink);
+        }
+
+        let teachingMap = null;
+        try {
+          teachingMap = await analyzeLecture(mergedLec, getLecText(mergedLec));
+        } catch (e) {
+          console.warn("mergeSplitLectures analyzeLecture:", e);
+        }
+        if (teachingMap) {
+          mergedLec = {
+            ...mergedLec,
+            teachingMap,
+            teachingMapDate: new Date().toISOString(),
+          };
+          try {
+            const fresh = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+            const fi = fresh.findIndex((l) => l.id === mergedLec.id);
+            if (fi >= 0) {
+              fresh[fi] = { ...fresh[fi], teachingMap, teachingMapDate: mergedLec.teachingMapDate };
+              localStorage.setItem("rxt-lec-meta", JSON.stringify(fresh));
+            }
+          } catch (e) {
+            console.warn("mergeSplitLectures teaching map persist:", e);
+          }
+          setLecs((prev) => {
+            const next = prev.map((l) => (l.id === mergedLec.id ? mergedLec : l));
+            saveLectures(next);
+            return next;
+          });
+        }
+
+        reconcileCompletionOnUpload(mergedLec);
+        migratePerformanceOnUpload(mergedLec, blockBid, lectures, setPerformanceHistory);
+
+        window.dispatchEvent(new CustomEvent("rxt-lec-updated"));
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        return true;
+      } catch (e) {
+        console.error("mergeSplitLectures failed:", e);
+        return false;
+      }
+    },
+    [lectures, migratePerformanceOnUpload, setPerformanceHistory]
   );
 
   const syncTrackerRow = useCallback(
@@ -10926,7 +12985,7 @@ export default function App() {
         const updatedExtracted = (data.extracted || []).map(mapUntestedToInProgress);
         const next = { ...prev, [wk]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
         try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          safeSetItem("rxt-block-objectives", next);
         } catch {}
         return next;
       });
@@ -10964,7 +13023,7 @@ export default function App() {
           const updatedExtracted = (data.extracted || []).map(revertInProgressToUntested);
           const next = { ...prev, [wk]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
           try {
-            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+            safeSetItem("rxt-block-objectives", next);
           } catch {}
           return next;
         });
@@ -11614,7 +13673,7 @@ export default function App() {
         },
       };
       try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+        safeSetItem("rxt-block-objectives", updated);
       } catch {}
       return updated;
     });
@@ -11626,56 +13685,100 @@ export default function App() {
   };
 
   const updateObjective = (blockId, objId, patch) => {
-    setBlockObjectives((prev) => {
-      const blockData = pickBlockObjectivesState(prev, blockId);
-      const writeKey = blockObjectivesStorageKey(prev, blockId);
-      const updateArr = (arr) => (arr || []).map((o) => (o.id === objId ? { ...o, ...patch } : o));
-      const updated = {
-        ...prev,
-        [writeKey]: {
-          ...blockData,
-          imported: updateArr(blockData.imported),
-          extracted: updateArr(blockData.extracted),
-        },
-      };
-      try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
-      } catch {}
-      return updated;
-    });
-    queueMicrotask(() => {
-      try {
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
-      } catch {}
-    });
+    try {
+      const objs = [...getMSKObjectives(blockId)];
+      const idx = objs.findIndex((o) => o.id === objId);
+      if (idx === -1) return;
+      objs[idx] = { ...objs[idx], ...patch };
+      saveMSKObjectives(blockId, objs);
+    } catch (e) {
+      console.error("updateObjective failed:", e);
+    }
   };
 
   const assignObjectiveToLecture = (bid, objId, lecId) => {
-    if (!bid || !objId || !lecId) return;
-    updateObjective(bid, objId, { linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true });
+    try {
+      if (!bid || !objId || !lecId) return;
+      const objs = [...getMSKObjectives(bid)];
+      const idx = objs.findIndex((o) => o.id === objId);
+      if (idx === -1) {
+        console.warn("assignObjectiveToLecture: obj not found", String(objId).slice(0, 8));
+        return;
+      }
+      objs[idx] = {
+        ...objs[idx],
+        linkedLecId: lecId,
+        sourceFile: lecId,
+        manuallyAligned: true,
+        alignedAt: new Date().toISOString(),
+      };
+      saveMSKObjectives(bid, objs);
+      const verify = getMSKObjectives(bid);
+      const saved = verify.find((o) => o.id === objId);
+      console.log(
+        "Assignment verify:",
+        saved?.linkedLecId === lecId ? "✓ SAVED" : "✗ FAILED"
+      );
+      setUnlinkedRefreshKey((k) => k + 1);
+    } catch (e) {
+      console.error("assignObjectiveToLecture failed:", e);
+    }
   };
+
+  function reassignDrillObjective(objId, newLecId, storageBid) {
+    try {
+      const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      const newLec = allLecs.find((l) => l.id === newLecId);
+      if (!newLec) {
+        console.error("reassignDrillObjective: lecture not found");
+        return;
+      }
+      const bid = storageBid || activeBlock?.id || blockId;
+      const objs = [...getMSKObjectives(bid)];
+      const idx = objs.findIndex((o) => o.id === objId);
+      if (idx === -1) return;
+      const oldLecId = objs[idx].linkedLecId;
+      objs[idx] = {
+        ...objs[idx],
+        linkedLecId: newLecId,
+        sourceFile: newLecId,
+        manuallyAligned: true,
+        alignedAt: new Date().toISOString(),
+        reassignedFrom: oldLecId,
+        reassignedAt: new Date().toISOString(),
+      };
+      saveMSKObjectives(bid, objs);
+      setDrillQueue((prev) =>
+        prev.map((o) => (o.id === objId ? { ...o, linkedLecId: newLecId } : o))
+      );
+      setReassignedConfirm(objId);
+      setTimeout(() => setReassignedConfirm(null), 2000);
+      setUnlinkedRefreshKey((k) => k + 1);
+      try {
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch {}
+      console.log(
+        `Reassigned ${String(objId).slice(0, 8)} from`,
+        oldLecId?.slice?.(0, 8),
+        "to",
+        newLecId.slice(0, 8)
+      );
+    } catch (e) {
+      console.error("reassignDrillObjective failed:", e);
+    }
+  }
 
   const assignAllVisibleObjectives = (bid, lecId, visibleObjIds) => {
     if (!bid || !lecId || !visibleObjIds?.length) return;
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
       const idSet = new Set(visibleObjIds);
-      const patchArr = (arr) =>
-        (arr || []).map((o) =>
-          idSet.has(o.id)
-            ? { ...o, linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true }
-            : o
-        );
-      const imp = patchArr(imported);
-      const ext = patchArr(extracted);
-      const wk = blockObjectivesStorageKey(stored, bid);
-      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-      localStorage.setItem(key, JSON.stringify(stored));
-      setBlockObjectives({ ...stored });
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      const flat = getMSKObjectives(bid).map((o) =>
+        idSet.has(o.id)
+          ? { ...o, linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true }
+          : o
+      );
+      saveMSKObjectives(bid, flat);
+      setUnlinkedRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("assignAllVisibleObjectives:", e);
     }
@@ -11689,19 +13792,11 @@ export default function App() {
   const deleteUnlinkedObjectivesForBlock = (bid) => {
     if (!bid) return;
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
       const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid));
       const keep = (o) => isObjectiveLinked(o, blockLecs);
-      const imp = (imported || []).filter(keep);
-      const ext = (extracted || []).filter(keep);
-      const wk = blockObjectivesStorageKey(stored, bid);
-      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-      localStorage.setItem(key, JSON.stringify(stored));
-      setBlockObjectives({ ...stored });
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      const flat = getMSKObjectives(bid).filter(keep);
+      saveMSKObjectives(bid, flat);
+      setUnlinkedRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("deleteUnlinkedObjectivesForBlock:", e);
     }
@@ -11710,18 +13805,9 @@ export default function App() {
   function deleteSingleObjective(objId, blockId) {
     if (!blockId || !objId) return;
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, blockId);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-      const idSet = new Set([objId]);
-      const imp = (imported || []).filter((o) => !idSet.has(o.id));
-      const ext = (extracted || []).filter((o) => !idSet.has(o.id));
-      const wk = blockObjectivesStorageKey(stored, blockId);
-      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-      localStorage.setItem(key, JSON.stringify(stored));
-      setBlockObjectives({ ...stored });
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      const filtered = getMSKObjectives(blockId).filter((o) => o.id !== objId);
+      saveMSKObjectives(blockId, filtered);
+      setUnlinkedRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("deleteSingleObjective failed:", e);
     }
@@ -11730,18 +13816,10 @@ export default function App() {
   function deleteMultipleObjectives(objIds, blockId) {
     if (!blockId || !objIds?.length) return;
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, blockId);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
       const idSet = new Set(objIds);
-      const imp = (imported || []).filter((o) => !idSet.has(o.id));
-      const ext = (extracted || []).filter((o) => !idSet.has(o.id));
-      const wk = blockObjectivesStorageKey(stored, blockId);
-      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-      localStorage.setItem(key, JSON.stringify(stored));
-      setBlockObjectives({ ...stored });
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      const filtered = getMSKObjectives(blockId).filter((o) => !idSet.has(o.id));
+      saveMSKObjectives(blockId, filtered);
+      setUnlinkedRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("deleteMultipleObjectives failed:", e);
     }
@@ -11750,32 +13828,249 @@ export default function App() {
   function assignMultipleToLecture(objIds, lecId, blockId) {
     if (!blockId || !lecId || !objIds?.length) return;
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, blockId);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
       const idSet = new Set(objIds);
-      const patchArr = (arr) =>
-        (arr || []).map((o) =>
-          idSet.has(o.id)
-            ? { ...o, linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true }
-            : o
-        );
-      const imp = patchArr(imported);
-      const ext = patchArr(extracted);
-      const wk = blockObjectivesStorageKey(stored, blockId);
-      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-      localStorage.setItem(key, JSON.stringify(stored));
-      setBlockObjectives({ ...stored });
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      const flat = getMSKObjectives(blockId).map((o) =>
+        idSet.has(o.id)
+          ? { ...o, linkedLecId: lecId, sourceFile: lecId, manuallyAligned: true }
+          : o
+      );
+      saveMSKObjectives(blockId, flat);
+      setUnlinkedRefreshKey((k) => k + 1);
     } catch (e) {
       console.error("assignMultipleToLecture failed:", e);
     }
   }
 
+  function backupObjectives(blockId) {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const backup = {
+        timestamp: new Date().toISOString(),
+        blockId,
+        data: JSON.parse(JSON.stringify(stored[blockId] || stored["msk"] || {})),
+      };
+      localStorage.setItem("rxt-objectives-backup", JSON.stringify(backup));
+      console.log("Objectives backed up at", backup.timestamp);
+      return backup;
+    } catch (e) {
+      console.error("Backup failed:", e);
+      return null;
+    }
+  }
+
+  function restoreObjectivesFromBackup() {
+    try {
+      const backup = JSON.parse(localStorage.getItem("rxt-objectives-backup") || "null");
+      if (!backup) {
+        alert("No backup found");
+        return false;
+      }
+
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const actualKey = stored[backup.blockId] !== undefined ? backup.blockId : "msk";
+      stored[actualKey] = backup.data;
+
+      safeSetItem("rxt-block-objectives", stored);
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      console.log("Restored backup from", backup.timestamp);
+      return true;
+    } catch (e) {
+      console.error("Restore failed:", e);
+      return false;
+    }
+  }
+
+  const deduplicateObjectives = useCallback(
+    async (blockId) => {
+      setDedupeStatus("running");
+      setDedupeProgress("Preparing...");
+
+      try {
+        backupObjectives(blockId);
+
+        const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+        const rawEntry = getBlockObjectivesStoredRaw(stored, blockId);
+        const mskData = Array.isArray(rawEntry)
+          ? { imported: rawEntry, extracted: [] }
+          : rawEntry || { imported: [], extracted: [] };
+
+        const imported = [...(mskData.imported || [])];
+        const extracted = [...(mskData.extracted || [])];
+
+        if (imported.length === 0 || extracted.length === 0) {
+          setDedupeStatus("done");
+          setDedupeProgress("Nothing to deduplicate");
+          refreshObjectivesFromStorage();
+          return;
+        }
+
+        setDedupeProgress(
+          `Comparing ${extracted.length} extracted against ${imported.length} block objectives...`
+        );
+
+        const importedManifest = imported
+          .map((o, i) => `${i}|${(o.objective || o.text || "").slice(0, 80)}`)
+          .join("\n");
+
+        const batchSize = 15;
+        const toRemove = new Set();
+        const toMerge = new Map();
+
+        for (let i = 0; i < extracted.length; i += batchSize) {
+          const batch = extracted.slice(i, i + batchSize);
+
+          setDedupeProgress(
+            `Comparing batch ${Math.floor(i / batchSize) + 1} of ${Math.ceil(extracted.length / batchSize)}...`
+          );
+
+          const batchList = batch
+            .map((o, idx) => `${idx}|${(o.objective || o.text || "").slice(0, 100)}`)
+            .join("\n");
+
+          const systemPrompt = `You are comparing medical learning objectives.
+Return JSON only: {"results":[{"idx":0,"match":null_or_imported_index,"type":"duplicate|overlap|unique"}]}
+idx = batch index of the extracted objective
+match = index of the matching imported objective (0-based), or null if unique
+type = "duplicate" (same concept), "overlap" (partial), "unique" (not covered)
+Be conservative — only mark as duplicate if clearly the same concept.`;
+
+          const userPrompt = `IMPORTED BLOCK OBJECTIVES (index|text):
+${importedManifest}
+
+EXTRACTED LECTURE OBJECTIVES to classify (index|text):
+${batchList}
+
+For each extracted objective, find if it duplicates or overlaps with any imported objective.`;
+
+          try {
+            const raw = await callAI(systemPrompt, userPrompt, 2000);
+            const parsed = tryParseJSON(raw);
+
+            if (parsed?.results && Array.isArray(parsed.results)) {
+              parsed.results.forEach((r) => {
+                if (r.idx == null) return;
+                const obj = batch[r.idx];
+                if (!obj) return;
+
+                const mi =
+                  typeof r.match === "number" && Number.isFinite(r.match)
+                    ? r.match
+                    : parseInt(String(r.match), 10);
+                const okIdx = Number.isFinite(mi) && mi >= 0 && mi < imported.length;
+
+                if ((r.type === "duplicate" || r.type === "overlap") && okIdx) {
+                  toRemove.add(obj.id);
+                  const imp = imported[mi];
+                  if (imp?.id) toMerge.set(obj.id, imp.id);
+                }
+              });
+            }
+          } catch (e) {
+            console.error(`Batch ${i} failed:`, e);
+          }
+
+          await new Promise((r) => setTimeout(r, 400));
+        }
+
+        setDedupeProgress("Merging status data...");
+
+        const statusPriority = {
+          mastered: 4,
+          inprogress: 3,
+          struggling: 2,
+          untested: 1,
+        };
+
+        toMerge.forEach((importedId, extractedId) => {
+          const extractedObj = extracted.find((o) => o.id === extractedId);
+          const importedIdx = imported.findIndex((o) => o.id === importedId);
+
+          if (!extractedObj || importedIdx === -1) return;
+
+          const extractedStatus = extractedObj.status || "untested";
+          const importedStatus = imported[importedIdx].status || "untested";
+
+          const extractedPriority = statusPriority[extractedStatus] || 1;
+          const importedPriority = statusPriority[importedStatus] || 1;
+
+          if (extractedPriority > importedPriority) {
+            imported[importedIdx] = {
+              ...imported[importedIdx],
+              status: extractedStatus,
+              consecutiveCorrect: Math.max(
+                imported[importedIdx].consecutiveCorrect || 0,
+                extractedObj.consecutiveCorrect || 0
+              ),
+              drillCount: (imported[importedIdx].drillCount || 0) + (extractedObj.drillCount || 0),
+            };
+          }
+        });
+
+        const uniqueExtracted = extracted.filter((o) => !toRemove.has(o.id));
+
+        const writeKey = blockObjectivesStorageKey(stored, blockId);
+        if (Array.isArray(rawEntry)) {
+          stored[writeKey] = imported;
+        } else {
+          stored[writeKey] = {
+            imported,
+            extracted: uniqueExtracted,
+          };
+        }
+
+        safeSetItem("rxt-block-objectives", stored);
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        refreshObjectivesFromStorage();
+        setUnlinkedRefreshKey((k) => k + 1);
+
+        const removed = toRemove.size;
+        const kept = uniqueExtracted.length;
+        const total = imported.length + kept;
+
+        setDedupeStatus("done");
+        setDedupeProgress(
+          `✓ Removed ${removed} duplicates · ${kept} unique extracted kept · ${total} total objectives remaining`
+        );
+
+        console.log(
+          `Dedup complete: ${removed} removed, ${kept} unique extracted kept, ${total} total`
+        );
+      } catch (e) {
+        console.error("deduplicateObjectives failed:", e);
+        setDedupeStatus("error");
+        setDedupeProgress(`Failed: ${e?.message || String(e)}`);
+      }
+    },
+    [refreshObjectivesFromStorage, setUnlinkedRefreshKey]
+  );
+
   const runSmartAlignment = useCallback(
     async (blockId) => {
       if (!blockId) return;
+
+      // Warn before running AI alignment if you have manual assignments.
+      const mc = getMSKObjectives(blockId).filter((o) => o.manuallyAligned).length;
+      if (mc > 0) {
+        const confirmed = window.confirm(
+          `You have ${mc} manually assigned objectives.\n\n` +
+            `AI alignment will NOT overwrite these.\n\n` +
+            `A backup will be created automatically.\n\n` +
+            `Continue?`
+        );
+        if (!confirmed) return;
+      }
+
+      if (undoTimer) {
+        clearTimeout(undoTimer);
+      }
+      setShowUndoAlignment(false);
+      const backup = backupObjectives(blockId);
+      if (!backup) {
+        setAlignmentStatus("error");
+        setAlignmentProgress("Could not create backup — alignment cancelled");
+        return;
+      }
+
       setAlignmentStatus("running");
       setAlignmentProgress("Preparing...");
       setAlignmentDoneSummary(null);
@@ -11796,6 +14091,13 @@ export default function App() {
           setAlignmentStatus("done");
           setAlignmentProgress("All objectives already linked");
           setAlignmentDoneSummary({ aligned: 0, failed: 0 });
+          setShowUndoAlignment(true);
+          const timer = setTimeout(() => {
+            setShowUndoAlignment(false);
+          }, 60000);
+          setUndoTimer(timer);
+          const uidAlign = userRef.current?.id;
+          if (uidAlign) scheduleSyncToSupabase(uidAlign);
           return;
         }
         setAlignmentStatus("done");
@@ -11803,87 +14105,66 @@ export default function App() {
           `✓ ${res.aligned}/${res.totalUnlinked} aligned · ${res.failed} still need manual review`
         );
         setAlignmentDoneSummary({ aligned: res.aligned, failed: res.failed });
+        setShowUndoAlignment(true);
+        const timer = setTimeout(() => {
+          setShowUndoAlignment(false);
+        }, 60000);
+        setUndoTimer(timer);
         validateAndRepairLinkedIds(blockId);
         setContentMismatches(detectContentMismatches(blockId));
+        const uidAlign2 = userRef.current?.id;
+        if (uidAlign2) scheduleSyncToSupabase(uidAlign2);
       } catch (e) {
         console.error("Smart alignment failed:", e);
         setAlignmentStatus("error");
         setAlignmentProgress(`Failed: ${e.message || String(e)}`);
       }
     },
-    [lectures, setBlockObjectives, resolveBlockMeta]
+    [lectures, setBlockObjectives, resolveBlockMeta, undoTimer]
   );
 
   const updateSingleObjectiveStatus = useCallback(
     (bid, objId, newStatus, opts) => {
       if (!bid || !objId) return;
       try {
-        const key = "rxt-block-objectives";
-        const stored = JSON.parse(localStorage.getItem(key) || "{}");
-        const raw = getBlockObjectivesStoredRaw(stored, bid);
-        const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-        const imp = [...imported];
-        const ext = [...extracted];
-        let idx = imp.findIndex((o) => o.id === objId);
-        let arr = imp;
-        if (idx === -1) {
-          idx = ext.findIndex((o) => o.id === objId);
-          arr = ext;
-        }
+        const flat = [...getMSKObjectives(bid)];
+        const idx = flat.findIndex((o) => o.id === objId);
         if (idx === -1) return;
         const now = new Date().toISOString();
-        arr[idx] = {
-          ...arr[idx],
+        flat[idx] = {
+          ...flat[idx],
           status: newStatus,
           lastUpdated: now,
           lastTested: now,
           ...(opts?.includeLastDrilled ? { lastDrilled: now } : {}),
         };
-        const wk = blockObjectivesStorageKey(stored, bid);
-        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-        localStorage.setItem(key, JSON.stringify(stored));
-        setBlockObjectives({ ...stored });
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        saveMSKObjectives(bid, flat);
       } catch (e) {
         console.error("updateSingleObjectiveStatus:", e);
       }
     },
-    [setBlockObjectives]
+    []
   );
 
   const updateDrillProgression = useCallback((objId, blockId, wasCorrect) => {
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, blockId);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-      const imp = [...imported];
-      const ext = [...extracted];
-      let idx = imp.findIndex((o) => o.id === objId);
-      let arr = imp;
-      if (idx === -1) {
-        idx = ext.findIndex((o) => o.id === objId);
-        arr = ext;
-      }
+      const flat = [...getMSKObjectives(blockId)];
+      const idx = flat.findIndex((o) => o.id === objId);
       if (idx === -1) return;
-      const obj = arr[idx];
+      const obj = flat[idx];
       const prev = obj.consecutiveCorrect || 0;
-      arr[idx] = {
+      flat[idx] = {
         ...obj,
         drillCount: (obj.drillCount || 0) + 1,
         lastDrillStatus: wasCorrect ? "correct" : "wrong",
         consecutiveCorrect: wasCorrect ? prev + 1 : 0,
         lastDrilledAt: new Date().toISOString(),
       };
-      const wk = blockObjectivesStorageKey(stored, blockId);
-      stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-      localStorage.setItem(key, JSON.stringify(stored));
-      setBlockObjectives({ ...stored });
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      saveMSKObjectives(blockId, flat);
     } catch (e) {
       console.error("updateDrillProgression failed:", e);
     }
-  }, [setBlockObjectives]);
+  }, []);
 
   function captureDrillLevelSnapshot(queue, bid) {
     if (!bid || !queue?.length) {
@@ -11912,48 +14193,35 @@ export default function App() {
     (lecId, bid, score) => {
       if (!lecId || !bid) return;
       try {
-        const key = "rxt-block-objectives";
-        const stored = JSON.parse(localStorage.getItem(key) || "{}");
-        const raw = getBlockObjectivesStoredRaw(stored, bid);
-        const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-        const imp = [...imported];
-        const ext = [...extracted];
+        const flat = [...getMSKObjectives(bid)];
         let changed = false;
-        const apply = (arr) => {
-          arr.forEach((obj, idx) => {
-            if (obj.linkedLecId !== lecId) return;
-            if (obj.status === "mastered" && score < 50) return;
-            const newStatus =
-              score >= 80 ? "mastered" : score >= 55 ? "inprogress" : "struggling";
-            const order = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
-            const prev = order[obj.status] ?? 0;
-            const next = order[newStatus] ?? 0;
-            if (next >= prev || score < 30) {
-              arr[idx] = {
-                ...obj,
-                status: newStatus,
-                lastQuizzed: new Date().toISOString(),
-                lastQuizScore: score,
-              };
-              changed = true;
-            }
-          });
-        };
-        apply(imp);
-        apply(ext);
+        flat.forEach((obj, idx) => {
+          if (obj.linkedLecId !== lecId) return;
+          if (obj.status === "mastered" && score < 50) return;
+          const newStatus =
+            score >= 80 ? "mastered" : score >= 55 ? "inprogress" : "struggling";
+          const order = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
+          const prev = order[obj.status] ?? 0;
+          const next = order[newStatus] ?? 0;
+          if (next >= prev || score < 30) {
+            flat[idx] = {
+              ...obj,
+              status: newStatus,
+              lastQuizzed: new Date().toISOString(),
+              lastQuizScore: score,
+            };
+            changed = true;
+          }
+        });
         if (changed) {
-          const wk = blockObjectivesStorageKey(stored, bid);
-          stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-          localStorage.setItem(key, JSON.stringify(stored));
-          setBlockObjectives({ ...stored });
-          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+          saveMSKObjectives(bid, flat);
           window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
         }
       } catch (e) {
         console.error("writeObjectiveStatuses:", e);
       }
     },
-    [setBlockObjectives]
+    []
   );
 
   useEffect(() => {
@@ -11962,11 +14230,8 @@ export default function App() {
     const blockLecs = getBlockLecs(lectures, resolveBlockMeta(bid));
     if (!blockLecs.length) return;
     try {
-      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
       const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted } = parseBlockObjectivesRaw(raw);
-      const flat = [...imported, ...extracted];
+      const flat = getMSKObjectives(bid);
       blockLecs.forEach((lec) => {
         const lecObjs = flat.filter((o) => o.linkedLecId === lec.id);
         if (!lecObjs.length) return;
@@ -11990,7 +14255,8 @@ export default function App() {
   const drillFilterRef = useRef(drillFilter);
   const drillLecFilterRef = useRef(drillLecFilter);
   const drillIdAllowlistRef = useRef(drillIdAllowlist);
-  const drillBlockIdRef = useRef(activeBlock?.id ?? blockId);
+  const drillBlockIdRef = useRef(drillBlockId);
+  const drillCompletionSyncedRef = useRef(false);
   const drillSessionStrugglingRef = useRef(new Set());
   const drillSummaryBuiltRef = useRef(false);
   const drillCardFirstRenderRef = useRef(true);
@@ -12010,16 +14276,11 @@ export default function App() {
     drillFilterRef.current = drillFilter;
     drillLecFilterRef.current = drillLecFilter;
     drillIdAllowlistRef.current = drillIdAllowlist;
-    drillBlockIdRef.current = activeBlock?.id ?? blockId;
-  }, [
-    drillStats,
-    drillStyle,
-    drillFilter,
-    drillLecFilter,
-    drillIdAllowlist,
-    activeBlock?.id,
-    blockId,
-  ]);
+  }, [drillStats, drillStyle, drillFilter, drillLecFilter, drillIdAllowlist]);
+
+  useEffect(() => {
+    drillBlockIdRef.current = drillBlockId;
+  }, [drillBlockId]);
 
   useEffect(() => {
     revealedCardKeyRef.current = revealedCardKey;
@@ -12233,22 +14494,293 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     }
   }, [drillStyle]);
 
+  const generateSyntheticObjectives = useCallback(async (lecId, blockId, existingObjs, count) => {
+    const resolvedLecId = lecId || existingObjs.find((o) => o.linkedLecId)?.linkedLecId;
+    if (!resolvedLecId || !count) return [];
+    try {
+      const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      const lec = allLecs.find((l) => l.id === resolvedLecId);
+      if (!lec) return [];
+
+      const collected = [];
+      let remaining = count;
+      while (remaining > 0) {
+        const batch = Math.min(20, remaining);
+        const lecText = (lec.chunks || [])
+          .map((c) => c.text || "")
+          .join("\n")
+          .slice(0, 3000);
+        const existingTopics = [...existingObjs, ...collected]
+          .map((o) => (o.objective || o.text || "").slice(0, 60))
+          .join("\n");
+
+        const systemPrompt = `Generate ${batch} additional learning objectives for this medical lecture.
+Return JSON only:
+{"objectives":[{"text":"objective text","bloom_level":2}]}
+Make them DIFFERENT from the existing ones.
+Cover topics not yet addressed.
+Vary Bloom levels: some recall, some application, some analysis.`;
+
+        const userPrompt = `Lecture: ${lec.lectureTitle || ""}
+Type: ${lec.lectureType || ""}
+
+Existing objectives already covered:
+${existingTopics}
+
+Lecture content summary:
+${lecText.slice(0, 1500)}
+
+Generate ${batch} new objectives that cover different aspects of this lecture.`;
+
+        const raw = await callAI(systemPrompt, userPrompt, 1500);
+        const parsed = tryParseJSON(raw);
+        if (!parsed?.objectives?.length) break;
+        const batchObjs = parsed.objectives.slice(0, batch).map((o) => ({
+          id: newSyntheticObjectiveId(),
+          _drillBlockId: blockId || "msk",
+          linkedLecId: resolvedLecId,
+          objective: o.text || "",
+          text: o.text || "",
+          status: "untested",
+          bloom_level: o.bloom_level || 2,
+          isSynthetic: true,
+        }));
+        collected.push(...batchObjs);
+        remaining -= batchObjs.length;
+        if (batchObjs.length < batch) break;
+      }
+      return collected.slice(0, count);
+    } catch (e) {
+      console.error("generateSyntheticObjectives failed:", e);
+      return [];
+    }
+  }, []);
+
+  const launchDrillWithConfig = useCallback(
+    async (config, targetCount) => {
+      if (!config) return;
+      const { lecId, confirmedLecId: cfgConfirmed, mode, filterVal, lecFilter, blockId: bidIn, lecTitle: cfgLecTitle } =
+        config;
+      const blockId = bidIn || "msk";
+      const confirmedLecId = cfgConfirmed != null && cfgConfirmed !== "" ? cfgConfirmed : lecId;
+      setDrillSetupLaunching(true);
+      try {
+        const allObjs = getMSKObjectives(blockId);
+        console.log("launchDrillWithConfig lecId:", lecId);
+        console.log("launchDrillWithConfig confirmedLecId:", confirmedLecId);
+        console.log("Total objs:", allObjs.length);
+        const filterKey = lecFilter && lecFilter !== "all" ? lecFilter : null;
+        const filtered =
+          filterKey != null ? allObjs.filter((o) => o.linkedLecId === filterKey) : allObjs;
+        console.log("Filtered for this lecture:", filtered.length);
+        console.log(
+          "Sample linkedLecIds:",
+          allObjs.slice(0, 5).map((o) => o.linkedLecId)
+        );
+
+        const realPool = buildDrillQueue(blockId, filterVal, lecFilter);
+        console.log("buildDrillQueue pool length:", realPool.length);
+
+        if (filterKey != null && realPool.length === 0) {
+          alert(
+            `No objectives are linked to "${cfgLecTitle || filterKey}" yet.\n\n` +
+              "Go to Objectives → Unlinked tab to assign objectives to this lecture first."
+          );
+          return;
+        }
+        if (!realPool.length) {
+          alert(
+            lecId
+              ? "No objectives match this drill for this lecture."
+              : "No objectives match this drill."
+          );
+          return;
+        }
+
+        let finalQueue = [...realPool];
+        if (targetCount > realPool.length) {
+          const lecForSynth = confirmedLecId || lecId || realPool[0]?.linkedLecId;
+          if (lecForSynth) {
+            const needed = targetCount - realPool.length;
+            const synthetic = await generateSyntheticObjectives(lecForSynth, blockId, realPool, needed);
+            finalQueue = [...realPool, ...synthetic];
+          }
+        }
+        if (finalQueue.length > targetCount) {
+          finalQueue = finalQueue.slice(0, targetCount);
+        }
+
+        const displayCap = Math.min(targetCount, finalQueue.length);
+        setDrillSessionQuestionTarget(displayCap);
+
+        drillCompletionSyncedRef.current = false;
+        setDrillBlockId(blockId);
+        drillBlockIdRef.current = blockId;
+
+        setView("block");
+        setTab("objectives");
+        setShowDrillSummary(false);
+        setDrillSummaryData(null);
+        drillSummaryBuiltRef.current = false;
+        setDrillQueue(finalQueue);
+        setDrillIndex(0);
+        setDrillComplete(false);
+        setDrillStyle(mode === "flashcard" ? "flashcard" : "mcq");
+        setDrillMode(true);
+        setDrillFilter(filterVal);
+        setDrillLecFilter(lecFilter);
+        setDrillIdAllowlist(null);
+        setDrillStats({
+          seen: 0,
+          mastered: 0,
+          struggling: 0,
+          skipped: 0,
+          inprogress: 0,
+          assessedIndices: [],
+        });
+        drillSessionStrugglingRef.current.clear();
+        drillCardFirstRenderRef.current = true;
+        revealedCardKeyRef.current = null;
+        setRevealedCardKey(null);
+        drillCardModeRef.current = "back";
+        setDrillCardMode("back");
+        setCardState("front");
+        setMcqData(null);
+        setCardBack(null);
+        setMcqError(null);
+        mcqRetryRef.current = false;
+        captureDrillLevelSnapshot(finalQueue, blockId);
+        captureDrillWeakConceptSnapshot(blockId);
+        scheduleMcqPrefetchForQueue(finalQueue);
+        setShowDrillSetup(false);
+        setPendingDrillConfig(null);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } finally {
+        setDrillSetupLaunching(false);
+      }
+    },
+    [generateSyntheticObjectives, scheduleMcqPrefetchForQueue]
+  );
+
+  useEffect(() => {
+    function handleStartDrill(e) {
+      const detail = e?.detail || {};
+      const { lecId: rawLecId, mode, filter: filterRaw, lecTitle: detailLecTitle } = detail;
+      const lecId =
+        rawLecId != null && rawLecId !== "" ? rawLecId : null;
+
+      console.log("Setting up drill for:", lecId);
+
+      let metaLec = null;
+      try {
+        const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+        metaLec = lecId ? allLecs.find((l) => l.id === lecId) : null;
+      } catch {}
+
+      const lecFromApp = lecId ? (lectures || []).find((l) => l.id === lecId) : null;
+      if (lecId && !metaLec && !lecFromApp) {
+        alert("Could not find that lecture.");
+        return;
+      }
+
+      const confirmedLecId = lecId ? metaLec?.id || lecFromApp?.id || lecId : null;
+
+      let drillBid = metaLec?.blockId || lecFromApp?.blockId || activeBlock?.id || blockId;
+
+      function syncTermAndBlockFor(bid) {
+        if (!bid) return;
+        const term = (terms || []).find((t) => t.blocks?.some((b) => b.id === bid));
+        if (term) {
+          setTermId(term.id);
+          setBlockId(bid);
+          try {
+            if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
+          } catch {}
+        }
+      }
+
+      if (lecFromApp?.blockId) {
+        syncTermAndBlockFor(lecFromApp.blockId);
+        drillBid = lecFromApp.blockId;
+      } else if (metaLec?.blockId) {
+        syncTermAndBlockFor(metaLec.blockId);
+        drillBid = metaLec.blockId;
+      } else if (drillBid) {
+        syncTermAndBlockFor(drillBid);
+      }
+
+      if (!drillBid) {
+        alert("No block context for drill. Open a block in the app first.");
+        return;
+      }
+
+      const lecFilterForBuild = lecId ? confirmedLecId || lecId : "all";
+      const filterVal =
+        filterRaw != null && String(filterRaw).trim() !== ""
+          ? String(filterRaw).trim()
+          : lecId
+            ? "all"
+            : "struggling";
+
+      const queue = buildDrillQueue(drillBid, filterVal, lecFilterForBuild);
+      if (!queue?.length) {
+        alert(
+          lecId
+            ? "No objectives match this drill for this lecture."
+            : "No objectives match this drill."
+        );
+        return;
+      }
+
+      setView("block");
+      setTab("objectives");
+
+      const lecTitle =
+        detailLecTitle ||
+        lecFromApp?.lectureTitle ||
+        lecFromApp?.title ||
+        lecFromApp?.filename ||
+        metaLec?.lectureTitle ||
+        lecFromApp?.fileName ||
+        "";
+
+      console.log("rxt-start-drill Target lecture:", lecTitle);
+      console.log("rxt-start-drill Confirmed lecId:", confirmedLecId);
+
+      setDrillLecFilter(lecFilterForBuild);
+      setPendingDrillConfig({
+        lecId,
+        confirmedLecId,
+        lecTitle,
+        mode: mode === "flashcard" ? "flashcard" : "mcq",
+        filterVal,
+        lecFilter: lecFilterForBuild,
+        blockId: drillBid,
+      });
+      setShowDrillSetup(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    window.addEventListener("rxt-start-drill", handleStartDrill);
+    return () => window.removeEventListener("rxt-start-drill", handleStartDrill);
+  }, [lectures, terms, activeBlock?.id, blockId]);
+
   const applyDrillResumeSnapshot = useCallback(
     (saved) => {
       const drillBid = activeBlock?.id ?? blockId;
-      let baseObjs = getBlockObjectives(drillBid) || [];
+      drillCompletionSyncedRef.current = false;
+      setDrillSessionQuestionTarget(null);
+      const resumeBid = drillBid || "msk";
+      setDrillBlockId(resumeBid);
+      drillBlockIdRef.current = resumeBid;
+      const lecF = saved.drillLecFilter ?? "all";
+      let queue = buildDrillQueue(drillBid, saved.drillFilter ?? "weak_untested", lecF);
       const al = saved.drillIdAllowlist;
       if (al?.length) {
         const allow = new Set(al);
-        baseObjs = baseObjs.filter((o) => allow.has(o.id));
+        queue = queue.filter((o) => allow.has(o.id));
       }
-      const lecF = saved.drillLecFilter ?? "all";
-      if (lecF !== "all") {
-        baseObjs = baseObjs.filter((o) => o.linkedLecId === lecF);
-      }
-      const queue = buildDrillQueue(baseObjs, saved.drillFilter ?? "weak", lecF);
       const idx = Math.min(Math.max(0, saved.drillIndex ?? 0), Math.max(0, queue.length - 1));
-      setDrillFilter(saved.drillFilter ?? "weak");
+      setDrillFilter(saved.drillFilter ?? "weak_untested");
       setDrillLecFilter(lecF);
       setDrillStyle(saved.drillStyle === "mcq" ? "mcq" : "flashcard");
       setDrillIdAllowlist(al?.length ? al : null);
@@ -12288,7 +14820,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     async (obj, level = null) => {
       if (!obj?.id) return;
       const drillBid = activeBlock?.id ?? blockId;
-      const blockObjs = getBlockObjectives(drillBid) || [];
+      const blockObjs = getMSKObjectives(drillBid) || [];
       const questionLevel = level ?? getQuestionLevel(obj, blockObjs);
       const levelConfig = QUESTION_LEVELS[questionLevel];
       const cacheKey = `${obj.id}_${questionLevel}`;
@@ -12619,12 +15151,146 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     [readBlockObjectivesDedupedFromStorage, setPerformanceHistory]
   );
 
+  const syncDrillToCompletion = useCallback((drillQueue, drillStats, drillStyleArg, blockId) => {
+    try {
+      if (!blockId) return;
+      const assessed = drillStats?.assessedIndices || [];
+      if (assessed.length === 0) return;
+      if (drillCompletionSyncedRef.current) return;
+      drillCompletionSyncedRef.current = true;
+
+      const completionKey = "rxt-completion";
+      const stored = JSON.parse(localStorage.getItem(completionKey) || "{}");
+
+      const now = new Date().toISOString();
+      const today = now.split("T")[0];
+
+      const newId = () =>
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `rxt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+
+      const lectureSessions = {};
+
+      (drillStats.assessedIndices || []).forEach((idx) => {
+        const obj = drillQueue[idx];
+        if (!obj?.linkedLecId) return;
+
+        const lecId = obj.linkedLecId;
+        const entryBlockId = obj._drillBlockId || blockId;
+        const sessionKey = `${lecId}__${entryBlockId}`;
+        if (!lectureSessions[sessionKey]) {
+          lectureSessions[sessionKey] = {
+            lecId,
+            entryBlockId,
+            mastered: 0,
+            struggling: 0,
+            inprogress: 0,
+            total: 0,
+          };
+        }
+
+        const objBid = obj._drillBlockId || blockId;
+        const allObjs = getMSKObjectives(objBid);
+        const current = allObjs.find((o) => o.id === obj.id);
+        const status = current?.status || "untested";
+
+        lectureSessions[sessionKey].total++;
+        if (status === "mastered") lectureSessions[sessionKey].mastered++;
+        if (status === "struggling") lectureSessions[sessionKey].struggling++;
+        if (status === "inprogress") lectureSessions[sessionKey].inprogress++;
+      });
+
+      Object.values(lectureSessions).forEach((stats) => {
+        const lecId = stats.lecId;
+        const entryBlockId = stats.entryBlockId;
+        const key = `${lecId}__${entryBlockId}`;
+        const existing = stored[key] || {
+          lectureId: lecId,
+          blockId: entryBlockId,
+          ankiInRotation: false,
+          firstCompletedDate: null,
+          lastActivityDate: null,
+          lastConfidence: null,
+          reviewDates: [],
+          activityLog: [],
+        };
+
+        const total = stats.total;
+        const masteredPct = total > 0 ? stats.mastered / total : 0;
+        const confidence =
+          masteredPct >= 0.7 ? "good" : masteredPct >= 0.4 ? "okay" : "struggling";
+
+        const activityEntry = {
+          id: newId(),
+          date: now,
+          activityType: drillStyleArg === "mcq" ? "questions" : "review",
+          confidenceRating: confidence,
+          questionCount: stats.total,
+          correctCount: stats.mastered,
+          questionScore: total > 0 ? Math.round((stats.mastered / total) * 100) : null,
+          note: `Drill: ${stats.mastered}/${total} mastered`,
+          source: "drill_auto",
+        };
+
+        existing.activityLog = [activityEntry, ...(existing.activityLog || [])].slice(0, 50);
+
+        existing.lastActivityDate = now;
+        existing.lastConfidence = confidence;
+
+        if (!existing.firstCompletedDate) {
+          existing.firstCompletedDate = now;
+        }
+
+        const intervals = {
+          good: [2, 7, 14, 30],
+          okay: [1, 5, 10, 21],
+          struggling: [0, 2, 5, 10],
+        };
+        const sessionCount = (existing.activityLog || []).length;
+        const intervalIdx = Math.min(sessionCount - 1, 3);
+        const baseDays = (intervals[confidence] || intervals.okay)[intervalIdx];
+
+        const nextReview = new Date();
+        nextReview.setDate(nextReview.getDate() + baseDays);
+
+        existing.reviewDates = [nextReview.toISOString(), ...(existing.reviewDates || []).filter((d) => d > now)].slice(
+          0,
+          5
+        );
+
+        stored[key] = existing;
+      });
+
+      localStorage.setItem(completionKey, JSON.stringify(stored));
+
+      window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+
+      console.log("Drill synced to completion for", Object.keys(lectureSessions).length, "lectures");
+
+      syncStrugglingToWeakConcepts(blockId);
+
+      const syncUid = userRef.current?.id;
+      if (syncUid) scheduleSyncToSupabase(syncUid);
+    } catch (e) {
+      console.error("syncDrillToCompletion failed:", e);
+    }
+  }, []);
+
   const exitDrill = useCallback(() => {
-    const bid = activeBlock?.id ?? blockId;
+    const bid = drillBlockIdRef.current || activeBlock?.id || blockId;
     setShowDrillSummary(false);
     setDrillSummaryData(null);
     drillSummaryBuiltRef.current = false;
     try {
+      if ((drillStatsRef.current?.assessedIndices || []).length > 0) {
+        syncDrillToCompletion(
+          drillQueueRef.current,
+          drillStatsRef.current,
+          drillStyleRef.current,
+          drillBlockIdRef.current || bid
+        );
+      }
       syncDrillResultsToPerformance(
         drillQueueRef.current,
         drillStatsRef.current?.assessedIndices || [],
@@ -12672,12 +15338,25 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     setLevelAdvancement(null);
     setConceptFocus(null);
     conceptFocusRef.current = null;
-  }, [refreshObjectivesFromStorage, syncDrillResultsToPerformance, repairUnlinkedObjectives, activeBlock?.id, blockId]);
+    drillCompletionSyncedRef.current = false;
+    setDrillBlockId("msk");
+    drillBlockIdRef.current = "msk";
+    setDrillSessionQuestionTarget(null);
+    setShowDrillSetup(false);
+    setPendingDrillConfig(null);
+  }, [
+    refreshObjectivesFromStorage,
+    syncDrillResultsToPerformance,
+    syncDrillToCompletion,
+    repairUnlinkedObjectives,
+    activeBlock?.id,
+    blockId,
+  ]);
 
   const openDrillSummary = useCallback(() => {
     if (drillSummaryBuiltRef.current) return;
     drillSummaryBuiltRef.current = true;
-    const bid = activeBlock?.id ?? blockId;
+    const bid = drillBlockIdRef.current || activeBlock?.id || blockId;
     const queue = drillQueueRef.current;
     const stats = drillStatsRef.current;
     if (!queue?.length) {
@@ -12728,20 +15407,35 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     return () => window.removeEventListener("rxt-weak-concepts-updated", h);
   }, []);
 
+  useEffect(() => {
+    const bid = activeBlock?.id ?? blockId;
+    if (!bid) return;
+    try {
+      const strugglingObj = getMSKObjectives(bid).filter((o) => o.status === "struggling").length;
+      const wcStruggling = getWeakConcepts(bid).block.filter((c) => c.masteryLevel === "struggling").length;
+      if (wcStruggling < strugglingObj) {
+        syncStrugglingToWeakConcepts(bid);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [activeBlock?.id, blockId]);
+
   const startConceptDrill = useCallback(
     (concept, bid) => {
       if (!bid) return;
       try {
-        const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-        const raw = getBlockObjectivesStoredRaw(stored, bid);
-        const { imported, extracted } = parseBlockObjectivesRaw(raw);
-        const flat = [...(imported || []), ...(extracted || [])];
+        const flat = getMSKObjectives(bid);
         const relevantObjs = flat
           .filter((o) => (concept.linkedLecIds || []).includes(o.linkedLecId))
           .map((o) => ({ ...o, _drillBlockId: bid }));
         if (!relevantObjs.length) return;
         setConceptFocus(concept);
         conceptFocusRef.current = concept;
+        drillCompletionSyncedRef.current = false;
+        setDrillSessionQuestionTarget(null);
+        setDrillBlockId(bid);
+        drillBlockIdRef.current = bid;
         setDrillQueue(relevantObjs);
         setDrillIndex(0);
         setDrillComplete(false);
@@ -12774,9 +15468,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       const seen = new Set();
       Object.keys(stored).forEach((bid) => {
         if (!bid || bid === "lifetime") return;
-        const raw = stored[bid];
-        const { imported, extracted } = parseBlockObjectivesRaw(raw);
-        const flat = [...(imported || []), ...(extracted || [])];
+        const flat = getMSKObjectives(bid);
         flat.forEach((o) => {
           if (!allLecIds.has(o.linkedLecId)) return;
           if (seen.has(o.id)) return;
@@ -12787,6 +15479,8 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       if (!out.length) return;
       setConceptFocus(null);
       conceptFocusRef.current = null;
+      drillCompletionSyncedRef.current = false;
+      setDrillSessionQuestionTarget(null);
       setDrillQueue(out);
       setDrillIndex(0);
       setDrillComplete(false);
@@ -12798,6 +15492,9 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       drillCardFirstRenderRef.current = true;
       setDrillMode(true);
       const primaryBid = out[0]._drillBlockId || activeBlock?.id || blockId;
+      const pb = primaryBid || "msk";
+      setDrillBlockId(pb);
+      drillBlockIdRef.current = pb;
       captureDrillLevelSnapshot(out, primaryBid);
       captureDrillWeakConceptSnapshot(primaryBid);
       scheduleMcqPrefetchForQueue(out);
@@ -12871,6 +15568,8 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   const advanceDrill = useCallback(() => {
     drillAssessBusyRef.current = false;
+    setShowReassignPanel(null);
+    setReassignedConfirm(null);
     setSaveConfirmed(null);
     setCurrentQuestionLevel(1);
     setLevelAdvancement(null);
@@ -12898,6 +15597,14 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         try {
           localStorage.removeItem("rxt-drill-progress");
         } catch {}
+        if ((drillStatsRef.current?.assessedIndices || []).length > 0) {
+          syncDrillToCompletion(
+            drillQueueRef.current,
+            drillStatsRef.current,
+            drillStyleRef.current,
+            drillBlockIdRef.current || activeBlock?.id || blockId
+          );
+        }
         queueMicrotask(() => {
           try {
             window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
@@ -12910,7 +15617,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       saveDrillProgressToStorage(next);
       return next;
     });
-  }, [saveDrillProgressToStorage]);
+  }, [saveDrillProgressToStorage, syncDrillToCompletion, activeBlock?.id, blockId]);
 
   const handleDrillAssess = useCallback(
     (newStatus) => {
@@ -12919,6 +15626,30 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       const i = drillIndexRef.current;
       const obj = q[i];
       if (!obj) return;
+      if (obj.isSynthetic) {
+        drillAssessBusyRef.current = true;
+        drillMcqSnapshotRef.current = { mcqData, selectedAnswer, studentReasoning };
+        if (newStatus === "struggling") drillSessionStrugglingRef.current.add(obj.id);
+        setDrillStats((prev) => {
+          const next = {
+            ...prev,
+            assessedIndices: [...(prev.assessedIndices || []), i],
+            seen: prev.seen + 1,
+            mastered: newStatus === "mastered" ? prev.mastered + 1 : prev.mastered,
+            struggling: newStatus === "struggling" ? prev.struggling + 1 : prev.struggling,
+            inprogress: newStatus === "inprogress" ? prev.inprogress + 1 : prev.inprogress,
+          };
+          drillStatsRef.current = next;
+          return next;
+        });
+        setSaveConfirmed(newStatus);
+        setTimeout(() => {
+          setSaveConfirmed(null);
+          drillAssessBusyRef.current = false;
+          advanceDrill();
+        }, 400);
+        return;
+      }
       drillAssessBusyRef.current = true;
       const bid = obj._drillBlockId || activeBlock?.id || blockId;
       const blockObjsBefore = getBlockObjectives(bid) || [];
@@ -12928,6 +15659,9 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       const prevLevel = levelFromCounters(prevConsecutiveCorrect, prevDrillCount);
       drillMcqSnapshotRef.current = { mcqData, selectedAnswer, studentReasoning };
       updateSingleObjectiveStatus(bid, obj.id, newStatus, { includeLastDrilled: true });
+      if (newStatus === "struggling") {
+        queueMicrotask(() => syncStrugglingToWeakConcepts(bid));
+      }
       const snap = drillMcqSnapshotRef.current;
       const wrongMcq =
         snap.selectedAnswer != null &&
@@ -12960,7 +15694,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                 },
               };
               try {
-                localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+                safeSetItem("rxt-block-objectives", updated);
               } catch {}
               return updated;
             });
@@ -13027,7 +15761,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     const q = drillQueueRef.current;
     const i = drillIndexRef.current;
     const obj = q[i];
-    if (obj) {
+    if (obj && !obj.isSynthetic) {
       const bid = obj._drillBlockId || activeBlock?.id || blockId;
       const blockObjs = getBlockObjectives(bid) || [];
       const full = blockObjs.find((o) => o.id === obj.id);
@@ -13414,7 +16148,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
           [currentBlock.id]: { ...prev[currentBlock.id], imported: aligned },
         };
         try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+          safeSetItem("rxt-block-objectives", updated);
         } catch {}
         return updated;
       }
@@ -13436,7 +16170,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         delete updated["ftm1"];
       }
       try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+        safeSetItem("rxt-block-objectives", updated);
       } catch {}
       return updated;
     });
@@ -13594,6 +16328,70 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     })();
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const keysToTrim = [
+      "rxt-learning-profile",
+      "rxt-weak-areas",
+      "rxt-dl-sessions",
+      "rxt-objectives-backup",
+    ];
+
+    let freed = 0;
+    keysToTrim.forEach((key) => {
+      const size = (localStorage.getItem(key) || "").length * 2;
+      if (size > 500000) {
+        try {
+          localStorage.removeItem(key);
+          freed += size;
+          console.log(
+            `Cleared ${key}:`,
+            (size / 1024 / 1024).toFixed(2) + "MB freed"
+          );
+        } catch {}
+      }
+    });
+
+    const histoSize = (localStorage.getItem("rxt-histo-manual") || "").length * 2;
+    if (histoSize > 3 * 1024 * 1024) {
+      try {
+        localStorage.removeItem("rxt-histo-manual");
+        freed += histoSize;
+        console.log(
+          "Cleared rxt-histo-manual:",
+          (histoSize / 1024 / 1024).toFixed(2) + "MB freed"
+        );
+      } catch {}
+    }
+
+    if (freed > 0) {
+      console.log(
+        "Total freed:",
+        (freed / 1024 / 1024).toFixed(2) + "MB"
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const totalObjs = Object.values(stored)
+        .flatMap((v) => (Array.isArray(v) ? v : Object.values(v || {}).flat()))
+        .filter(Boolean).length;
+      if (totalObjs > 200) {
+        console.log("Running objective store compression...");
+        compressObjectiveStore();
+      }
+    } catch (e) {
+      console.warn("Objective store compression skipped:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeBlock?.id) compressOldLectures(activeBlock.id);
+  }, [activeBlock?.id]);
+
   // One-time repair: re-detect lectureType/lectureNumber/weekNumber for already-uploaded lectures.
   // dayOfWeek is preserved (user-set only, not overwritten).
   const lectureRepairDoneRef = useRef(false);
@@ -13661,6 +16459,41 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
   }, [ready, terms, blockId]);
 
   useEffect(() => {
+    if (!ready || !terms?.length) return;
+    const preferred = getActiveBlockFromTerms(terms);
+    if (!preferred?.id) return;
+    if (preferred.id === blockId) return;
+    console.log("Syncing activeBlock from terms:", preferred.name);
+    setBlockId(preferred.id);
+    if (preferred.termId) setTermId(preferred.termId);
+    try {
+      localStorage.setItem("rxt-current-block", preferred.id);
+    } catch {}
+  }, [ready, terms, blockId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function handleStorageChange(e) {
+      if (e.key !== "rxt-terms" || e.newValue == null) return;
+      try {
+        const nextTerms = JSON.parse(e.newValue || "[]");
+        if (!Array.isArray(nextTerms)) return;
+        setTerms(nextTerms);
+        const updated = getActiveBlockFromTerms(nextTerms);
+        if (updated?.id && updated.id !== blockId) {
+          setBlockId(updated.id);
+          if (updated.termId) setTermId(updated.termId);
+          try {
+            localStorage.setItem("rxt-current-block", updated.id);
+          } catch {}
+        }
+      } catch (_) {}
+    }
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, [blockId]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     localStorage.setItem("rxt-theme", theme);
   }, [theme]);
@@ -13668,7 +16501,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    saveProfile(learningProfile);
+    updateLearningProfile(learningProfile);
   }, [learningProfile]);
 
   // ── Auto-save ──────────────────────────────
@@ -13737,11 +16570,30 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   const selectBlock = (bid) => {
     const term = terms.find((t) => t.blocks?.some((b) => b.id === bid));
-    if (term) {
-      setTermId(term.id);
-      setBlockId(bid);
-      if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
+    if (!term) return;
+    const nextTerms = terms.map((t) => ({
+      ...t,
+      blocks: (t.blocks || []).map((b) => {
+        if (b.id === bid) return { ...b, status: "active" };
+        if (b.status === "active") return { ...b, status: "complete" };
+        return b;
+      }),
+    }));
+    const flat = nextTerms.flatMap((t) =>
+      (t.blocks || []).map((b) => ({ ...b, termId: t.id, termName: t.name }))
+    );
+    const fullBlock = flat.find((b) => b.id === bid);
+    try {
+      localStorage.setItem("rxt-terms", JSON.stringify(nextTerms));
+    } catch (e) {
+      console.error("Failed to update term status:", e);
     }
+    setTerms(nextTerms);
+    if (fullBlock) setActiveBlock(fullBlock);
+    setTermId(term.id);
+    try {
+      if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
+    } catch {}
     setView("block");
     setTab("lectures");
   };
@@ -13765,7 +16617,10 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     setTerms(p => p.map(t => t.id===tid ? { ...t, blocks:t.blocks.filter(b => b.id!==bid) } : t));
     lectures.filter(l => l.blockId===bid).forEach(l => sDel("rxt-lec-"+l.id));
     setLecs(p => p.filter(l => l.blockId !== bid));
-    if (blockId === bid) { setBlockId(null); setView("overview"); }
+    if (activeBlock?.id === bid) {
+      setBlockId(null);
+      setView("overview");
+    }
   };
   const updateBlock = (bid, patch) => {
     setTerms((p) =>
@@ -13780,7 +16635,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   const setStatus = (tid, bid, status) => {
     setTerms((p) => {
-      const updated = p.map((t) =>
+      let updated = p.map((t) =>
         t.id === tid ? { ...t, blocks: t.blocks.map((b) => (b.id === bid ? { ...b, status } : b)) } : t
       );
       const allBlocks = updated.flatMap((t) => t.blocks || []);
@@ -13790,11 +16645,24 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
           (b) => b.id !== bid && b.status !== "complete" && b.status !== "completed" && b.status !== "done"
         );
         if (nextBlock) {
-          setBlockId(nextBlock.id);
-          if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", nextBlock.id);
+          updated = updated.map((t) => ({
+            ...t,
+            blocks: (t.blocks || []).map((b) => {
+              if (b.id === nextBlock.id) return { ...b, status: "active" };
+              const isDone = b.status === "complete" || b.status === "completed" || b.status === "done";
+              if (b.status === "active" && !isDone) {
+                return { ...b, status: "upcoming" };
+              }
+              return b;
+            }),
+          }));
           const nextTerm = updated.find((t) => t.blocks?.some((b) => b.id === nextBlock.id));
-          if (nextTerm) setTermId(nextTerm.id);
-          console.log("Auto-advanced current block to:", nextBlock.name);
+          queueMicrotask(() => {
+            setBlockId(nextBlock.id);
+            if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", nextBlock.id);
+            if (nextTerm) setTermId(nextTerm.id);
+            console.log("Auto-advanced current block to:", nextBlock.name);
+          });
         }
       }
       return updated;
@@ -13807,6 +16675,152 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       return updated;
     });
   };
+
+  const renameLecture = useCallback(
+    (lecId, newTitle) => {
+      const t = (newTitle || "").trim();
+      if (!t) return;
+      try {
+        updateLec(lecId, { lectureTitle: t });
+        window.dispatchEvent(new CustomEvent("rxt-lec-updated"));
+      } catch (e) {
+        console.error("renameLecture failed:", e);
+      }
+    },
+    [updateLec]
+  );
+
+  const deleteLecture = useCallback(
+    (lecId, bid) => {
+      if (!lecId || !bid) return;
+      try {
+        const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+        const filtered = lecs.filter((l) => l.id !== lecId);
+        safeSetItem("rxt-lec-meta", filtered);
+        sDel("rxt-lec-" + lecId);
+
+        const objs = getMSKObjectives(bid);
+        const withoutLec = objs.filter((o) => o.linkedLecId !== lecId);
+        saveMSKObjectives(bid, withoutLec);
+
+        const prefix = `${lecId}__`;
+        const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+        Object.keys(perf).forEach((k) => {
+          if (k.startsWith(prefix)) delete perf[k];
+        });
+        safeSetItem("rxt-performance", perf);
+
+        const comp = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+        Object.keys(comp).forEach((k) => {
+          if (k.startsWith(prefix)) delete comp[k];
+        });
+        safeSetItem("rxt-completion", comp);
+
+        setLecs((prev) => {
+          const next = prev.filter((l) => l.id !== lecId);
+          saveLectures(next);
+          return next;
+        });
+        setPerformanceHistory((prev) => {
+          const next = { ...prev };
+          Object.keys(next).forEach((k) => {
+            if (k.startsWith(prefix)) delete next[k];
+          });
+          return next;
+        });
+        setMergeSelected((prev) => prev.filter((id) => id !== lecId));
+
+        window.dispatchEvent(new CustomEvent("rxt-lec-updated"));
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
+        console.log("Deleted lecture:", lecId);
+      } catch (e) {
+        console.error("deleteLecture failed:", e);
+      }
+    },
+    [setLecs, setPerformanceHistory]
+  );
+
+  const handleUserSignedIn = useCallback(async (signedInUser) => {
+    if (!signedInUser?.id) return;
+    const now = Date.now();
+    const last = handleUserSignedInDedupRef.current;
+    if (last.id === signedInUser.id && now - last.t < 5000) {
+      return;
+    }
+    handleUserSignedInDedupRef.current = { id: signedInUser.id, t: now };
+
+    setSyncing(true);
+    setSyncStatus("pulling");
+
+    try {
+      const { data, error } = await supabase
+        .from("terms")
+        .select("updated_at")
+        .eq("user_id", signedInUser.id)
+        .maybeSingle();
+
+      if (error) {
+        console.warn("Sign-in terms check:", error);
+      }
+
+      if (data) {
+        console.log("Cloud data found — pulling...");
+        setSyncStatus("pulling");
+        await pullAllDataFromSupabase(signedInUser.id);
+        setSyncStatus("done");
+        window.location.reload();
+      } else {
+        const hasLocalTerms =
+          typeof window !== "undefined" && localStorage.getItem("rxt-terms");
+        if (!hasLocalTerms) {
+          setSyncStatus(null);
+          setShowImportScreen(true);
+          return;
+        }
+        console.log("No cloud data — pushing local data...");
+        setSyncStatus("pushing");
+        await pushAllLocalDataToSupabase(signedInUser.id);
+        setSyncStatus("done");
+      }
+    } catch (e) {
+      console.error("Sign in sync failed:", e);
+      setSyncStatus("error");
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+      if (session?.user) {
+        handleUserSignedIn(session.user);
+      }
+    });
+
+    const {
+      data: { subscription: authSub },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const newUser = session?.user ?? null;
+      setUser(newUser);
+
+      if (event === "SIGNED_OUT") {
+        setUser(null);
+        setShowImportScreen(false);
+        handleUserSignedInDedupRef.current = { id: null, t: 0 };
+        return;
+      }
+      if (event === "SIGNED_IN" && newUser) {
+        await handleUserSignedIn(newUser);
+      }
+    });
+
+    return () => {
+      authSub?.unsubscribe();
+    };
+  }, [handleUserSignedIn]);
 
   const reanalyzeLecture = useCallback(
     async (lec) => {
@@ -13849,7 +16863,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
               [wk]: { ...data, extracted: [...existingExtracted, ...aiObjectives] },
             };
             try {
-              localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+              safeSetItem("rxt-block-objectives", next);
             } catch {}
             return next;
           });
@@ -14165,7 +17179,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       const updatedExtracted = (data.extracted || []).map(linkToMergedIfMatch);
       const next = { ...prev, [wk]: { ...data, imported: updatedImported, extracted: updatedExtracted } };
       try {
-        localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+        safeSetItem("rxt-block-objectives", next);
       } catch (e) {
         console.warn("Failed to persist objectives after merge:", e);
       }
@@ -14189,16 +17203,46 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     }
   };
 
-  const handleLectureUpload = async (files, bid, tid) => {
+  const handleLectureUpload = async (files, bidParam, tidParam) => {
     if (!files?.length) return;
+    const uploadBlockId = activeBlock?.id || getActiveBlockFromTerms()?.id || bidParam || "cpr1";
+    const uploadTermId = activeBlock?.termId || getActiveBlockFromTerms()?.termId || tidParam || "term1";
+    const bid = uploadBlockId;
+    const termForBid = terms.find((t) => t.blocks?.some((b) => b.id === bid));
+    const tid = termForBid?.id ?? uploadTermId;
+    const blockMeta = termForBid?.blocks?.find((b) => b.id === bid);
+    console.log(
+      "Upload starting —",
+      Array.from(files)
+        .map((f) => f.name)
+        .join(", "),
+      "| activeBlock:",
+      activeBlock?.id,
+      activeBlock?.name,
+      "| resolved blockId:",
+      bid,
+      "| termId:",
+      tid
+    );
     const fileList = Array.from(files);
     const pairs = fileList.map((file) => ({
       file,
       queueId: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
     }));
+    const sortedPairs = [...pairs].sort((a, b) => {
+      const aInfo = detectPartInfo(a.file.name);
+      const bInfo = detectPartInfo(b.file.name);
+      if (aInfo.isPart && bInfo.isPart) {
+        if (aInfo.isPartA && bInfo.isPartB) return -1;
+        if (aInfo.isPartB && bInfo.isPartA) return 1;
+      }
+      return 0;
+    });
+    const runUploadsSequential = sortedPairs.some(({ file }) => detectPartInfo(file.name).isPart);
+
     setUploadQueue((prev) => [
       ...prev,
-      ...pairs.map(({ queueId, file }) => ({
+      ...sortedPairs.map(({ queueId, file }) => ({
         id: queueId,
         filename: file.name,
         status: "pending",
@@ -14214,7 +17258,8 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     let failed = 0;
     const addedInBatch = new Set();
     setUploading(true);
-    pairs.forEach(({ queueId, file }) => uploadFileByQueueIdRef.current.set(queueId, file));
+    uploadObjectivesExtractedRef.current = new Set();
+    sortedPairs.forEach(({ queueId, file }) => uploadFileByQueueIdRef.current.set(queueId, file));
 
     const commitPdfTail = async ({
       lectureToSave,
@@ -14256,7 +17301,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             },
           };
           try {
-            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+            safeSetItem("rxt-block-objectives", next);
           } catch {}
           return next;
         });
@@ -14309,7 +17354,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         if (repaired === 0) return prev;
         const next = { ...prev, [bid]: { ...blockData, imported, extracted } };
         try {
-          localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+          safeSetItem("rxt-block-objectives", next);
         } catch {}
         return next;
       });
@@ -14371,22 +17416,12 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             [bid]: { imported: alignedImported, extracted: updatedExtracted },
           };
           try {
-            localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+            safeSetItem("rxt-block-objectives", updated);
           } catch {}
           return updated;
         });
       } else {
-        setBlockObjectives((prev) => {
-          const blockData = prev[bid];
-          if (!blockData?.imported?.length) return prev;
-          const allLectures = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
-          const aligned = alignObjectivesToLectures(bid, blockData.imported, allLectures);
-          const updated = { ...prev, [bid]: { ...blockData, imported: aligned } };
-          try {
-            localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
-          } catch {}
-          return updated;
-        });
+        console.log("No objectives to save — skipping write");
       }
 
       const objCount = extractedObjectives.length;
@@ -14461,7 +17496,177 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       );
     };
 
+    const mergePartBIntoPartA = async (filB, partALecSnapshot, queueId) => {
+      updateQueueItem(queueId, { status: "extracting", progress: 5 });
+      setUpMsg("📖 Extracting Part B…");
+      const forceOcr = uploadForceOcrQueueIdRef.current.has(queueId);
+      if (forceOcr) uploadForceOcrQueueIdRef.current.delete(queueId);
+      const { contentResult: cr0, method: extractMethodUsed } = await extractWithSmartFallback(
+        filB,
+        (msg) => setUpMsg(msg),
+        { forceMistralOcr: forceOcr }
+      );
+      const textB = (cr0.fullText || (cr0.chunks || []).map((c) => c.text || "").join("\n\n") || "").trim();
+      const chunksB =
+        cr0.chunks && cr0.chunks.length > 0 ? cr0.chunks : textB ? [{ text: textB }] : [];
+
+      let allLecs = [];
+      try {
+        allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      } catch {
+        allLecs = [];
+      }
+      const idx = allLecs.findIndex((l) => l.id === partALecSnapshot.id);
+      if (idx === -1) throw new Error("Part A lecture not found");
+
+      const partA = allLecs[idx];
+      const mergedChunks = [...(partA.chunks || []), { text: "\n\n--- Part B ---\n\n" }, ...chunksB];
+
+      let mergedTitle = (partA.lectureTitle || "")
+        .replace(/\s*[-–(]\s*part\s*[a-z0-9]+\s*[)]*\s*$/i, "")
+        .replace(/\s*[-–]\s*[A-Z]\s*$/i, "")
+        .trim();
+      if (!mergedTitle) mergedTitle = (partA.filename || "Lecture").replace(/\.pdf$/i, "");
+
+      const mergedFilename = `${mergedTitle} (Parts A+B)`;
+      const combinedBody = [getLecText(partA), textB].filter(Boolean).join("\n\n--- Part B ---\n\n");
+
+      let mergedLec = {
+        ...partA,
+        lectureTitle: mergedTitle,
+        filename: mergedFilename,
+        chunks: mergedChunks,
+        fullText: combinedBody,
+        mergedFrom: [
+          { id: partA.id, title: partA.filename || partA.lectureTitle, num: partA.lectureNumber },
+          { id: partA.id, title: filB.name, num: partA.lectureNumber, partLabel: "B" },
+        ],
+        mergedAt: new Date().toISOString(),
+        partABMerged: true,
+        extractionMethod: cr0.extractionMethod || partA.extractionMethod,
+        pageCount: (partA.pageCount || 0) + (cr0.pageCount || chunksB.length || 0),
+      };
+
+      allLecs[idx] = mergedLec;
+      try {
+        localStorage.setItem("rxt-lec-meta", JSON.stringify(allLecs));
+      } catch (e) {
+        console.error("mergePartBIntoPartA persist failed:", e);
+      }
+
+      setLecs((prev) => {
+        const without = prev.filter((l) => l.id !== mergedLec.id);
+        const updated = [...without, mergedLec];
+        saveLectures(updated);
+        return updated;
+      });
+
+      updateQueueItem(queueId, { status: "parsing", progress: 45 });
+      setUpMsg("🎯 Extracting learning objectives (merged)…");
+
+      let newObjs = [];
+      try {
+        newObjs = await extractObjectivesFromLecture(combinedBody, mergedLec, bid);
+      } catch (e) {
+        console.warn("merge extractObjectivesFromLecture:", e);
+      }
+
+      if (newObjs.length > 0) {
+        const flat = getMSKObjectives(bid).filter((o) => o.linkedLecId !== partALecSnapshot.id);
+        const mapped = newObjs.map((o) => {
+          const enriched = enrichObjectiveWithBloom(o, mergedLec.lectureType || "LEC");
+          return {
+            ...enriched,
+            id:
+              enriched.id ||
+              (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid()),
+            linkedLecId: mergedLec.id,
+            lectureType: mergedLec.lectureType,
+            lectureNumber: mergedLec.lectureNumber,
+            activity: `${mergedLec.lectureType || "LEC"}${mergedLec.lectureNumber}`,
+            sourceFile: mergedLec.id,
+          };
+        });
+        saveMSKObjectives(bid, [...flat, ...mapped]);
+      }
+
+      updateQueueItem(queueId, { status: "parsing", progress: 72 });
+      setUpMsg("Analyzing merged lecture…");
+      let teachingMap = null;
+      try {
+        teachingMap = await analyzeLecture(mergedLec, getLecText(mergedLec));
+      } catch (e) {
+        console.warn("merge analyzeLecture:", e);
+      }
+
+      if (teachingMap) {
+        mergedLec = {
+          ...mergedLec,
+          teachingMap,
+          teachingMapDate: new Date().toISOString(),
+        };
+        try {
+          const fresh = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+          const fi = fresh.findIndex((l) => l.id === mergedLec.id);
+          if (fi >= 0) {
+            fresh[fi] = { ...fresh[fi], teachingMap, teachingMapDate: mergedLec.teachingMapDate };
+            localStorage.setItem("rxt-lec-meta", JSON.stringify(fresh));
+          }
+        } catch (e) {
+          console.warn("merge teaching map persist:", e);
+        }
+        setLecs((prev) => {
+          const updated = prev.map((l) => (l.id === mergedLec.id ? mergedLec : l));
+          saveLectures(updated);
+          return updated;
+        });
+      }
+
+      reconcileCompletionOnUpload(mergedLec);
+      migratePerformanceOnUpload(mergedLec, bid, lectures, setPerformanceHistory);
+
+      const typeLabel = String(mergedLec.lectureType || "LEC")
+        .replace(/^LECTURE$/i, "LEC")
+        .slice(0, 4);
+      const numPart =
+        mergedLec.lectureNumber != null && String(mergedLec.lectureNumber).trim() !== ""
+          ? String(mergedLec.lectureNumber)
+          : "";
+      const nObj = newObjs.length;
+      const resultSummary = `⊕ ${typeLabel} ${numPart} Part B → merged with Part A · ${nObj} combined objectives`;
+
+      updateQueueItem(queueId, {
+        status: "done",
+        progress: 100,
+        result: {
+          mergedPartB: true,
+          lectureType: mergedLec.lectureType,
+          lectureNumber: mergedLec.lectureNumber,
+          objectiveCount: nObj,
+          resultSummary,
+          resultSummaryColor: "#185FA5",
+          extractMethod: extractMethodUsed,
+        },
+      });
+      markAsProcessed(filB, bid);
+      setUpMsg("⊕ Merged Part B with Part A ✓");
+      setTimeout(() => setUpMsg(""), 2500);
+      window.dispatchEvent(new CustomEvent("rxt-lec-updated"));
+      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      console.log("Merged into:", mergedTitle, "chunks:", mergedChunks.length);
+    };
+
     const runOne = async ({ file, queueId }) => {
+      console.log(
+        "Upload starting for:",
+        file.name,
+        "activeBlock:",
+        activeBlock?.id,
+        "activeBlock name:",
+        activeBlock?.name,
+        "| resolved bid:",
+        bid
+      );
       if (isAlreadyProcessed(file, bid)) {
         updateQueueItem(queueId, {
           status: "done",
@@ -14482,6 +17687,30 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         failed++;
         updateQueueItem(queueId, { status: "error", error: "Skipped — duplicate not replaced", progress: 100 });
         return;
+      }
+
+      const partInfoEarly = detectPartInfo(file.name);
+      if (isPdf && partInfoEarly.isPart && partInfoEarly.isPartB) {
+        let storeLecs = [];
+        try {
+          storeLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+        } catch {
+          storeLecs = [];
+        }
+        const matchA = findMatchingPartALecture(storeLecs, bid, partInfoEarly);
+        if (matchA) {
+          console.log("Found matching Part A:", matchA.lectureTitle || matchA.filename, "— merging with Part B");
+          try {
+            await mergePartBIntoPartA(file, matchA, queueId);
+            added++;
+            addedInBatch.add(file.name);
+          } catch (e) {
+            console.error("mergePartBIntoPartA failed:", e);
+            updateQueueItem(queueId, { status: "error", error: e.message || "Merge failed", progress: 100 });
+            failed++;
+          }
+          return;
+        }
       }
 
       try {
@@ -14531,28 +17760,6 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             filename: file.name,
           };
 
-          updateQueueItem(queueId, { status: "parsing", progress: 45 });
-          setTimeout(() => updateQueueItem(queueId, { progress: 70 }), 30);
-          setUpMsg("🎯 Extracting learning objectives...");
-          let extractedObjectives;
-          try {
-            extractedObjectives = await extractObjectivesFromLecture(fullRawTextJoin, lecForExtract, bid);
-          } catch (objErr) {
-            const msg = objErr?.message || String(objErr);
-            if (/Timeout/i.test(msg)) {
-              uploadRetryFilesRef.current.set(queueId, file);
-              updateQueueItem(queueId, {
-                status: "error",
-                error: "AI parsing timed out — try again",
-                progress: 100,
-                retryable: true,
-              });
-              failed++;
-              return;
-            }
-            throw objErr;
-          }
-
           const lecTitle = lecTitlePre;
           const lectureType = lectureTypePre;
           const lecNum = lecNumPre;
@@ -14578,6 +17785,29 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             uploadedAt: new Date().toISOString(),
             uploadDate: new Date().toISOString(),
           };
+
+          // Save lecture immediately after text extraction (before any AI calls).
+          updateQueueItem(queueId, { status: "saving", progress: 42 });
+          setLecs((prev) => {
+            const hasNum = newLec.lectureNumber != null && String(newLec.lectureNumber).trim() !== "";
+            const filtered = prev.filter((l) => {
+              if (hasNum) {
+                return !(
+                  l.blockId === bid &&
+                  (l.lectureType || "LEC").trim() === (newLec.lectureType || "LEC").trim() &&
+                  String(l.lectureNumber).trim() === String(newLec.lectureNumber).trim()
+                );
+              }
+              return !(l.blockId === bid && l.filename === file.name);
+            });
+            const updated = [...filtered, newLec];
+            saveLectures(updated);
+            return updated;
+          });
+          console.log("✓ Lecture saved:", newLec.id, newLec.blockId);
+
+          updateQueueItem(queueId, { status: "parsing", progress: 45 });
+          setTimeout(() => updateQueueItem(queueId, { progress: 70 }), 30);
 
           if (!newLec.subtopics?.length) {
             try {
@@ -14676,6 +17906,41 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             console.log("Teaching map generated:", teachingMap?.sections?.length, "sections");
           } catch (err) {
             console.error("Teaching map generation failed:", err);
+          }
+
+          let extractedObjectives = [];
+          try {
+            setUpMsg("🎯 Extracting learning objectives...");
+            if (uploadObjectivesExtractedRef.current.has(pendingLecId)) {
+              console.log("Already extracted for", pendingLecId, "— skipping");
+              extractedObjectives = [];
+            } else {
+              uploadObjectivesExtractedRef.current.add(pendingLecId);
+              extractedObjectives = await extractObjectivesFromLecture(
+                fullRawTextJoin,
+                { ...lecForExtract, chunks: contentResult.chunks || contentResult.sections || [] },
+                bid
+              );
+            }
+            if (extractedObjectives.length > 0) {
+              console.log("Saved", extractedObjectives.length, "objectives for", bid);
+            } else {
+              console.log("No objectives to save — skipping write");
+            }
+          } catch (objErr) {
+            const msg = objErr?.message || String(objErr);
+            if (/Timeout/i.test(msg)) {
+              uploadRetryFilesRef.current.set(queueId, file);
+              updateQueueItem(queueId, {
+                status: "error",
+                error: "AI parsing timed out — try again",
+                progress: 100,
+                retryable: true,
+              });
+              failed++;
+              return;
+            }
+            console.warn("Objective extraction failed:", objErr);
           }
 
           const lectureToSave = {
@@ -14785,7 +18050,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             const aligned = alignObjectivesToLectures(bid, blockData.imported, allLectures);
             const updated = { ...prev, [bid]: { ...blockData, imported: aligned } };
             try {
-              localStorage.setItem("rxt-block-objectives", JSON.stringify(updated));
+              safeSetItem("rxt-block-objectives", updated);
             } catch {}
             return updated;
           });
@@ -14926,7 +18191,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
           const extracted = (data.extracted || []).map(relink);
           const next = { ...prev, [bid]: { ...data, imported, extracted } };
           try {
-            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+            safeSetItem("rxt-block-objectives", next);
           } catch {}
           return next;
         });
@@ -14946,20 +18211,26 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     };
 
     runOneUploadRef.current = runOne;
-    const pool = [];
-    const executing = [];
-    for (const pair of pairs) {
-      const p = runOne(pair).finally(() => {
-        const idx = executing.indexOf(p);
-        if (idx >= 0) executing.splice(idx, 1);
-      });
-      pool.push(p);
-      executing.push(p);
-      if (executing.length >= 3) {
-        await Promise.race(executing);
+    if (runUploadsSequential) {
+      for (const pair of sortedPairs) {
+        await runOne(pair);
       }
+    } else {
+      const pool = [];
+      const executing = [];
+      for (const pair of sortedPairs) {
+        const p = runOne(pair).finally(() => {
+          const idx = executing.indexOf(p);
+          if (idx >= 0) executing.splice(idx, 1);
+        });
+        pool.push(p);
+        executing.push(p);
+        if (executing.length >= 3) {
+          await Promise.race(executing);
+        }
+      }
+      await Promise.all(pool);
     }
-    await Promise.all(pool);
 
     setUploading(false);
     setUploadComplete(true);
@@ -14975,6 +18246,9 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     try {
       window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
     } catch (_) {}
+
+    const uploadSyncUid = userRef.current?.id;
+    if (uploadSyncUid) scheduleSyncToSupabase(uploadSyncUid);
 
     const parts = [];
     if (added) parts.push("✓ Added " + added + " lecture" + (added !== 1 ? "s" : ""));
@@ -15093,11 +18367,9 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         };
         const newObjs = await extractObjectivesFromLecture(text, lecStub, blockBid);
         if (newObjs.length === 0) return;
-        setBlockObjectives((prev) => {
-          const data = pickBlockObjectivesState(prev, blockBid);
-          const wk = blockObjectivesStorageKey(prev, blockBid);
-          const extracted = data.extracted || [];
-          const withoutOld = extracted.filter((o) => o.linkedLecId !== lecId);
+        if (blockBid === "cpr1") {
+          const existing = getMSKObjectives(blockBid);
+          const withoutOld = existing.filter((o) => o.linkedLecId !== lecId);
           const newOnes = newObjs.map((o) => {
             const enriched = enrichObjectiveWithBloom(o, lec?.lectureType || "LEC");
             return {
@@ -15114,20 +18386,40 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
               activity: `${lec.lectureType || "LEC"}${lec.lectureNumber}`,
             };
           });
-          const next = { ...prev, [wk]: { ...data, extracted: [...withoutOld, ...newOnes] } };
-          try {
-            localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
-          } catch (_) {}
-          return next;
+          saveMSKObjectives(blockBid, [...withoutOld, ...newOnes]);
+          return;
+        }
+
+        const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+        const raw = getBlockObjectivesStoredRaw(stored, blockBid);
+        const parsed = parseBlockObjectivesRaw(raw || { imported: [], extracted: [] });
+        const imported = [...(parsed.imported || [])];
+        const extracted = [...(parsed.extracted || [])];
+        const withoutOld = extracted.filter((o) => o.linkedLecId !== lecId);
+        const newOnes = newObjs.map((o) => {
+          const enriched = enrichObjectiveWithBloom(o, lec?.lectureType || "LEC");
+          return {
+            ...enriched,
+            id:
+              enriched.id ||
+              (typeof crypto !== "undefined" && crypto.randomUUID
+                ? crypto.randomUUID()
+                : uid()),
+            linkedLecId: lecId,
+            sourceFile: lecId,
+            lectureType: lec.lectureType,
+            lectureNumber: lec.lectureNumber,
+            activity: `${lec.lectureType || "LEC"}${lec.lectureNumber}`,
+          };
         });
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        saveMSKObjectives(blockBid, [...imported, ...withoutOld, ...newOnes]);
       } catch (e) {
         console.error("reExtractObjectivesForLecture:", e);
       } finally {
         setReExtractingLectureId(null);
       }
     },
-    [lectures, setBlockObjectives]
+    [lectures]
   );
 
   // ── Study ──────────────────────────────────
@@ -15350,11 +18642,69 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
   const startObjectiveQuiz = async (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
     if (!objectives?.length) return;
     const bid = optionalBlockId ?? blockId;
+    let questionBanksByFile = {};
+    try {
+      questionBanksByFile = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    } catch {}
+    const lecForQuiz = lectures.find(
+      (l) =>
+        l.blockId === bid &&
+        (l.lectureTitle || l.fileName || "")
+          .toLowerCase()
+          .includes((lectureTitle || "").slice(0, 20).toLowerCase())
+    );
     const lectureIdForMeta =
       extraMeta?.lectureId ??
       objectives?.map((o) => o.linkedLecId).find(Boolean) ??
       objectives?.[0]?.linkedLecId ??
+      lecForQuiz?.id ??
       null;
+    const quizLevel = getLecQuizLevel(lectureIdForMeta, bid);
+    const lecObjs = bid && lectureIdForMeta ? getMSKObjectives(bid).filter((o) => o.linkedLecId === lectureIdForMeta) : [];
+    const weakObjs = lecObjs
+      .filter((o) => o.status === "struggling" || o.status === "inprogress")
+      .slice(0, 5)
+      .map((o) => (o.objective || o.text || "").slice(0, 80));
+    const masteredObjs = lecObjs.filter((o) => o.status === "mastered").length;
+    const levelInstruction =
+      quizLevel.level === 3
+        ? `Generate ADVANCED clinical reasoning questions.
+Mix of:
+- ${quizLevel.distribution.l1}% direct recall (Level 1)
+- ${quizLevel.distribution.l2}% clinical application scenarios (Level 2)  
+- ${quizLevel.distribution.l3}% complex multi-step reasoning (Level 3)
+Level 3 questions should: present complex patient scenarios,
+require synthesis of multiple concepts, have subtle distractors
+that require careful reasoning to eliminate.
+The student has mastered ${masteredObjs}/${Math.max(lecObjs.length, 1)} objectives.`
+        : quizLevel.level === 2
+          ? `Generate INTERMEDIATE application questions.
+Mix of:
+- ${quizLevel.distribution.l1}% direct recall (Level 1)
+- ${quizLevel.distribution.l2}% clinical application (Level 2)
+- ${quizLevel.distribution.l3}% basic reasoning (Level 3)
+Level 2 questions should: use brief clinical scenarios,
+test application of concepts to patient presentations,
+require understanding not just memorization.`
+          : `Generate FOUNDATIONAL recall questions.
+Mix of:
+- ${quizLevel.distribution.l1}% direct recall (Level 1)
+- ${quizLevel.distribution.l2}% basic understanding (Level 2)
+Focus on: definitions, mechanisms, key structures,
+normal values, basic relationships.
+Questions should be clear and direct.`;
+    const weakAreaInstruction =
+      weakObjs.length > 0
+        ? `\nPRIORITIZE questions on these weak areas:\n${weakObjs.map((o, i) => `${i + 1}. ${o}`).join("\n")}`
+        : "";
+    const quizLevelAugment =
+      `DIFFICULTY LEVEL: ${quizLevel.label.toUpperCase()}
+${levelInstruction}
+${weakAreaInstruction}
+
+Tag each question with its level in the JSON:
+"level": 1, 2, or 3`.trim();
+
     setQuizLoadingId(lectureIdForMeta);
     setQuizErrorId(null);
     setQuizSavedState(null);
@@ -15367,24 +18717,13 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
     const lastScore = perfData?.sessions?.slice(-1)[0]?.score ?? null;
     console.log(`Generating for ${topicKey} at difficulty: ${difficulty}, streak: ${streak}, lastScore: ${lastScore}`);
     setBlockExamLoading(`Generating quiz for ${lectureTitle}...`);
-    let questionBanksByFile = {};
-    try {
-      questionBanksByFile = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
-    } catch {}
-    const lecForQuiz = lectures.find(
-      (l) =>
-        l.blockId === bid &&
-        (l.lectureTitle || l.fileName || "")
-          .toLowerCase()
-          .includes((lectureTitle || "").slice(0, 20).toLowerCase())
-    );
     const lectureIdForContext = lecForQuiz?.id ?? null;
     const quizContext = buildQuestionContext(bid, lectureIdForContext, questionBanksByFile, "quiz");
     const count = Math.min(objectives.length, 10);
     const prompt =
       `Generate ${count} USMLE Step 1 clinical vignette questions for: ${lectureTitle}\n\n` +
-      buildExamPromptFromContext(count, objectives, { ...quizContext, stylePrefs }, difficulty).replace(/^Generate exactly \d+ questions\.\n/, "") +
-      `\n\nIMPORTANT OUTPUT SCHEMA:\nFor each question include objectiveId (preferred) or objectiveIndex (1-based index into provided objectives).\nReturn JSON with fields: question/stem, options/choices, correctAnswer/correct, objectiveId, objectiveIndex, explanation.`;
+      buildExamPromptFromContext(count, objectives, { ...quizContext, stylePrefs }, difficulty, quizLevelAugment).replace(/^Generate exactly \d+ questions\.\n/, "") +
+      `\n\nIMPORTANT OUTPUT SCHEMA:\nFor each question include objectiveId (preferred) or objectiveIndex (1-based index into provided objectives).\nReturn JSON with fields: question/stem, options/choices, correctAnswer/correct, objectiveId, objectiveIndex, explanation, level (1–3).`;
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
@@ -15410,22 +18749,32 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         .replace(/\s*```$/, "")
         .trim();
       const parsed = safeJSON(raw);
-      const questions = (parsed.questions || []).map((q, i) => ({
+      const questions = (parsed.questions || []).map((q, i) => {
+        const stem = (q.stem || q.question || "").trim();
+        const rawLvl = q.level != null ? Number(q.level) : NaN;
+        const qLevel = [1, 2, 3].includes(rawLvl) ? rawLvl : inferQuestionLevel(stem);
+        return {
+          ...q,
+          stem,
+          id: `objquiz_${Date.now()}_${i}`,
+          num: i + 1,
+          qLevel,
+          difficulty: q.difficulty || difficulty || "medium",
+          topic: q.topic || lectureTitle,
+          usedUploadedStyle: !!q.usedUploadedStyle || !!quizContext.hasUploadedQs,
+          objectiveId:
+            q.objectiveId ||
+            (q.objectiveIndex != null && objectives[Number(q.objectiveIndex) - 1]?.id) ||
+            objectives.find((o) =>
+              (o.objective || "").toLowerCase().includes((q.objectiveCovered || "").toLowerCase().slice(0, 25))
+            )?.id ||
+            null,
+        };
+      });
+      const validated = validateAndFixQuestions(questions).map((q) => ({
         ...q,
-        id: `objquiz_${Date.now()}_${i}`,
-        num: i + 1,
-        difficulty: q.difficulty || difficulty || "medium",
-        topic: q.topic || lectureTitle,
-        usedUploadedStyle: !!q.usedUploadedStyle || !!quizContext.hasUploadedQs,
-        objectiveId:
-          q.objectiveId ||
-          (q.objectiveIndex != null && objectives[Number(q.objectiveIndex) - 1]?.id) ||
-          objectives.find((o) =>
-            o.objective.toLowerCase().includes((q.objectiveCovered || "").toLowerCase().slice(0, 25))
-          )?.id ||
-          null,
+        qLevel: q.qLevel ?? inferQuestionLevel(q.stem),
       }));
-      const validated = validateAndFixQuestions(questions);
       setBlockExamLoading(null);
       setCurrentSessionMeta({
         blockId: bid,
@@ -15435,6 +18784,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         lectureTitle,
         lectureId: lectureIdForMeta,
         sessionType: "quiz",
+        quizLevelSnap: quizLevel,
         ...extraMeta,
       });
       setStudyCfg({
@@ -15447,6 +18797,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         blockName: activeBlock?.name || bid,
         termColor: tc,
         objectiveBlockId: bid,
+        quizLevelSnap: quizLevel,
       });
       setView("study");
     } catch (e) {
@@ -15461,12 +18812,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   const updateObjectivesFromQuiz = (lecId, bid, questionResults) => {
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-      const imp = [...imported];
-      const ext = [...extracted];
+      const flat = [...getMSKObjectives(bid)];
       let changed = false;
 
       const findSlot = (o, result) => {
@@ -15480,14 +18826,9 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       };
 
       (questionResults || []).forEach((result) => {
-        let idx = imp.findIndex((o) => findSlot(o, result));
-        let arr = imp;
-        if (idx === -1) {
-          idx = ext.findIndex((o) => findSlot(o, result));
-          arr = ext;
-        }
+        const idx = flat.findIndex((o) => findSlot(o, result));
         if (idx === -1) return;
-        const obj = arr[idx];
+        const obj = flat[idx];
         if (obj?.linkedLecId && lecId && obj.linkedLecId !== lecId) return;
 
         const prevStatus = obj.status;
@@ -15501,7 +18842,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         const prevOrder = statusOrder[prevStatus] ?? 0;
         const newOrder = statusOrder[newStatus] ?? 0;
         if (newOrder >= prevOrder || score < 30) {
-          arr[idx] = {
+          flat[idx] = {
             ...obj,
             status: newStatus,
             lastQuizzed: new Date().toISOString(),
@@ -15512,11 +18853,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       });
 
       if (changed) {
-        const wk = blockObjectivesStorageKey(stored, bid);
-        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-        localStorage.setItem(key, JSON.stringify(stored));
-        setBlockObjectives({ ...stored });
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        saveMSKObjectives(bid, flat);
       }
       return changed;
     } catch (e) {
@@ -15532,25 +18869,13 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   const updateObjectivesFromSession = (lecId, bid, objResults) => {
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-      const imp = [...imported];
-      const ext = [...extracted];
+      const flat = [...getMSKObjectives(bid)];
       let changed = false;
 
       (objResults || []).forEach((result) => {
-        let idx = imp.findIndex(
+        const idx = flat.findIndex(
           (o) => o.id === result.objectiveId || (o.linkedLecId === lecId && result.objectiveId == null)
         );
-        let arr = imp;
-        if (idx === -1) {
-          idx = ext.findIndex(
-            (o) => o.id === result.objectiveId || (o.linkedLecId === lecId && result.objectiveId == null)
-          );
-          arr = ext;
-        }
         if (idx === -1) return;
         const score = Number(result?.score ?? 0);
         let newStatus;
@@ -15558,11 +18883,11 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         else if (score >= 55) newStatus = "inprogress";
         else newStatus = "struggling";
         const statusOrder = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
-        const prev = statusOrder[arr[idx]?.status] ?? 0;
+        const prev = statusOrder[flat[idx]?.status] ?? 0;
         const next = statusOrder[newStatus] ?? 0;
         if (next >= prev || score < 30) {
-          arr[idx] = {
-            ...arr[idx],
+          flat[idx] = {
+            ...flat[idx],
             status: newStatus,
             lastSessionDate: new Date().toISOString(),
             lastSessionScore: score,
@@ -15571,11 +18896,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         }
       });
       if (changed) {
-        const wk = blockObjectivesStorageKey(stored, bid);
-        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-        localStorage.setItem(key, JSON.stringify(stored));
-        setBlockObjectives({ ...stored });
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        saveMSKObjectives(bid, flat);
       }
       return changed;
     } catch (e) {
@@ -15586,42 +18907,29 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
   const updateAllLecObjectivesFromSessionScore = (lecId, bid, score) => {
     try {
-      const key = "rxt-block-objectives";
-      const stored = JSON.parse(localStorage.getItem(key) || "{}");
-      const raw = getBlockObjectivesStoredRaw(stored, bid);
-      const { imported, extracted, legacyFlat, rawObj } = parseBlockObjectivesRaw(raw);
-      const imp = [...imported];
-      const ext = [...extracted];
+      const flat = [...getMSKObjectives(bid)];
       let changed = false;
-      const apply = (arr) => {
-        arr.forEach((obj, idx) => {
-          if (obj.linkedLecId !== lecId) return;
-          let newStatus;
-          if (score >= 80) newStatus = "mastered";
-          else if (score >= 55) newStatus = "inprogress";
-          else newStatus = "struggling";
-          const statusOrder = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
-          const prev = statusOrder[obj.status] ?? 0;
-          const next = statusOrder[newStatus] ?? 0;
-          if (next >= prev || score < 30) {
-            arr[idx] = {
-              ...obj,
-              status: newStatus,
-              lastSessionDate: new Date().toISOString(),
-              lastSessionScore: score,
-            };
-            changed = true;
-          }
-        });
-      };
-      apply(imp);
-      apply(ext);
+      flat.forEach((obj, idx) => {
+        if (obj.linkedLecId !== lecId) return;
+        let newStatus;
+        if (score >= 80) newStatus = "mastered";
+        else if (score >= 55) newStatus = "inprogress";
+        else newStatus = "struggling";
+        const statusOrder = { untested: 0, inprogress: 1, struggling: 1, mastered: 2 };
+        const prev = statusOrder[obj.status] ?? 0;
+        const next = statusOrder[newStatus] ?? 0;
+        if (next >= prev || score < 30) {
+          flat[idx] = {
+            ...obj,
+            status: newStatus,
+            lastSessionDate: new Date().toISOString(),
+            lastSessionScore: score,
+          };
+          changed = true;
+        }
+      });
       if (changed) {
-        const wk = blockObjectivesStorageKey(stored, bid);
-        stored[wk] = packBlockObjectivesRaw(imp, ext, legacyFlat, rawObj);
-        localStorage.setItem(key, JSON.stringify(stored));
-        setBlockObjectives({ ...stored });
-        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+        saveMSKObjectives(bid, flat);
       }
       return changed;
     } catch (e) {
@@ -15807,7 +19115,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       };
       const newState = { ...prev, [topicKey]: updated };
       try {
-        localStorage.setItem("rxt-performance", JSON.stringify(newState));
+        safeSetItem("rxt-performance", newState);
       } catch {}
       console.log("✅ Session saved:", topicKey, sessionRecord);
       return newState;
@@ -15887,7 +19195,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       nextProfile = recordAnswer(nextProfile, subject, subtopic, false, "clinicalVignette");
     }
     setLearningProfile(nextProfile);
-    saveProfile(nextProfile);
+    updateLearningProfile(nextProfile);
 
     setSessionSummary({ correct, total, updates: syncStats?.updates ?? [] });
     setCurrentSessionMeta(null);
@@ -15917,7 +19225,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       }
 
       const { correct = 0, total = 0, results = [], meta } = payload;
-      const sessionMeta = meta || currentSessionMeta;
+      const sessionMeta = { ...(currentSessionMeta || {}), ...(meta || {}) };
       const score = total > 0 ? Math.round((results.filter((r) => r.correct).length / total) * 100) : 0;
       const lec = lectures.find(
         (l) => l.id === (sessionMeta?.lectureId ?? sessionMeta?.targetObjectives?.[0]?.linkedLecId)
@@ -15947,16 +19255,27 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
           const linkedObjCount = (getBlockObjectives(bid) || []).filter(
             (o) => o.linkedLecId === targetLec.id
           ).length;
-          const objectiveUpdatedCount = hasObjectiveIds
-            ? questionResults.length
-            : linkedObjCount;
-          if (hasObjectiveIds) {
-            updateObjectivesFromQuiz(targetLec.id, bid, questionResults);
-          } else {
-            updateAllLecObjectivesFromScore(targetLec.id, bid, score);
+          const useProgressiveLecQuiz = !!sessionMeta?.quizLevelSnap;
+          const objectiveUpdatedCount = useProgressiveLecQuiz
+            ? linkedObjCount
+            : hasObjectiveIds
+              ? questionResults.length
+              : linkedObjCount;
+          if (!useProgressiveLecQuiz) {
+            if (hasObjectiveIds) {
+              updateObjectivesFromQuiz(targetLec.id, bid, questionResults);
+            } else {
+              updateAllLecObjectivesFromScore(targetLec.id, bid, score);
+            }
           }
           saveQuizSession(targetLec, bid, score, total);
           syncQuizToTracker(targetLec, bid, score);
+          let quizObjRollup = { levelAdvanced: false };
+          if (useProgressiveLecQuiz) {
+            quizObjRollup = writeQuizResultsToObjectives(targetLec.id, bid, score, sessionMeta.quizLevelSnap) || {
+              levelAdvanced: false,
+            };
+          }
           if (score < 50) {
             addLectureToTodayReview(targetLec, bid);
           }
@@ -15984,6 +19303,8 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             objectiveSynced: true,
             trackerSynced: true,
             objectiveUpdatedCount,
+            levelAdvanced: !!quizObjRollup.levelAdvanced,
+            levelUpNewLevel: quizObjRollup.newLevel,
           });
           setQuizFlashLectureId(targetLec.id);
           setTimeout(() => setQuizFlashLectureId(null), 1000);
@@ -16055,7 +19376,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       });
       if (changed) {
         try {
-          localStorage.setItem("rxt-performance", JSON.stringify(migrated));
+          safeSetItem("rxt-performance", migrated);
         } catch {}
       }
       return changed ? migrated : prev;
@@ -16086,7 +19407,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
       });
       if (changed) {
         try {
-          localStorage.setItem("rxt-performance", JSON.stringify(updated));
+          safeSetItem("rxt-performance", updated);
         } catch {}
       }
       return changed ? updated : prev;
@@ -16297,6 +19618,236 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
         tc={tc}
       />
     )}
+    {showImportScreen && user && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 10000,
+          minHeight: "100vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: "var(--color-background-primary, " + t.appBg + ")",
+        }}
+      >
+        <div
+          style={{
+            maxWidth: 520,
+            width: "100%",
+            padding: 32,
+            background: "var(--color-background-primary, " + t.cardBg + ")",
+            border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
+            borderRadius: 16,
+            margin: "0 16px",
+            boxShadow: t.shadowSm,
+          }}
+        >
+          <div style={{ fontSize: 24, fontWeight: 600, marginBottom: 8, color: t.text1, fontFamily: SERIF }}>
+            Welcome to RxTrack
+          </div>
+
+          <div style={{ fontSize: 14, color: "var(--color-text-secondary, " + t.text2 + ")", marginBottom: 24, lineHeight: 1.6, fontFamily: MONO }}>
+            Signed in as {user?.email}
+          </div>
+
+          <div
+            style={{
+              padding: "14px 16px",
+              background: "#EEF4FF",
+              border: "0.5px solid #93C5FD",
+              borderRadius: 8,
+              marginBottom: 20,
+              fontSize: 13,
+              color: "#185FA5",
+              lineHeight: 1.6,
+              fontFamily: MONO,
+            }}
+          >
+            <strong>Migrating from local?</strong>
+            <br />
+            Export your data from your local app by running the export script in the browser console, then paste the JSON
+            below.
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label
+              style={{
+                fontSize: 12,
+                color: "var(--color-text-secondary, " + t.text2 + ")",
+                display: "block",
+                marginBottom: 6,
+                fontFamily: MONO,
+              }}
+            >
+              Paste exported JSON data
+            </label>
+            <textarea
+              value={importJson}
+              onChange={(e) => setImportJson(e.target.value)}
+              placeholder='{"rxt-terms": [...], "rxt-lec-meta": [...], ...}'
+              rows={6}
+              style={{
+                width: "100%",
+                fontSize: 12,
+                fontFamily: MONO,
+                padding: "10px 12px",
+                border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
+                borderRadius: 8,
+                background: "var(--color-background-secondary, " + t.inputBg + ")",
+                color: "var(--color-text-primary, " + t.text1 + ")",
+                resize: "vertical",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+            <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary, " + t.border2 + ")" }} />
+            <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", fontFamily: MONO }}>or</span>
+            <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary, " + t.border2 + ")" }} />
+          </div>
+
+          <label
+            style={{
+              display: "block",
+              padding: "10px 0",
+              textAlign: "center",
+              fontSize: 13,
+              color: "#185FA5",
+              border: "0.5px dashed #93C5FD",
+              borderRadius: 8,
+              cursor: "pointer",
+              marginBottom: 20,
+              fontFamily: MONO,
+            }}
+          >
+            📁 Upload rxtrack-backup.json
+            <input
+              type="file"
+              accept=".json,application/json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  setImportJson(String(ev.target?.result ?? ""));
+                };
+                reader.readAsText(file);
+                e.target.value = "";
+              }}
+            />
+          </label>
+
+          {importResult && (
+            <div
+              style={{
+                padding: "10px 14px",
+                background: importResult.success ? "#EAF3DE" : "#FCEBEB",
+                borderRadius: 8,
+                fontSize: 12,
+                color: importResult.success ? "#27500A" : "#A32D2D",
+                marginBottom: 16,
+                fontFamily: MONO,
+              }}
+            >
+              {importResult.message}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!importJson.trim()) return;
+                setImporting(true);
+                setImportResult(null);
+                try {
+                  const data = JSON.parse(importJson);
+                  Object.entries(data).forEach(([key, val]) => {
+                    try {
+                      localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+                    } catch (e) {
+                      console.warn("Could not import key:", key, e);
+                    }
+                  });
+                  await pushAllLocalDataToSupabase(user.id);
+                  setImportResult({
+                    success: true,
+                    message: `✓ Imported successfully — ${Object.keys(data).length} data keys restored`,
+                  });
+                  setTimeout(() => window.location.reload(), 2000);
+                } catch (e) {
+                  setImportResult({
+                    success: false,
+                    message: `✗ Import failed: ${e.message} — check the JSON format`,
+                  });
+                } finally {
+                  setImporting(false);
+                }
+              }}
+              disabled={!importJson.trim() || importing}
+              style={{
+                flex: 1,
+                padding: "12px 0",
+                fontSize: 14,
+                fontWeight: 500,
+                background: importJson.trim() ? "#2563eb" : "var(--color-background-tertiary, " + t.border2 + ")",
+                color: importJson.trim() ? "white" : "var(--color-text-tertiary, " + t.text3 + ")",
+                border: "none",
+                borderRadius: 10,
+                cursor: importJson.trim() && !importing ? "pointer" : "not-allowed",
+                fontFamily: MONO,
+              }}
+            >
+              {importing ? "Importing..." : "Import & sync to cloud"}
+            </button>
+
+            <button
+              type="button"
+              onClick={async () => {
+                setShowImportScreen(false);
+                setImportJson("");
+                setImportResult(null);
+                try {
+                  if (user?.id) await pushAllLocalDataToSupabase(user.id);
+                } catch (e) {
+                  console.warn("Start fresh push:", e);
+                }
+              }}
+              style={{
+                padding: "12px 16px",
+                fontSize: 14,
+                background: "transparent",
+                color: "var(--color-text-secondary, " + t.text2 + ")",
+                border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
+                borderRadius: 10,
+                cursor: "pointer",
+                fontFamily: MONO,
+              }}
+            >
+              Start fresh
+            </button>
+          </div>
+
+          <div
+            style={{
+              marginTop: 12,
+              fontSize: 11,
+              color: "var(--color-text-tertiary, " + t.text3 + ")",
+              textAlign: "center",
+              lineHeight: 1.5,
+              fontFamily: MONO,
+            }}
+          >
+            Your data is encrypted and only visible to you.
+            <br />
+            &quot;Start fresh&quot; creates a new empty profile.
+          </div>
+        </div>
+      </div>
+    )}
     <div style={{ minHeight:"100vh", background:t.appBg, color:t.text1, display:"flex", flexDirection:"column" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=Lora:ital,wght@0,400;0,600;1,400&display=swap');
@@ -16426,6 +19977,257 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             }}>
             {isDark ? "☀ Light" : "🌙 Dark"}
           </button>
+
+          {!authLoading &&
+            (user ? (
+              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
+                {syncing && (
+                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")" }}>
+                    {syncStatus === "pushing"
+                      ? "↑ Saving..."
+                      : syncStatus === "pulling"
+                        ? "↓ Loading..."
+                        : "✓ Synced"}
+                  </span>
+                )}
+
+                <div
+                  title={user.email || undefined}
+                  onClick={() => setShowUserMenu((prev) => !prev)}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: "#2563eb",
+                    color: "white",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                  }}
+                >
+                  {(user.email?.[0] || "U").toUpperCase()}
+                </div>
+
+                {showUserMenu && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 44,
+                      right: 0,
+                      background: "var(--color-background-primary, " + t.cardBg + ")",
+                      border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
+                      borderRadius: 10,
+                      padding: "8px 0",
+                      minWidth: 180,
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+                      zIndex: 1000,
+                    }}
+                  >
+                    <div
+                      style={{
+                        padding: "8px 14px 10px",
+                        borderBottom: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: "var(--color-text-primary, " + t.text1 + ")",
+                        }}
+                      >
+                        {user.user_metadata?.full_name || "Student"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 2 }}>{user.email}</div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setSyncing(true);
+                        setSyncStatus("pushing");
+                        try {
+                          await pushAllLocalDataToSupabase(user.id);
+                          setSyncStatus("done");
+                        } catch (e) {
+                          console.error(e);
+                          setSyncStatus("error");
+                        } finally {
+                          setSyncing(false);
+                        }
+                        setShowUserMenu(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "8px 14px",
+                        fontSize: 12,
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--color-text-secondary, " + t.text2 + ")",
+                        fontFamily: MONO,
+                      }}
+                    >
+                      ↑ Save to cloud
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setSyncing(true);
+                        setSyncStatus("pulling");
+                        try {
+                          await pullAllDataFromSupabase(user.id);
+                          setSyncing(false);
+                          setShowUserMenu(false);
+                          window.location.reload();
+                        } catch (e) {
+                          console.error(e);
+                          setSyncStatus("error");
+                          setSyncing(false);
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "8px 14px",
+                        fontSize: 12,
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--color-text-secondary, " + t.text2 + ")",
+                        fontFamily: MONO,
+                      }}
+                    >
+                      ↓ Load from cloud
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const keys = [
+                          "rxt-terms",
+                          "rxt-lec-meta",
+                          "rxt-block-objectives",
+                          "rxt-performance",
+                          "rxt-completion",
+                          "rxt-weak-concepts",
+                          "rxt-tracker-v2",
+                          "rxt-sessions",
+                          "rxt-missed-questions",
+                          "rxt-question-banks",
+                        ];
+                        const exported = {};
+                        keys.forEach((key) => {
+                          const val = localStorage.getItem(key);
+                          if (val) {
+                            try {
+                              exported[key] = JSON.parse(val);
+                            } catch (e) {
+                              exported[key] = val;
+                            }
+                          }
+                        });
+                        const str = JSON.stringify(exported, null, 2);
+                        const blob = new Blob([str], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `rxtrack-backup-${new Date().toISOString().split("T")[0]}.json`;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        setShowUserMenu(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "8px 14px",
+                        fontSize: 12,
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "var(--color-text-secondary, " + t.text2 + ")",
+                        fontFamily: MONO,
+                      }}
+                    >
+                      💾 Export data backup
+                    </button>
+
+                    <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await signOut();
+                          setShowUserMenu(false);
+                        } catch (e) {
+                          console.error(e);
+                        }
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "8px 14px",
+                        fontSize: 12,
+                        textAlign: "left",
+                        background: "transparent",
+                        border: "none",
+                        cursor: "pointer",
+                        color: "#A32D2D",
+                        fontFamily: MONO,
+                      }}
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => signInWithGoogle()}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 14px",
+                  fontSize: 12,
+                  fontWeight: 500,
+                  background: "white",
+                  color: "#1f2937",
+                  border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+                  marginLeft: 8,
+                  fontFamily: MONO,
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
+                  <path
+                    fill="#4285F4"
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                  />
+                  <path
+                    fill="#34A853"
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                  />
+                  <path
+                    fill="#FBBC05"
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+                  />
+                  <path
+                    fill="#EA4335"
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                  />
+                </svg>
+                Sign in with Google
+              </button>
+            ))}
         </div>
       </nav>
 
@@ -16637,7 +20439,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
             <div style={{ flex:1, overflow:"auto" }}>
               <LearningModel
                 profile={learningProfile}
-                onProfileUpdate={(p) => { setLearningProfile(p); saveProfile(p); }}
+                onProfileUpdate={(p) => { setLearningProfile(p); updateLearningProfile(p); }}
                 sessions={sessions}
                 lectures={lectures}
                 blocks={terms?.flatMap((t) => t.blocks || []) ?? []}
@@ -16666,7 +20468,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           : enriched;
                       });
                     const updated = { ...prev, [bid]: { ...blockData, extracted: [...existing, ...newOnes] } };
-                    try { localStorage.setItem("rxt-block-objectives", JSON.stringify(updated)); } catch {}
+                    try { safeSetItem("rxt-block-objectives", updated); } catch {}
                     return updated;
                   });
                 }}
@@ -17098,6 +20900,12 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                             color: t.text3,
                           };
                         }
+                        if (item.result?.mergedPartB) {
+                          return {
+                            text: item.result?.resultSummary || "Merged with Part A",
+                            color: "#185FA5",
+                          };
+                        }
                         return {
                           text: item.result?.resultSummary || `${item.result?.objectiveCount ?? 0} objectives`,
                           color: item.result?.resultSummaryColor || "#27500A",
@@ -17119,6 +20927,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
                   const progBg = (item) => {
                     if (item.status === "error") return "#E24B4A";
+                    if (item.status === "done" && item.result?.mergedPartB) return "#185FA5";
                     if (item.status === "done") return "#639922";
                     if (item.status === "collision") return "#BA7517";
                     return tc;
@@ -17633,6 +21442,73 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                       )}
                     </div>
                   )}
+                  {splitLecturePairs.length > 0 && (
+                    <div
+                      style={{
+                        padding: "10px 14px",
+                        background: "#EEF4FF",
+                        border: "0.5px solid #93C5FD",
+                        borderRadius: 8,
+                        marginBottom: 12,
+                        marginLeft: 24,
+                        marginRight: 24,
+                        fontSize: 12,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontWeight: 500,
+                          color: "#185FA5",
+                          marginBottom: 6,
+                          fontFamily: MONO,
+                        }}
+                      >
+                        ⊕ Split lectures detected
+                      </div>
+                      {splitLecturePairs.map((pair) => (
+                        <div
+                          key={pair.partA.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            marginBottom: 4,
+                          }}
+                        >
+                          <span
+                            style={{
+                              flex: 1,
+                              color: "var(--color-text-secondary, " + t.text3 + ")",
+                              fontSize: 11,
+                              fontFamily: MONO,
+                            }}
+                          >
+                            {pair.partA.lectureTitle} + Part B
+                          </span>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const bid = activeBlock?.id ?? blockId;
+                              const ok = await mergeSplitLectures(pair.partA.id, pair.partB.id, bid);
+                              if (!ok) return;
+                            }}
+                            style={{
+                              fontSize: 11,
+                              padding: "3px 10px",
+                              background: "#185FA5",
+                              color: "white",
+                              border: "none",
+                              borderRadius: 5,
+                              cursor: "pointer",
+                              fontFamily: MONO,
+                            }}
+                          >
+                            ⊕ Merge
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {(() => {
                     const unassigned = blockLecs.filter((l) => !l.weekNumber);
                     if (unassigned.length === 0) return null;
@@ -17741,6 +21617,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                       startObjectiveQuiz,
                       quizLoadingId,
                       quizErrorId,
+                      getLecQuizLevel,
                       detectStudyMode,
                       setAnkiLogTarget,
                       handleDeepLearnStart,
@@ -17753,6 +21630,17 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                       getLecPerf,
                       compactLayout: true,
                       scheduleEditMode,
+                      deleteConfirmId,
+                      setDeleteConfirmId,
+                      onDeleteLecture: (id) => deleteLecture(id, bid),
+                      editingLecId,
+                      setEditingLecId,
+                      editingTitle,
+                      setEditingTitle,
+                      renameLecture,
+                      hoveredLectureRowId,
+                      setHoveredLectureRowId,
+                      smartTruncateTitle: smartTruncate,
                       onDeepLearn: () => {
                         setStudyCfg({
                           blockId: bid,
@@ -17919,7 +21807,222 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
               {/* Analysis */}
               {tab==="objectives" && (
                 <div style={{ position:"relative" }}>
-                  {!drillMode ? (
+                  {showDrillSetup && pendingDrillConfig ? (() => {
+                    const cfg = pendingDrillConfig;
+                    const objectivePoolSize = buildDrillQueue(cfg.blockId, cfg.filterVal, cfg.lecFilter).length;
+                    const levelOrd =
+                      cfg.confirmedLecId || cfg.lecId
+                        ? getDrillLecQuestionOrder(cfg.confirmedLecId || cfg.lecId, cfg.blockId)
+                        : null;
+                    return (
+                      <div
+                        style={{
+                          maxWidth: 480,
+                          margin: "40px auto",
+                          padding: "24px",
+                          background: "var(--color-background-primary)",
+                          border: "0.5px solid var(--color-border-secondary)",
+                          borderRadius: 16,
+                        }}
+                      >
+                        <div style={{ fontSize: 18, fontWeight: 500, marginBottom: 4 }}>Start questions</div>
+                        {(cfg.confirmedLecId || cfg.lecId) && (
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: "var(--color-text-tertiary)",
+                              marginBottom: 8,
+                              fontFamily: MONO,
+                            }}
+                          >
+                            From lecture: {cfg.lecTitle || "Selected lecture"}
+                          </div>
+                        )}
+                        <div
+                          style={{
+                            fontSize: 13,
+                            color: "var(--color-text-secondary)",
+                            marginBottom: 20,
+                          }}
+                        >
+                          {cfg.lecTitle || "Selected lecture"}
+                          {" · "}
+                          {objectivePoolSize} objectives available
+                        </div>
+                        <div style={{ marginBottom: 20 }}>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              color: "var(--color-text-tertiary)",
+                              textTransform: "uppercase",
+                              letterSpacing: "0.06em",
+                              marginBottom: 10,
+                            }}
+                          >
+                            How many questions?
+                          </div>
+                          <div
+                            style={{
+                              display: "grid",
+                              gridTemplateColumns: "repeat(4, 1fr)",
+                              gap: 8,
+                              marginBottom: 10,
+                            }}
+                          >
+                            {[10, 20, 40, 60].map((n) => (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => setDrillTargetCount(n)}
+                                style={{
+                                  padding: "10px 0",
+                                  fontSize: 16,
+                                  fontWeight: 500,
+                                  fontFamily: "var(--font-mono)",
+                                  border: "0.5px solid",
+                                  borderRadius: 8,
+                                  cursor: "pointer",
+                                  background: drillTargetCount === n ? "#2563eb" : "transparent",
+                                  color: drillTargetCount === n ? "white" : "var(--color-text-primary)",
+                                  borderColor: drillTargetCount === n ? "#2563eb" : "var(--color-border-secondary)",
+                                }}
+                              >
+                                {n}
+                              </button>
+                            ))}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>Custom:</span>
+                            <input
+                              type="number"
+                              min={5}
+                              max={200}
+                              value={![10, 20, 40, 60].includes(drillTargetCount) ? drillTargetCount : ""}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10);
+                                if (Number.isFinite(val) && val >= 5 && val <= 200) {
+                                  setDrillTargetCount(val);
+                                }
+                              }}
+                              placeholder="e.g. 30"
+                              style={{
+                                width: 70,
+                                fontSize: 14,
+                                padding: "6px 10px",
+                                border: "0.5px solid var(--color-border-secondary)",
+                                borderRadius: 6,
+                                textAlign: "center",
+                                background: "var(--color-background-primary)",
+                                color: "var(--color-text-primary)",
+                              }}
+                            />
+                            <span style={{ fontSize: 12, color: "var(--color-text-tertiary)" }}>questions</span>
+                          </div>
+                        </div>
+                        <div
+                          style={{
+                            padding: "10px 12px",
+                            background: "var(--color-background-secondary)",
+                            borderRadius: 8,
+                            marginBottom: 20,
+                            fontSize: 12,
+                            color: "var(--color-text-secondary)",
+                            lineHeight: 1.5,
+                          }}
+                        >
+                          {objectivePoolSize < drillTargetCount ? (
+                            <>
+                              <span style={{ color: "#185FA5" }}>ℹ </span>
+                              {cfg.lecId
+                                ? `Only ${objectivePoolSize} objectives linked to this lecture. `
+                                : `Only ${objectivePoolSize} objectives in this drill scope. `}
+                              AI will generate additional questions on the same topics to reach your target of{" "}
+                              {drillTargetCount}.
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ color: "#27500A" }}>✓ </span>
+                              {objectivePoolSize} objectives available — enough for {drillTargetCount} questions.
+                            </>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                          <div
+                            style={{
+                              flex: 1,
+                              padding: "10px 12px",
+                              background: "var(--color-background-secondary)",
+                              borderRadius: 8,
+                              fontSize: 12,
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 10,
+                                color: "var(--color-text-tertiary)",
+                                marginBottom: 4,
+                                textTransform: "uppercase",
+                              }}
+                            >
+                              Current level
+                            </div>
+                            <div style={{ fontWeight: 500 }}>
+                              {levelOrd ? `${levelOrd} order` : "—"}
+                            </div>
+                            <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                              {!levelOrd
+                                ? "Multiple lectures — mixed difficulty"
+                                : levelOrd === "1st"
+                                  ? "Direct recall questions"
+                                  : levelOrd === "2nd"
+                                    ? "Application & scenarios"
+                                    : "Clinical reasoning"}
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={drillSetupLaunching}
+                          onClick={async () => {
+                            if (!cfg || drillSetupLaunching) return;
+                            await launchDrillWithConfig(cfg, drillTargetCount);
+                          }}
+                          style={{
+                            width: "100%",
+                            padding: "12px 0",
+                            fontSize: 15,
+                            fontWeight: 500,
+                            background: drillSetupLaunching ? "#94a3b8" : "#2563eb",
+                            color: "white",
+                            border: "none",
+                            borderRadius: 10,
+                            cursor: drillSetupLaunching ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {drillSetupLaunching ? "Preparing…" : `Start ${drillTargetCount} questions →`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowDrillSetup(false);
+                            setPendingDrillConfig(null);
+                          }}
+                          style={{
+                            width: "100%",
+                            marginTop: 8,
+                            padding: "8px 0",
+                            fontSize: 13,
+                            background: "transparent",
+                            color: "var(--color-text-tertiary)",
+                            border: "none",
+                            cursor: "pointer",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    );
+                  })() : !drillMode ? (
                   <>
                   {hasOrphanedPerf && (
                     <div
@@ -18106,7 +22209,10 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                     const linked = allObjs.filter((o) => isObjectiveLinked(o, blockLecs)).length;
                     const totalCt = allObjs.length;
                     const unlinkedCount = totalCt - linked;
-                    const hasModuleImport = (pickBlockObjectivesState(blockObjectives, bid)?.imported || []).length > 0;
+                    const dedupePick = pickBlockObjectivesState(blockObjectives, bid);
+                    const importedCount = (dedupePick.imported || []).length;
+                    const extractedCount = (dedupePick.extracted || []).length;
+                    const hasModuleImport = (dedupePick.imported || []).length > 0;
                     return (
                       <>
                         <style>{`@keyframes rxtAlignSpin { to { transform: rotate(360deg); } }`}</style>
@@ -18175,6 +22281,70 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                               : `⚠ ${linked}/${totalCt} linked`
                             : "— No objectives"}
                         </span>
+                        {manualCount > 0 && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "#185FA5",
+                              fontFamily: MONO,
+                              fontWeight: 500,
+                              flexShrink: 0,
+                            }}
+                          >
+                            ✏ {manualCount} manually assigned
+                          </span>
+                        )}
+                        {showUndoAlignment && (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "5px 10px",
+                              background: "#FAEEDA",
+                              border: "0.5px solid #EF9F27",
+                              borderRadius: 6,
+                              fontSize: 12,
+                              color: "#633806",
+                            }}
+                          >
+                            <span>AI alignment complete</span>
+                            <button
+                              onClick={() => {
+                                const restored = restoreObjectivesFromBackup();
+                                if (restored) {
+                                  setAlignmentStatus(null);
+                                  setAlignmentProgress("");
+                                  setShowUndoAlignment(false);
+                                  try {
+                                    if (undoTimer) clearTimeout(undoTimer);
+                                  } catch {}
+                                  alert("✓ Restored to before alignment ran");
+                                }
+                              }}
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 10px",
+                                background: "white",
+                                border: "0.5px solid #EF9F27",
+                                borderRadius: 5,
+                                color: "#633806",
+                                cursor: "pointer",
+                                fontWeight: 500,
+                              }}
+                            >
+                              ↩ Undo alignment
+                            </button>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "var(--color-text-tertiary)",
+                              }}
+                            >
+                              (available for 60s)
+                            </span>
+                          </div>
+                        )}
                         <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1, justifyContent: "center" }}>
                           {alignmentStatus === null && unlinkedCount > 0 && (
                             <>
@@ -18308,6 +22478,33 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           </button>
                           <button
                             type="button"
+                            onClick={() => {
+                              if (dedupeStatus === "running") return;
+                              const confirmed = window.confirm(
+                                `This will compare all ${extractedCount} extracted objectives against your ${importedCount} block objectives using AI and remove duplicates.\n\nA backup will be created first.\n\nThis may take 2-3 minutes.\n\nContinue?`
+                              );
+                              if (confirmed) deduplicateObjectives(activeBlock?.id ?? blockId);
+                            }}
+                            style={{
+                              fontSize: 12,
+                              padding: "4px 12px",
+                              border: "0.5px solid var(--color-border-secondary)",
+                              borderRadius: 6,
+                              background:
+                                dedupeStatus === "running" ? "var(--color-background-secondary)" : "transparent",
+                              color:
+                                dedupeStatus === "running"
+                                  ? "var(--color-text-tertiary)"
+                                  : "var(--color-text-secondary)",
+                              cursor: dedupeStatus === "running" ? "not-allowed" : "pointer",
+                              fontFamily: MONO,
+                            }}
+                            disabled={dedupeStatus === "running"}
+                          >
+                            {dedupeStatus === "running" ? "⏳ Deduplicating..." : "🔄 Remove duplicates"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={resyncOrphanedPerformance}
                             style={{
                               fontFamily: MONO,
@@ -18336,7 +22533,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                               setBlockObjectives((prev) => {
                                 const next = { ...prev, [b]: { imported: [], extracted: [] } };
                                 try {
-                                  localStorage.setItem("rxt-block-objectives", JSON.stringify(next));
+                                  safeSetItem("rxt-block-objectives", next);
                                 } catch {}
                                 return next;
                               });
@@ -18376,6 +22573,80 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           }}
                         />
                         </div>
+                        {dedupeStatus === "running" && (
+                          <div
+                            style={{
+                              width: "100%",
+                              fontSize: 11,
+                              color: t.text3,
+                              marginTop: 8,
+                              fontFamily: MONO,
+                            }}
+                          >
+                            {dedupeProgress}
+                          </div>
+                        )}
+                        {dedupeStatus === "done" && (
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                              flexWrap: "wrap",
+                              width: "100%",
+                              marginTop: 8,
+                            }}
+                          >
+                            <span style={{ fontSize: 11, color: "#27500A", fontFamily: MONO }}>{dedupeProgress}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const restored = restoreObjectivesFromBackup();
+                                if (restored) {
+                                  refreshObjectivesFromStorage();
+                                  setUnlinkedRefreshKey((k) => k + 1);
+                                  setDedupeStatus(null);
+                                  setDedupeProgress("");
+                                  alert("✓ Restored to before deduplication");
+                                }
+                              }}
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 10px",
+                                border: "0.5px solid var(--color-border-secondary)",
+                                borderRadius: 6,
+                                background: "transparent",
+                                color: "var(--color-text-secondary)",
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                              }}
+                            >
+                              ↩ Undo
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDedupeStatus(null);
+                                setDedupeProgress("");
+                              }}
+                              style={{
+                                fontSize: 11,
+                                padding: "3px 8px",
+                                border: "none",
+                                background: "transparent",
+                                color: "var(--color-text-tertiary)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        )}
+                        {dedupeStatus === "error" && (
+                          <div style={{ width: "100%", marginTop: 8 }}>
+                            <div style={{ fontSize: 11, color: "#A32D2D", fontFamily: MONO }}>{dedupeProgress}</div>
+                          </div>
+                        )}
                       </div>
                       </>
                     );
@@ -18505,6 +22776,12 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                     coverageObjectives={coverageObjectivesMemo}
                     onReExtractObjectives={reExtractObjectivesForLecture}
                     reExtractingLectureId={reExtractingLectureId}
+                    editingLecId={editingLecId}
+                    setEditingLecId={setEditingLecId}
+                    editingTitle={editingTitle}
+                    setEditingTitle={setEditingTitle}
+                    onRenameLecture={renameLecture}
+                    smartTruncateTitle={smartTruncate}
                     onUpdateObjectiveStatus={(objId, newStatus) =>
                       updateSingleObjectiveStatus(activeBlock?.id ?? blockId, objId, newStatus)
                     }
@@ -18547,6 +22824,11 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                       <button
                         type="button"
                         onClick={() => {
+                          drillCompletionSyncedRef.current = false;
+                          setDrillSessionQuestionTarget(null);
+                          const db = activeBlock?.id ?? blockId ?? "msk";
+                          setDrillBlockId(db);
+                          drillBlockIdRef.current = db;
                           setDrillMode(true);
                           setShowDrillSummary(false);
                           setDrillSummaryData(null);
@@ -18555,7 +22837,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           setDrillIndex(0);
                           setDrillComplete(false);
                           setDrillIdAllowlist(null);
-                          setDrillFilter("weak");
+                          setDrillFilter("weak_untested");
                           setDrillLecFilter("all");
                           setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
                           drillSessionStrugglingRef.current.clear();
@@ -18591,27 +22873,37 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                   (() => {
                     const drillBid = activeBlock?.id ?? blockId;
                     const drillBlockLecsSorted = [...blockLecs].sort(sortBlockLecsForDrill);
-                    let baseObjs = getBlockObjectives(drillBid) || [];
-                    if (drillIdAllowlist?.length) {
-                      const allow = new Set(drillIdAllowlist);
-                      baseObjs = baseObjs.filter((o) => allow.has(o.id));
-                    }
-                    if (drillLecFilter !== "all") {
-                      baseObjs = baseObjs.filter((o) => o.linkedLecId === drillLecFilter);
-                    }
-                    const nStruggling = baseObjs.filter((o) => o.status === "struggling").length;
-                    const nInProgressDrill = baseObjs.filter((o) => o.status === "inprogress").length;
-                    const nWeak = baseObjs.filter(
+                    const poolScoped = getDrillPoolBase(drillBid, drillLecFilter, drillIdAllowlist);
+                    const nStruggling = poolScoped.filter((o) => o.status === "struggling").length;
+                    const nInProgressDrill = poolScoped.filter((o) => o.status === "inprogress").length;
+                    const nWeak = poolScoped.filter(
                       (o) =>
                         o.status === "struggling" ||
                         o.status === "inprogress" ||
                         !o.status ||
                         o.status === "untested"
                     ).length;
-                    const nUntested = baseObjs.filter((o) => !o.status || o.status === "untested").length;
-                    const nAll = baseObjs.length;
-                    const previewQueue = buildDrillQueue(baseObjs, drillFilter, drillLecFilter);
+                    const nUntested = poolScoped.filter((o) => !o.status || o.status === "untested").length;
+                    const nAll = poolScoped.length;
+                    let previewQueue = buildDrillQueue(drillBid, drillFilter, drillLecFilter);
+                    if (drillIdAllowlist?.length) {
+                      const allow = new Set(drillIdAllowlist);
+                      previewQueue = previewQueue.filter((o) => allow.has(o.id));
+                    }
                     const nPreview = previewQueue.length;
+
+                    const selectedDrillLecLabelFull =
+                      drillLecFilter !== "all"
+                        ? (() => {
+                            const L = drillBlockLecsSorted.find((l) => l.id === drillLecFilter);
+                            if (!L) return drillLecFilter;
+                            return `${L.lectureType || "LEC"} ${L.lectureNumber ?? ""} — ${L.lectureTitle || L.fileName || L.id}`;
+                          })()
+                        : null;
+                    const selectedDrillLecLabel =
+                      selectedDrillLecLabelFull && typeof selectedDrillLecLabelFull === "string"
+                        ? smartTruncate(selectedDrillLecLabelFull, 52)
+                        : selectedDrillLecLabelFull;
 
                     const pillBase = {
                       fontSize: 12,
@@ -18643,6 +22935,12 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                             setUnlinkedTabFocusKey((k) => k + 1);
                           }}
                           onDone={() => {
+                            syncDrillToCompletion(
+                              drillQueueRef.current,
+                              drillStatsRef.current,
+                              drillStyleRef.current,
+                              drillBlockIdRef.current || drillBid
+                            );
                             setShowDrillSummary(false);
                             setDrillSummaryData(null);
                             drillSummaryBuiltRef.current = false;
@@ -18650,6 +22948,8 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           }}
                           onDrillStrugglingOnly={() => {
                             if (!drillSummaryData) return;
+                            drillCompletionSyncedRef.current = false;
+                            setDrillSessionQuestionTarget(null);
                             const strugglingQueue = drillQueue.filter((o) =>
                               drillSummaryData.strugglingObjs.some((s) => s.id === o.id)
                             );
@@ -18700,7 +23000,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           <div style={{ display: "flex", flexWrap: "wrap" }}>
                             {[
                               { key: "struggling", label: `⚠ Struggling only (${nStruggling})` },
-                              { key: "weak", label: `△ Weak + untested (${nWeak})` },
+                              { key: "weak_untested", label: `△ Weak + untested (${nWeak})` },
                               { key: "untested", label: `○ Untested only (${nUntested})` },
                               { key: "all", label: `All objectives (${nAll})` },
                             ].map(({ key, label }) => {
@@ -18708,7 +23008,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                               const styles =
                                 key === "struggling"
                                   ? { bg: "#FCEBEB", border: "#F09595" }
-                                  : key === "weak"
+                                  : key === "weak_untested"
                                     ? { bg: "#FAEEDA", border: "#EF9F27" }
                                     : { bg: t.inputBg || t.cardBg, border: t.border1 };
                               return (
@@ -18782,7 +23082,12 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                               <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>AI generates a question for each objective</div>
                             </div>
                           </div>
-                          <div style={{ fontSize: 12, color: t.text2, marginTop: 16, marginBottom: 8 }}>From which lectures?</div>
+                          <div style={{ fontSize: 12, color: t.text2, marginTop: 16, marginBottom: 8 }}>
+                            From which lectures?
+                            {selectedDrillLecLabel ? (
+                              <span title={typeof selectedDrillLecLabelFull === "string" ? selectedDrillLecLabelFull : undefined} style={{ color: t.text1, fontWeight: 600 }}>{` → ${selectedDrillLecLabel}`}</span>
+                            ) : null}
+                          </div>
                           <select
                             value={drillLecFilter}
                             onChange={(e) => setDrillLecFilter(e.target.value)}
@@ -18801,9 +23106,10 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                             {drillBlockLecsSorted.map((lec) => {
                               const cnt = (getBlockObjectives(drillBid) || []).filter((o) => o.linkedLecId === lec.id).length;
                               const title = lec.lectureTitle || lec.fileName || lec.id;
+                              const titleShown = smartTruncate(title, 42);
                               return (
-                                <option key={lec.id} value={lec.id}>
-                                  {(lec.lectureType || "LEC")} {lec.lectureNumber ?? ""} — {title} ({cnt} obj)
+                                <option key={lec.id} value={lec.id} title={title}>
+                                  {(lec.lectureType || "LEC")} {lec.lectureNumber ?? ""} — {titleShown} ({cnt} obj)
                                 </option>
                               );
                             })}
@@ -18817,7 +23123,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                               </span>
                             )}
                           </div>
-                          {nPreview > 0 && drillFilter === "weak" && (
+                          {nPreview > 0 && drillFilter === "weak_untested" && (
                             <div style={{ fontSize: 11, color: t.text3, marginTop: 6, fontFamily: MONO }}>
                               includes ⚠ {nStruggling} struggling · △ {nInProgressDrill} in progress · ○ {nUntested}{" "}
                               untested
@@ -18833,7 +23139,26 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                               type="button"
                               disabled={nPreview === 0}
                               onClick={() => {
-                                const queue = buildDrillQueue(baseObjs, drillFilter, drillLecFilter);
+                                drillCompletionSyncedRef.current = false;
+                                setDrillSessionQuestionTarget(null);
+                                const db = drillBid || "msk";
+                                setDrillBlockId(db);
+                                drillBlockIdRef.current = db;
+                                let queue = buildDrillQueue(drillBid, drillFilter, drillLecFilter);
+                                if (drillIdAllowlist?.length) {
+                                  const allow = new Set(drillIdAllowlist);
+                                  queue = queue.filter((o) => allow.has(o.id));
+                                }
+                                console.log(
+                                  "Filter selected:",
+                                  drillFilter,
+                                  "normalized:",
+                                  normalizeDrillObjectiveFilter(drillFilter),
+                                  "Queue built:",
+                                  queue.length,
+                                  "expected (preview):",
+                                  nPreview
+                                );
                                 setDrillQueue(queue);
                                 setDrillIndex(0);
                                 setDrillComplete(false);
@@ -18907,7 +23232,13 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
 
                     const nSaved =
                       drillStats.mastered + drillStats.inprogress + drillStats.struggling;
-                    const blockObjsForLevels = getBlockObjectives(drillBid) || [];
+                    const drillProgressDenom = Math.max(
+                      1,
+                      drillSessionQuestionTarget != null
+                        ? Math.min(drillSessionQuestionTarget, drillQueue.length || 1)
+                        : drillQueue.length || 1
+                    );
+                    const blockObjsForLevels = getMSKObjectives(drillBid) || [];
                     const level1Count =
                       drillStyle === "mcq"
                         ? drillQueue.filter((o) => getQuestionLevel(o, blockObjsForLevels) === 1).length
@@ -18927,7 +23258,9 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                           <div
                             style={{
                               height: "100%",
-                              width: drillQueue.length ? `${(drillIndex / drillQueue.length) * 100}%` : "0%",
+                              width: drillProgressDenom
+                                ? `${Math.min(100, ((drillIndex + 1) / drillProgressDenom) * 100)}%`
+                                : "0%",
                               background: "#639922",
                               transition: "width 0.2s ease",
                             }}
@@ -18946,7 +23279,7 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                         >
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                             <span style={{ fontFamily: MONO, fontSize: 13, color: t.text3 }}>
-                              {drillIndex + 1} / {drillQueue.length}
+                              {drillIndex + 1} / {drillProgressDenom}
                             </span>
                             <span style={{ fontSize: 10, color: "#639922", fontFamily: MONO }}>✓ auto-saving</span>
                           </div>
@@ -19185,6 +23518,21 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                             >
                               {statusPill.text}
                             </span>
+                            {currentObj?.isSynthetic && (
+                              <span
+                                style={{
+                                  fontSize: 9,
+                                  padding: "1px 6px",
+                                  background: "#E1F5EE",
+                                  color: "#085041",
+                                  border: "0.5px solid #48B68A",
+                                  borderRadius: 10,
+                                  flexShrink: 0,
+                                }}
+                              >
+                                AI generated
+                              </span>
+                            )}
                             {isMcq && (
                               <div
                                 style={{
@@ -19226,9 +23574,159 @@ Write 1 MCQ. Short option texts (under 8 words each). Short explanations (under 
                                     ⚡
                                   </span>
                                 )}
+                                {reassignedConfirm === currentObj?.id ? (
+                                  <span
+                                    style={{
+                                      fontSize: 10,
+                                      color: "#27500A",
+                                      padding: "2px 7px",
+                                      flexShrink: 0,
+                                      marginLeft: 4,
+                                    }}
+                                  >
+                                    ✓ Moved
+                                  </span>
+                                ) : !currentObj?.isSynthetic ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowReassignPanel((prev) =>
+                                        prev ? null : currentObj?.id ?? null
+                                      );
+                                    }}
+                                    title="Reassign to correct lecture"
+                                    style={{
+                                      fontSize: 10,
+                                      padding: "2px 7px",
+                                      border: "0.5px solid var(--color-border-tertiary)",
+                                      borderRadius: 4,
+                                      background:
+                                        showReassignPanel === currentObj?.id
+                                          ? "var(--color-background-secondary)"
+                                          : "transparent",
+                                      color: "var(--color-text-tertiary)",
+                                      cursor: "pointer",
+                                      flexShrink: 0,
+                                      marginLeft: 4,
+                                    }}
+                                  >
+                                    wrong lecture?
+                                  </button>
+                                ) : null}
                               </div>
                             )}
                           </div>
+                          {isMcq && showReassignPanel === currentObj?.id && !currentObj?.isSynthetic && (
+                            <div
+                              style={{
+                                margin: "8px 0 12px 0",
+                                padding: "10px 14px",
+                                background: "var(--color-background-secondary)",
+                                border: "0.5px solid #EF9F27",
+                                borderRadius: 8,
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                                flexWrap: "wrap",
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <span
+                                style={{
+                                  fontSize: 12,
+                                  color: "#633806",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                Move to:
+                              </span>
+                              <div style={{ flex: 1, minWidth: 200 }}>
+                                <LectureAssignDropdown
+                                  blockLecs={drillBlockLecsSorted}
+                                  currentLecId={currentObj?.linkedLecId}
+                                  objId={currentObj?.id}
+                                  onAssign={(objId, lecId) => {
+                                    reassignDrillObjective(
+                                      objId,
+                                      lecId,
+                                      currentObj?._drillBlockId || drillBid
+                                    );
+                                    setShowReassignPanel(null);
+                                  }}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => setShowReassignPanel(null)}
+                                style={{
+                                  fontSize: 11,
+                                  padding: "3px 8px",
+                                  border: "0.5px solid var(--color-border-secondary)",
+                                  borderRadius: 5,
+                                  background: "transparent",
+                                  color: "var(--color-text-tertiary)",
+                                  cursor: "pointer",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const objId = currentObj?.id;
+                                  if (!objId) return;
+                                  const storageBid = currentObj?._drillBlockId || drillBid;
+                                  setDrillQueue((prev) => {
+                                    const i = prev.findIndex((o) => o.id === objId);
+                                    const next = prev.filter((o) => o.id !== objId);
+                                    queueMicrotask(() => {
+                                      if (next.length === 0) {
+                                        setDrillComplete(true);
+                                        setDrillIndex(0);
+                                      } else if (i !== -1 && i >= next.length) {
+                                        setDrillIndex(next.length - 1);
+                                      }
+                                    });
+                                    return next;
+                                  });
+                                  try {
+                                    const objs = [...getMSKObjectives(storageBid)];
+                                    const idx = objs.findIndex((o) => o.id === objId);
+                                    if (idx !== -1) {
+                                      objs[idx] = {
+                                        ...objs[idx],
+                                        linkedLecId: null,
+                                        sourceFile: null,
+                                        removedFromDrill: true,
+                                      };
+                                      saveMSKObjectives(storageBid, objs);
+                                    }
+                                    setUnlinkedRefreshKey((k) => k + 1);
+                                    try {
+                                      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+                                    } catch {}
+                                  } catch (err) {
+                                    console.error("removeFromDrill failed:", err);
+                                  }
+                                  setShowReassignPanel(null);
+                                }}
+                                style={{
+                                  fontSize: 11,
+                                  padding: "3px 8px",
+                                  border: "0.5px solid #F09595",
+                                  borderRadius: 5,
+                                  background: "transparent",
+                                  color: "#A32D2D",
+                                  cursor: "pointer",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                Remove from drill
+                              </button>
+                            </div>
+                          )}
                           {drillStyle === "flashcard" && (
                             <>
                               <div

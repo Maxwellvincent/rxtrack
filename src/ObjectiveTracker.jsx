@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "./theme";
 import { LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
 
@@ -132,8 +132,15 @@ function LecObjectiveGroup({
   getLecPerf,
   onReExtractObjectives,
   reExtractingLectureId,
+  editingLecId = null,
+  setEditingLecId = null,
+  editingTitle = "",
+  setEditingTitle = null,
+  onRenameLecture = null,
+  smartTruncateTitle = null,
 }) {
   const [open, setOpen] = useState(false);
+  const renameEscapeRef = useRef(false);
 
   const fullTitle = String(group.lectureTitle || "").trim();
   const useTwoLines = fullTitle.length > 40;
@@ -213,25 +220,112 @@ function LecObjectiveGroup({
         >
           {group.discipline}
         </span>
-        <span
-          title={fullTitle || undefined}
+        <div
           style={{
-            fontFamily: MONO,
-            color: T.text1,
-            fontSize: 15,
-            fontWeight: 500,
             flex: 1,
             minWidth: 0,
-            overflow: "hidden",
-            display: "-webkit-box",
-            WebkitLineClamp: useTwoLines ? 2 : 1,
-            WebkitBoxOrient: "vertical",
-            lineHeight: 1.25,
-            maxHeight: useTwoLines ? "2.6em" : "1.3em",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
           }}
         >
-          {group.lectureTitle}
-        </span>
+          {lectureId &&
+          onRenameLecture &&
+          setEditingLecId &&
+          setEditingTitle &&
+          editingLecId === lectureId ? (
+            <input
+              autoFocus
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onBlur={() => {
+                if (renameEscapeRef.current) {
+                  renameEscapeRef.current = false;
+                  return;
+                }
+                onRenameLecture(lectureId, editingTitle);
+                setEditingLecId(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onRenameLecture(lectureId, editingTitle);
+                  setEditingLecId(null);
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  renameEscapeRef.current = true;
+                  setEditingLecId(null);
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                fontFamily: MONO,
+                fontSize: 15,
+                fontWeight: 500,
+                flex: 1,
+                minWidth: 0,
+                padding: "2px 6px",
+                border: "1.5px solid #2563eb",
+                borderRadius: 4,
+                background: "var(--color-background-primary)",
+                color: "var(--color-text-primary)",
+                outline: "none",
+              }}
+            />
+          ) : (
+            <span
+              title={fullTitle || undefined}
+              onDoubleClick={(e) => {
+                if (!lectureId || !onRenameLecture || !setEditingLecId || !setEditingTitle) return;
+                e.stopPropagation();
+                e.preventDefault();
+                setEditingLecId(lectureId);
+                setEditingTitle(fullTitle);
+              }}
+              style={{
+                fontFamily: MONO,
+                color: T.text1,
+                fontSize: 15,
+                fontWeight: 500,
+                flex: 1,
+                minWidth: 0,
+                overflow: "hidden",
+                display: "-webkit-box",
+                WebkitLineClamp: useTwoLines ? 2 : 1,
+                WebkitBoxOrient: "vertical",
+                lineHeight: 1.25,
+                maxHeight: useTwoLines ? "2.6em" : "1.3em",
+                cursor: onRenameLecture ? "text" : "default",
+              }}
+            >
+              {smartTruncateTitle ? smartTruncateTitle(fullTitle) : group.lectureTitle}
+            </span>
+          )}
+          {lectureId && onRenameLecture && setEditingLecId && setEditingTitle && editingLecId !== lectureId && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setEditingLecId(lectureId);
+                setEditingTitle(fullTitle);
+              }}
+              style={{
+                fontSize: 11,
+                padding: "2px 6px",
+                background: "transparent",
+                border: "0.5px solid var(--color-border-tertiary)",
+                borderRadius: 4,
+                cursor: "pointer",
+                color: "var(--color-text-tertiary)",
+                flexShrink: 0,
+              }}
+              title="Rename lecture"
+            >
+              ✎
+            </button>
+          )}
+        </div>
         {dotObjsForDisplay.length > 0 && (
           <span style={{ fontFamily: MONO, color: aggDotColor, fontSize: 16, flexShrink: 0 }} title="Objectives in this lecture">
             ●{dotObjsForDisplay.length}
@@ -528,6 +622,12 @@ export default function ObjectiveTracker({
   onAssignMultipleToLecture = null,
   onReExtractObjectives = null,
   reExtractingLectureId = null,
+  editingLecId = null,
+  setEditingLecId = null,
+  editingTitle = "",
+  setEditingTitle = null,
+  onRenameLecture = null,
+  smartTruncateTitle = null,
 }) {
   const theme = useTheme();
   const T = TProp ?? theme.T;
@@ -770,7 +870,7 @@ export default function ObjectiveTracker({
 
   const lectureOptionLabel = (l) => {
     const raw = (l.lectureTitle || l.title || "").trim();
-    const title = raw.length > 42 ? raw.slice(0, 40) + "…" : raw;
+    const title = smartTruncateTitle ? smartTruncateTitle(raw, 42) : raw.length > 42 ? raw.slice(0, 40) + "…" : raw;
     return `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${title || "No title"}`;
   };
 
@@ -834,6 +934,12 @@ export default function ObjectiveTracker({
               getLecPerf={getLecPerf}
               onReExtractObjectives={onReExtractObjectives}
               reExtractingLectureId={reExtractingLectureId}
+              editingLecId={editingLecId}
+              setEditingLecId={setEditingLecId}
+              editingTitle={editingTitle}
+              setEditingTitle={setEditingTitle}
+              onRenameLecture={onRenameLecture}
+              smartTruncateTitle={smartTruncateTitle}
             />
           ))}
           {byLecture.length === 0 && (
@@ -1117,11 +1223,15 @@ export default function ObjectiveTracker({
                 }}
               >
                 <option value="">Assign selected to...</option>
-                {lecturesSortedForSelect.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.lectureType} {l.lectureNumber} — {(l.lectureTitle || l.title || "").slice(0, 40)}
-                  </option>
-                ))}
+                {lecturesSortedForSelect.map((l) => {
+                  const raw = (l.lectureTitle || l.title || "").trim();
+                  const shown = smartTruncateTitle ? smartTruncateTitle(raw, 40) : raw.slice(0, 40) + (raw.length > 40 ? "…" : "");
+                  return (
+                    <option key={l.id} value={l.id} title={raw || undefined}>
+                      {l.lectureType} {l.lectureNumber} — {shown || "No title"}
+                    </option>
+                  );
+                })}
               </select>
               <button
                 type="button"
