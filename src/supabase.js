@@ -182,6 +182,18 @@ export async function pushAllLocalDataToSupabase(userId) {
 
 export async function pullAllDataFromSupabase(userId) {
   if (!userId) return {};
+
+  const { data: termsCheck } = await supabase
+    .from("terms")
+    .select("user_id")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (!termsCheck) {
+    console.log("No cloud data found — skipping pull");
+    return { empty: true };
+  }
+
   console.log("Pulling data for user:", userId);
 
   const results = {};

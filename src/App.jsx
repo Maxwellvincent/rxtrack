@@ -11427,6 +11427,8 @@ export default function App() {
   const [drillSummaryData, setDrillSummaryData] = useState(null);
   const [coverageRefreshKey, setCoverageRefreshKey] = useState(0);
   const [lecturesRefreshKey, setLecturesRefreshKey] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const [saveConfirmed, setSaveConfirmed] = useState(null);
   const [exitConfirmVisible, setExitConfirmVisible] = useState(false);
   const [drillResumeSnapshot, setDrillResumeSnapshot] = useState(null);
@@ -11627,6 +11629,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
+  const [hasCloudData, setHasCloudData] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showImportScreen, setShowImportScreen] = useState(false);
   const [importJson, setImportJson] = useState("");
@@ -11701,6 +11704,9 @@ export default function App() {
   const [undoTimer, setUndoTimer] = useState(null);
   const [dedupeStatus, setDedupeStatus] = useState(null);
   const [dedupeProgress, setDedupeProgress] = useState("");
+  const [autoReExtracting, setAutoReExtracting] = useState(false);
+  const [autoReExtractCount, setAutoReExtractCount] = useState(0);
+  const autoReExtractedBlocksRef = useRef({});
 
   useEffect(() => {
     if (dedupeStatus !== "done") return;
@@ -11807,6 +11813,26 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const handler = () => queueMicrotask(() => setRefreshKey((k) => k + 1));
+    window.addEventListener("rxt-completion-updated", handler);
+    window.addEventListener("rxt-objectives-updated", handler);
+    return () => {
+      window.removeEventListener("rxt-completion-updated", handler);
+      window.removeEventListener("rxt-objectives-updated", handler);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setSidebarRefreshKey((k) => k + 1);
+    window.addEventListener("rxt-completion-updated", handler);
+    window.addEventListener("rxt-objectives-updated", handler);
+    return () => {
+      window.removeEventListener("rxt-completion-updated", handler);
+      window.removeEventListener("rxt-objectives-updated", handler);
+    };
+  }, []);
+
+  useEffect(() => {
     if (activeBlock?.id) {
       backfillObjectiveStatuses(activeBlock.id);
       refreshObjectivesFromStorage();
@@ -11904,6 +11930,89 @@ export default function App() {
     validateAndRepairLinkedIds(activeBlock.id);
     setContentMismatches(detectContentMismatches(activeBlock.id));
   }, [tab, activeBlock?.id, lectures, repairUnlinkedObjectives]);
+
+  useEffect(() => {
+    if (tab !== "objectives" || activeBlock?.id !== "cpr1") return;
+    if (autoReExtractedBlocksRef.current[activeBlock.id]) return;
+    autoReExtractedBlocksRef.current[activeBlock.id] = true;
+
+    let cancelled = false;
+    let timerId = null;
+
+    const run = async () => {
+      try {
+        const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+          (l) => l.blockId === activeBlock.id
+        );
+        const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+        const cprRaw = stored["cpr1"] || {};
+        const allObjs = Array.isArray(cprRaw) ? cprRaw : Object.values(cprRaw).flat();
+
+        const needsExtraction = lecs.filter((lec) => {
+          if (!Array.isArray(lec.chunks) || lec.chunks.length === 0) return false;
+          const count = allObjs.filter((o) => o?.linkedLecId === lec.id).length;
+          return count === 0;
+        });
+
+        if (needsExtraction.length === 0) return;
+
+        console.log("Auto re-extracting", needsExtraction.length, "lectures with 0 objectives");
+        setAutoReExtracting(true);
+        setAutoReExtractCount(needsExtraction.length);
+
+        const processNext = async (idx) => {
+          if (cancelled) return;
+          if (idx >= needsExtraction.length) {
+            setAutoReExtracting(false);
+            setAutoReExtractCount(0);
+            window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+            return;
+          }
+
+          const lec = needsExtraction[idx];
+          const text = (lec.chunks || [])
+            .map((c) => c?.text || "")
+            .join("\n");
+
+          console.log("Re-extracting:", lec.lectureType, lec.lectureNumber, lec.lectureTitle);
+
+          try {
+            const newObjs = await extractObjectivesFromLecture(text, lec, activeBlock.id);
+            if (newObjs.length > 0) {
+              const freshStored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+              const freshRaw = freshStored[activeBlock.id] || {};
+              const freshAll = Array.isArray(freshRaw) ? freshRaw : Object.values(freshRaw).flat();
+              const existingIds = new Set(freshAll.map((o) => o?.id));
+              const newOnly = newObjs.filter((o) => !existingIds.has(o?.id));
+              saveMSKObjectives(activeBlock.id, [...freshAll, ...newOnly]);
+              console.log("✓ Extracted", newObjs.length, "objectives for", lec.lectureTitle);
+            } else {
+              console.warn("⚠ 0 objectives found for", lec.lectureTitle, "— may need manual re-upload");
+            }
+          } catch (e) {
+            console.error("Re-extraction failed:", e);
+          }
+
+          timerId = window.setTimeout(() => {
+            processNext(idx + 1);
+          }, 800);
+        };
+
+        processNext(0);
+      } catch (e) {
+        console.error("Auto re-extraction setup failed:", e);
+        setAutoReExtracting(false);
+        setAutoReExtractCount(0);
+      }
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [tab, activeBlock?.id]);
 
   function backfillObjectiveStatuses(bid) {
     try {
@@ -16568,6 +16677,26 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
     return pct(bs.reduce((a,s)=>a+s.correct,0), bs.reduce((a,s)=>a+s.total,0));
   };
 
+  const getSidebarBlockScore = useCallback((blockIdForScore) => {
+    try {
+      const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+        (l) => l.blockId === blockIdForScore
+      );
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const scores = [];
+      lecs.forEach((lec) => {
+        const key = `${lec.id}__${blockIdForScore}`;
+        if (perf[key]?.score != null) {
+          scores.push(Number(perf[key].score));
+        }
+      });
+      if (scores.length === 0) return null;
+      return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    } catch (e) {
+      return null;
+    }
+  }, []);
+
   const selectBlock = (bid) => {
     const term = terms.find((t) => t.blocks?.some((b) => b.id === bid));
     if (!term) return;
@@ -16754,35 +16883,22 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
     setSyncStatus("pulling");
 
     try {
-      const { data, error } = await supabase
-        .from("terms")
-        .select("updated_at")
-        .eq("user_id", signedInUser.id)
-        .maybeSingle();
+      const result = await pullAllDataFromSupabase(signedInUser.id);
 
-      if (error) {
-        console.warn("Sign-in terms check:", error);
-      }
-
-      if (data) {
-        console.log("Cloud data found — pulling...");
-        setSyncStatus("pulling");
-        await pullAllDataFromSupabase(signedInUser.id);
-        setSyncStatus("done");
-        window.location.reload();
-      } else {
+      if (result?.empty) {
+        setHasCloudData(false);
+        setSyncStatus("no_cloud_data");
         const hasLocalTerms =
           typeof window !== "undefined" && localStorage.getItem("rxt-terms");
         if (!hasLocalTerms) {
-          setSyncStatus(null);
           setShowImportScreen(true);
-          return;
         }
-        console.log("No cloud data — pushing local data...");
-        setSyncStatus("pushing");
-        await pushAllLocalDataToSupabase(signedInUser.id);
-        setSyncStatus("done");
+        return;
       }
+
+      setHasCloudData(true);
+      setSyncStatus("done");
+      window.location.reload();
     } catch (e) {
       console.error("Sign in sync failed:", e);
       setSyncStatus("error");
@@ -16809,6 +16925,8 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
       if (event === "SIGNED_OUT") {
         setUser(null);
         setShowImportScreen(false);
+        setHasCloudData(false);
+        setSyncStatus(null);
         handleUserSignedInDedupRef.current = { id: null, t: 0 };
         return;
       }
@@ -16821,6 +16939,25 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
       authSub?.unsubscribe();
     };
   }, [handleUserSignedIn]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setHasCloudData(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("terms")
+        .select("user_id")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (!cancelled) setHasCloudData(!!data);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const reanalyzeLecture = useCallback(
     async (lec) => {
@@ -16896,6 +17033,153 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
     },
     [makeTopicKey, performanceHistory]
   );
+
+  const blockSessionCount = useMemo(() => {
+    try {
+      if (!activeBlock?.id) return 0;
+      const blockLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+        (l) => l.blockId === activeBlock.id
+      );
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      let total = 0;
+      blockLecs.forEach((lec) => {
+        const key = `${lec.id}__${activeBlock.id}`;
+        const entry = perf[key];
+        if (Array.isArray(entry?.sessions)) {
+          total += entry.sessions.length;
+        } else if (typeof entry?.sessions === "number") {
+          total += entry.sessions;
+        }
+      });
+      const sessions = JSON.parse(localStorage.getItem("rxt-sessions") || "[]");
+      const blockSessions = sessions.filter((s) => s.blockId === activeBlock.id).length;
+      return Math.max(total, blockSessions);
+    } catch (e) {
+      return 0;
+    }
+  }, [activeBlock?.id, refreshKey]);
+
+  const blockAvgScore = useMemo(() => {
+    try {
+      if (!activeBlock?.id) return 0;
+      const blockLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+        (l) => l.blockId === activeBlock.id
+      );
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const scores = [];
+      blockLecs.forEach((lec) => {
+        const key = `${lec.id}__${activeBlock.id}`;
+        if (perf[key]?.score != null) {
+          scores.push(Number(perf[key].score));
+        }
+      });
+      if (scores.length === 0) return 0;
+      return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    } catch (e) {
+      return 0;
+    }
+  }, [activeBlock?.id, refreshKey]);
+
+  const blockStreak = useMemo(() => {
+    try {
+      if (!activeBlock?.id) return 0;
+      const comp = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+      const blockLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+        (l) => l.blockId === activeBlock.id
+      );
+      const activityDates = new Set();
+      blockLecs.forEach((lec) => {
+        const key = `${lec.id}__${activeBlock.id}`;
+        const entry = comp[key];
+        if (!entry?.activityLog) return;
+        entry.activityLog.forEach((log) => {
+          if (log?.date) activityDates.add(log.date.split("T")[0]);
+        });
+      });
+      if (activityDates.size === 0) return 0;
+      let streak = 0;
+      const today = new Date();
+      for (let i = 0; i < 365; i++) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split("T")[0];
+        if (activityDates.has(dateStr)) {
+          streak++;
+        } else if (i > 0) {
+          break;
+        }
+      }
+      return streak;
+    } catch (e) {
+      return 0;
+    }
+  }, [activeBlock?.id, refreshKey]);
+
+  const blockLevel = useMemo(() => {
+    const score = blockAvgScore;
+    if (score >= 80) return "HIGH";
+    if (score >= 60) return "MEDIUM";
+    if (score >= 40) return "LOW";
+    return "BEGINNER";
+  }, [blockAvgScore]);
+
+  const blockTrend = useMemo(() => {
+    try {
+      if (!activeBlock?.id) return "→ Stable";
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const blockLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+        (l) => l.blockId === activeBlock.id
+      );
+      const scoredEntries = [];
+      blockLecs.forEach((lec) => {
+        const key = `${lec.id}__${activeBlock.id}`;
+        const entry = perf[key];
+        if (entry?.score != null && entry?.date) {
+          scoredEntries.push({
+            score: Number(entry.score),
+            date: entry.date,
+          });
+        }
+      });
+      if (scoredEntries.length < 2) return "→ Stable";
+      scoredEntries.sort((a, b) => new Date(a.date) - new Date(b.date));
+      const recent = scoredEntries.slice(-3);
+      const older = scoredEntries.slice(0, -3);
+      if (older.length === 0) return "→ Stable";
+      const recentAvg = recent.reduce((s, e) => s + e.score, 0) / recent.length;
+      const olderAvg = older.reduce((s, e) => s + e.score, 0) / older.length;
+      const diff = recentAvg - olderAvg;
+      if (diff > 5) return "↑ Improving";
+      if (diff < -5) return "↓ Declining";
+      return "→ Stable";
+    } catch (e) {
+      return "→ Stable";
+    }
+  }, [activeBlock?.id, refreshKey]);
+
+  const blockChartSessions = useMemo(() => {
+    try {
+      if (!activeBlock?.id) return [];
+      const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      const blockLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter(
+        (l) => l.blockId === activeBlock.id
+      );
+      const all = [];
+      blockLecs.forEach((lec) => {
+        const key = `${lec.id}__${activeBlock.id}`;
+        const entry = perf[key];
+        if (Array.isArray(entry?.sessions)) {
+          entry.sessions.forEach((s) => {
+            if (s?.score != null) all.push({ score: Number(s.score), date: s.date || "" });
+          });
+        }
+      });
+      all.sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0));
+      return all;
+    } catch (e) {
+      return [];
+    }
+  }, [activeBlock?.id, refreshKey]);
 
   const getLectureSubtopicCompletion = useCallback(
     (lec, bid) => {
@@ -19980,36 +20264,45 @@ Tag each question with its level in the JSON:
 
           {!authLoading &&
             (user ? (
-              <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8, marginLeft: 8 }}>
-                {syncing && (
-                  <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")" }}>
-                    {syncStatus === "pushing"
-                      ? "↑ Saving..."
-                      : syncStatus === "pulling"
-                        ? "↓ Loading..."
-                        : "✓ Synced"}
-                  </span>
-                )}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-end",
+                  gap: 4,
+                  marginLeft: 8,
+                }}
+              >
+                <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
+                  {syncing && (
+                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")" }}>
+                      {syncStatus === "pushing"
+                        ? "↑ Saving..."
+                        : syncStatus === "pulling"
+                          ? "↓ Loading..."
+                          : "✓ Synced"}
+                    </span>
+                  )}
 
-                <div
-                  title={user.email || undefined}
-                  onClick={() => setShowUserMenu((prev) => !prev)}
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "50%",
-                    background: "#2563eb",
-                    color: "white",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 12,
-                    fontWeight: 500,
-                    cursor: "pointer",
-                  }}
-                >
-                  {(user.email?.[0] || "U").toUpperCase()}
-                </div>
+                  <div
+                    title={user.email || undefined}
+                    onClick={() => setShowUserMenu((prev) => !prev)}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      background: "#2563eb",
+                      color: "white",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    {(user.email?.[0] || "U").toUpperCase()}
+                  </div>
 
                 {showUserMenu && (
                   <div
@@ -20051,6 +20344,7 @@ Tag each question with its level in the JSON:
                         setSyncStatus("pushing");
                         try {
                           await pushAllLocalDataToSupabase(user.id);
+                          setHasCloudData(true);
                           setSyncStatus("done");
                         } catch (e) {
                           console.error(e);
@@ -20077,19 +20371,9 @@ Tag each question with its level in the JSON:
 
                     <button
                       type="button"
-                      onClick={async () => {
-                        setSyncing(true);
-                        setSyncStatus("pulling");
-                        try {
-                          await pullAllDataFromSupabase(user.id);
-                          setSyncing(false);
-                          setShowUserMenu(false);
-                          window.location.reload();
-                        } catch (e) {
-                          console.error(e);
-                          setSyncStatus("error");
-                          setSyncing(false);
-                        }
+                      onClick={() => {
+                        setShowImportScreen(true);
+                        setShowUserMenu(false);
                       }}
                       style={{
                         width: "100%",
@@ -20103,7 +20387,7 @@ Tag each question with its level in the JSON:
                         fontFamily: MONO,
                       }}
                     >
-                      ↓ Load from cloud
+                      📥 Import JSON
                     </button>
 
                     <button
@@ -20154,8 +20438,48 @@ Tag each question with its level in the JSON:
                         fontFamily: MONO,
                       }}
                     >
-                      💾 Export data backup
+                      💾 Export backup
                     </button>
+
+                    {hasCloudData && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          setSyncing(true);
+                          setSyncStatus("pulling");
+                          try {
+                            const result = await pullAllDataFromSupabase(user.id);
+                            if (result?.empty) {
+                              setHasCloudData(false);
+                              setSyncStatus("no_cloud_data");
+                              setSyncing(false);
+                              setShowUserMenu(false);
+                              return;
+                            }
+                            setSyncing(false);
+                            setShowUserMenu(false);
+                            window.location.reload();
+                          } catch (e) {
+                            console.error(e);
+                            setSyncStatus("error");
+                            setSyncing(false);
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "8px 14px",
+                          fontSize: 12,
+                          textAlign: "left",
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--color-text-secondary, " + t.text2 + ")",
+                          fontFamily: MONO,
+                        }}
+                      >
+                        ↓ Load from cloud
+                      </button>
+                    )}
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
 
@@ -20183,6 +20507,21 @@ Tag each question with its level in the JSON:
                     >
                       Sign out
                     </button>
+                  </div>
+                )}
+                </div>
+
+                {syncStatus === "no_cloud_data" && (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#BA7517",
+                      padding: "4px 8px",
+                      background: "#FAEEDA",
+                      borderRadius: 4,
+                    }}
+                  >
+                    No cloud data yet — use &quot;↑ Save to cloud&quot; to upload your data
                   </div>
                 )}
               </div>
@@ -20236,6 +20575,10 @@ Tag each question with its level in the JSON:
         {/* SIDEBAR */}
         {sidebar && (
           <aside style={{ width:228, borderRight:"1px solid "+t.border2, background:t.sidebarBg, display:"flex", flexDirection:"column", position:"sticky", top:52, height:"calc(100vh - 52px)", overflowY:"auto", flexShrink:0 }}>
+            {(() => {
+              void sidebarRefreshKey;
+              return null;
+            })()}
             <div style={{ padding:"13px 14px 9px", borderBottom:"1px solid " + t.border2 }}>
               <div style={{ fontFamily:MONO, color:t.text4, fontSize:11, letterSpacing:2.5 }}>TERMS & BLOCKS</div>
             </div>
@@ -20262,7 +20605,7 @@ Tag each question with its level in the JSON:
                 )}
 
                 {term.blocks.map(block => {
-                  const sc = bScore(block.id);
+                  const sc = getSidebarBlockScore(block.id);
                   const isActive = blockId===block.id && view==="block";
                   const st = BLOCK_STATUS[block.status] || BLOCK_STATUS.upcoming;
                   const lc = lectures.filter(l => l.blockId===block.id).length;
@@ -20278,7 +20621,17 @@ Tag each question with its level in the JSON:
                         {lc>0 && <span style={{ fontFamily:MONO, color:t.text4, fontSize:11, flexShrink:0 }}>{lc}</span>}
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
-                        {sc!==null && <span style={{ fontFamily:MONO, color:mastery(sc, t).fg, fontSize:14, fontWeight:700 }}>{sc}%</span>}
+                        {sc !== null && (
+                          <span
+                            style={{
+                              fontSize: 12,
+                              fontWeight: 500,
+                              color: sc >= 70 ? "#639922" : sc >= 50 ? "#BA7517" : "#A32D2D",
+                            }}
+                          >
+                            {sc}%
+                          </span>
+                        )}
                         <button onClick={e=>{ e.stopPropagation(); delBlock(term.id, block.id); }} style={{ background:"none", border:"none", color:t.border2, cursor:"pointer", fontSize:11, padding:1 }}>✕</button>
                       </div>
                     </div>
@@ -25469,28 +25822,26 @@ Tag each question with its level in the JSON:
               {!(tab === "objectives" && drillMode) && (() => {
                 const currentBlock = activeBlock;
                 const blockObjs = getBlockObjectives(currentBlock?.id ?? blockId) || [];
-                const areas = computeWeakAreas(currentBlock?.id ?? blockId);
-                const blockPerf = performanceHistory["block__" + (currentBlock?.id ?? blockId)];
-                const sessions = blockPerf?.sessions || [];
+                const chartSessions = blockChartSessions;
                 const totalObjs = blockObjs.length;
                 const masteredObjs = blockObjs.filter(o=>o.status==="mastered").length;
                 const strugglingObjs = blockObjs.filter(o=>o.status==="struggling").length;
                 const untestedObjs = blockObjs.filter(o=>o.status==="untested").length;
                 const inprogressObjs = blockObjs.filter(o=>o.status==="inprogress").length;
-                const totalSessions = sessions.length;
-                const avgScore = sessions.length ? Math.round(sessions.reduce((a,s)=>a+s.score,0)/sessions.length) : 0;
-                const trend = blockPerf?.trend || "stable";
-                const currentLevel = blockPerf?.currentDifficulty || "medium";
-                const streak = calculateStreak(currentBlock?.id ?? blockId);
+                const totalSessions = blockSessionCount;
+                const avgScore = blockAvgScore;
+                const trend = blockTrend;
+                const currentLevel = blockLevel;
+                const streak = blockStreak;
                 return (
                   <div style={{ padding:"20px 24px", overflowY:"auto", display:"flex", flexDirection:"column", gap:20 }}>
                     <div style={{ display:"flex", gap:12, flexWrap:"wrap" }}>
                       {[
                         { label:"Sessions", val:totalSessions, color:t.blue },
                         { label:"Avg Score", val:avgScore+"%", color:avgScore>=80?t.green:avgScore>=60?t.amber:t.red },
-                        { label:"Level", val:currentLevel.toUpperCase(), color:{easy:t.green,medium:t.amber,hard:t.red,expert:t.purple}[currentLevel] || t.text1 },
+                        { label:"Level", val:currentLevel, color:currentLevel==="HIGH" ? "#27500A" : currentLevel==="MEDIUM" ? "#BA7517" : currentLevel==="LOW" ? "#A32D2D" : t.text3 },
                         { label:"Streak", val:streak > 0 ? String(streak) : "0", color:streak > 0 ? "#E24B4A" : t.text3, dot: streak > 0 },
-                        { label:"Trend", val:trend==="improving"?"↑ Improving":trend==="declining"?"↓ Declining":"→ Stable", color:trend==="improving"?t.green:trend==="declining"?t.red:t.text3 },
+                        { label:"Trend", val:trend, color:trend.includes("Improving") ? t.green : trend.includes("Declining") ? t.red : t.text3 },
                       ].map(kpi => (
                         <div key={kpi.label} style={{ flex:"1 1 100px", background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"14px 16px", textAlign:"center" }}>
                           <div style={{ fontFamily:MONO, color:kpi.color, fontSize:20, fontWeight:900, display:"inline-flex", alignItems:"center", gap:6 }}>
@@ -25501,11 +25852,11 @@ Tag each question with its level in the JSON:
                         </div>
                       ))}
                     </div>
-                    {sessions.length >= 2 && (
+                    {chartSessions.length >= 2 && (
                       <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
                         <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>SCORE HISTORY</div>
                         <svg width="100%" height="60" style={{ overflow:"visible" }}>
-                          {sessions.slice(-12).map((s, i, arr) => {
+                          {chartSessions.slice(-12).map((s, i, arr) => {
                             const x = (i / (arr.length-1||1)) * 100;
                             const y = 55 - (s.score/100)*50;
                             const c = s.score>=80?t.green:s.score>=60?t.amber:t.red;
