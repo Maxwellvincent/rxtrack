@@ -2,6 +2,8 @@ import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useTheme, getScoreColor } from "./theme";
 import { LEVEL_NAMES, LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
 import { callAI } from "./aiClient";
+import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
+import { getLecText } from "./lectureText";
 
 const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
@@ -448,7 +450,7 @@ function getStrugglingObjCount(lecId, blockObjs) {
 }
 
 function lecHasSlideContent(lec) {
-  const c = lec?.extractedText || lec?.content || lec?.fullText || lec?.text || "";
+  const c = getLecText(lec) || lec?.text || "";
   return String(c).trim().length > 0;
 }
 
@@ -459,7 +461,7 @@ function buildCrossLectureContext(selectedLecs, blockId, blockObjs, performanceH
   const combinedContent = lecs
     .map((lec) => {
       const title = `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.title || lec.fileName || ""}`.trim();
-      const content = lec.extractedText || lec.content || lec.fullText || "";
+      const content = getLecText(lec) || lec.text || "";
       return `=== ${title} ===\n${content}`;
     })
     .join("\n\n");
@@ -1957,18 +1959,23 @@ Each item may be a string OR an object with "question" and optional "lectureTags
       : `{"q":["<question 1>","<question 2>","<question 3>"]}`;
     const systemPrompt =
       crossPre +
-      `You are a medical school tutor. You MUST generate exactly 3 questions.
+      `${LECTURE_MARKDOWN_SYSTEM_INSTRUCTION}
+
+You are a medical school tutor. You MUST generate exactly 3 questions.
 Respond ONLY with raw JSON, no markdown, no backticks, no extra text.
 You MUST include exactly 3 items in the array — not 1, not 2, exactly 3:
 ${qShape}
+
+${LECTURE_MARKDOWN_CONTEXT_FOR_AI}
 
 ---
 STUDENT CONTEXT:
 ${sessionContext}
 ---`;
+    const lectureSlice = (lectureContent || "").trim().slice(0, 4000);
     const userPrompt =
       `Lecture: ${(lectureTitle || "Medical Lecture").slice(0, 60)}
-Objectives:
+${lectureSlice ? `Lecture material (may include markdown):\n${lectureSlice}\n\n` : ""}Objectives:
 ${lecObjs || "Key concepts from the lecture."}
 
 Instruction:
@@ -2353,7 +2360,9 @@ function FirstPassWalkthrough({
     setSectionThought("");
     setShowTakeaway(false);
 
-    const systemPrompt = `You are an expert medical school tutor doing a first-pass teaching session.
+    const systemPrompt = `${LECTURE_MARKDOWN_SYSTEM_INSTRUCTION}
+
+You are an expert medical school tutor doing a first-pass teaching session.
 Your job is to TEACH the student this content clearly — they have NOT read the slides.
 Write like a brilliant tutor explaining to a smart student, not like a textbook.
 Use clear language. Define key terms inline. Build from basic to clinical.
@@ -2370,6 +2379,8 @@ Raw JSON only, no markdown:
 Section ${sectionIndex + 1} of ${totalSections}
 Objectives for this section:
 ${objList}
+${LECTURE_MARKDOWN_CONTEXT_FOR_AI}
+
 Relevant lecture content:
 ${contentSnippet || "(Use the objectives above to teach this section.)"}
 Patient case: ${getPatientCaseText(patientCase) || "No patient case available."}`;
@@ -6096,11 +6107,11 @@ Region 1 contains: (list structures)`,
             ? (crossCtx.lecs || [])
                 .map((l) => {
                   const title = `[${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}]`;
-                  const content = l.extractedText || l.content || l.fullText || "";
+                  const content = getLecText(l) || l.text || "";
                   return `${title}\n${content}`;
                 })
                 .join("\n\n────────────────────\n\n")
-            : lectureContent || lec?.fullText || lec?.extractedText || lec?.content || "";
+            : lectureContent || getLecText(lec) || lec?.text || "";
         if (typeof console !== "undefined" && console.log) {
           console.log("Phase 5 render — recallStep:", recallStep, "recallPrompts.length:", recallPrompts.length, "content length:", lectureText?.length);
         }
@@ -6991,6 +7002,7 @@ export default function DeepLearn({
   buildQuestionContext,
   detectStudyMode: detectStudyModeProp,
   onBack,
+  onRelaunch,
   termColor,
   makeTopicKey,
   performanceHistory = {},
@@ -8041,6 +8053,74 @@ export default function DeepLearn({
               </button>
             </div>
           </div>
+
+          <div style={{ marginTop: 24 }}>
+            <div style={{ fontSize: 13, color: T.text3, marginBottom: 10, textAlign: "center", fontFamily: MONO }}>
+              What's next?
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+              <button
+                type="button"
+                onClick={() => onRelaunch?.("deep_learn")}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: `1px solid #dc2626`,
+                  background: "transparent",
+                  color: "#dc2626",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontFamily: MONO,
+                }}
+              >
+                🧠 Deep Learn again
+              </button>
+              <button
+                type="button"
+                onClick={() => onRelaunch?.("drill")}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: `1px solid ${T.accent || "#2563eb"}`,
+                  background: "transparent",
+                  color: T.accent || "#2563eb",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontFamily: MONO,
+                }}
+              >
+                ⚡ Drill objectives
+              </button>
+              <button
+                type="button"
+                onClick={() => onRelaunch?.("quiz")}
+                style={{
+                  padding: "8px 14px",
+                  borderRadius: 8,
+                  border: `1px solid #d97706`,
+                  background: "transparent",
+                  color: "#d97706",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontFamily: MONO,
+                }}
+              >
+                📝 Quiz
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -8380,7 +8460,7 @@ export default function DeepLearn({
               ? sessionParams.lectureContent
               : sessionParams?.isCrossLecture && resumedCrossCtx
                 ? resumedCrossCtx.combinedContent
-                : lectureForTopic?.extractedText || lectureForTopic?.content || lectureForTopic?.fullText || lectureForTopic?.text || ""
+                : getLecText(lectureForTopic) || lectureForTopic?.text || ""
           }
           objectives={objectivesForSession}
           blockId={blockId}

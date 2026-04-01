@@ -2,6 +2,9 @@
 
 const GEMINI_KEY =
   import.meta.env.VITE_GOOGLE_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || "";
+const GEMINI_MODEL = "gemini-2.5-flash";
+/** Same model as GEMINI_MODEL; JSON path uses thinkingBudget: 0 so reasoning does not consume output tokens. */
+const GEMINI_JSON_MODEL = "gemini-2.5-flash";
 const ANTHROPIC_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY || "";
 
 export const AI_PROVIDERS = {
@@ -58,29 +61,53 @@ async function withRetry(fn) {
 }
 
 // --- Gemini ---
-async function callGeminiOnce(systemPrompt, userPrompt, maxTokens = 1000) {
+/** `geminiOpts.jsonMode` — JSON MIME type + low temperature (used by callAIJSON only; callAI omits this). */
+async function callGeminiOnce(systemPrompt, userPrompt, maxTokens = 1000, geminiOpts = {}) {
   if (!GEMINI_KEY) throw new Error("No Gemini API key set (VITE_GOOGLE_API_KEY or VITE_GEMINI_API_KEY)");
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
+  const jsonMode = !!geminiOpts.jsonMode;
+  const modelForRequest = jsonMode ? GEMINI_JSON_MODEL : GEMINI_MODEL;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelForRequest}:generateContent?key=${GEMINI_KEY}`;
 
   const fullPrompt = [systemPrompt, userPrompt].filter(Boolean).join("\n\n");
+
+  const generationConfig = jsonMode
+    ? {
+        maxOutputTokens: Math.max(maxTokens, 3000),
+        temperature: 0.1,
+        responseMimeType: "application/json",
+        thinkingConfig: {
+          thinkingBudget: 0,
+        },
+      }
+    : {
+        maxOutputTokens: maxTokens,
+        temperature: 0.7,
+      };
+
+  console.log(
+    "Gemini request config:",
+    JSON.stringify({
+      maxOutputTokens: generationConfig.maxOutputTokens,
+      model: modelForRequest,
+    })
+  );
+
+  const requestBody = {
+    contents: [{ parts: [{ text: fullPrompt }] }],
+    generationConfig,
+    safetySettings: [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+    ],
+  };
 
   const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: fullPrompt }] }],
-      generationConfig: {
-        maxOutputTokens: maxTokens,
-        temperature: 0.7,
-      },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-      ],
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   if (!res.ok) {
@@ -92,8 +119,8 @@ async function callGeminiOnce(systemPrompt, userPrompt, maxTokens = 1000) {
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-async function callGemini(systemPrompt, userPrompt, maxTokens = 1000) {
-  return withRetry(() => callGeminiOnce(systemPrompt, userPrompt, maxTokens));
+async function callGemini(systemPrompt, userPrompt, maxTokens = 1000, geminiOpts = {}) {
+  return withRetry(() => callGeminiOnce(systemPrompt, userPrompt, maxTokens, geminiOpts));
 }
 
 // --- Anthropic ---
@@ -129,6 +156,106 @@ async function callAnthropic(systemPrompt, userPrompt, maxTokens = 1000) {
   return withRetry(() => callAnthropicOnce(systemPrompt, userPrompt, maxTokens));
 }
 
+async function callGeminiVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens = 2000) {
+  if (!GEMINI_KEY) throw new Error("No Gemini API key set (VITE_GOOGLE_API_KEY or VITE_GEMINI_API_KEY)");
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_KEY}`;
+  const fullText = [systemPrompt, userPrompt].filter(Boolean).join("\n\n");
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          parts: [
+            { text: fullText },
+            { inline_data: { mime_type: mimeType || "image/png", data: base64 } },
+          ],
+        },
+      ],
+      generationConfig: {
+        maxOutputTokens: maxTokens,
+        temperature: 0.4,
+      },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Gemini ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function callAnthropicVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens = 2000) {
+  if (!ANTHROPIC_KEY) throw new Error("No Anthropic API key set (VITE_ANTHROPIC_API_KEY)");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-calls": "true",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: maxTokens,
+      system: systemPrompt || undefined,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: mimeType || "image/png",
+                data: base64,
+              },
+            },
+            { type: "text", text: userPrompt || "Describe this image." },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Anthropic ${res.status}: ${err}`);
+  }
+  const data = await res.json();
+  return data.content?.map((c) => c.text || "").join("") || "";
+}
+
+/**
+ * Vision: prefers Gemini when configured, otherwise Anthropic.
+ * `base64` must be raw base64 (no data: URL prefix).
+ */
+export async function callAIWithImage(
+  systemPrompt,
+  userPrompt,
+  base64,
+  mimeType = "image/png",
+  maxTokens = 2000
+) {
+  let raw;
+  if (GEMINI_KEY) {
+    raw = await withRetry(() => callGeminiVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens));
+  } else if (ANTHROPIC_KEY) {
+    raw = await withRetry(() => callAnthropicVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens));
+  } else {
+    throw new Error(
+      "No vision-capable API key (set VITE_GOOGLE_API_KEY / VITE_GEMINI_API_KEY or VITE_ANTHROPIC_API_KEY)"
+    );
+  }
+  return raw.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
+}
+
 // --- Main export ---
 // provider: "gemini" | "anthropic" | undefined (uses DEFAULT_PROVIDER)
 export async function callAI(
@@ -162,12 +289,18 @@ export async function callAIJSON(
 ) {
   let text = "";
   try {
-    text = await callAI(systemPrompt, userPrompt, maxTokens, provider);
+    const raw =
+      provider === AI_PROVIDERS.ANTHROPIC
+        ? await callAnthropic(systemPrompt, userPrompt, maxTokens)
+        : await callGemini(systemPrompt, userPrompt, maxTokens, { jsonMode: true });
+    text = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
   } catch (err) {
     console.warn("callAIJSON parse error:", err?.message || err);
     return fallback !== undefined && fallback !== null ? fallback : {};
   }
-  const clean = (text || "").replace(/```json\n?|```/g, "").trim();
+  const rawText = text || "";
+  console.log("callAIJSON raw response:", rawText.slice(0, 500));
+  const clean = rawText.replace(/```json\n?|```/g, "").trim();
   const safeFallback = fallback !== undefined && fallback !== null ? fallback : {};
 
   const tryParse = (str) => {
@@ -185,11 +318,40 @@ export async function callAIJSON(
   let parsed = tryParse(clean);
   if (parsed != null) return parsed;
 
-  const first = clean.indexOf("{");
-  const last = clean.lastIndexOf("}");
-  if (first !== -1 && last > first) {
-    parsed = tryParse(clean.slice(first, last + 1));
-    if (parsed != null) return parsed;
+  const idxBrace = clean.indexOf("{");
+  const idxBracket = clean.indexOf("[");
+  const tryBracketFirst =
+    idxBracket !== -1 && (idxBrace === -1 || idxBracket < idxBrace);
+  const tryBraceFirst =
+    idxBrace !== -1 && (idxBracket === -1 || idxBrace < idxBracket);
+
+  if (tryBracketFirst) {
+    const lastBracket = clean.lastIndexOf("]");
+    if (lastBracket > idxBracket) {
+      parsed = tryParse(clean.slice(idxBracket, lastBracket + 1));
+      if (parsed != null) return parsed;
+    }
+  }
+  if (tryBraceFirst) {
+    const last = clean.lastIndexOf("}");
+    if (last > idxBrace) {
+      parsed = tryParse(clean.slice(idxBrace, last + 1));
+      if (parsed != null) return parsed;
+    }
+  }
+  if (!tryBracketFirst && idxBracket !== -1) {
+    const lastBracket = clean.lastIndexOf("]");
+    if (lastBracket > idxBracket) {
+      parsed = tryParse(clean.slice(idxBracket, lastBracket + 1));
+      if (parsed != null) return parsed;
+    }
+  }
+  if (!tryBraceFirst && idxBrace !== -1) {
+    const last = clean.lastIndexOf("}");
+    if (last > idxBrace) {
+      parsed = tryParse(clean.slice(idxBrace, last + 1));
+      if (parsed != null) return parsed;
+    }
   }
 
   // Salvage teaching-map-style response (analyzeLecture) — try before score/q salvage
@@ -221,6 +383,22 @@ export async function callAIJSON(
   if (arrayMatch) {
     const items = arrayMatch[1].match(/"([^"]+)"/g)?.map((s) => s.replace(/^"|"$/g, "").replace(/\\"/g, '"')) || [];
     if (items.length > 0) return { q: items };
+  }
+
+  let cleaned = rawText.replace(/```json\n?/gi, "").replace(/```\n?/gi, "").trim();
+  const arrStart = cleaned.indexOf("[");
+  const arrEnd = cleaned.lastIndexOf("]");
+  if (arrStart !== -1 && arrEnd !== -1 && arrEnd > arrStart) {
+    cleaned = cleaned.slice(arrStart, arrEnd + 1);
+  }
+  try {
+    const salvaged = JSON.parse(cleaned);
+    if (Array.isArray(salvaged)) {
+      console.log("callAIJSON: salvaged array of", salvaged.length, "items");
+      return salvaged;
+    }
+  } catch (e) {
+    console.log("callAIJSON: salvage failed:", e.message);
   }
 
   console.warn("callAIJSON: could not parse response, using fallback");

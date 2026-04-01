@@ -481,6 +481,7 @@ function LecObjectiveGroup({
               T={T}
               color={color}
               hasLecture={obj.hasLecture}
+              lectureType={objectives[0]?.lectureType || "LEC"}
             />
           ))}
         </div>
@@ -489,7 +490,15 @@ function LecObjectiveGroup({
   );
 }
 
-function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture }) {
+function objectiveActivityBadgeVisible(obj, lectureType) {
+  const act = String(obj?.activity || "").trim();
+  if (!act) return false;
+  if (/^[A-Za-z]{2,4}\d+$/i.test(act.replace(/\s/g, ""))) return false;
+  const lt = String(lectureType || "LEC").trim();
+  return act.toUpperCase() !== lt.toUpperCase();
+}
+
+function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture, lectureType = "LEC" }) {
   const statusColorToken =
     getObjStatusColor(T, obj.status) ??
     T.text3;
@@ -540,21 +549,55 @@ function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture }) {
             fontSize: 13,
             lineHeight: 1.6,
             margin: 0,
+            display: "flex",
+            alignItems: "flex-start",
+            flexWrap: "wrap",
+            gap: 6,
           }}
         >
-          {obj.objective}
+          <span style={{ flex: "1 1 auto", minWidth: 0 }}>{obj.objective || obj.text || ""}</span>
+          {objectiveActivityBadgeVisible(obj, lectureType) && (
+            <span
+              style={{
+                padding: "1px 6px",
+                borderRadius: 4,
+                fontSize: 10,
+                fontWeight: 600,
+                background: T.surfaceAlt || T.inputBg,
+                color: T.textSecondary || T.text3,
+                border: `1px solid ${T.border}`,
+                flexShrink: 0,
+              }}
+            >
+              {obj.activity}
+            </span>
+          )}
         </p>
-        <span
-          style={{
-            fontFamily: MONO,
-            color: T.text3,
-            fontSize: 9,
-            marginTop: 2,
-            display: "block",
-          }}
-        >
-          {obj.id}
-        </span>
+        {obj.code ? (
+          <span
+            style={{
+              fontFamily: MONO,
+              color: T.text3,
+              fontSize: 10,
+              marginTop: 2,
+              display: "block",
+            }}
+          >
+            {obj.code}
+          </span>
+        ) : (
+          <span
+            style={{
+              fontFamily: MONO,
+              color: T.text3,
+              fontSize: 9,
+              marginTop: 2,
+              display: "block",
+            }}
+          >
+            {obj.id}
+          </span>
+        )}
         {hasLecture != null && (
           hasLecture ? (
             <span title="Lecture uploaded" style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, background: T.statusGoodBg || (T.statusGood + "22"), padding: "1px 5px", borderRadius: 3, marginTop: 4, display: "inline-block" }}>
@@ -1317,7 +1360,19 @@ export default function ObjectiveTracker({
                       minWidth: 0,
                     }}
                   >
-                    {text}
+                    <div>{text}</div>
+                    {obj.code ? (
+                      <div
+                        style={{
+                          fontFamily: MONO,
+                          color: "var(--color-text-tertiary, " + T.text3 + ")",
+                          fontSize: 10,
+                          marginTop: 4,
+                        }}
+                      >
+                        {obj.code}
+                      </div>
+                    ) : null}
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                     <select
@@ -1719,10 +1774,42 @@ export default function ObjectiveTracker({
                                   lineHeight: 1.5,
                                   color: "var(--color-text-primary, " + T.text1 + ")",
                                   fontFamily: MONO,
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  flexWrap: "wrap",
+                                  gap: 6,
                                 }}
                               >
-                                {obj.objective}
+                                <span style={{ flex: "1 1 auto", minWidth: 0 }}>{obj.objective || obj.text || ""}</span>
+                                {objectiveActivityBadgeVisible(obj, lec?.lectureType) && (
+                                  <span
+                                    style={{
+                                      padding: "1px 6px",
+                                      borderRadius: 4,
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      background: T.surfaceAlt || T.inputBg,
+                                      color: T.textSecondary || T.text3,
+                                      border: `1px solid ${T.border}`,
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {obj.activity}
+                                  </span>
+                                )}
                               </p>
+                              {obj.code ? (
+                                <span
+                                  style={{
+                                    fontFamily: MONO,
+                                    color: "var(--color-text-tertiary, " + T.text3 + ")",
+                                    fontSize: Math.max(9, rowFs - 3),
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  {obj.code}
+                                </span>
+                              ) : null}
                               {obj.status === "struggling" && obj.reasoningLog?.length > 0 && (
                                 <div
                                   style={{

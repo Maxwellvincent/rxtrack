@@ -6,6 +6,166 @@ import { recordWrongAnswer } from "./weakConcepts";
 function sGet(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } }
 function sSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
+/** Lecture rows keyed by id from rxt-lec-meta (for orphan filtering). */
+function loadLecMetaById() {
+  try {
+    const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    if (!Array.isArray(allLecs)) return {};
+    return Object.fromEntries(allLecs.map((l) => [l?.id, l]).filter(([id]) => id));
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Tracker row / badge status from rxt-performance aggregate score (not objective rows).
+ */
+export function getLecStatus(lecId, blockId) {
+  try {
+    if (!lecId || !blockId) return "untested";
+    const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+    const rec = perf[`${lecId}__${blockId}`];
+    if (!rec?.score && rec?.score !== 0) return "untested";
+    const sc = Number(rec.score);
+    if (!Number.isFinite(sc)) return "untested";
+    if (sc >= 80) return "good";
+    if (sc >= 60) return "okay";
+    return "struggling";
+  } catch {
+    return "untested";
+  }
+}
+
+function mergeTrackerDisplayStatus(lecId, blockId, fallbackConf) {
+  const ps = getLecStatus(lecId, blockId);
+  if (ps !== "untested") return ps;
+  return fallbackConf || null;
+}
+
+function cleanOrphanPerfAndCompletion() {
+  const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+  if (!Array.isArray(allLecs) || allLecs.length === 0) return { changed: false, completionChanged: false };
+  const validIds = new Set(allLecs.map((l) => l?.id).filter(Boolean));
+  if (validIds.size === 0) return { changed: false, completionChanged: false };
+  let changed = false;
+  let completionChanged = false;
+  ["rxt-performance", "rxt-completion"].forEach((storeKey) => {
+    let stored;
+    try {
+      stored = JSON.parse(localStorage.getItem(storeKey) || "{}");
+    } catch {
+      return;
+    }
+    if (!stored || typeof stored !== "object") return;
+    let localChanged = false;
+    Object.keys(stored).forEach((key) => {
+      const lecId = key.split("__")[0];
+      if (!validIds.has(lecId)) {
+        delete stored[key];
+        localChanged = true;
+      }
+    });
+    if (localChanged) {
+      changed = true;
+      localStorage.setItem(storeKey, JSON.stringify(stored));
+      if (storeKey === "rxt-completion") completionChanged = true;
+    }
+  });
+  return { changed, completionChanged };
+}
+
+/** Study day starts at 3am local (after midnight still counts as previous calendar day until 3am). */
+export function startOfStudyDay() {
+  const now = new Date();
+  const boundary = new Date(now);
+  boundary.setHours(3, 0, 0, 0);
+  if (now < boundary) {
+    boundary.setDate(boundary.getDate() - 1);
+  }
+  boundary.setMilliseconds(0);
+  return boundary;
+}
+
+export function endOfStudyDay() {
+  const start = startOfStudyDay();
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  end.setHours(3, 0, 0, 0);
+  return end;
+}
+
+function studyDayKeyFromDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+export function studyDayKeyNow() {
+  return studyDayKeyFromDate(startOfStudyDay());
+}
+
+/** Sort key Mon..Sun for lecture schedule (string or number). */
+function rankDayOfWeek(dow) {
+  if (dow == null || dow === "") return 99;
+  if (typeof dow === "number" && !Number.isNaN(dow)) return dow;
+  const order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const s = String(dow).slice(0, 3).toLowerCase();
+  const i = order.findIndex((x) => s.startsWith(x));
+  return i >= 0 ? i : 99;
+}
+
+function lecObjsForLecture(objs, lec) {
+  return (objs || []).filter(
+    (o) =>
+      String(o.lectureNumber) === String(lec.lectureNumber) ||
+      o.linkedLecId === lec.id
+  );
+}
+
+function isCriticalLectureFromData(lec, blockId, perfEntry, completionEntry, getBlockObjectives) {
+  const objs = typeof getBlockObjectives === "function" ? getBlockObjectives(blockId) : [];
+  const lecObjs = lecObjsForLecture(objs, lec);
+  const hasStruggling = lecObjs.some((o) => o.status === "struggling");
+  const lowScore = perfEntry?.score != null && Number(perfEntry.score) < 70;
+  const neverStudied = !perfEntry && lecObjs.length > 0;
+  const lowConsec = lecObjs.some(
+    (o) => (o.consecutiveCorrect || 0) === 0 && (o.drillCount || 0) > 1
+  );
+  return hasStruggling || lowScore || neverStudied || lowConsec;
+}
+
+function isSoonLectureFromData(lec, blockId, perfEntry, completionEntry, getBlockObjectives) {
+  const nr = perfEntry?.nextReview ? new Date(perfEntry.nextReview) : null;
+  const st = startOfStudyDay();
+  const threeDaysEnd = new Date(st);
+  threeDaysEnd.setDate(threeDaysEnd.getDate() + 3);
+  threeDaysEnd.setHours(23, 59, 59, 999);
+  const inWindow =
+    nr &&
+    !isNaN(nr.getTime()) &&
+    nr >= st &&
+    nr <= threeDaysEnd;
+
+  const rawSessions = perfEntry?.sessions || [];
+  const lecSessions = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
+  const studiedOnceNotReviewed =
+    lecSessions.length === 1 &&
+    (!completionEntry?.reviewDates || completionEntry.reviewDates.length === 0);
+
+  return !!(inWindow || studiedOnceNotReviewed);
+}
+
+function isOkLectureFromData(lec, blockId, perfEntry, completionEntry, getBlockObjectives) {
+  const objs = typeof getBlockObjectives === "function" ? getBlockObjectives(blockId) : [];
+  const lecObjs = lecObjsForLecture(objs, lec);
+  const score = perfEntry?.score;
+  if (score == null || Number(score) < 80) return false;
+  if (lecObjs.length === 0) return true;
+  const okCount = lecObjs.filter((o) => (o.consecutiveCorrect || 0) >= 3).length;
+  return okCount > lecObjs.length / 2;
+}
+
 // ── Constants ─────────────────────────────────────────────
 const MONO  = "'DM Mono','Courier New',monospace";
 const SERIF = "'Playfair Display',Georgia,serif";
@@ -63,10 +223,8 @@ export function addLectureToTodayReview(lec, blockId) {
       reviewDates: [],
       activityLog: [],
     };
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayKey = today.toISOString().slice(0, 10);
-    const todayISO = new Date(today).toISOString();
+    const todayKey = studyDayKeyNow();
+    const todayISO = new Date(startOfStudyDay()).toISOString();
 
     const alreadyToday = (existing.reviewDates || []).some((d) => {
       const ds = String(d || "").slice(0, 10);
@@ -191,6 +349,61 @@ function getTodayQuestionScoreForDonePill(entry, todayStr) {
     total: act.questionCount,
     score: act.questionScore,
   };
+}
+
+/** Done pill: prefer App drill sync `lastDrillResult` (MCQ counts), else today's questions activity log */
+function getDonePillModel(entry, todayStr, themeT) {
+  const last = entry?.lastDrillResult;
+  let correct = 0;
+  let total = 0;
+  let pct = 0;
+  let hasResult = false;
+
+  if (last && (last.questionsAnswered ?? 0) > 0) {
+    const drillDay = String(last.date || "").slice(0, 10);
+    if (drillDay === todayStr) {
+      total = last.questionsAnswered ?? 0;
+      correct = last.questionsCorrect ?? 0;
+      pct =
+        last.score != null
+          ? last.score
+          : total > 0
+            ? Math.round((correct / total) * 100)
+            : 0;
+      hasResult = total > 0;
+    }
+  }
+  if (!hasResult) {
+    const q = getTodayQuestionScoreForDonePill(entry, todayStr);
+    if (q) {
+      correct = q.correct;
+      total = q.total;
+      pct = q.score;
+      hasResult = true;
+    }
+  }
+
+  const badgeColor = !hasResult
+    ? themeT.text3
+    : pct >= 80
+      ? themeT.statusGood
+      : pct >= 60
+        ? themeT.statusWarn
+        : themeT.statusBad;
+
+  const bg = !hasResult
+    ? themeT.inputBg
+    : pct >= 80
+      ? themeT.statusGoodBg
+      : pct >= 60
+        ? themeT.statusWarnBg
+        : themeT.statusBadBg;
+
+  const borderCol = !hasResult ? themeT.statusGoodBorder : badgeColor;
+
+  const label = hasResult ? `✓ Done · ${correct}/${total} (${pct}%)` : `✓ Done · no drill yet`;
+
+  return { label, badgeColor, bg, borderCol, hasResult };
 }
 
 // ── Completion + spaced repetition (rxt-completion) ────────
@@ -404,9 +617,8 @@ function computeWeakClusters(blockId, completions, lectures) {
 }
 
 function getOverdueLectures(blockId, completions) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = today.toISOString().split("T")[0];
+  const todayStart = startOfStudyDay();
+  const todayStr = studyDayKeyNow();
 
   return Object.values(completions || {})
     .filter((entry) => entry && entry.blockId === blockId)
@@ -420,7 +632,7 @@ function getOverdueLectures(blockId, completions) {
           rd.setHours(0, 0, 0, 0);
           return rd;
         })
-        .filter((d) => d < today)
+        .filter((d) => d < todayStart)
         .sort((a, b) => a - b);
       if (overdueDates.length === 0) return false;
 
@@ -438,10 +650,10 @@ function getOverdueLectures(blockId, completions) {
           x.dt.setHours(0, 0, 0, 0);
           return x;
         })
-        .filter((x) => x.dt < today)
+        .filter((x) => x.dt < todayStart)
         .sort((a, b) => a.dt - b.dt);
       const earliest = overdue[0]?.raw || todayStr;
-      const daysOverdue = Math.ceil((today - new Date(earliest)) / (1000 * 60 * 60 * 24));
+      const daysOverdue = Math.ceil((todayStart - new Date(earliest)) / (1000 * 60 * 60 * 24));
       return {
         ...entry,
         overdueSince: earliest,
@@ -1125,6 +1337,7 @@ function QuickLogFormContent({ lec, blockId, examDate, todayStr, logActivity, on
   }
 
   const filledWrongCount = wrongQuestions.filter((wq) => wq.question.trim().length > 5).length;
+  const accent = t.accent || t.statusProgress;
 
   return (
     <div
@@ -1149,13 +1362,13 @@ function QuickLogFormContent({ lec, blockId, examDate, todayStr, logActivity, on
             style={{
               fontFamily: MONO,
               fontSize: 11,
-              padding: "3px 10px",
+              padding: "4px 10px",
               borderRadius: 20,
-              border: "0.5px solid",
+              border: "1px solid " + (activityType === at.key ? accent : t.border1),
               cursor: "pointer",
-              background: activityType === at.key ? (t.statusProgress + "22") : "transparent",
-              color: activityType === at.key ? t.statusProgress : t.text2,
-              borderColor: activityType === at.key ? t.statusProgress : t.border1,
+              background: activityType === at.key ? accent : "transparent",
+              color: activityType === at.key ? "#fff" : (t.textSecondary || t.text2),
+              fontWeight: activityType === at.key ? 600 : 400,
             }}
           >
             {at.icon} {at.label}
@@ -1781,7 +1994,7 @@ function TrackerRow({ row, upd, delRow, addScore, clrScore, expanded, setExpande
   const u       = URG[urg];
   const isOpen  = expanded[row.id];
   const conf    = row.confidence ? getConf(row.confidence) : null;
-  const todayStr = () => new Date().toISOString().split("T")[0];
+  const todayStr = () => studyDayKeyNow();
 
   const rowIndex = index != null ? index : 0;
   const rowBg = urg==="critical" ? (isDark?u.bg:T.redBg) : urg==="overdue" ? (isDark?u.bg:T.amberBg) : allDone ? (isDark?T.greenBg:T.greenBg) : (isDark?"transparent":(rowIndex%2===0?T.hoverBg:T.cardBg));
@@ -2184,10 +2397,11 @@ function LecturesTabContent({
                     const reviewFlow = reviewFlowByLec[lec.id] || null;
                     const activitySummary = getLectureActivitySummary(lec.id, bid);
                     const confidenceTrend = getConfidenceTrend(entry?.activityLog || [], t);
-                    const confScore = entry?.lastConfidence === "good" ? 3 : entry?.lastConfidence === "okay" ? 2 : entry?.lastConfidence === "struggling" ? 1 : 0;
-                    const confBarColor = entry?.lastConfidence === "good" ? "#639922" : entry?.lastConfidence === "okay" ? "#BA7517" : entry?.lastConfidence === "struggling" ? "#E24B4A" : "transparent";
+                    const rowStatus = mergeTrackerDisplayStatus(lec.id, bid, entry?.lastConfidence);
+                    const confScore = rowStatus === "good" ? 3 : rowStatus === "okay" ? 2 : rowStatus === "struggling" ? 1 : 0;
+                    const confBarColor = rowStatus === "good" ? "#639922" : rowStatus === "okay" ? "#BA7517" : rowStatus === "struggling" ? "#E24B4A" : "transparent";
                     const trendColor = confidenceTrend.trend === "improving" ? "#639922" : confidenceTrend.trend === "declining" || confidenceTrend.trend === "stuck" ? "#E24B4A" : confidenceTrend.arrow ? "#BA7517" : t.text3;
-                    const dotColor = entry?.lastConfidence === "good" ? "#639922" : entry?.lastConfidence === "okay" ? "#BA7517" : entry?.lastConfidence === "struggling" ? "#E24B4A" : null;
+                    const dotColor = rowStatus === "good" ? "#639922" : rowStatus === "okay" ? "#BA7517" : rowStatus === "struggling" ? "#E24B4A" : null;
                     const interactionCount = entry?.activityLog?.length ?? 0;
                     const title = lec.lectureTitle || lec.title || lec.filename || "";
                     return (
@@ -2199,26 +2413,142 @@ function LecturesTabContent({
                           }}
                           style={{
                             display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            padding: "7px 12px",
+                            flexDirection: "column",
+                            gap: 6,
+                            padding: "10px 12px",
                             borderBottom: "0.5px solid " + t.border2,
                             cursor: "pointer",
                             transition: "background 0.15s",
                             background: isExpanded ? t.inputBg : undefined,
                             borderLeft: isExpanded ? "3px solid #0891b2" : undefined,
+                            width: "100%",
+                            maxWidth: "100%",
+                            boxSizing: "border-box",
                           }}
-                          onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.background = t.inputBg; }}
-                          onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.background = ""; }}
+                          onMouseEnter={(e) => {
+                            if (!isExpanded) e.currentTarget.style.background = t.inputBg;
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!isExpanded) e.currentTarget.style.background = "";
+                          }}
                         >
-                          <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3, minWidth: 40, flexShrink: 0 }}>{(lec.lectureType || "LEC").toUpperCase()} {lec.lectureNumber ?? ""}</span>
-                          <span style={{ flex: 1, fontSize: 13, color: t.text1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{title}</span>
-                          <div style={{ width: 48, height: 5, borderRadius: 3, background: t.border2, flexShrink: 0, overflow: "hidden" }}>
-                            <div style={{ width: `${(confScore / 3) * 100}%`, height: "100%", background: confBarColor, borderRadius: 3 }} />
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between", width: "100%", minWidth: 0 }}>
+                            <span
+                              style={{
+                                flex: 1,
+                                minWidth: 0,
+                                fontSize: 14,
+                                fontWeight: 600,
+                                fontFamily: MONO,
+                                color: t.text1,
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {title}
+                            </span>
+                            <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  window.dispatchEvent(
+                                    new CustomEvent("rxt-launch-deeplearn", {
+                                      detail: { lecId: lec.id, blockId: bid },
+                                    })
+                                  );
+                                }}
+                                title="Deep Learn — guided teaching"
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 6,
+                                  border: `1px solid #dc2626`,
+                                  background: "transparent",
+                                  color: "#dc2626",
+                                  cursor: "pointer",
+                                  fontSize: 14,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                🧠
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  window.dispatchEvent(
+                                    new CustomEvent("rxt-start-drill", {
+                                      detail: { lecId: lec.id, blockId: bid },
+                                    })
+                                  );
+                                }}
+                                title="Drill — rapid objective self-assess"
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 6,
+                                  border: `1px solid ${t?.accent || "#2563eb"}`,
+                                  background: "transparent",
+                                  color: t?.accent || "#2563eb",
+                                  cursor: "pointer",
+                                  fontSize: 14,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                ⚡
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  window.dispatchEvent(
+                                    new CustomEvent("rxt-launch-quiz", {
+                                      detail: { lecId: lec.id, blockId: bid },
+                                    })
+                                  );
+                                }}
+                                title="Quiz — AI clinical MCQs"
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 6,
+                                  border: `1px solid #d97706`,
+                                  background: "transparent",
+                                  color: "#d97706",
+                                  cursor: "pointer",
+                                  fontSize: 14,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                }}
+                              >
+                                📝
+                              </button>
+                            </div>
                           </div>
-                          <span style={{ flexShrink: 0, fontSize: 13, minWidth: 16, textAlign: "center", color: trendColor }}>{confidenceTrend.arrow ?? "—"}</span>
-                          <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 11, color: t.text3, minWidth: 28, textAlign: "right" }}>{interactionCount}x</span>
-                          <div style={{ width: 8, height: 8, borderRadius: "50%", flexShrink: 0, background: dotColor || "transparent", border: dotColor ? "none" : "1px solid " + t.border2 }} />
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                            <span style={{ fontFamily: MONO, fontSize: 10, color: t.text3, flexShrink: 0 }}>
+                              {(lec.lectureType || "LEC").toUpperCase()} {lec.lectureNumber ?? ""}
+                            </span>
+                            <div style={{ width: 48, height: 5, borderRadius: 3, background: t.border2, flexShrink: 0, overflow: "hidden" }}>
+                              <div style={{ width: `${(confScore / 3) * 100}%`, height: "100%", background: confBarColor, borderRadius: 3 }} />
+                            </div>
+                            <span style={{ flexShrink: 0, fontSize: 13, minWidth: 16, textAlign: "center", color: trendColor }}>{confidenceTrend.arrow ?? "—"}</span>
+                            <span style={{ flexShrink: 0, fontFamily: MONO, fontSize: 11, color: t.text3, minWidth: 28, textAlign: "right" }}>{interactionCount}x</span>
+                            <div
+                              style={{
+                                width: 8,
+                                height: 8,
+                                borderRadius: "50%",
+                                flexShrink: 0,
+                                background: dotColor || "transparent",
+                                border: dotColor ? "none" : "1px solid " + t.border2,
+                              }}
+                            />
+                          </div>
                         </div>
                         {isTracked && isExpanded && (
                           <div style={{ padding: "12px 12px 16px 52px", borderBottom: "0.5px solid " + t.border2, background: t.cardBg }}>
@@ -2381,10 +2711,37 @@ function LecturesTabContent({
                                               <input type="date" value={selectedDate} max={todayISO} onChange={(e) => setFlow({ date: e.target.value })} style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 11 }} />
                                             </div>
                                             <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 8 }}>Activity type</div>
-                                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-                                              {[{ v: "review", label: "📖 Review" }, { v: "anki", label: "🃏 Anki" }, { v: "questions", label: "❓ Questions" }, { v: "notes", label: "📝 Notes" }, { v: "sg_tbl", label: "👥 SG/TBL" }, { v: "manual", label: "✏️ Other" }].map((opt) => {
+                                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                                              {[{ v: "deep_learn", label: "🧠 Deep Learn" }, { v: "review", label: "📖 Review" }, { v: "anki", label: "🗂 Anki" }, { v: "questions", label: "❓ Questions" }, { v: "notes", label: "📝 Notes" }, { v: "sg_tbl", label: "👥 SG/TBL" }, { v: "manual", label: "✏️ Other" }].map((opt) => {
                                                 const active = flow.activityType === opt.v;
-                                                return <button key={opt.v} type="button" onClick={() => setFlow({ activityType: opt.v, ...(opt.v !== "questions" ? { questionCount: "", correctCount: "", showWrongQuestions: false, wrongQuestions: [] } : {}) })} style={{ fontFamily: MONO, fontSize: 11, padding: "5px 10px", borderRadius: 999, border: "1px solid " + (active ? t.statusProgress : t.border1), background: active ? (t.statusProgressBg || (t.statusProgress + "18")) : t.cardBg, color: active ? t.statusProgress : t.text2, cursor: "pointer", fontWeight: 900 }}>{opt.label}</button>;
+                                                const accent = t.accent || t.statusProgress;
+                                                return (
+                                                  <button
+                                                    key={opt.v}
+                                                    type="button"
+                                                    onClick={() =>
+                                                      setFlow({
+                                                        activityType: opt.v,
+                                                        ...(opt.v !== "questions"
+                                                          ? { questionCount: "", correctCount: "", showWrongQuestions: false, wrongQuestions: [] }
+                                                          : {}),
+                                                      })
+                                                    }
+                                                    style={{
+                                                      fontFamily: MONO,
+                                                      fontSize: 11,
+                                                      padding: "4px 10px",
+                                                      borderRadius: 20,
+                                                      border: "1px solid " + (active ? accent : t.border1),
+                                                      background: active ? accent : "transparent",
+                                                      color: active ? "#fff" : (t.textSecondary || t.text2),
+                                                      cursor: "pointer",
+                                                      fontWeight: active ? 600 : 400,
+                                                    }}
+                                                  >
+                                                    {opt.label}
+                                                  </button>
+                                                );
                                               })}
                                             </div>
                                             <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, marginBottom: 8 }}>How did it go?</div>
@@ -2556,6 +2913,32 @@ function LecturesTabContent({
   );
 }
 
+/** Visual + symbol for calendar heatmap (keys from getDayHeat: empty | scheduled | low | medium | high | overdue | struggling). */
+function getCalendarHeatCellStyle(heat, t) {
+  const textSec = t.text3;
+  const styles = {
+    empty: { bg: t.inputBg, symbol: "", fg: "transparent", border: "none" },
+    scheduled: { bg: t.inputBg, symbol: "○", fg: textSec, border: `1px solid ${t.border1}` },
+    low: { bg: t.statusProgressBg, symbol: "✓", fg: t.statusProgress, border: "none" },
+    medium: { bg: t.statusProgress, symbol: "✓✓", fg: "#ffffff", border: "none" },
+    high: { bg: t.statusGood, symbol: "★", fg: "#ffffff", border: "none" },
+    overdue: { bg: t.statusWarnBg, symbol: "△", fg: t.statusWarn, border: "none" },
+    struggling: { bg: t.statusBadBg, symbol: "⚠", fg: t.statusBad, border: "none" },
+  };
+  return styles[heat] || styles.empty;
+}
+
+const CALENDAR_HEAT_LEGEND_ORDER = ["empty", "scheduled", "low", "medium", "high", "overdue", "struggling"];
+const CALENDAR_HEAT_LABELS = {
+  empty: "No activity",
+  scheduled: "Planned",
+  low: "1 session",
+  medium: "2–3 sessions",
+  high: "4+ sessions",
+  overdue: "Missed review",
+  struggling: "Struggled",
+};
+
 // Calendar tab content — extracted so hooks run only when tab is active
 function CalendarTabContent({
   blockId: bid,
@@ -2566,6 +2949,7 @@ function CalendarTabContent({
   getPressureZone,
   logActivity,
   setRefreshKey,
+  refreshKey = 0,
   theme: t,
   MONO,
 }) {
@@ -2578,6 +2962,11 @@ function CalendarTabContent({
   };
 
   const allLecs = loadAllLecs();
+  const lecByIdMeta = loadLecMetaById();
+  const lecById =
+    Object.keys(lecByIdMeta).length > 0
+      ? lecByIdMeta
+      : Object.fromEntries((allLecs || []).filter((l) => l?.id).map((l) => [l.id, l]));
   const blockLecs = (allLecs || []).filter((l) => l && l.blockId === bid);
   const completions = completion || {};
 
@@ -2593,39 +2982,51 @@ function CalendarTabContent({
     return t0;
   });
 
-  function buildActivityIndex(completionsIn, blockId) {
+  function buildActivityIndex(completionsIn, blockId, lecByIdMap) {
     const index = {};
-    Object.values(completionsIn || {})
-      .filter((e) => e && e.blockId === blockId)
-      .forEach((e) => {
+    Object.entries(completionsIn || {})
+      .filter(([key, e]) => {
+        if (!e || e.blockId !== blockId) return false;
+        const lecId = e.lectureId || key.split("__")[0];
+        return lecId && lecByIdMap[lecId];
+      })
+      .forEach(([key, e]) => {
         if (!e.activityLog) return;
+        const lm = lecByIdMap[e.lectureId || key.split("__")[0]];
+        const lecTitle = lm?.lectureTitle || lm?.title || lm?.fileName || "";
         e.activityLog.forEach((a) => {
           const day = String(a.date || "").split("T")[0];
           if (!day) return;
           if (!index[day]) index[day] = [];
           index[day].push({
             ...a,
-            lectureId: e.lectureId,
-            lecTitle: (allLecs.find((l) => l.id === e.lectureId)?.title || allLecs.find((l) => l.id === e.lectureId)?.lectureTitle) || "Unknown lecture",
+            lectureId: e.lectureId || key.split("__")[0],
+            lecTitle,
           });
         });
       });
     return index;
   }
 
-  function buildReviewIndex(completionsIn, blockId) {
+  function buildReviewIndex(completionsIn, blockId, lecByIdMap) {
     const index = {};
-    Object.values(completionsIn || {})
-      .filter((e) => e && e.blockId === blockId)
-      .forEach((e) => {
+    Object.entries(completionsIn || {})
+      .filter(([key, e]) => {
+        if (!e || e.blockId !== blockId) return false;
+        const lecId = e.lectureId || key.split("__")[0];
+        return lecId && lecByIdMap[lecId];
+      })
+      .forEach(([key, e]) => {
         if (!e.reviewDates) return;
+        const lm = lecByIdMap[e.lectureId || key.split("__")[0]];
+        const lecTitle = lm?.lectureTitle || lm?.title || lm?.fileName || "";
         e.reviewDates.forEach((d) => {
           const day = String(d || "").split("T")[0];
           if (!day) return;
           if (!index[day]) index[day] = [];
           index[day].push({
-            lectureId: e.lectureId,
-            lecTitle: (allLecs.find((l) => l.id === e.lectureId)?.title || allLecs.find((l) => l.id === e.lectureId)?.lectureTitle) || "Unknown",
+            lectureId: e.lectureId || key.split("__")[0],
+            lecTitle,
             lastConfidence: e.lastConfidence,
           });
         });
@@ -2633,8 +3034,8 @@ function CalendarTabContent({
     return index;
   }
 
-  const activityIndex = buildActivityIndex(completions, bid);
-  const reviewIndex = buildReviewIndex(completions, bid);
+  const activityIndex = buildActivityIndex(completions, bid, lecById);
+  const reviewIndex = buildReviewIndex(completions, bid, lecById);
 
   function getDayHeat(dateStr, activityIndexIn, reviewIndexIn) {
     const acts = activityIndexIn[dateStr] || [];
@@ -2643,9 +3044,8 @@ function CalendarTabContent({
     const hasOverdue = (() => {
       const d = new Date(dateStr);
       d.setHours(0, 0, 0, 0);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return reviews.length > 0 && d < today && !acts.length;
+      const studyStart = startOfStudyDay();
+      return reviews.length > 0 && d < studyStart && !acts.length;
     })();
     if (hasStruggling) return "struggling";
     if (hasOverdue) return "overdue";
@@ -2662,12 +3062,11 @@ function CalendarTabContent({
     return x.toISOString().slice(0, 10);
   };
 
+  const todayStr0 = useMemo(() => studyDayKeyNow(), [refreshKey]);
   const today = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
+    const d = new Date(todayStr0 + "T12:00:00");
     return d;
-  }, []);
-  const todayStr0 = iso(today);
+  }, [todayStr0]);
   const selectedDateStr = iso(selectedDate);
   const examDateStr = examDate ? String(examDate).slice(0, 10) : "";
 
@@ -2714,16 +3113,6 @@ function CalendarTabContent({
     return days;
   }, [calendarAnchor]);
 
-  const heatColor = (heat) => {
-    if (heat === "scheduled") return "#D3D1C7";
-    if (heat === "low") return "#C0DD97";
-    if (heat === "medium") return "#639922";
-    if (heat === "high") return "#3B6D11";
-    if (heat === "overdue") return "#EF9F27";
-    if (heat === "struggling") return "#E24B4A";
-    return t.border2;
-  };
-
   const confPill = (conf) => {
     const c = String(conf || "okay");
     const map = {
@@ -2767,10 +3156,19 @@ function CalendarTabContent({
   const selectedReviews = reviewIndex[selectedDateStr] || [];
 
   const missedForLecture = (lectureId) => {
-    const d = new Date(selectedDateStr);
-    d.setHours(0, 0, 0, 0);
-    if (d >= today) return false;
-    return !selectedActs.some((a) => a.lectureId === lectureId);
+    if (selectedDateStr >= todayStr0) return false;
+    if (selectedActs.some((a) => a.lectureId === lectureId)) return false;
+    const lec = (blockLecs || []).find((l) => l?.id === lectureId) || null;
+    const wasShownInTodayTab = (() => {
+      if (!lec?.lectureDate) return false;
+      try {
+        const lecDay = String(lec.lectureDate).slice(0, 10);
+        return lecDay === String(selectedDateStr).slice(0, 10);
+      } catch {
+        return false;
+      }
+    })();
+    return wasShownInTodayTab;
   };
 
   return (
@@ -2804,7 +3202,7 @@ function CalendarTabContent({
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button type="button" onClick={() => setCalendarAnchor((prev) => { const d = new Date(prev); d.setMonth(d.getMonth() + 1); return d; })} style={{ fontFamily: MONO, fontSize: 12, padding: "4px 8px", border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, borderRadius: 8, cursor: "pointer" }}>▶</button>
           {!isAnchorCurrentMonth && (
-            <button type="button" onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); const a = new Date(d); a.setDate(1); setCalendarAnchor(a); setSelectedDate(d); }} style={{ fontFamily: MONO, fontSize: 12, padding: "4px 10px", border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, borderRadius: 8, cursor: "pointer" }}>Today</button>
+            <button type="button" onClick={() => { const d = new Date(startOfStudyDay()); d.setHours(12, 0, 0, 0); const a = new Date(d); a.setDate(1); setCalendarAnchor(a); setSelectedDate(d); }} style={{ fontFamily: MONO, fontSize: 12, padding: "4px 10px", border: "1px solid " + t.border1, background: t.cardBg, color: t.text2, borderRadius: 8, cursor: "pointer" }}>Today</button>
           )}
         </div>
       </div>
@@ -2820,7 +3218,7 @@ function CalendarTabContent({
           const isSelected = dateStr === selectedDateStr;
           const isToday = dateStr === todayStr0;
           const heat = getDayHeat(dateStr, activityIndex, reviewIndex);
-          const hasReviews = (reviewIndex[dateStr] || []).length > 0;
+          const cellStyle = getCalendarHeatCellStyle(heat, t);
           return (
             <div
               key={dateStr}
@@ -2844,10 +3242,25 @@ function CalendarTabContent({
                 {d.getDate()}
               </div>
               {isToday && !isSelected && <div style={{ width: 6, height: 2, borderRadius: 2, background: t.text1, marginTop: -2, marginBottom: 2 }} />}
-              <div style={{ width: "100%", height: 16, borderRadius: 3, background: heat === "empty" ? (t.border2 + "80") : heatColor(heat) }} />
-              {hasReviews && (
-                <div title={`${(reviewIndex[dateStr] || []).length} review(s) scheduled`} style={{ width: 3, height: 3, borderRadius: 999, background: "#185FA5", marginTop: 2 }} />
-              )}
+              <div
+                style={{
+                  width: "100%",
+                  height: 32,
+                  borderRadius: 4,
+                  background: cellStyle.bg,
+                  border: cellStyle.border === "none" ? (heat === "empty" ? `1px solid ${t.border2}80` : "none") : cellStyle.border,
+                  boxSizing: "border-box",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: cellStyle.symbol ? cellStyle.fg : "transparent",
+                  position: "relative",
+                }}
+              >
+                {cellStyle.symbol ? <span style={{ lineHeight: 1 }}>{cellStyle.symbol}</span> : null}
+              </div>
               {examDateStr && dateStr === examDateStr && (
                 <div style={{ marginTop: 2, fontSize: 8, color: "#E24B4A", fontFamily: MONO, fontWeight: 900 }}>EXAM</div>
               )}
@@ -2856,22 +3269,49 @@ function CalendarTabContent({
         })}
       </div>
 
-      {/* Heat legend */}
-      <div style={{ marginTop: 6, display: "flex", gap: 12, justifyContent: "center", flexWrap: "wrap" }}>
-        {[
-          { key: "empty", color: t.border2, label: "No activity" },
-          { key: "scheduled", color: "#D3D1C7", label: "Review planned" },
-          { key: "low", color: "#C0DD97", label: "1 session" },
-          { key: "medium", color: "#639922", label: "2–3 sessions" },
-          { key: "high", color: "#3B6D11", label: "4+ sessions" },
-          { key: "overdue", color: "#EF9F27", label: "Missed review" },
-          { key: "struggling", color: "#E24B4A", label: "Struggled" },
-        ].map((it) => (
-          <div key={it.key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: it.color }} />
-            <div style={{ fontSize: 10, color: t.text3 }}>{it.label}</div>
-          </div>
-        ))}
+      {/* Heat legend (symbol + color for colorblind access) */}
+      <div
+        style={{
+          marginTop: 10,
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {CALENDAR_HEAT_LEGEND_ORDER.map((heatKey) => {
+          const st = getCalendarHeatCellStyle(heatKey, t);
+          const legendBorder =
+            st.border !== "none"
+              ? st.border
+              : heatKey === "empty"
+                ? `1px solid ${t.border2}80`
+                : "none";
+          return (
+            <div key={heatKey} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+              <div
+                style={{
+                  width: 24,
+                  height: 16,
+                  background: st.bg,
+                  borderRadius: 3,
+                  border: legendBorder,
+                  boxSizing: "border-box",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  color: st.symbol ? st.fg : t.text4 || t.text3,
+                }}
+              >
+                {st.symbol || ""}
+              </div>
+              <span style={{ fontSize: 11, color: t.text3 }}>{CALENDAR_HEAT_LABELS[heatKey]}</span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Selected day detail panel */}
@@ -2922,7 +3362,7 @@ function CalendarTabContent({
                       {a.correctCount ?? 0}/{a.questionCount} · {pct}%
                     </span>
                   )}
-                  {confPill(a.confidenceRating)}
+                  {confPill(mergeTrackerDisplayStatus(a.lectureId, bid, a.confidenceRating))}
                   {a.durationMinutes != null && String(a.durationMinutes).trim() !== "" && (
                     <div style={{ fontSize: 11, color: t.text3, fontFamily: MONO }}>{a.durationMinutes}m</div>
                   )}
@@ -2937,17 +3377,134 @@ function CalendarTabContent({
             <div style={{ fontSize: 11, color: t.text3, textTransform: "uppercase", marginBottom: 6, letterSpacing: "0.06em" }}>Reviews scheduled</div>
             {selectedReviews.map((r, i) => {
               const missed = missedForLecture(r.lectureId);
+              const lec = (blockLecs || []).find((l) => l?.id === r.lectureId) || null;
+              const isOverdue = (() => {
+                const d = new Date(selectedDateStr);
+                d.setHours(0, 0, 0, 0);
+                return d < startOfStudyDay() && !selectedActs.some((a) => a.lectureId === r.lectureId);
+              })();
+              const due = isOverdue && !missed;
+              const reviewStatus = mergeTrackerDisplayStatus(r.lectureId, bid, r.lastConfidence);
+              const label =
+                missed
+                  ? "Missed"
+                  : due
+                    ? "Due"
+                    : reviewStatus === "struggling"
+                      ? "Struggling"
+                      : "OK";
+              const labelColor =
+                label === "Missed" || label === "Struggling"
+                  ? t.statusBad
+                  : label === "Due"
+                    ? t.statusWarn
+                    : t.statusGood;
               return (
-                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i === selectedReviews.length - 1 ? "none" : "0.5px solid " + t.border2 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 999, background: "#185FA5" }} />
-                  <div style={{ fontSize: 13, color: t.text1, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.lecTitle}</div>
-                  {missed ? (
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: t.statusBad, fontWeight: 900 }}>⚠ Missed</span>
-                  ) : r.lastConfidence ? (
-                    confPill(r.lastConfidence)
-                  ) : (
-                    <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>○ First review</span>
-                  )}
+                <div
+                  key={i}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "10px 14px",
+                    borderBottom: i === selectedReviews.length - 1 ? "none" : "0.5px solid " + t.border2,
+                  }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontWeight: 500, fontSize: 14, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.lecTitle}
+                    </div>
+                    <div style={{ fontSize: 11, color: t.text3, marginTop: 2 }}>
+                      {label} · {r.daysSinceReview || 0} days since review
+                    </div>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 12, color: labelColor, fontWeight: 600 }}>
+                      △ {label}
+                    </span>
+                    <div style={{ display: "flex", gap: 4 }}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("rxt-launch-deeplearn", {
+                              detail: { lecId: r.lectureId, blockId: bid },
+                            })
+                          )
+                        }
+                        title="Deep Learn"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 6,
+                          border: "1px solid #dc2626",
+                          background: "transparent",
+                          color: "#dc2626",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        🧠
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("rxt-start-drill", {
+                              detail: { lecId: r.lectureId, blockId: bid },
+                            })
+                          )
+                        }
+                        title="Drill"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 6,
+                          border: `1px solid ${t?.accent || "#2563eb"}`,
+                          background: "transparent",
+                          color: t?.accent || "#2563eb",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        ⚡
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          window.dispatchEvent(
+                            new CustomEvent("rxt-launch-quiz", {
+                              detail: { lecId: r.lectureId, blockId: bid },
+                            })
+                          )
+                        }
+                        title="Quiz"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 6,
+                          border: "1px solid #d97706",
+                          background: "transparent",
+                          color: "#d97706",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        📝
+                      </button>
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -3051,6 +3608,7 @@ export default function Tracker({
   objectives = {},
   reviewedLectures = {},
   activeSessions = {},
+  getStudyCoachSteps = null,
   resolveTopicLabel,
   getBlockObjectives = () => [],
   computeWeakAreas = () => [],
@@ -3103,13 +3661,14 @@ export default function Tracker({
   const [expanded, setExpanded] = useState({});
   const [flashLastStudiedRowId, setFlashLastStudiedRowId] = useState(null);
   const [showStudyLog, setShowStudyLog] = useState(false);
+  const [coachExpanded, setCoachExpanded] = useState(false);
   const [showNotStarted, setShowNotStarted] = useState(false);
   const [showManualLog, setShowManualLog] = useState(false);
   const [expandedRows, setExpandedRows] = useState(() => new Set());
   const [openStudyLogGroups, setOpenStudyLogGroups] = useState(() => ({}));
-  const todayKeyForSchedule = () => new Date().toISOString().split("T")[0];
+  const todayKeyForSchedule = () => studyDayKeyNow();
   const [expandedScheduleDays, setExpandedScheduleDays] = useState(() => {
-    const t = new Date().toISOString().split("T")[0];
+    const t = studyDayKeyNow();
     return { [t]: true };
   });
   const [collapsedScheduleTasks, setCollapsedScheduleTasks] = useState(() => new Set());
@@ -3126,6 +3685,8 @@ export default function Tracker({
   const [quickLogNoteOpen, setQuickLogNoteOpen] = useState(() => ({})); // { [lecId]: boolean }
   const [quickLogDraft, setQuickLogDraft] = useState(() => ({})); // { [lecId]: { activityType, confidenceRating, note } }
   const [quickLogOpenId, setQuickLogOpenId] = useState(null); // Today tab only (single open at a time)
+  /** Today tab — UP NEXT row expanded id (`${lecId}__${blockId}`) */
+  const [expandedUpNext, setExpandedUpNext] = useState(null);
   /** `${lectureId}__${blockId}` — optional wrong-questions-only panel on done cards */
   const [quickLogWrongOnlyKey, setQuickLogWrongOnlyKey] = useState(null);
   /** Brief flash under ✓ Done after logging weak concepts */
@@ -3313,6 +3874,24 @@ export default function Tracker({
     if (changed) setCompletion(next);
   }, []);
 
+  useEffect(() => {
+    try {
+      const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+      if (!Array.isArray(allLecs) || allLecs.length === 0) return;
+      const { changed, completionChanged } = cleanOrphanPerfAndCompletion();
+      if (completionChanged) {
+        try {
+          setCompletion(JSON.parse(localStorage.getItem("rxt-completion") || "{}"));
+        } catch {}
+      }
+      if (changed) {
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      }
+    } catch (e) {
+      console.warn("cleanOrphanPerfAndCompletion failed:", e);
+    }
+  }, []);
+
   const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
   const getCompletion = (lectureId, blockId) =>
     (completion || {})[completionKey(lectureId, blockId)] || null;
@@ -3337,6 +3916,202 @@ export default function Tracker({
   const isControlled = trackerRowsProp !== undefined && setTrackerRowsProp != null;
   const rows = isControlled ? trackerRowsProp : internalRows;
   const setRows = isControlled ? setTrackerRowsProp : setInternalRows;
+
+  const makeKey = makeTopicKey || ((lectureId, blockId) => (lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`));
+  const getLecPerf = (lec, blockId) => {
+    const key = makeKey(lec.id, blockId);
+    if (performanceHistory[key]) return performanceHistory[key];
+    const fallbackKey = Object.keys(performanceHistory || {}).find((k) => k.startsWith(lec.id + "__"));
+    if (fallbackKey) return performanceHistory[fallbackKey];
+    return null;
+  };
+
+  const targetBlockIds = useMemo(() => {
+    if (trackerBlockId) return [trackerBlockId];
+    return Object.values(blocks || {}).map((b) => b?.id).filter(Boolean);
+  }, [trackerBlockId, blocks]);
+
+  const isCriticalFor = useCallback(
+    (lec, bid) => {
+      const perf = getLecPerf(lec, bid);
+      const entry = (completion || {})[`${lec?.id}__${bid}`];
+      return isCriticalLectureFromData(lec, bid, perf, entry, getBlockObjectives);
+    },
+    [completion, getLecPerf, getBlockObjectives]
+  );
+  const isOverdueFor = useCallback(
+    (lec, bid) => {
+      const perf = getLecPerf(lec, bid);
+      const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
+      return !!(nr && !isNaN(nr.getTime()) && nr < startOfStudyDay());
+    },
+    [getLecPerf]
+  );
+  const isSoonFor = useCallback(
+    (lec, bid) => {
+      const perf = getLecPerf(lec, bid);
+      const entry = (completion || {})[`${lec?.id}__${bid}`];
+      return isSoonLectureFromData(lec, bid, perf, entry, getBlockObjectives);
+    },
+    [completion, getLecPerf, getBlockObjectives]
+  );
+  const isOkFor = useCallback(
+    (lec, bid) => {
+      const perf = getLecPerf(lec, bid);
+      const entry = (completion || {})[`${lec?.id}__${bid}`];
+      return isOkLectureFromData(lec, bid, perf, entry, getBlockObjectives);
+    },
+    [completion, getLecPerf, getBlockObjectives]
+  );
+
+  const trackerSummary = useMemo(() => {
+    const st = startOfStudyDay();
+    const completions = completion || {};
+    const todayIso = studyDayKeyNow();
+
+    const perBlockOverdue = {};
+    let totalLectures = 0;
+    let critical = 0;
+    let overdue = 0;
+    let done = 0;
+    let tracked = 0;
+    let soon = 0;
+    let ok = 0;
+
+    const allBlockIds = Object.values(blocks || {})
+      .map((b) => b?.id)
+      .filter(Boolean);
+
+    allBlockIds.forEach((bid) => {
+      const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+      let blockOd = 0;
+      blockLecs.forEach((lec) => {
+        const perf = getLecPerf(lec, bid);
+        const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
+        if (nr && !isNaN(nr.getTime()) && nr < st) blockOd++;
+      });
+      perBlockOverdue[bid] = blockOd;
+    });
+
+    targetBlockIds.forEach((bid) => {
+      if (!bid) return;
+      const objsForBlock = typeof getBlockObjectives === "function" ? getBlockObjectives(bid) : [];
+      const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+      totalLectures += blockLecs.length;
+
+      blockLecs.forEach((lec) => {
+        const key = `${lec.id}__${bid}`;
+        const entry = completions[key];
+        const perf = getLecPerf(lec, bid);
+
+        const lecObjs = objsForBlock.filter(
+          (o) =>
+            String(o.lectureNumber) === String(lec.lectureNumber) ||
+            o.linkedLecId === lec.id
+        );
+        const isCritical = isCriticalLectureFromData(lec, bid, perf, entry, getBlockObjectives);
+
+        const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
+        const isOverdue = !!(nr && !isNaN(nr.getTime()) && nr < st);
+
+        const allMastered = lecObjs.length > 0 && lecObjs.every((o) => o.status === "mastered");
+        const loggedToday = entry?.activityLog?.some((a) => String(a?.date || "").slice(0, 10) === todayIso);
+        const isDone = allMastered || !!loggedToday;
+
+        const raw = perf?.sessions || [];
+        const sess = raw.filter((s) => !s.lectureId || s.lectureId === lec.id);
+        if (sess.length > 0) tracked++;
+
+        if (isSoonLectureFromData(lec, bid, perf, entry, getBlockObjectives)) soon++;
+        if (isOkLectureFromData(lec, bid, perf, entry, getBlockObjectives)) ok++;
+
+        if (isCritical) critical++;
+        if (isOverdue) overdue++;
+        if (isDone) done++;
+      });
+    });
+
+    const scopedRows = (rows || []).filter((r) => {
+      if (r.blockId && targetBlockIds.includes(r.blockId)) return true;
+      const bid = Object.values(blocks || {}).find((b) => b.name === r.block)?.id;
+      return bid && targetBlockIds.includes(bid);
+    });
+    const total = scopedRows.length;
+    const onSchedule = Math.max(0, totalLectures - critical - overdue);
+
+    return {
+      total,
+      critical,
+      overdue,
+      done,
+      onSchedule,
+      tracked,
+      totalLectures,
+      soon,
+      ok,
+      perBlockOverdue,
+    };
+  }, [
+    rows,
+    blocks,
+    lecs,
+    completion,
+    performanceHistory,
+    getBlockObjectives,
+    targetBlockIds,
+    trackerBlockId,
+    refreshKey,
+  ]);
+
+  const mergedTodayItems = useMemo(() => {
+    const todayISO = studyDayKeyNow();
+    const st = startOfStudyDay();
+    const allItems = [];
+    targetBlockIds.forEach((bid) => {
+      if (!bid) return;
+      const examDate = examDates[bid] || "";
+      const result = examDate && generateDailySchedule ? generateDailySchedule(bid, examDate) : null;
+      const todayDay = (result?.schedule || []).find((d) => d?.dateStr === todayISO) || null;
+      const todayTasks = Array.isArray(todayDay?.tasks) ? todayDay.tasks : [];
+      const normalizedTasks = todayTasks.map((t0) => ({
+        ...t0,
+        _matchReason: t0.matchReason === "scheduled-day" ? "TODAY'S LECTURE" : (t0.matchReason || ""),
+      }));
+      const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+      const overdueItems = blockLecs
+        .map((lec) => {
+          const perf = getLecPerf(lec, bid);
+          const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
+          if (!nr || isNaN(nr.getTime()) || nr >= st) return null;
+          const daysOverdue = Math.max(1, Math.ceil((st.getTime() - nr.getTime()) / 86400000));
+          return {
+            lec,
+            blockId: bid,
+            matchReason: "⏰ OVERDUE",
+            isOverdue: true,
+            urgency: 999,
+            daysOverdue,
+          };
+        })
+        .filter(Boolean);
+      const taskItems = normalizedTasks
+        .filter((t0) => t0?.lec?.id)
+        .map((t0) => ({
+          ...t0,
+          blockId: bid,
+          lec: t0.lec,
+          matchReason: t0._matchReason || t0.matchReason || "",
+          isOverdue: t0.isOverdue === true || String(t0._matchReason || t0.matchReason || "").toUpperCase().includes("OVERDUE"),
+        }));
+      const map = new Map();
+      [...overdueItems, ...taskItems].forEach((item) => {
+        const key = `${item.lec.id}__${bid}`;
+        if (!map.has(key)) map.set(key, item);
+      });
+      allItems.push(...Array.from(map.values()));
+    });
+    return allItems;
+  }, [targetBlockIds, examDates, generateDailySchedule, lecs, performanceHistory, refreshKey]);
 
   // Load (when uncontrolled)
   useEffect(() => {
@@ -3367,14 +4142,30 @@ export default function Tracker({
   }, [activeBlock?.id]);
 
   useEffect(() => {
-    const handler = () => {
-      // Defer so we never setState on Tracker while another component (e.g. App) is still rendering;
-      // rxt-completion-updated can fire synchronously from dispatchEvent during a parent render.
-      queueMicrotask(() => setRefreshKey((k) => k + 1));
+    const refreshFromStorage = () => {
+      queueMicrotask(() => {
+        try {
+          const raw = localStorage.getItem("rxt-tracker-v2") || "[]";
+          const parsed = JSON.parse(raw);
+          if (isControlled) setTrackerRowsProp(parsed);
+          else setInternalRows(parsed);
+        } catch {}
+        try {
+          const c = localStorage.getItem("rxt-completion");
+          if (c) setCompletion(JSON.parse(c));
+        } catch {}
+        setRefreshKey((k) => k + 1);
+      });
     };
-    window.addEventListener("rxt-completion-updated", handler);
-    return () => window.removeEventListener("rxt-completion-updated", handler);
-  }, []);
+    window.addEventListener("rxt-completion-updated", refreshFromStorage);
+    window.addEventListener("rxt-objectives-updated", refreshFromStorage);
+    window.addEventListener("rxt-start-drill", refreshFromStorage);
+    return () => {
+      window.removeEventListener("rxt-completion-updated", refreshFromStorage);
+      window.removeEventListener("rxt-objectives-updated", refreshFromStorage);
+      window.removeEventListener("rxt-start-drill", refreshFromStorage);
+    };
+  }, [isControlled, setTrackerRowsProp]);
 
   useEffect(() => {
     setTodayFilter("all");
@@ -3395,7 +4186,7 @@ export default function Tracker({
     timerRef.current = setTimeout(() => { sSet("rxt-tracker-v2", nr); setSaveMsg("saved"); setTimeout(() => setSaveMsg(""), 2000); }, 500);
   };
 
-  const todayStr = () => new Date().toISOString().split("T")[0];
+  const todayStr = () => studyDayKeyNow();
   const triggerFlash = (id) => {
     setFlashLastStudiedRowId(id);
     clearTimeout(flashTimerRef.current);
@@ -3581,9 +4372,6 @@ export default function Tracker({
     });
   }
 
-  const critCount = rows.filter(r=>getUrgency(r.confidence,r.lastStudied)==="critical").length;
-  const ovdCount  = rows.filter(r=>getUrgency(r.confidence,r.lastStudied)==="overdue").length;
-
   const COL_HEADS = ["","Block","Subject","Lecture / Topic","Lecture Date","Last Studied","Days Ago","📖","🎓","📝","🃏","Anki Date","Confidence","Sessions","Score",""];
   const COL_TIPS  = ["","","","","Lecture date","Last date studied","Days since last study","Pre-Read","Attended Lecture","Post-Lecture Review","Anki Cards Released","Anki card release date","Confidence level (drives review frequency)","Number of practice sessions","Practice question score",""];
 
@@ -3611,67 +4399,6 @@ export default function Tracker({
   });
   const allBlockLecs = blocksArray.flatMap(b => (lecs || []).filter(l => l.blockId === b.id));
 
-  const makeKey = makeTopicKey || ((lectureId, blockId) => (lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`));
-  const getLecPerf = (lec, blockId) => {
-    const key = makeKey(lec.id, blockId);
-    if (performanceHistory[key]) return performanceHistory[key];
-    const fallbackKey = Object.keys(performanceHistory || {}).find(k => k.startsWith(lec.id + "__"));
-    if (fallbackKey) return performanceHistory[fallbackKey];
-    return null;
-  };
-
-  const targetBlockIds = useMemo(() => {
-    if (trackerBlockId) return [trackerBlockId];
-    return Object.values(blocks || {}).map((b) => b?.id).filter(Boolean);
-  }, [trackerBlockId, blocks]);
-
-  const getAllTodayItems = useCallback(() => {
-    const todayISO = new Date().toISOString().slice(0, 10);
-    const allItems = [];
-    targetBlockIds.forEach((bid) => {
-      if (!bid) return;
-      const examDate = examDates[bid] || "";
-      const result = examDate && generateDailySchedule ? generateDailySchedule(bid, examDate) : null;
-      const todayDay = (result?.schedule || []).find((d) => d?.dateStr === todayISO) || null;
-      const todayTasks = Array.isArray(todayDay?.tasks) ? todayDay.tasks : [];
-      const normalizedTasks = todayTasks.map((t0) => ({
-        ...t0,
-        _matchReason: t0.matchReason === "scheduled-day" ? "TODAY'S LECTURE" : (t0.matchReason || ""),
-      }));
-      const overdueList = getOverdueLectures(bid, completion || {});
-      const overdueItems = overdueList
-        .map((e) => {
-          const lec = (lecs || []).find((l) => l.id === e.lectureId);
-          if (!lec) return null;
-          return {
-            lec,
-            blockId: bid,
-            matchReason: "⏰ OVERDUE",
-            isOverdue: true,
-            urgency: 999,
-            daysOverdue: e.daysOverdue || 0,
-          };
-        })
-        .filter(Boolean);
-      const taskItems = normalizedTasks
-        .filter((t0) => t0?.lec?.id)
-        .map((t0) => ({
-          ...t0,
-          blockId: bid,
-          lec: t0.lec,
-          matchReason: t0._matchReason || t0.matchReason || "",
-          isOverdue: t0.isOverdue === true || String(t0._matchReason || t0.matchReason || "").toUpperCase().includes("OVERDUE"),
-        }));
-      const map = new Map();
-      [...overdueItems, ...taskItems].forEach((item) => {
-        const key = `${item.lec.id}__${bid}`;
-        if (!map.has(key)) map.set(key, item);
-      });
-      allItems.push(...Array.from(map.values()));
-    });
-    return allItems;
-  }, [targetBlockIds, examDates, generateDailySchedule, completion, lecs]);
-
   const notStartedCount = useMemo(() => {
     return targetBlockIds.reduce((n, bid) => {
       const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
@@ -3688,42 +4415,19 @@ export default function Tracker({
     }, 0);
   }, [targetBlockIds, lecs, performanceHistory, completion]);
 
-  const filterCounts = useMemo(() => {
-    const allItems = getAllTodayItems();
-    const twoDaysOut = new Date();
-    twoDaysOut.setDate(twoDaysOut.getDate() + 2);
-    twoDaysOut.setHours(23, 59, 59, 0);
-    const isCritical = (item) => {
-      const key = `${item.lec.id}__${item.blockId}`;
-      const entry = (completion || {})[key];
-      const lastConf = entry?.lastConfidence;
-      const lastScore = getLecPerf(item.lec, item.blockId)?.score || 0;
-      return lastConf === "struggling" || lastScore < 50;
-    };
-    const isSoon = (item) => {
-      const key = `${item.lec.id}__${item.blockId}`;
-      const entry = (completion || {})[key];
-      const reviewDates = entry?.reviewDates || [];
-      return reviewDates.some((d) => {
-        const rd = new Date(d);
-        return rd <= twoDaysOut;
-      });
-    };
-    const isOk = (item) => {
-      const key = `${item.lec.id}__${item.blockId}`;
-      const entry = (completion || {})[key];
-      const lastConf = entry?.lastConfidence;
-      const lastScore = getLecPerf(item.lec, item.blockId)?.score || 0;
-      return lastConf === "good" || lastScore >= 70;
-    };
-    return {
-      all: allItems.length,
-      critical: allItems.filter(isCritical).length,
-      overdue: allItems.filter((i) => i.isOverdue || String(i.matchReason || "").toUpperCase().includes("OVERDUE")).length,
-      soon: allItems.filter(isSoon).length,
-      ok: allItems.filter(isOk).length,
-    };
-  }, [getAllTodayItems, completion, refreshKey]);
+  const filterCounts = useMemo(
+    () => {
+      const bids = targetBlockIds;
+      const blockLecs = (lecs || []).filter((l) => bids.includes(l.blockId));
+      const all = blockLecs.length;
+      const critical = blockLecs.filter((lec) => isCriticalFor(lec, lec.blockId)).length;
+      const overdue = blockLecs.filter((lec) => isOverdueFor(lec, lec.blockId)).length;
+      const soon = blockLecs.filter((lec) => isSoonFor(lec, lec.blockId)).length;
+      const ok = blockLecs.filter((lec) => isOkFor(lec, lec.blockId)).length;
+      return { all, critical, overdue, soon, ok };
+    },
+    [targetBlockIds, lecs, isCriticalFor, isOverdueFor, isSoonFor, isOkFor]
+  );
 
   const getBlockObjsFromProps = (blockId) => {
     const data = objectives[blockId] || { imported: [], extracted: [] };
@@ -3895,9 +4599,9 @@ export default function Tracker({
                 : p.zone === "critical"
                   ? "Final push."
                   : "Exam day.";
-        const overdueCount = getOverdueLectures(bid, completion || {}).length;
-        const blockLecs = (lecs || []).filter((l) => l && l.blockId === bid);
-        const trackedCount = Object.values(completion || {}).filter((e) => e && e.blockId === bid).length;
+        const overdueCount = trackerSummary.overdue;
+        const trackedCount = trackerSummary.tracked;
+        const totalLec = trackerSummary.totalLectures;
         return (
           <div style={{ padding: "10px 18px", borderBottom: "1px solid " + t.border2, background: t.subnavBg, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, flex: 1, minWidth: 240 }}>
@@ -3918,7 +4622,7 @@ export default function Tracker({
                 {overdueCount} overdue
               </div>
               <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, fontWeight: 800 }}>
-                {trackedCount}/{blockLecs.length} tracked
+                {trackedCount}/{totalLec} tracked
               </div>
             </div>
           </div>
@@ -3975,7 +4679,7 @@ export default function Tracker({
               const isSelected = trackerBlockId === bid;
               const examDate = bid ? (examDates?.[bid] || "") : "";
               const pressure = bid && examDate ? getPressureZone(examDate) : null;
-              const overdueCount = bid ? getOverdueLectures(bid, completion || {}).length : 0;
+              const overdueCount = bid ? (trackerSummary.perBlockOverdue[bid] ?? 0) : 0;
               const activeColor = overdueCount > 0 ? (t.statusBad || "#E24B4A") : (pressure?.zone === "crunch" || pressure?.zone === "critical" || pressure?.zone === "exam") ? (t.statusWarn || "#BA7517") : (t.statusGood || "#639922");
               return (
                 <button
@@ -4070,9 +4774,9 @@ export default function Tracker({
         {/* Right side */}
         {activeTab !== "weakConcepts" && (
           <div style={{ marginLeft:"auto", display:"flex", gap:7, alignItems:"center" }}>
-            {critCount>0 && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⚠</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{critCount} critical</span></div>}
-            {ovdCount>0  && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⏰</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{ovdCount} overdue</span></div>}
-            {[["Rows",rows.length],["Done",rows.filter(r=>r.preRead&&r.lecture&&r.postReview&&r.anki).length]].map(([l,v])=>(
+            {trackerSummary.critical>0 && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⚠</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{trackerSummary.critical} critical</span></div>}
+            {trackerSummary.overdue>0  && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⏰</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{trackerSummary.overdue} overdue</span></div>}
+            {[["Rows",trackerSummary.total],["Done",trackerSummary.done]].map(([l,v])=>(
               <div key={l} style={{ background:t.cardBg,borderRadius:6,padding:"3px 10px",display:"flex",gap:5,alignItems:"center", border:"1px solid "+t.border1 }}>
                 <span style={{ color:t.text4,fontSize:13 }}>{l}</span>
                 <span style={{ color:t.text1,fontSize:13,fontWeight:600 }}>{v}</span>
@@ -4086,8 +4790,8 @@ export default function Tracker({
 
       {/* ── TRACKER TABLE ──────────────────────────────── */}
       {tab==="tracker" && (
-        <div style={{ flex:1, overflowX:"auto", overflowY:"auto" }}>
-          <div style={{ minWidth:1300 }}>
+        <div style={{ flex: 1, overflowX: "hidden", overflowY: "auto", width: "100%" }}>
+          <div style={{ width: "100%", maxWidth: "100%", boxSizing: "border-box" }}>
 
             {/* Lectures tab — grouped by week + type, filter bar, expandable rows */}
             {activeTab === "lectures" && (() => {
@@ -4121,20 +4825,44 @@ export default function Tracker({
               const bids = targetBlockIds;
               if (!bids.length) return null;
               const completions = completion || {};
-              const todayStr = new Date().toISOString().split("T")[0];
+              const todayStr = studyDayKeyNow();
+              const todayKey = todayStr;
+              const dow = startOfStudyDay().toLocaleDateString("en-US", { weekday: "short" });
+              const isScheduledToday = (lec) => {
+                if (!lec) return false;
+                if (lec.lectureDate && String(lec.lectureDate).slice(0, 10) === todayKey) return true;
+                if (lec.weekNumber && lec.dayOfWeek) {
+                  return String(lec.dayOfWeek).slice(0, 3).toLowerCase() === String(dow).slice(0, 3).toLowerCase();
+                }
+                return false;
+              };
               const loggedToday = (lecId, blockId) => {
                 const entry = completions[`${lecId}__${blockId}`];
                 if (!entry || !entry.activityLog) return false;
                 return entry.activityLog.some((a) => String(a?.date || "").startsWith(todayStr));
               };
 
-              const allItemsBase = getAllTodayItems();
+              const allItemsBase = mergedTodayItems;
               const withNotStarted = (() => {
                 if (!showNotStarted) return allItemsBase;
                 const next = [...allItemsBase];
                 bids.forEach((bid) => {
                   const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
                   blockLecs.forEach((lec) => {
+                    // Include all lecture types (DLA/LEC/SG/TBL/LAB/CLIN) when scheduled today
+                    if (isScheduledToday(lec)) {
+                      const key = `${lec.id}__${bid}`;
+                      if (!next.some((i) => `${i.lec?.id}__${i.blockId}` === key)) {
+                        next.push({
+                          lec,
+                          blockId: bid,
+                          matchReason: "TODAY'S LECTURE",
+                          _matchReason: "TODAY'S LECTURE",
+                          isNotStarted: false,
+                          urgency: 0,
+                        });
+                      }
+                    }
                     const p = getLecPerf(lec, bid);
                     const raw = p?.sessions || [];
                     const sess = raw.filter((s) => !s.lectureId || s.lectureId === lec.id);
@@ -4157,30 +4885,57 @@ export default function Tracker({
                 return next;
               })();
 
+              const withNotStartedUrgency = (() => {
+                if (todayFilter !== "critical" && todayFilter !== "soon" && todayFilter !== "ok") return withNotStarted;
+                const scopeBids = trackerBlockId != null ? [trackerBlockId] : bids;
+                const map = new Map();
+                withNotStarted.forEach((it) => {
+                  if (it?.lec?.id != null) map.set(`${it.lec.id}__${it.blockId}`, it);
+                });
+                scopeBids.forEach((bid) => {
+                  if (!bid) return;
+                  const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
+                  blockLecs.forEach((lec) => {
+                    const key = `${lec.id}__${bid}`;
+                    if (map.has(key)) return;
+                    let match = false;
+                    if (todayFilter === "critical") match = isCriticalFor(lec, bid);
+                    else if (todayFilter === "soon") match = isSoonFor(lec, bid);
+                    else if (todayFilter === "ok") match = isOkFor(lec, bid);
+                    if (!match) return;
+                    const label =
+                      todayFilter === "critical"
+                        ? "△ CRITICAL"
+                        : todayFilter === "soon"
+                          ? "⊙ SOON"
+                          : "✓ OK";
+                    map.set(key, {
+                      lec,
+                      blockId: bid,
+                      matchReason: label,
+                      _matchReason: label,
+                      urgency: 0,
+                      fromUrgencySynthetic: true,
+                    });
+                  });
+                });
+                return Array.from(map.values());
+              })();
+
               const applyTodayFilter = (items, f) => {
-                if (f === "all") return items;
-                return items.filter((item) => {
-                  const key = `${item.lec.id}__${item.blockId}`;
-                  const entry = completions[key];
-                  const lastConf = entry?.lastConfidence;
-                  const lastScore = getLecPerf(item.lec, item.blockId)?.score || 0;
+                const scoped =
+                  trackerBlockId != null ? (items || []).filter((it) => it?.blockId === trackerBlockId) : (items || []);
+                if (f === "all") return scoped;
+                return scoped.filter((item) => {
                   switch (f) {
                     case "critical":
-                      return lastConf === "struggling" || lastScore < 50;
+                      return isCriticalFor(item.lec, item.blockId);
                     case "overdue":
-                      return String(item.matchReason || "").toUpperCase().includes("OVERDUE") || item.isOverdue === true;
-                    case "soon": {
-                      const reviewDates = entry?.reviewDates || [];
-                      const twoDaysOut = new Date();
-                      twoDaysOut.setDate(twoDaysOut.getDate() + 2);
-                      twoDaysOut.setHours(23, 59, 59, 0);
-                      return reviewDates.some((d) => {
-                        const rd = new Date(d);
-                        return rd <= twoDaysOut;
-                      });
-                    }
+                      return isOverdueFor(item.lec, item.blockId);
+                    case "soon":
+                      return isSoonFor(item.lec, item.blockId);
                     case "ok":
-                      return lastConf === "good" || lastScore >= 70;
+                      return isOkFor(item.lec, item.blockId);
                     default:
                       return true;
                   }
@@ -4227,7 +4982,7 @@ export default function Tracker({
               };
 
               const searchedItems = (() => {
-                const filtered = applyTodayFilter(withNotStarted, todayFilter);
+                const filtered = applyTodayFilter(withNotStartedUrgency, todayFilter);
                 const sorted = applyTodaySort(filtered, todaySort);
                 const q = todaySearch.toLowerCase().trim();
                 if (!q) return sorted;
@@ -4241,30 +4996,6 @@ export default function Tracker({
 
               const overdueList = searchedItems.filter((it) => it.isOverdue || String(it.matchReason || "").toUpperCase().includes("OVERDUE"));
               const todayLectures = searchedItems.filter((it) => !overdueList.includes(it) && String(it._matchReason || it.matchReason || "") === "TODAY'S LECTURE");
-              const reviewsDue = searchedItems.filter((it) => !overdueList.includes(it) && !todayLectures.includes(it));
-
-              const snoozeReview = (lectureId, blockId) => {
-                const key = `${lectureId}__${blockId}`;
-                if (snoozedToday[key] === todayStr) return;
-                setSnoozedToday((p) => ({ ...(p || {}), [key]: todayStr }));
-                setCompletion((prev) => {
-                  const ex = (prev || {})[key];
-                  if (!ex) return prev;
-                  const today = new Date();
-                  today.setHours(0, 0, 0, 0);
-                  const tomorrow = new Date(today);
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  const tomorrowKey = tomorrow.toISOString().slice(0, 10);
-                  const rd = Array.isArray(ex.reviewDates) ? ex.reviewDates : [];
-                  const pushed = rd.map((d) => {
-                    const rd0 = new Date(d);
-                    rd0.setHours(0, 0, 0, 0);
-                    return rd0 < today ? tomorrowKey : d;
-                  });
-                  const deduped = Array.from(new Set(pushed)).sort();
-                  return { ...(prev || {}), [key]: { ...ex, reviewDates: deduped } };
-                });
-              };
 
               const sectionLabelStyle = {
                 fontFamily: MONO,
@@ -4285,7 +5016,7 @@ export default function Tracker({
                 gap: 8,
               };
               const renderDonePill = (entry) => {
-                const q = getTodayQuestionScoreForDonePill(entry, todayStr);
+                const pill = getDonePillModel(entry, todayStr, t);
                 return (
                   <span
                     style={{
@@ -4293,13 +5024,13 @@ export default function Tracker({
                       fontSize: 11,
                       padding: "4px 10px",
                       borderRadius: 999,
-                      background: t.statusGoodBg,
-                      border: "1px solid " + t.statusGoodBorder,
-                      color: t.statusGood,
+                      background: pill.bg,
+                      border: "1px solid " + pill.borderCol,
+                      color: pill.badgeColor,
                       fontWeight: 900,
                     }}
                   >
-                    {q ? `✓ Done · ${q.correct}/${q.total} (${q.score}%)` : "✓ Done"}
+                    {pill.label}
                   </span>
                 );
               };
@@ -4329,7 +5060,63 @@ export default function Tracker({
               };
 
               const sortedTodayLectures = [...todayLectures].sort((a, b) => (loggedToday(a.lec.id, a.blockId) ? 1 : 0) - (loggedToday(b.lec.id, b.blockId) ? 1 : 0));
-              const sortedReviewsDue = [...reviewsDue].sort((a, b) => {
+
+              /** Higher-priority sections claim lectures first (Today → Reviews due → Struggling → Up next). */
+              const shownKeys = new Set();
+              todayLectures.forEach((it) => {
+                if (it.lec?.id) shownKeys.add(`${it.lec.id}__${it.blockId}`);
+              });
+
+              const daysSinceLastActivity = (lecId, blockId) => {
+                const entry = completions[`${lecId}__${blockId}`];
+                if (!entry?.lastActivityDate) return null;
+                const d = new Date(entry.lastActivityDate);
+                if (isNaN(d.getTime())) return null;
+                return Math.floor((startOfStudyDay().getTime() - d.getTime()) / 86400000);
+              };
+
+              const isReviewsDuePredicate = (lec, bid) => {
+                const perf = getLecPerf(lec, bid);
+                const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
+                const endSd = endOfStudyDay();
+                const isDue = nr && !isNaN(nr.getTime()) && nr <= endSd;
+                const st = getLecStatus(lec.id, bid);
+                if (st === "struggling") return true;
+                const rawSessions = perf?.sessions || [];
+                const lecSessions = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
+                const studiedOnce = lecSessions.length === 1;
+                const daysSinceReview = daysSinceLastActivity(lec.id, bid);
+                const stale = studiedOnce && daysSinceReview != null && daysSinceReview >= 3;
+                return !!(isDue || stale);
+              };
+
+              const reviewsDueSectionItems = [];
+              bids.forEach((bid) => {
+                if (!bid) return;
+                (lecs || [])
+                  .filter((l) => l.blockId === bid)
+                  .forEach((lec) => {
+                    const rk = `${lec.id}__${bid}`;
+                    if (shownKeys.has(rk)) return;
+                    if (!isReviewsDuePredicate(lec, bid)) return;
+                    const perf = getLecPerf(lec, bid);
+                    const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
+                    const isOverdue = !!(nr && !isNaN(nr.getTime()) && nr < startOfStudyDay());
+                    const daysOverdue = isOverdue && nr
+                      ? Math.max(1, Math.ceil((startOfStudyDay().getTime() - nr.getTime()) / 86400000))
+                      : 0;
+                    reviewsDueSectionItems.push({
+                      lec,
+                      blockId: bid,
+                      _matchReason: isOverdue ? "⏰ OVERDUE" : "🔁 REVIEW DUE",
+                      isOverdue,
+                      daysOverdue,
+                    });
+                    shownKeys.add(rk);
+                  });
+              });
+
+              const sortedReviewsDue = [...reviewsDueSectionItems].sort((a, b) => {
                 const aDone = loggedToday(a.lec.id, a.blockId) ? 1 : 0;
                 const bDone = loggedToday(b.lec.id, b.blockId) ? 1 : 0;
                 if (aDone !== bDone) return aDone - bDone;
@@ -4338,147 +5125,92 @@ export default function Tracker({
                 return 0;
               });
 
+              const strugglingSectionItems = [];
+              bids.forEach((bid) => {
+                if (!bid) return;
+                const blockObjs = getBlockObjectives(bid) || [];
+                (lecs || [])
+                  .filter((l) => l.blockId === bid)
+                  .forEach((lec) => {
+                    const rk = `${lec.id}__${bid}`;
+                    if (shownKeys.has(rk)) return;
+                    const lecObjs = lecObjsForLecture(blockObjs, lec);
+                    if (!lecObjs.some((o) => o.status === "struggling")) return;
+                    strugglingSectionItems.push({ lec, blockId: bid });
+                    shownKeys.add(rk);
+                  });
+              });
+
+              const sortedStrugglingDue = [...strugglingSectionItems].sort((a, b) =>
+                String(a.lec?.lectureTitle || "").localeCompare(String(b.lec?.lectureTitle || ""))
+              );
+
+              const upNextCandidates = [];
+              bids.forEach((bid) => {
+                if (!bid) return;
+                (lecs || [])
+                  .filter((l) => l.blockId === bid)
+                  .forEach((lec) => {
+                    const rk = `${lec.id}__${bid}`;
+                    if (shownKeys.has(rk)) return;
+                    if (isScheduledToday(lec)) return;
+                    const perf = getLecPerf(lec, bid);
+                    const rawSessions = perf?.sessions || [];
+                    const lecSessions = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
+                    if (lecSessions.length > 0) return;
+                    upNextCandidates.push({ lec, blockId: bid });
+                  });
+              });
+
+              upNextCandidates.sort((a, b) => {
+                const wa = a.lec.weekNumber ?? 99;
+                const wb = b.lec.weekNumber ?? 99;
+                if (wa !== wb) return wa - wb;
+                return rankDayOfWeek(a.lec.dayOfWeek) - rankDayOfWeek(b.lec.dayOfWeek);
+              });
+
+              const upNextSectionItems = upNextCandidates.slice(0, 3);
+
               const strugglingCount = searchedItems.filter((item) => {
                 const key = `${item.lec.id}__${item.blockId}`;
-                return completions[key]?.lastConfidence === "struggling";
+                const ps = getLecStatus(item.lec.id, item.blockId);
+                return ps === "struggling" || (ps === "untested" && completions[key]?.lastConfidence === "struggling");
               }).length;
 
-              const todayActionRowOuter = {
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginTop: 6,
-                paddingTop: 6,
-                borderTop: "0.5px solid var(--color-border-tertiary)",
-              };
+              const examDateForBlock = (bid) => examDates[bid] || "";
 
-              const renderTodayTaskActions = (lec, blockId, done) => {
-                if (!lec?.id) return null;
+              const launchDrillForRow = (lec, filter = "all") => {
+                if (!lec?.id) return;
                 const lecTitle = lec.lectureTitle || lec.title || lec.filename || "";
-                const entry = completions[`${lec.id}__${blockId}`];
-                const struggling = entry?.lastConfidence === "struggling";
-                if (done) {
-                  return (
-                    <div style={todayActionRowOuter} onClick={(e) => e.stopPropagation()}>
-                      <span style={{ fontSize: 11, color: "#27500A" }}>✓ Logged today</span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.dispatchEvent(
-                            new CustomEvent("rxt-start-drill", {
-                              detail: {
-                                lecId: lec.id,
-                                lecTitle,
-                                mode: "mcq",
-                                filter: "struggling",
-                              },
-                            })
-                          );
-                        }}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          padding: "3px 8px",
-                          fontSize: 10,
-                          background: "transparent",
-                          color: "var(--color-text-tertiary)",
-                          border: "0.5px solid var(--color-border-tertiary)",
-                          borderRadius: 5,
-                          cursor: "pointer",
-                        }}
-                      >
-                        ⚡ More questions
-                      </button>
-                    </div>
-                  );
-                }
-                return (
-                  <div style={todayActionRowOuter} onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.dispatchEvent(
-                          new CustomEvent("rxt-start-drill", {
-                            detail: {
-                              lecId: lec.id,
-                              lecTitle,
-                              mode: "mcq",
-                              filter: "all",
-                            },
-                          })
-                        );
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                        padding: "4px 10px",
-                        fontSize: 11,
-                        fontWeight: 500,
-                        background: "#EEEDFE",
-                        color: "#3C3489",
-                        border: "0.5px solid #AFA9EC",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
-                      ⚡ Questions
-                      <span
-                        style={{
-                          fontSize: 9,
-                          padding: "1px 5px",
-                          background: "#3C3489",
-                          color: "white",
-                          borderRadius: 8,
-                        }}
-                      >
-                        {getLecQuestionLevel(lec)}
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.dispatchEvent(
-                          new CustomEvent("rxt-start-drill", {
-                            detail: {
-                              lecId: lec.id,
-                              lecTitle,
-                              mode: "flashcard",
-                              filter: "all",
-                            },
-                          })
-                        );
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 5,
-                        padding: "4px 10px",
-                        fontSize: 11,
-                        background: "transparent",
-                        color: "var(--color-text-secondary)",
-                        border: "0.5px solid var(--color-border-secondary)",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        flexShrink: 0,
-                      }}
-                    >
-                      🧠 Flashcards
-                    </button>
-                    <div style={{ flex: 1 }} />
-                    {struggling && (
-                      <span style={{ fontSize: 10, color: "#A32D2D", flexShrink: 0 }}>⚠ struggling</span>
-                    )}
-                  </div>
+                window.dispatchEvent(
+                  new CustomEvent("rxt-start-drill", {
+                    detail: { lecId: lec.id, lecTitle, mode: "mcq", filter },
+                  })
                 );
               };
 
-              const hasAny = overdueList.length > 0 || todayLectures.length > 0 || reviewsDue.length > 0;
+              const markRowDone = (lec, blockId) => {
+                if (!lec?.id) return;
+                markLectureReviewedToday(lec.id, blockId, "okay", examDateForBlock(blockId));
+                setRefreshKey((k) => k + 1);
+              };
+
+              const logQuickRating = (lec, blockId, ratingLabel) => {
+                if (!lec?.id) return;
+                const conf = ratingLabel === "Good" ? "good" : ratingLabel === "Okay" ? "okay" : "struggling";
+                markLectureReviewedToday(lec.id, blockId, conf, examDateForBlock(blockId));
+                setRefreshKey((k) => k + 1);
+              };
+
+              const toggleLogWrong = (rowKey) => {
+                setQuickLogWrongOnlyKey((k) => (k === rowKey ? null : rowKey));
+              };
+
+              const hasAny =
+                todayLectures.length > 0 ||
+                sortedReviewsDue.length > 0 ||
+                sortedStrugglingDue.length > 0 ||
+                upNextSectionItems.length > 0;
               if (!hasAny) {
                 return (
                   <div style={{ padding: "18px 16px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -4488,8 +5220,155 @@ export default function Tracker({
                 );
               }
 
+              const allTodayLecs =
+                todayLectures.length > 0 || sortedReviewsDue.length > 0
+                  ? Array.from(
+                      new Map(
+                        [...todayLectures, ...sortedReviewsDue]
+                          .filter((it) => it?.lec?.id && it?.blockId)
+                          .map((it) => [`${it.lec.id}__${it.blockId}`, { lec: it.lec, blockId: it.blockId }])
+                      ).values()
+                    )
+                  : [];
+              const todayCoachOrdered =
+                typeof getStudyCoachSteps === "function"
+                  ? [...allTodayLecs]
+                      .map((x) => ({ ...x, coach: getStudyCoachSteps(x.lec, x.blockId) }))
+                      .sort((a, b) => a.coach.currentStep.number - b.coach.currentStep.number)
+                  : [];
+              const stepBucketCounts = {};
+              for (const row of todayCoachOrdered) {
+                const n = row.coach.currentStep.number;
+                stepBucketCounts[n] = (stepBucketCounts[n] || 0) + 1;
+              }
+              const showStudyPlanCard = typeof getStudyCoachSteps === "function" && allTodayLecs.length > 0;
+
               return (
                 <div style={{ padding: "0 16px 18px" }}>
+                  {showStudyPlanCard && (
+                    <div
+                      style={{
+                        padding: "12px 16px",
+                        borderRadius: 10,
+                        background: t.surfaceAlt || t.inputBg || t.cardBg,
+                        border: "1px solid " + (t.border1 || t.border2),
+                        marginBottom: 16,
+                      }}
+                    >
+                      <div
+                        onClick={() => setCoachExpanded(!coachExpanded)}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: coachExpanded ? 10 : 4,
+                          cursor: "pointer",
+                          userSelect: "none",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>📋 Today’s Study Plan</div>
+                        <span style={{ fontSize: 11, color: t.text3 }}>{coachExpanded ? "▲" : "▼"}</span>
+                      </div>
+                      {!coachExpanded && (
+                        <div style={{ fontSize: 12, color: t.text3, lineHeight: 1.5, marginBottom: 6 }}>
+                          {todayCoachOrdered.length} lecture{todayCoachOrdered.length !== 1 ? "s" : ""} — priority by current step (lowest step number first). Tap to expand the full order.
+                        </div>
+                      )}
+                      {!coachExpanded && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((sn) => {
+                            const c = stepBucketCounts[sn];
+                            if (!c) return null;
+                            const sample = todayCoachOrdered.find((r) => r.coach.currentStep.number === sn);
+                            const col = sample?.coach.currentStep.color || "#6b7280";
+                            return (
+                              <div key={sn} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+                                <span
+                                  style={{
+                                    width: 22,
+                                    height: 22,
+                                    borderRadius: "50%",
+                                    background: col,
+                                    color: "white",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {sn}
+                                </span>
+                                <span style={{ color: col, fontWeight: 600 }}>
+                                  {sample?.coach.currentStep.icon} Step {sn}
+                                </span>
+                                <span style={{ color: t.text3 }}>
+                                  {c} lecture{c > 1 ? "s" : ""}
+                                </span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {coachExpanded && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                          {todayCoachOrdered.map((row) => {
+                            const st = row.coach.currentStep;
+                            const lecTitle = row.lec.lectureTitle || row.lec.title || row.lec.filename || "Lecture";
+                            return (
+                              <div
+                                key={`${row.lec.id}__${row.blockId}`}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "flex-start",
+                                  gap: 10,
+                                  fontSize: 12,
+                                  paddingBottom: 8,
+                                  borderBottom: "1px solid " + (t.border2 || t.border1),
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    padding: "2px 7px",
+                                    borderRadius: 20,
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    background: `${st.color}15`,
+                                    color: st.color,
+                                    border: `1px solid ${st.color}30`,
+                                    whiteSpace: "nowrap",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {st.icon} Step {st.number}
+                                </span>
+                                <div style={{ minWidth: 0, flex: 1 }}>
+                                  <div style={{ fontWeight: 600, color: st.color }}>{st.title}</div>
+                                  <div style={{ color: t.text1, marginTop: 2, wordBreak: "break-word" }}>{lecTitle}</div>
+                                  <div style={{ color: t.text3, fontSize: 11, marginTop: 2 }}>{st.subtitle}</div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          marginTop: 10,
+                          padding: "6px 10px",
+                          background: t.cardBg,
+                          borderRadius: 6,
+                          fontSize: 11,
+                          color: t.text3,
+                          fontStyle: "italic",
+                          border: "1px solid " + (t.border2 || t.border1),
+                        }}
+                      >
+                        💡 Lower step numbers are higher priority — work through today’s lectures in the listed order when possible.
+                      </div>
+                    </div>
+                  )}
                   {!hasSeenClickHint && (
                     <div style={{ fontSize: 11, color: t.text3, textAlign: "center", padding: "6px 0", marginBottom: 8, fontFamily: MONO }}>
                       Tap any row to log activity
@@ -4540,241 +5419,6 @@ export default function Tracker({
                       </button>
                     </div>
                   )}
-                  {/* OVERDUE */}
-                  {overdueList.length > 0 && (
-                    <div>
-                      <div style={sectionLabelStyle}>OVERDUE</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {overdueList.map((e) => {
-                          const lec = e.lec || null;
-                          const ebid = e.blockId;
-                          const lid = lec?.id;
-                          const done = lid ? loggedToday(lid, ebid) : false;
-                          const entry = completions[`${lec?.id}__${ebid}`] || null;
-                          const lastAct = entry?.activityLog?.[0] || null;
-                          const lastDate = lastAct?.date ? String(lastAct.date).slice(0, 10) : "—";
-                          const lastIcon = lastAct?.activityType ? mapActivityIcon(lastAct.activityType) : "✏️";
-                          const conf = entry?.lastConfidence || null;
-                          const confLine = conf === "good" ? "✓ Good" : conf === "struggling" ? "⚠ Struggling" : conf === "okay" ? "△ Okay" : "○ Unseen";
-                          const late = e.daysOverdue || 0;
-                          const lateIsWarn = late === 1;
-                          const lateColor = lateIsWarn ? t.statusWarn : t.statusBad;
-                          const lateLabel = lateIsWarn ? `△ 1d late` : `⚠ ${late}d late`;
-                          const title = `${lec?.lectureType || "LEC"} ${lec?.lectureNumber ?? ""} — ${lec?.lectureTitle || lec?.title || lec?.filename || lec?.id || ""}`.trim();
-                          const examDateE = examDates[ebid] || "";
-                          const isOpen = quickLogOpenId === lid;
-                          const handleRowToggle = () => {
-                            if (done || !lid) return;
-                            const next = isOpen ? null : lid;
-                            if (next && !hasSeenClickHint) markTodayClickHintSeen();
-                            setQuickLogOpenId(next);
-                          };
-                          const handleRowKeyDown = (ev) => {
-                            if (done || !lid) return;
-                            if (ev.key === "Enter" || ev.key === " ") {
-                              ev.preventDefault();
-                              const next = isOpen ? null : lid;
-                              if (next && !hasSeenClickHint) markTodayClickHintSeen();
-                              setQuickLogOpenId(next);
-                            }
-                          };
-                          return (
-                            <React.Fragment key={`${lid}__${ebid}`}>
-                              <div
-                                style={{
-                                  border: "0.5px solid " + t.border2,
-                                  borderLeft: `3px solid ${t.statusBad}`,
-                                  borderRadius: isOpen && !done ? "10px 10px 0 0" : "0 10px 10px 0",
-                                  overflow: "hidden",
-                                  background: isOpen ? t.inputBg : t.cardBg,
-                                  opacity: done ? 0.55 : 1,
-                                  transition: "background 0.1s",
-                                }}
-                                onMouseEnter={(ev) => {
-                                  if (done) return;
-                                  ev.currentTarget.style.background = t.inputBg;
-                                }}
-                                onMouseLeave={(ev) => {
-                                  if (done) return;
-                                  ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
-                                }}
-                              >
-                                <div
-                                  tabIndex={done ? -1 : 0}
-                                  role={done ? undefined : "button"}
-                                  aria-expanded={done ? undefined : isOpen}
-                                  onClick={handleRowToggle}
-                                  onKeyDown={handleRowKeyDown}
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                    minHeight: 44,
-                                    padding: "8px 12px",
-                                    cursor: done ? "default" : "pointer",
-                                    outline: "none",
-                                  }}
-                                >
-                                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                    <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {title}
-                                    </div>
-                                    <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      Overdue {late}d · Last: {lastIcon} {lastDate} · {confLine}
-                                    </div>
-                                  </div>
-                                  <span style={{ fontFamily: MONO, fontSize: 10, padding: "4px 10px", borderRadius: 999, background: lateColor + "18", border: "1px solid " + lateColor, color: lateColor, fontWeight: 900, flexShrink: 0 }}>
-                                    {lateLabel}
-                                  </span>
-                                  {done ? (
-                                    renderDonePill(entry)
-                                  ) : (
-                                    <>
-                                      <button
-                                        type="button"
-                                        title="Snooze 1 day"
-                                        onClick={(ev) => {
-                                          ev.stopPropagation();
-                                          snoozeReview(lid, ebid);
-                                          if (quickLogOpenId === lid) setQuickLogOpenId(null);
-                                          setRefreshKey((k) => k + 1);
-                                        }}
-                                        style={{
-                                          width: 24,
-                                          height: 24,
-                                          borderRadius: 4,
-                                          border: "0.5px solid " + t.border1,
-                                          background: "transparent",
-                                          color: t.text3,
-                                          cursor: "pointer",
-                                          fontSize: 12,
-                                          display: "flex",
-                                          alignItems: "center",
-                                          justifyContent: "center",
-                                          flexShrink: 0,
-                                          padding: 0,
-                                          fontFamily: MONO,
-                                        }}
-                                      >
-                                        ⏱
-                                      </button>
-                                      <span
-                                        style={{
-                                          fontSize: 12,
-                                          color: isOpen ? t.text2 : t.text3,
-                                          marginLeft: "auto",
-                                          flexShrink: 0,
-                                          paddingLeft: 8,
-                                          display: "inline-block",
-                                          transform: isOpen ? "rotate(90deg)" : "none",
-                                        }}
-                                      >
-                                        ›
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                                <div style={{ padding: "0 12px 8px" }}>{renderTodayTaskActions(lec, ebid, done)}</div>
-                                {!done && isOpen && lec && (
-                                  <div
-                                    style={{
-                                      borderRadius: "0 0 10px 10px",
-                                      borderTop: "0.5px solid " + t.border2,
-                                      overflow: "hidden",
-                                    }}
-                                  >
-                                    <QuickLogFormContent
-                                      key={lec.id}
-                                      lec={lec}
-                                      blockId={ebid}
-                                      examDate={examDateE}
-                                      todayStr={todayStr}
-                                      logActivity={logActivity}
-                                      onWrongConceptsLogged={(n) => {
-                                        if (n > 0) {
-                                          setWeakConceptFlash({
-                                            key: `${lid}__${ebid}`,
-                                            count: n,
-                                          });
-                                        }
-                                      }}
-                                      onSave={() => {
-                                        setQuickLogOpenId(null);
-                                        setRefreshKey((k) => k + 1);
-                                      }}
-                                      onCancel={() => setQuickLogOpenId(null)}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                              {done && weakConceptFlash?.key === `${lid}__${ebid}` && (
-                                <div
-                                  style={{
-                                    fontSize: 10,
-                                    color: "#A32D2D",
-                                    padding: "4px 12px 0",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  ⚠ {weakConceptFlash.count} concept
-                                  {weakConceptFlash.count !== 1 ? "s" : ""} added to Weak Concepts
-                                </div>
-                              )}
-                              {done && (
-                                <button
-                                  type="button"
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    setQuickLogWrongOnlyKey(`${lid}__${ebid}`);
-                                  }}
-                                  style={{
-                                    fontSize: 11,
-                                    color: "var(--color-text-tertiary)",
-                                    cursor: "pointer",
-                                    border: "none",
-                                    background: "transparent",
-                                    padding: "4px 12px 0",
-                                    textAlign: "left",
-                                    width: "100%",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  + Log wrong questions from this session
-                                </button>
-                              )}
-                              {done && quickLogWrongOnlyKey === `${lid}__${ebid}` && lec && (
-                                <div
-                                  style={{
-                                    borderRadius: "0 0 10px 10px",
-                                    borderTop: "0.5px solid " + t.border2,
-                                    overflow: "hidden",
-                                  }}
-                                >
-                                  <QuickLogWrongOnlyPanel
-                                    lec={lec}
-                                    blockId={ebid}
-                                    onCancel={() => setQuickLogWrongOnlyKey(null)}
-                                    onWrongConceptsLogged={(n) => {
-                                      if (n > 0) {
-                                        setWeakConceptFlash({
-                                          key: `${lid}__${ebid}`,
-                                          count: n,
-                                        });
-                                      }
-                                    }}
-                                    onDone={() => {
-                                      setQuickLogWrongOnlyKey(null);
-                                      setRefreshKey((k) => k + 1);
-                                    }}
-                                  />
-                                </div>
-                              )}
-                            </React.Fragment>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
 
                   {/* TODAY'S LECTURES */}
                   {todayLectures.length > 0 && (
@@ -4791,89 +5435,474 @@ export default function Tracker({
                           const examDateL = examDates[lbid] || "";
                           const isOpen = quickLogOpenId === lec.id;
                           const handleRowToggle = () => {
-                            if (done) return;
+                            if (done) {
+                              setQuickLogOpenId(isOpen ? null : lec.id);
+                              return;
+                            }
                             const next = isOpen ? null : lec.id;
                             if (next && !hasSeenClickHint) markTodayClickHintSeen();
                             setQuickLogOpenId(next);
                           };
                           const handleRowKeyDown = (ev) => {
-                            if (done) return;
                             if (ev.key === "Enter" || ev.key === " ") {
                               ev.preventDefault();
+                              if (done) {
+                                setQuickLogOpenId(isOpen ? null : lec.id);
+                                return;
+                              }
                               const next = isOpen ? null : lec.id;
                               if (next && !hasSeenClickHint) markTodayClickHintSeen();
                               setQuickLogOpenId(next);
                             }
                           };
+                          const todayLecRowKey = `${lec.id}__${lbid}`;
+                          const todayLecConfSt = mergeTrackerDisplayStatus(lec.id, lbid, entry?.lastConfidence || null);
+                          const todayLecRatingActive = (label) => {
+                            const conf = label === "Good" ? "good" : label === "Okay" ? "okay" : "struggling";
+                            return todayLecConfSt === conf;
+                          };
+                          const todayMeta = `${t0._matchReason || week} · ${sessions === 1 ? "1 session" : `${sessions} sessions`}`;
                           return (
                             <React.Fragment key={lec.id}>
                               <div
                                 style={{
-                                  border: "0.5px solid " + t.border2,
-                                  borderRadius: isOpen && !done ? "10px 10px 0 0" : 10,
-                                  overflow: "hidden",
+                                  padding: "10px 14px",
+                                  borderRadius: isOpen ? "10px 10px 0 0" : 10,
+                                  border: `0.5px solid ${t.border2}`,
                                   background: isOpen ? t.inputBg : t.cardBg,
+                                  marginBottom: 8,
                                   opacity: done ? 0.55 : 1,
                                   transition: "background 0.1s",
+                                  overflow: "hidden",
+                                  boxSizing: "border-box",
+                                  width: "100%",
+                                  maxWidth: "100%",
                                 }}
                                 onMouseEnter={(ev) => {
-                                  if (done) return;
+                                  if (done && isOpen) return;
+                                  if (done && !isOpen) {
+                                    ev.currentTarget.style.background = t.inputBg;
+                                    return;
+                                  }
                                   ev.currentTarget.style.background = t.inputBg;
                                 }}
                                 onMouseLeave={(ev) => {
-                                  if (done) return;
+                                  if (done && isOpen) return;
                                   ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
                                 }}
                               >
                                 <div
-                                  tabIndex={done ? -1 : 0}
-                                  role={done ? undefined : "button"}
-                                  aria-expanded={done ? undefined : isOpen}
-                                  onClick={handleRowToggle}
-                                  onKeyDown={handleRowKeyDown}
                                   style={{
                                     display: "flex",
-                                    alignItems: "center",
+                                    alignItems: "flex-start",
                                     gap: 8,
-                                    minHeight: 44,
-                                    padding: "8px 12px",
-                                    cursor: done ? "default" : "pointer",
-                                    outline: "none",
+                                    justifyContent: "space-between",
+                                    flexWrap: "wrap",
                                   }}
                                 >
-                                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                    <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {lec.lectureTitle || lec.title || lec.filename}
-                                    </div>
-                                    <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {week} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
-                                    </div>
-                                  </div>
-                                  {typePill(lec.lectureType)}
-                                  <span style={{ fontFamily: MONO, fontSize: 11, color: sessions === 0 ? t.text3 : t.statusProgress, fontWeight: 900 }}>
-                                    {sessions === 0 ? "○ New" : `◑ ${sessions}x`}
-                                  </span>
-                                  {done ? (
-                                    renderDonePill(entry)
-                                  ) : (
-                                    <span
+                                  <div
+                                    tabIndex={0}
+                                    role="button"
+                                    aria-expanded={isOpen}
+                                    onClick={handleRowToggle}
+                                    onKeyDown={handleRowKeyDown}
+                                    style={{
+                                      flex: 1,
+                                      minWidth: 0,
+                                      cursor: "pointer",
+                                      outline: "none",
+                                    }}
+                                  >
+                                    <div
                                       style={{
-                                        fontSize: 12,
-                                        color: isOpen ? t.text2 : t.text3,
-                                        marginLeft: "auto",
-                                        flexShrink: 0,
-                                        paddingLeft: 8,
-                                        display: "inline-block",
-                                        transform: isOpen ? "rotate(90deg)" : "none",
+                                        fontWeight: 600,
+                                        fontSize: 14,
+                                        fontFamily: MONO,
+                                        whiteSpace: "nowrap",
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        color: t.text1,
                                       }}
                                     >
-                                      ›
-                                    </span>
+                                      {lec.lectureTitle || lec.title || lec.filename}
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: 11,
+                                        color: t.text3,
+                                        marginTop: 2,
+                                        fontFamily: MONO,
+                                        overflow: "hidden",
+                                        textOverflow: "ellipsis",
+                                        whiteSpace: "nowrap",
+                                      }}
+                                    >
+                                      {todayMeta}
+                                    </div>
+                                    {typeof getStudyCoachSteps === "function" && (() => {
+                                      const coach = getStudyCoachSteps(lec, lbid);
+                                      const step = coach.currentStep;
+                                      return (
+                                        <span
+                                          style={{
+                                            display: "inline-block",
+                                            marginTop: 2,
+                                            padding: "2px 7px",
+                                            borderRadius: 20,
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            background: `${step.color}15`,
+                                            color: step.color,
+                                            border: `1px solid ${step.color}30`,
+                                            whiteSpace: "nowrap",
+                                          }}
+                                        >
+                                          {step.icon} Step {step.number}
+                                        </span>
+                                      );
+                                    })()}
+                                  </div>
+                                  {!done && (
+                                    <div
+                                      style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap" }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          markRowDone(lec, lbid);
+                                        }}
+                                        style={{
+                                          padding: "4px 10px",
+                                          borderRadius: 6,
+                                          border: `1px solid ${t.statusGood}`,
+                                          background: "transparent",
+                                          color: t.statusGood,
+                                          fontSize: 12,
+                                          fontWeight: 600,
+                                          cursor: "pointer",
+                                          whiteSpace: "nowrap",
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        Mark done
+                                      </button>
+                                      <div style={{ display: "flex", gap: 4 }}>
+                                        {["Good", "Okay", "Struggling"].map((rating) => (
+                                          <button
+                                            key={rating}
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              logQuickRating(lec, lbid, rating);
+                                            }}
+                                            style={{
+                                              padding: "4px 8px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${t.border1}`,
+                                              background: todayLecRatingActive(rating) ? t.statusProgress : "transparent",
+                                              color: todayLecRatingActive(rating) ? "#fff" : t.text3,
+                                              fontSize: 11,
+                                              cursor: "pointer",
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            {rating}
+                                          </button>
+                                        ))}
+                                      </div>
+                                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-launch-deeplearn", {
+                                                detail: { lecId: lec.id, blockId: lbid },
+                                              })
+                                            );
+                                          }}
+                                          title="Deep Learn — guided teaching"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 6,
+                                            border: `1px solid #dc2626`,
+                                            background: "transparent",
+                                            color: "#dc2626",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                          }}
+                                        >
+                                          🧠
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            launchDrillForRow(lec, "weak_untested");
+                                          }}
+                                          title="Drill — rapid objective self-assess"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 6,
+                                            border: `1px solid ${t?.accent || "#2563eb"}`,
+                                            background: "transparent",
+                                            color: t?.accent || "#2563eb",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                          }}
+                                        >
+                                          ⚡
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-launch-quiz", {
+                                                detail: { lecId: lec.id, blockId: lbid },
+                                              })
+                                            );
+                                          }}
+                                          title="Quiz — AI clinical MCQs"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 6,
+                                            border: `1px solid #d97706`,
+                                            background: "transparent",
+                                            color: "#d97706",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                          }}
+                                        >
+                                          📝
+                                        </button>
+                                      </div>
+                                      {typePill(lec.lectureType)}
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleRowToggle();
+                                        }}
+                                        onKeyDown={(ev) => {
+                                          if (ev.key === "Enter" || ev.key === " ") {
+                                            ev.preventDefault();
+                                            handleRowToggle();
+                                          }
+                                        }}
+                                        style={{
+                                          fontSize: 14,
+                                          color: isOpen ? t.text2 : t.text3,
+                                          flexShrink: 0,
+                                          cursor: "pointer",
+                                          padding: "0 4px",
+                                          transform: isOpen ? "rotate(90deg)" : "none",
+                                        }}
+                                      >
+                                        ›
+                                      </span>
+                                    </div>
+                                  )}
+                                  {done && !isOpen && (
+                                    <div
+                                      style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleRowToggle();
+                                        }}
+                                        onKeyDown={(ev) => {
+                                          if (ev.key === "Enter" || ev.key === " ") {
+                                            ev.preventDefault();
+                                            handleRowToggle();
+                                          }
+                                        }}
+                                        style={{
+                                          fontSize: 12,
+                                          color: t.text3,
+                                          flexShrink: 0,
+                                          cursor: "pointer",
+                                          padding: "0 4px",
+                                          fontFamily: MONO,
+                                        }}
+                                        title="Show details"
+                                      >
+                                        ▼
+                                      </span>
+                                    </div>
                                   )}
                                 </div>
-                                <div style={{ padding: "0 12px 8px" }}>{renderTodayTaskActions(lec, lbid, done)}</div>
+                                {done && isOpen && (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      marginTop: 6,
+                                      gap: 8,
+                                      paddingTop: 8,
+                                      borderTop: `1px solid ${t.border2}`,
+                                      flexWrap: "wrap",
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <div
+                                      style={{ minWidth: 0, flex: "1 1 120px" }}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {renderDonePill(entry)}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                                      <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-launch-deeplearn", {
+                                                detail: { lecId: lec.id, blockId: lbid },
+                                              })
+                                            );
+                                          }}
+                                          title="Deep Learn — guided teaching"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 6,
+                                            border: `1px solid #dc2626`,
+                                            background: "transparent",
+                                            color: "#dc2626",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                          }}
+                                        >
+                                          🧠
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            launchDrillForRow(lec, "struggling");
+                                          }}
+                                          title="Drill — rapid objective self-assess"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 6,
+                                            border: `1px solid ${t?.accent || "#2563eb"}`,
+                                            background: "transparent",
+                                            color: t?.accent || "#2563eb",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                          }}
+                                        >
+                                          ⚡
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-launch-quiz", {
+                                                detail: { lecId: lec.id, blockId: lbid },
+                                              })
+                                            );
+                                          }}
+                                          title="Quiz — AI clinical MCQs"
+                                          style={{
+                                            width: 32,
+                                            height: 32,
+                                            borderRadius: 6,
+                                            border: `1px solid #d97706`,
+                                            background: "transparent",
+                                            color: "#d97706",
+                                            cursor: "pointer",
+                                            fontSize: 14,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            justifyContent: "center",
+                                          }}
+                                        >
+                                          📝
+                                        </button>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          toggleLogWrong(todayLecRowKey);
+                                        }}
+                                        style={{
+                                          padding: "3px 10px",
+                                          borderRadius: 6,
+                                          border: `1px solid ${t.border1}`,
+                                          background: "transparent",
+                                          color: t.text3,
+                                          fontSize: 11,
+                                          cursor: "pointer",
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        + Log wrong
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                                {done && isOpen && quickLogWrongOnlyKey === todayLecRowKey && (
+                                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${t.border2}` }}>
+                                    <QuickLogWrongOnlyPanel
+                                      lec={lec}
+                                      blockId={lbid}
+                                      onCancel={() => setQuickLogWrongOnlyKey(null)}
+                                      onWrongConceptsLogged={(n) => {
+                                        if (n > 0) {
+                                          setWeakConceptFlash({
+                                            key: todayLecRowKey,
+                                            count: n,
+                                          });
+                                        }
+                                      }}
+                                      onDone={() => {
+                                        setQuickLogWrongOnlyKey(null);
+                                        setRefreshKey((k) => k + 1);
+                                      }}
+                                    />
+                                  </div>
+                                )}
                                 {!done && isOpen && (
-                                  <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
+                                  <div
+                                    style={{
+                                      borderRadius: "0 0 10px 10px",
+                                      borderTop: "0.5px solid " + t.border2,
+                                      overflow: "hidden",
+                                      marginTop: 8,
+                                    }}
+                                  >
                                     <QuickLogFormContent
                                       key={lec.id}
                                       lec={lec}
@@ -4884,7 +5913,7 @@ export default function Tracker({
                                       onWrongConceptsLogged={(n) => {
                                         if (n > 0) {
                                           setWeakConceptFlash({
-                                            key: `${lec.id}__${lbid}`,
+                                            key: todayLecRowKey,
                                             count: n,
                                           });
                                         }
@@ -4898,7 +5927,7 @@ export default function Tracker({
                                   </div>
                                 )}
                               </div>
-                              {done && weakConceptFlash?.key === `${lec.id}__${lbid}` && (
+                              {done && weakConceptFlash?.key === todayLecRowKey && (
                                 <div
                                   style={{
                                     fontSize: 10,
@@ -4909,55 +5938,6 @@ export default function Tracker({
                                 >
                                   ⚠ {weakConceptFlash.count} concept
                                   {weakConceptFlash.count !== 1 ? "s" : ""} added to Weak Concepts
-                                </div>
-                              )}
-                              {done && (
-                                <button
-                                  type="button"
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    setQuickLogWrongOnlyKey(`${lec.id}__${lbid}`);
-                                  }}
-                                  style={{
-                                    fontSize: 11,
-                                    color: "var(--color-text-tertiary)",
-                                    cursor: "pointer",
-                                    border: "none",
-                                    background: "transparent",
-                                    padding: "4px 12px 0",
-                                    textAlign: "left",
-                                    width: "100%",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  + Log wrong questions from this session
-                                </button>
-                              )}
-                              {done && quickLogWrongOnlyKey === `${lec.id}__${lbid}` && (
-                                <div
-                                  style={{
-                                    borderRadius: "0 0 10px 10px",
-                                    borderTop: "0.5px solid " + t.border2,
-                                    overflow: "hidden",
-                                  }}
-                                >
-                                  <QuickLogWrongOnlyPanel
-                                    lec={lec}
-                                    blockId={lbid}
-                                    onCancel={() => setQuickLogWrongOnlyKey(null)}
-                                    onWrongConceptsLogged={(n) => {
-                                      if (n > 0) {
-                                        setWeakConceptFlash({
-                                          key: `${lec.id}__${lbid}`,
-                                          count: n,
-                                        });
-                                      }
-                                    }}
-                                    onDone={() => {
-                                      setQuickLogWrongOnlyKey(null);
-                                      setRefreshKey((k) => k + 1);
-                                    }}
-                                  />
                                 </div>
                               )}
                             </React.Fragment>
@@ -4967,18 +5947,34 @@ export default function Tracker({
                     </div>
                   )}
 
-                  {/* REVIEWS DUE */}
-                  {reviewsDue.length > 0 && (
-                    <div style={{ marginTop: 16 }}>
-                      <div style={sectionLabelStyle}>REVIEWS DUE</div>
+                  {[
+                    { key: "rev", title: "REVIEWS DUE", items: sortedReviewsDue, headerStyle: sectionLabelStyle },
+                    {
+                      key: "strug",
+                      title: "⚠ STRUGGLING",
+                      items: sortedStrugglingDue,
+                      headerStyle: {
+                        fontFamily: MONO,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: t.statusBad,
+                        letterSpacing: "0.08em",
+                        marginBottom: 8,
+                      },
+                    },
+                  ].map((sec) =>
+                    sec.items.length === 0 ? null : (
+                    <div key={sec.key} style={{ marginTop: 20 }}>
+                      <div style={sec.headerStyle}>{sec.title}</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                        {sortedReviewsDue.map((t0) => {
+                        {sec.items.map((t0) => {
+                          const isReviewsDueSection = sec.key === "rev";
                           const lec = t0.lec;
                           const lbid = t0.blockId;
                           const entry = completions[`${lec.id}__${lbid}`] || null;
                           const sessions = entry?.activityLog?.length || 0;
                           const done = loggedToday(lec.id, lbid);
-                          const conf = confPill(entry?.lastConfidence || null);
+                          const conf = confPill(mergeTrackerDisplayStatus(lec.id, lbid, entry?.lastConfidence || null));
                           const dots = (entry?.activityLog || []).slice(0, 5).map((a) => a?.confidenceRating || null);
                           const dotColor = (c) => (c === "good" ? "#639922" : c === "okay" ? "#BA7517" : c === "struggling" ? "#E24B4A" : null);
                           const padded = [...dots];
@@ -4986,127 +5982,1007 @@ export default function Tracker({
                           const examDateR = examDates[lbid] || "";
                           const isOpen = quickLogOpenId === lec.id;
                           const handleRowToggle = () => {
-                            if (done) return;
+                            if (done && !isReviewsDueSection) return;
+                            if (done && isReviewsDueSection) {
+                              setQuickLogOpenId(isOpen ? null : lec.id);
+                              return;
+                            }
                             const next = isOpen ? null : lec.id;
                             if (next && !hasSeenClickHint) markTodayClickHintSeen();
                             setQuickLogOpenId(next);
                           };
                           const handleRowKeyDown = (ev) => {
-                            if (done) return;
                             if (ev.key === "Enter" || ev.key === " ") {
                               ev.preventDefault();
+                              if (done && !isReviewsDueSection) return;
+                              if (done && isReviewsDueSection) {
+                                setQuickLogOpenId(isOpen ? null : lec.id);
+                                return;
+                              }
                               const next = isOpen ? null : lec.id;
                               if (next && !hasSeenClickHint) markTodayClickHintSeen();
                               setQuickLogOpenId(next);
                             }
                           };
+                          const reviewRowKey = `${lec.id}__${lbid}`;
+                          const reviewConfSt = mergeTrackerDisplayStatus(lec.id, lbid, entry?.lastConfidence || null);
+                          const reviewRatingActive = (label) => {
+                            const conf = label === "Good" ? "good" : label === "Okay" ? "okay" : "struggling";
+                            return reviewConfSt === conf;
+                          };
                           return (
                             <React.Fragment key={lec.id}>
                               <div
                                 style={{
-                                  border: "0.5px solid " + t.border2,
-                                  borderRadius: isOpen && !done ? "10px 10px 0 0" : 10,
-                                  overflow: "hidden",
+                                  padding: "10px 14px",
+                                  borderRadius: isOpen && (!done || isReviewsDueSection) ? "10px 10px 0 0" : 10,
+                                  border: `0.5px solid ${t.border2}`,
                                   background: isOpen ? t.inputBg : t.cardBg,
+                                  marginBottom: 8,
                                   opacity: done ? 0.55 : 1,
                                   transition: "background 0.1s",
+                                  overflow: "hidden",
+                                  boxSizing: "border-box",
+                                  width: "100%",
+                                  maxWidth: "100%",
+                                  ...(isReviewsDueSection
+                                    ? { cursor: "pointer", outline: "none" }
+                                    : {}),
                                 }}
+                                onClick={isReviewsDueSection ? handleRowToggle : undefined}
+                                onKeyDown={
+                                  isReviewsDueSection
+                                    ? (ev) => {
+                                        if (ev.key === "Enter" || ev.key === " ") {
+                                          ev.preventDefault();
+                                          handleRowKeyDown(ev);
+                                        }
+                                      }
+                                    : undefined
+                                }
+                                role={isReviewsDueSection ? "button" : undefined}
+                                tabIndex={isReviewsDueSection ? 0 : undefined}
+                                aria-expanded={isReviewsDueSection ? isOpen : undefined}
                                 onMouseEnter={(ev) => {
+                                  if (isReviewsDueSection) {
+                                    if (done && isOpen) return;
+                                    if (done && !isOpen) {
+                                      ev.currentTarget.style.background = t.inputBg;
+                                      return;
+                                    }
+                                    ev.currentTarget.style.background = t.inputBg;
+                                    return;
+                                  }
                                   if (done) return;
                                   ev.currentTarget.style.background = t.inputBg;
                                 }}
                                 onMouseLeave={(ev) => {
+                                  if (isReviewsDueSection) {
+                                    if (done && isOpen) return;
+                                    ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
+                                    return;
+                                  }
                                   if (done) return;
                                   ev.currentTarget.style.background = isOpen ? t.inputBg : t.cardBg;
                                 }}
                               >
-                                <div
-                                  tabIndex={done ? -1 : 0}
-                                  role={done ? undefined : "button"}
-                                  aria-expanded={done ? undefined : isOpen}
-                                  onClick={handleRowToggle}
-                                  onKeyDown={handleRowKeyDown}
-                                  style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: 8,
-                                    minHeight: 44,
-                                    padding: "8px 12px",
-                                    cursor: done ? "default" : "pointer",
-                                    outline: "none",
-                                  }}
-                                >
-                                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
-                                    <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 500, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {lec.lectureTitle || lec.title || lec.filename}
-                                    </div>
-                                    <div style={{ fontFamily: MONO, fontSize: 11, color: t.text3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                      {t0._matchReason || "Review"} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
-                                    </div>
-                                  </div>
-                                  <div style={{ display: "flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
-                                    {padded.map((c, i) => (
-                                      <div
-                                        key={i}
-                                        style={{
-                                          width: 8,
-                                          height: 8,
-                                          borderRadius: 999,
-                                          background: c ? dotColor(c) : "transparent",
-                                          border: c ? "none" : "1px solid " + t.border2,
-                                        }}
-                                      />
-                                    ))}
-                                  </div>
-                                  <span style={{ fontFamily: MONO, fontSize: 11, padding: "4px 10px", borderRadius: 999, background: (conf.bg || t.inputBg), border: "1px solid " + (conf.border || t.border1), color: conf.color, fontWeight: 900 }}>
-                                    {conf.label}
-                                  </span>
-                                  {done ? (
-                                    renderDonePill(entry)
-                                  ) : (
-                                    <span
+                                {isReviewsDueSection ? (
+                                  <>
+                                    <div
                                       style={{
-                                        fontSize: 12,
-                                        color: isOpen ? t.text2 : t.text3,
-                                        marginLeft: "auto",
-                                        flexShrink: 0,
-                                        paddingLeft: 8,
-                                        display: "inline-block",
-                                        transform: isOpen ? "rotate(90deg)" : "none",
+                                        display: "flex",
+                                        justifyContent: "space-between",
+                                        alignItems: "center",
+                                        gap: 8,
                                       }}
                                     >
-                                      ›
-                                    </span>
-                                  )}
-                                </div>
-                                <div style={{ padding: "0 12px 8px" }}>{renderTodayTaskActions(lec, lbid, done)}</div>
-                                {!done && isOpen && (
-                                  <div style={{ borderRadius: "0 0 10px 10px", borderTop: "0.5px solid " + t.border2, overflow: "hidden" }}>
-                                    <QuickLogFormContent
-                                      key={lec.id}
+                                      <div style={{ flex: 1, minWidth: 0 }}>
+                                        <div
+                                          style={{
+                                            fontWeight: 600,
+                                            fontSize: 14,
+                                            fontFamily: MONO,
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            color: t.text1,
+                                          }}
+                                        >
+                                          {lec.lectureTitle || lec.title || lec.filename}
+                                        </div>
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            color: t.text3,
+                                            marginTop: 2,
+                                            fontFamily: MONO,
+                                            display: "flex",
+                                            flexWrap: "wrap",
+                                            alignItems: "center",
+                                            gap: 6,
+                                            rowGap: 4,
+                                          }}
+                                        >
+                                          <span>
+                                            {t0._matchReason || "Review"} ·{" "}
+                                            {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                          </span>
+                                          <span
+                                            style={{
+                                              display: "inline-flex",
+                                              gap: 3,
+                                              alignItems: "center",
+                                              flexShrink: 0,
+                                            }}
+                                          >
+                                            {padded.map((c, i) => (
+                                              <span
+                                                key={i}
+                                                style={{
+                                                  width: 8,
+                                                  height: 8,
+                                                  borderRadius: 999,
+                                                  background: c ? dotColor(c) : "transparent",
+                                                  border: c ? "none" : "1px solid " + t.border2,
+                                                  display: "inline-block",
+                                                }}
+                                              />
+                                            ))}
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontFamily: MONO,
+                                              fontSize: 10,
+                                              padding: "2px 8px",
+                                              borderRadius: 999,
+                                              background: conf.bg || t.inputBg,
+                                              border: "1px solid " + (conf.border || t.border1),
+                                              color: conf.color,
+                                              fontWeight: 900,
+                                            }}
+                                          >
+                                            {conf.label}
+                                          </span>
+                                        </div>
+                                      </div>
+                                      <span
+                                        style={{
+                                          fontSize: 14,
+                                          color: isOpen ? t.text2 : t.text3,
+                                          flexShrink: 0,
+                                          transition: "transform 0.15s",
+                                          transform: isOpen ? "rotate(90deg)" : "none",
+                                        }}
+                                      >
+                                        ›
+                                      </span>
+                                    </div>
+                                    {done && isOpen && (
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          marginTop: 6,
+                                          gap: 8,
+                                          paddingTop: 8,
+                                          borderTop: `1px solid ${t.border2}`,
+                                          flexWrap: "wrap",
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div
+                                          style={{ minWidth: 0, flex: "1 1 120px" }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {renderDonePill(entry)}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-deeplearn", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Deep Learn — guided teaching"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #dc2626`,
+                                                background: "transparent",
+                                                color: "#dc2626",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              🧠
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                launchDrillForRow(lec, "struggling");
+                                              }}
+                                              title="Drill — rapid objective self-assess"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid ${t?.accent || "#2563eb"}`,
+                                                background: "transparent",
+                                                color: t?.accent || "#2563eb",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              ⚡
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-quiz", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Quiz — AI clinical MCQs"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #d97706`,
+                                                background: "transparent",
+                                                color: "#d97706",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              📝
+                                            </button>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleLogWrong(reviewRowKey);
+                                            }}
+                                            style={{
+                                              padding: "3px 10px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${t.border1}`,
+                                              background: "transparent",
+                                              color: t.text3,
+                                              fontSize: 11,
+                                              cursor: "pointer",
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            + Log wrong
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {!done && isOpen && (
+                                      <div
+                                        onClick={(e) => e.stopPropagation()}
+                                        style={{
+                                          marginTop: 8,
+                                          paddingTop: 8,
+                                          borderTop: `1px solid ${t.border2}`,
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 6,
+                                            flexShrink: 0,
+                                            flexWrap: "wrap",
+                                            marginBottom: 8,
+                                          }}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              markRowDone(lec, lbid);
+                                            }}
+                                            style={{
+                                              padding: "4px 10px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${t.statusGood}`,
+                                              background: "transparent",
+                                              color: t.statusGood,
+                                              fontSize: 12,
+                                              fontWeight: 600,
+                                              cursor: "pointer",
+                                              whiteSpace: "nowrap",
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            Mark done
+                                          </button>
+                                          <div style={{ display: "flex", gap: 4 }}>
+                                            {["Good", "Okay", "Struggling"].map((rating) => (
+                                              <button
+                                                key={rating}
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  logQuickRating(lec, lbid, rating);
+                                                }}
+                                                style={{
+                                                  padding: "4px 8px",
+                                                  borderRadius: 6,
+                                                  border: `1px solid ${t.border1}`,
+                                                  background: reviewRatingActive(rating) ? t.statusProgress : "transparent",
+                                                  color: reviewRatingActive(rating) ? "#fff" : t.text3,
+                                                  fontSize: 11,
+                                                  cursor: "pointer",
+                                                  fontFamily: MONO,
+                                                }}
+                                              >
+                                                {rating}
+                                              </button>
+                                            ))}
+                                          </div>
+                                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-deeplearn", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Deep Learn — guided teaching"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #dc2626`,
+                                                background: "transparent",
+                                                color: "#dc2626",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              🧠
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                launchDrillForRow(lec, "weak_untested");
+                                              }}
+                                              title="Drill — rapid objective self-assess"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid ${t?.accent || "#2563eb"}`,
+                                                background: "transparent",
+                                                color: t?.accent || "#2563eb",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              ⚡
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-quiz", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Quiz — AI clinical MCQs"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #d97706`,
+                                                background: "transparent",
+                                                color: "#d97706",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              📝
+                                            </button>
+                                          </div>
+                                        </div>
+                                        <div
+                                          style={{
+                                            borderRadius: "0 0 10px 10px",
+                                            borderTop: "0.5px solid " + t.border2,
+                                            overflow: "hidden",
+                                            marginTop: 8,
+                                          }}
+                                        >
+                                          <QuickLogFormContent
+                                            key={lec.id}
+                                            lec={lec}
+                                            blockId={lbid}
+                                            examDate={examDateR}
+                                            todayStr={todayStr}
+                                            logActivity={logActivity}
+                                            onWrongConceptsLogged={(n) => {
+                                              if (n > 0) {
+                                                setWeakConceptFlash({
+                                                  key: reviewRowKey,
+                                                  count: n,
+                                                });
+                                              }
+                                            }}
+                                            onSave={() => {
+                                              setQuickLogOpenId(null);
+                                              setRefreshKey((k) => k + 1);
+                                            }}
+                                            onCancel={() => setQuickLogOpenId(null)}
+                                          />
+                                        </div>
+                                      </div>
+                                    )}
+                                  </>
+                                ) : (
+                                  <>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "flex-start",
+                                        gap: 8,
+                                        justifyContent: "space-between",
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
+                                      <div
+                                        tabIndex={done ? -1 : 0}
+                                        role={done ? undefined : "button"}
+                                        aria-expanded={done ? undefined : isOpen}
+                                        onClick={handleRowToggle}
+                                        onKeyDown={handleRowKeyDown}
+                                        style={{
+                                          flex: 1,
+                                          minWidth: 0,
+                                          cursor: done ? "default" : "pointer",
+                                          outline: "none",
+                                        }}
+                                      >
+                                        <div
+                                          style={{
+                                            fontWeight: 600,
+                                            fontSize: 14,
+                                            fontFamily: MONO,
+                                            whiteSpace: "nowrap",
+                                            overflow: "hidden",
+                                            textOverflow: "ellipsis",
+                                            color: t.text1,
+                                          }}
+                                        >
+                                          {lec.lectureTitle || lec.title || lec.filename}
+                                        </div>
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            color: t.text3,
+                                            marginTop: 2,
+                                            fontFamily: MONO,
+                                            display: "flex",
+                                            flexWrap: "wrap",
+                                            alignItems: "center",
+                                            gap: 6,
+                                            rowGap: 4,
+                                          }}
+                                        >
+                                          <span>
+                                            {t0._matchReason || "Review"} · {sessions === 1 ? "1 session" : `${sessions} sessions`}
+                                          </span>
+                                          <span style={{ display: "inline-flex", gap: 3, alignItems: "center", flexShrink: 0 }}>
+                                            {padded.map((c, i) => (
+                                              <span
+                                                key={i}
+                                                style={{
+                                                  width: 8,
+                                                  height: 8,
+                                                  borderRadius: 999,
+                                                  background: c ? dotColor(c) : "transparent",
+                                                  border: c ? "none" : "1px solid " + t.border2,
+                                                  display: "inline-block",
+                                                }}
+                                              />
+                                            ))}
+                                          </span>
+                                          <span
+                                            style={{
+                                              fontFamily: MONO,
+                                              fontSize: 10,
+                                              padding: "2px 8px",
+                                              borderRadius: 999,
+                                              background: conf.bg || t.inputBg,
+                                              border: "1px solid " + (conf.border || t.border1),
+                                              color: conf.color,
+                                              fontWeight: 900,
+                                            }}
+                                          >
+                                            {conf.label}
+                                          </span>
+                                        </div>
+                                        {typeof getStudyCoachSteps === "function" && (() => {
+                                          const coach = getStudyCoachSteps(lec, lbid);
+                                          const step = coach.currentStep;
+                                          return (
+                                            <span
+                                              style={{
+                                                display: "inline-block",
+                                                marginTop: 2,
+                                                padding: "2px 7px",
+                                                borderRadius: 20,
+                                                fontSize: 10,
+                                                fontWeight: 700,
+                                                background: `${step.color}15`,
+                                                color: step.color,
+                                                border: `1px solid ${step.color}30`,
+                                                whiteSpace: "nowrap",
+                                              }}
+                                            >
+                                              {step.icon} Step {step.number}
+                                            </span>
+                                          );
+                                        })()}
+                                      </div>
+                                      {!done && (
+                                        <div
+                                          style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0, flexWrap: "wrap" }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              markRowDone(lec, lbid);
+                                            }}
+                                            style={{
+                                              padding: "4px 10px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${t.statusGood}`,
+                                              background: "transparent",
+                                              color: t.statusGood,
+                                              fontSize: 12,
+                                              fontWeight: 600,
+                                              cursor: "pointer",
+                                              whiteSpace: "nowrap",
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            Mark done
+                                          </button>
+                                          <div style={{ display: "flex", gap: 4 }}>
+                                            {["Good", "Okay", "Struggling"].map((rating) => (
+                                              <button
+                                                key={rating}
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  logQuickRating(lec, lbid, rating);
+                                                }}
+                                                style={{
+                                                  padding: "4px 8px",
+                                                  borderRadius: 6,
+                                                  border: `1px solid ${t.border1}`,
+                                                  background: reviewRatingActive(rating) ? t.statusProgress : "transparent",
+                                                  color: reviewRatingActive(rating) ? "#fff" : t.text3,
+                                                  fontSize: 11,
+                                                  cursor: "pointer",
+                                                  fontFamily: MONO,
+                                                }}
+                                              >
+                                                {rating}
+                                              </button>
+                                            ))}
+                                          </div>
+                                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-deeplearn", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Deep Learn — guided teaching"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #dc2626`,
+                                                background: "transparent",
+                                                color: "#dc2626",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              🧠
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                launchDrillForRow(lec, "weak_untested");
+                                              }}
+                                              title="Drill — rapid objective self-assess"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid ${t?.accent || "#2563eb"}`,
+                                                background: "transparent",
+                                                color: t?.accent || "#2563eb",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              ⚡
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-quiz", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Quiz — AI clinical MCQs"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #d97706`,
+                                                background: "transparent",
+                                                color: "#d97706",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              📝
+                                            </button>
+                                          </div>
+                                          <span
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleRowToggle();
+                                            }}
+                                            onKeyDown={(ev) => {
+                                              if (ev.key === "Enter" || ev.key === " ") {
+                                                ev.preventDefault();
+                                                handleRowToggle();
+                                              }
+                                            }}
+                                            style={{
+                                              fontSize: 14,
+                                              color: isOpen ? t.text2 : t.text3,
+                                              flexShrink: 0,
+                                              cursor: "pointer",
+                                              padding: "0 4px",
+                                              transform: isOpen ? "rotate(90deg)" : "none",
+                                            }}
+                                          >
+                                            ›
+                                          </span>
+                                        </div>
+                                      )}
+                                      {done && (
+                                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
+                                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-deeplearn", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Deep Learn — guided teaching"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #dc2626`,
+                                                background: "transparent",
+                                                color: "#dc2626",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              🧠
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                launchDrillForRow(lec, "weak_untested");
+                                              }}
+                                              title="Drill — rapid objective self-assess"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid ${t?.accent || "#2563eb"}`,
+                                                background: "transparent",
+                                                color: t?.accent || "#2563eb",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              ⚡
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-quiz", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Quiz — AI clinical MCQs"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #d97706`,
+                                                background: "transparent",
+                                                color: "#d97706",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              📝
+                                            </button>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {done && (
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "space-between",
+                                          marginTop: 6,
+                                          gap: 8,
+                                          paddingTop: 8,
+                                          borderTop: `1px solid ${t.border2}`,
+                                          flexWrap: "wrap",
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div
+                                          style={{ minWidth: 0, flex: "1 1 120px" }}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {renderDonePill(entry)}
+                                        </div>
+                                        <div style={{ display: "flex", gap: 6, flexShrink: 0, flexWrap: "wrap" }}>
+                                          <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-deeplearn", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Deep Learn — guided teaching"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #dc2626`,
+                                                background: "transparent",
+                                                color: "#dc2626",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              🧠
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                launchDrillForRow(lec, "struggling");
+                                              }}
+                                              title="Drill — rapid objective self-assess"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid ${t?.accent || "#2563eb"}`,
+                                                background: "transparent",
+                                                color: t?.accent || "#2563eb",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              ⚡
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                window.dispatchEvent(
+                                                  new CustomEvent("rxt-launch-quiz", {
+                                                    detail: { lecId: lec.id, blockId: lbid },
+                                                  })
+                                                );
+                                              }}
+                                              title="Quiz — AI clinical MCQs"
+                                              style={{
+                                                width: 32,
+                                                height: 32,
+                                                borderRadius: 6,
+                                                border: `1px solid #d97706`,
+                                                background: "transparent",
+                                                color: "#d97706",
+                                                cursor: "pointer",
+                                                fontSize: 14,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                              }}
+                                            >
+                                              📝
+                                            </button>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              toggleLogWrong(reviewRowKey);
+                                            }}
+                                            style={{
+                                              padding: "3px 10px",
+                                              borderRadius: 6,
+                                              border: `1px solid ${t.border1}`,
+                                              background: "transparent",
+                                              color: t.text3,
+                                              fontSize: 11,
+                                              cursor: "pointer",
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            + Log wrong
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {!done && isOpen && (
+                                      <div
+                                        style={{
+                                          borderRadius: "0 0 10px 10px",
+                                          borderTop: "0.5px solid " + t.border2,
+                                          overflow: "hidden",
+                                          marginTop: 8,
+                                        }}
+                                      >
+                                        <QuickLogFormContent
+                                          key={lec.id}
+                                          lec={lec}
+                                          blockId={lbid}
+                                          examDate={examDateR}
+                                          todayStr={todayStr}
+                                          logActivity={logActivity}
+                                          onWrongConceptsLogged={(n) => {
+                                            if (n > 0) {
+                                              setWeakConceptFlash({
+                                                key: reviewRowKey,
+                                                count: n,
+                                              });
+                                            }
+                                          }}
+                                          onSave={() => {
+                                            setQuickLogOpenId(null);
+                                            setRefreshKey((k) => k + 1);
+                                          }}
+                                          onCancel={() => setQuickLogOpenId(null)}
+                                        />
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                                {done && quickLogWrongOnlyKey === reviewRowKey && (
+                                  <div
+                                    onClick={isReviewsDueSection ? (e) => e.stopPropagation() : undefined}
+                                    style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${t.border2}` }}
+                                  >
+                                    <QuickLogWrongOnlyPanel
                                       lec={lec}
                                       blockId={lbid}
-                                      examDate={examDateR}
-                                      todayStr={todayStr}
-                                      logActivity={logActivity}
+                                      onCancel={() => setQuickLogWrongOnlyKey(null)}
                                       onWrongConceptsLogged={(n) => {
                                         if (n > 0) {
                                           setWeakConceptFlash({
-                                            key: `${lec.id}__${lbid}`,
+                                            key: reviewRowKey,
                                             count: n,
                                           });
                                         }
                                       }}
-                                      onSave={() => {
-                                        setQuickLogOpenId(null);
+                                      onDone={() => {
+                                        setQuickLogWrongOnlyKey(null);
                                         setRefreshKey((k) => k + 1);
                                       }}
-                                      onCancel={() => setQuickLogOpenId(null)}
                                     />
                                   </div>
                                 )}
                               </div>
-                              {done && weakConceptFlash?.key === `${lec.id}__${lbid}` && (
+                              {done && weakConceptFlash?.key === reviewRowKey && (
                                 <div
                                   style={{
                                     fontSize: 10,
@@ -5119,59 +6995,284 @@ export default function Tracker({
                                   {weakConceptFlash.count !== 1 ? "s" : ""} added to Weak Concepts
                                 </div>
                               )}
-                              {done && (
-                                <button
-                                  type="button"
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    setQuickLogWrongOnlyKey(`${lec.id}__${lbid}`);
-                                  }}
-                                  style={{
-                                    fontSize: 11,
-                                    color: "var(--color-text-tertiary)",
-                                    cursor: "pointer",
-                                    border: "none",
-                                    background: "transparent",
-                                    padding: "4px 12px 0",
-                                    textAlign: "left",
-                                    width: "100%",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  + Log wrong questions from this session
-                                </button>
-                              )}
-                              {done && quickLogWrongOnlyKey === `${lec.id}__${lbid}` && (
-                                <div
-                                  style={{
-                                    borderRadius: "0 0 10px 10px",
-                                    borderTop: "0.5px solid " + t.border2,
-                                    overflow: "hidden",
-                                  }}
-                                >
-                                  <QuickLogWrongOnlyPanel
-                                    lec={lec}
-                                    blockId={lbid}
-                                    onCancel={() => setQuickLogWrongOnlyKey(null)}
-                                    onWrongConceptsLogged={(n) => {
-                                      if (n > 0) {
-                                        setWeakConceptFlash({
-                                          key: `${lec.id}__${lbid}`,
-                                          count: n,
-                                        });
-                                      }
-                                    }}
-                                    onDone={() => {
-                                      setQuickLogWrongOnlyKey(null);
-                                      setRefreshKey((k) => k + 1);
-                                    }}
-                                  />
-                                </div>
-                              )}
                             </React.Fragment>
                           );
                         })}
                       </div>
+                    </div>
+                  )
+                  )}
+
+                  {upNextSectionItems.length > 0 && (
+                    <div style={{ marginTop: 20 }}>
+                      <div
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: t.text3,
+                          letterSpacing: "0.08em",
+                          marginBottom: 8,
+                        }}
+                      >
+                        ○ UP NEXT
+                      </div>
+                      {upNextSectionItems.map(({ lec, blockId: upBid }) => {
+                        const upNextRowKey = `${lec.id}__${upBid}`;
+                        const isUpNextOpen = expandedUpNext === upNextRowKey;
+                        return (
+                          <div
+                            key={`upnext-${upNextRowKey}`}
+                            onClick={() =>
+                              setExpandedUpNext((cur) => (cur === upNextRowKey ? null : upNextRowKey))
+                            }
+                            style={{
+                              padding: "10px 14px",
+                              borderBottom: `1px solid ${t.border2}`,
+                              cursor: "pointer",
+                              opacity: 0.8,
+                              transition: "opacity 0.15s",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = "1";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = "0.8";
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
+                            >
+                              <div>
+                                <div style={{ fontSize: 14, fontWeight: 500, fontFamily: MONO, color: t.text1 }}>
+                                  {lec.lectureTitle || lec.title || lec.filename}
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: t.text2 || t.text3,
+                                    marginTop: 2,
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  {lec.lectureType || "LEC"} {lec.lectureNumber ?? ""} · Week {lec.weekNumber ?? "?"} · Not
+                                  started
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    color: t.text2 || t.text3,
+                                    marginRight: 4,
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  {isUpNextOpen ? "▲" : "▼"}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.dispatchEvent(
+                                      new CustomEvent("rxt-launch-deeplearn", {
+                                        detail: { lecId: lec.id, blockId: upBid },
+                                      })
+                                    );
+                                  }}
+                                  title="Deep Learn"
+                                  style={{
+                                    width: 28,
+                                    height: 28,
+                                    borderRadius: 6,
+                                    border: "1px solid #dc2626",
+                                    background: "transparent",
+                                    color: "#dc2626",
+                                    cursor: "pointer",
+                                    fontSize: 13,
+                                  }}
+                                >
+                                  🧠
+                                </button>
+                              </div>
+                            </div>
+                            {isUpNextOpen && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  marginTop: 10,
+                                  paddingTop: 10,
+                                  borderTop: `1px solid ${t.border2}`,
+                                }}
+                              >
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      markRowDone(lec, upBid);
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.statusGood}`,
+                                      background: "transparent",
+                                      color: t.statusGood,
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    ✓ Mark done
+                                  </button>
+                                  {["Good", "Okay", "Struggling"].map((r) => (
+                                    <button
+                                      key={r}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        logQuickRating(lec, upBid, r);
+                                      }}
+                                      style={{
+                                        padding: "5px 10px",
+                                        borderRadius: 6,
+                                        border: `1px solid ${t.border1}`,
+                                        background: "transparent",
+                                        color: t.text1,
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                        fontFamily: MONO,
+                                      }}
+                                    >
+                                      {r}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.dispatchEvent(
+                                        new CustomEvent("rxt-launch-deeplearn", {
+                                          detail: { lecId: lec.id, blockId: upBid },
+                                        })
+                                      );
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: "1px solid #dc2626",
+                                      background: "transparent",
+                                      color: "#dc2626",
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    🧠 Deep Learn
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.dispatchEvent(
+                                        new CustomEvent("rxt-start-drill", {
+                                          detail: { lecId: lec.id, blockId: upBid },
+                                        })
+                                      );
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t?.accent || "#2563eb"}`,
+                                      background: "transparent",
+                                      color: t?.accent || "#2563eb",
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    ⚡ Drill
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.dispatchEvent(
+                                        new CustomEvent("rxt-launch-quiz", {
+                                          detail: { lecId: lec.id, blockId: upBid },
+                                        })
+                                      );
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: "1px solid #d97706",
+                                      background: "transparent",
+                                      color: "#d97706",
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    📝 Quiz
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setExpandedUpNext(upNextRowKey);
+                                      toggleLogWrong(upNextRowKey);
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.border1}`,
+                                      background: "transparent",
+                                      color: t.text2 || t.text3,
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    + Log wrong
+                                  </button>
+                                </div>
+                                {quickLogWrongOnlyKey === upNextRowKey && (
+                                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${t.border2}` }}>
+                                    <QuickLogWrongOnlyPanel
+                                      lec={lec}
+                                      blockId={upBid}
+                                      onCancel={() => setQuickLogWrongOnlyKey(null)}
+                                      onWrongConceptsLogged={(n) => {
+                                        if (n > 0) {
+                                          setWeakConceptFlash({
+                                            key: upNextRowKey,
+                                            count: n,
+                                          });
+                                        }
+                                      }}
+                                      onDone={() => {
+                                        setQuickLogWrongOnlyKey(null);
+                                        setRefreshKey((k) => k + 1);
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -5254,7 +7355,7 @@ export default function Tracker({
               };
 
               // Overdue section (dedicated, above schedule)
-              const todayISO = new Date().toISOString().slice(0, 10);
+              const todayISO = studyDayKeyNow();
               const overdueList = getOverdueLectures(bid, completion || {});
               const overdueIds = new Set(overdueList.map((e) => e.lectureId).filter(Boolean));
 
@@ -5265,16 +7366,15 @@ export default function Tracker({
                 setCompletion((prev) => {
                   const ex = (prev || {})[key];
                   if (!ex) return prev;
-                  const today = new Date();
-                  today.setHours(0, 0, 0, 0);
-                  const tomorrow = new Date(today);
-                  tomorrow.setDate(tomorrow.getDate() + 1);
-                  const tomorrowKey = tomorrow.toISOString().slice(0, 10);
+                  const dayStart = startOfStudyDay();
+                  const nextCal = new Date(dayStart);
+                  nextCal.setDate(nextCal.getDate() + 1);
+                  const tomorrowKey = studyDayKeyFromDate(nextCal);
                   const rd = Array.isArray(ex.reviewDates) ? ex.reviewDates : [];
                   const pushed = rd.map((d) => {
                     const rd0 = new Date(d);
                     rd0.setHours(0, 0, 0, 0);
-                    return rd0 < today ? tomorrowKey : d;
+                    return rd0 < dayStart ? tomorrowKey : d;
                   });
                   const deduped = Array.from(new Set(pushed)).sort();
                   return { ...(prev || {}), [key]: { ...ex, reviewDates: deduped } };
@@ -5285,11 +7385,10 @@ export default function Tracker({
               // When sweepMode, override entirely with sweep-eligible + untouched list.
               const schedule = (() => {
                 if (sweepMode) {
-                  const today = new Date();
-                  today.setHours(0, 0, 0, 0);
+                  const today = startOfStudyDay();
                   const oneWeekAgo = new Date(today);
                   oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-                  const todayISO = today.toISOString().slice(0, 10);
+                  const todayISO = studyDayKeyNow();
                   const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
                   const lecById = new Map(blockLecs.map((l) => [l.id, l]));
                   const completionsList = Object.values(completion || {}).filter((c) => c && c.blockId === bid);
@@ -6466,24 +8565,38 @@ export default function Tracker({
                                         {quickOpen && (
                                           <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 6 }}>
                                             <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 6 }}>Activity type</div>
-                                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                                               {[
                                                 { v: "deep_learn", label: "🧠 Deep Learn" },
                                                 { v: "review", label: "📖 Review" },
-                                                { v: "anki", label: "🃏 Anki" },
+                                                { v: "anki", label: "🗂 Anki" },
                                                 { v: "questions", label: "❓ Questions" },
                                                 { v: "notes", label: "📝 Notes" },
                                                 { v: "sg_tbl", label: "👥 SG/TBL" },
-                                              ].map((opt) => (
-                                                <button
-                                                  key={opt.v}
-                                                  type="button"
-                                                  onClick={() => setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { ...draft, activityType: opt.v } }))}
-                                                  style={{ fontFamily: MONO, fontSize: 10, padding: "4px 8px", borderRadius: 999, border: "1px solid " + (draft.activityType === opt.v ? T.statusProgress : T.border1), background: draft.activityType === opt.v ? (T.statusProgress + "18") : T.cardBg, color: draft.activityType === opt.v ? T.statusProgress : T.text2, cursor: "pointer" }}
-                                                >
-                                                  {opt.label}
-                                                </button>
-                                              ))}
+                                              ].map((opt) => {
+                                                const active = draft.activityType === opt.v;
+                                                const accent = T.accent || T.statusProgress;
+                                                return (
+                                                  <button
+                                                    key={opt.v}
+                                                    type="button"
+                                                    onClick={() => setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { ...draft, activityType: opt.v } }))}
+                                                    style={{
+                                                      fontFamily: MONO,
+                                                      fontSize: 11,
+                                                      padding: "4px 10px",
+                                                      borderRadius: 20,
+                                                      border: "1px solid " + (active ? accent : T.border1),
+                                                      background: active ? accent : "transparent",
+                                                      color: active ? "#fff" : (T.textSecondary || T.text2),
+                                                      cursor: "pointer",
+                                                      fontWeight: active ? 600 : 400,
+                                                    }}
+                                                  >
+                                                    {opt.label}
+                                                  </button>
+                                                );
+                                              })}
                                             </div>
                                             <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 6 }}>How did it go?</div>
                                             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
@@ -6713,6 +8826,7 @@ export default function Tracker({
                   getPressureZone={getPressureZone}
                   logActivity={logActivity}
                   setRefreshKey={setRefreshKey}
+                  refreshKey={refreshKey}
                   theme={t}
                   MONO={MONO}
                 />
