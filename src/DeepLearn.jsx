@@ -1,9 +1,18 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useTheme, getScoreColor } from "./theme";
 import { LEVEL_NAMES, LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
-import { callAI } from "./aiClient";
+import { callAI, callAIJSON } from "./aiClient";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
 import { getLecText } from "./lectureText";
+import {
+  DL_PHASE_ORDER,
+  DEEP_LEARN_PHASES,
+  migrateDeepLearnPhase,
+  normalizeSectionUnderstood,
+  normalizeNumericIndexRecord,
+  deepLearnPhaseNumber,
+  migrateSavedDeepLearnSessionsMap,
+} from "./deepLearnPhaseUtils";
 
 const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
@@ -730,7 +739,7 @@ function detectStudyMode(lec, objectives = []) {
     return { mode: "pharmacology", label: "Pharmacology", icon: "💊", recommended: ["deepLearn", "flashcards", "mcq"], avoid: [], reason: "Pharmacology requires understanding mechanisms and drug class patterns.", color: "#10b981" };
   }
   if (/\bbchm|biochem|metabol|pathway|enzyme|substrate|cofactor|atp|nadh|glycol|krebs|oxidat|synthesis|protein|dna|rna|gene|transcri|translat/i.test(allText)) {
-    return { mode: "biochemistry", label: "Biochemistry & Pathways", icon: "⚗️", recommended: ["deepLearn", "algorithmDraw", "mcq"], avoid: [], reason: "Biochemistry pathways need step-by-step algorithm drawing and mechanism explanation.", color: "#f59e0b" };
+    return { mode: "biochemistry", label: "Biochemistry & Pathways", icon: "⚗️", recommended: ["deepLearn", "flashcards", "mcq"], avoid: [], reason: "Biochemistry pathways need step-by-step mechanism work, spaced recall, and application questions.", color: "#f59e0b" };
   }
   if (/\bphys|physiol|homeosta|pressure|volume|flow|cardiac|respirat|renal|filtrat|hormonal|feedback|regulation/i.test(allText)) {
     return { mode: "physiology", label: "Physiology", icon: "❤️", recommended: ["deepLearn", "mcq"], avoid: [], reason: "Physiology needs clinical reasoning and mechanism-based deep learning.", color: "#ef4444" };
@@ -754,6 +763,7 @@ function DeepLearnConfig({
   onStart,
   T,
   tc,
+  preselectLecId = null,
 }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
@@ -781,14 +791,23 @@ function DeepLearnConfig({
   const [sessionType, setSessionType] = useState("deep");
   const didInitSelectionRef = useRef(false);
   useEffect(() => {
-    if (!topicPool.length || didInitSelectionRef.current) return;
+    if (!topicPool.length) return;
+    if (preselectLecId) {
+      const tid = preselectLecId + "_full";
+      if (topicPool.some((t) => t.id === tid)) {
+        didInitSelectionRef.current = true;
+        setSelected([tid]);
+        return;
+      }
+    }
+    if (didInitSelectionRef.current) return;
     didInitSelectionRef.current = true;
     setSelected((prev) => {
       if (prev.length > 0) return prev;
       const firstLec = topicPool.find((t) => t.source === "lecture");
       return firstLec ? [firstLec.id] : [];
     });
-  }, [topicPool]);
+  }, [topicPool, preselectLecId]);
 
   const toggleTopic = (id) =>
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -1295,655 +1314,27 @@ function DeepLearnConfig({
   );
 }
 
-// ── Deep Learn Session (legacy mastery loop: can't advance until correct or 3 attempts) ──
-function LegacyDeepLearnSession({
-  topic,
-  objectives,
-  blockId,
-  questionBanksByFile,
-  onComplete,
-  onBackToConfig,
-  onUpdateObjective,
-  T,
-  tc,
-}) {
-  const MONO = "'DM Mono','Courier New',monospace";
-  const SERIF = "'Playfair Display',Georgia,serif";
-
-  const [phase, setPhase] = useState("loading");
-  const [question, setQuestion] = useState(null);
-  const [userAnswer, setUserAnswer] = useState("");
-  const [selectedOpt, setSelectedOpt] = useState(null);
-  const [attempts, setAttempts] = useState(0);
-  const [feedback, setFeedback] = useState(null);
-  const [streak, setStreak] = useState(0);
-  const [totalDone, setTotalDone] = useState(0);
-  const [queueIdx, setQueueIdx] = useState(0);
-  const [questions, setQuestions] = useState([]);
-  const [generating, setGenerating] = useState(false);
-  const [patientCase, setPatientCase] = useState(null);
-  const inputRef = useRef(null);
-
-  useEffect(() => {
-    generateQuestions();
-  }, []);
-
-  const generateQuestions = async () => {
-    setPhase("loading");
-    setGenerating(true);
-    setPatientCase(null);
-    try {
-      const objList = (resolvedObjectives || [])
-        .slice(0, 15)
-        .map((o, i) => `${i + 1}. ${o.objective}`)
-        .join("\n");
-
-      const safetySettings = [
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-      ];
-      const headers = { "Content-Type": "application/json" };
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
-
-      const casePrompt =
-        "Create a detailed patient case for a medical school deep learning session on: " +
-        (topic || "clinical medicine") +
-        "\n\n" +
-        "The case should:\n" +
-        "- Present a realistic patient with age, gender, occupation, chief complaint\n" +
-        "- Include relevant history, vitals, physical exam findings, and initial labs\n" +
-        "- Contain clues that connect to multiple learning objectives\n" +
-        "- NOT reveal the diagnosis — let the student figure it out\n\n" +
-        "Objectives this case covers:\n" +
-        objList +
-        "\n\n" +
-        'Return ONLY JSON:\n{"case":"A 54-year-old male construction worker presents to the ED with...","diagnosis":"hidden"}';
-
-      const caseRes = await fetch(geminiUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: casePrompt }] }],
-          generationConfig: { maxOutputTokens: 600, temperature: 0.7 },
-          safetySettings,
-        }),
-      });
-      const caseD = await caseRes.json();
-      const caseRaw = (caseD.candidates?.[0]?.content?.parts?.[0]?.text || "")
-        .replace(/^```json\s*/i, "")
-        .replace(/```$/g, "")
-        .trim();
-      let caseParsed = null;
-      try {
-        const first = caseRaw.indexOf("{");
-        const last = caseRaw.lastIndexOf("}");
-        if (first !== -1 && last !== -1) caseParsed = JSON.parse(caseRaw.slice(first, last + 1));
-      } catch (_) {}
-      const anchorCase = caseParsed?.case || null;
-      setPatientCase(anchorCase);
-
-      const styleExamples = Object.values(questionBanksByFile || {})
-        .flat()
-        .slice(0, 3)
-        .map(
-          (q) =>
-            `Q: ${q.stem}\nA: ${q.choices?.A} B: ${q.choices?.B} C: ${q.choices?.C} D: ${q.choices?.D}\nCorrect: ${q.correct}`
-        )
-        .join("\n\n");
-
-      const prompt =
-        "Generate 8 deep learning questions for active recall mastery.\n" +
-        (anchorCase
-          ? "All questions must refer back to THIS specific patient case:\n" + anchorCase + "\n\n"
-          : "") +
-        "Mix question types:\n" +
-        "- 3 multiple choice (clinical vignettes)\n" +
-        "- 3 short answer (require 1-3 sentence explanation)\n" +
-        "- 2 fill-in-the-blank (key term or mechanism)\n\n" +
-        "OBJECTIVES:\n" +
-        objList +
-        "\n\n" +
-        (styleExamples ? "EXAM STYLE REFERENCE:\n" + styleExamples + "\n\n" : "") +
-        "For each question include what a CORRECT answer must contain.\n\n" +
-        "Return ONLY JSON:\n" +
-        '{"questions":[{\n' +
-        '  "type":"mcq",\n' +
-        '  "stem":"A 45-year-old...",\n' +
-        '  "choices":{"A":"...","B":"...","C":"...","D":"..."},\n' +
-        '  "correct":"B",\n' +
-        '  "explanation":"The correct answer is B because...",\n' +
-        '  "mustInclude":["key concept","mechanism"],\n' +
-        '  "hint":"Think about the mechanism of..."\n' +
-        "},{\n" +
-        '  "type":"short",\n' +
-        '  "stem":"Explain why...",\n' +
-        '  "correct":"Model answer here",\n' +
-        '  "explanation":"A complete answer should mention...",\n' +
-        '  "mustInclude":["term1","term2"],\n' +
-        '  "hint":"Consider the role of..."\n' +
-        "}]}";
-
-      const res = await fetch(geminiUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: 4000, temperature: 0.8 },
-          safetySettings,
-        }),
-      });
-      const d = await res.json();
-      const raw = (d.candidates?.[0]?.content?.parts?.[0]?.text || "")
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/, "")
-        .trim();
-      const first = raw.indexOf("{");
-      const last = raw.lastIndexOf("}");
-      const parsed = JSON.parse(raw.slice(first, last + 1));
-      const qs = (parsed.questions || []).map((q) => ({
-        ...q,
-        difficulty: q.difficulty || "medium",
-      }));
-      setQuestions(qs);
-      setQueueIdx(0);
-      setQuestion(qs[0] || null);
-      setPhase("question");
-    } catch (e) {
-      console.error("DeepLearn generate failed:", e);
-    }
-    setGenerating(false);
-  };
-
-  const submitAnswer = async () => {
-    const answer = question.type === "mcq" ? selectedOpt : userAnswer.trim();
-    if (!answer) return;
-
-    const newAttempts = attempts + 1;
-    setAttempts(newAttempts);
-    setPhase("evaluating");
-
-    if (question.type === "mcq") {
-      const correct = answer === question.correct;
-      setFeedback({
-        correct,
-        message: correct ? "Correct! ✓" : `Not quite — you chose ${answer}.`,
-        explanation: question.explanation,
-        hint: !correct && newAttempts < 3 ? question.hint : null,
-        showAnswer: newAttempts >= 3,
-        correctAnswer: question.correct,
-        correctText: question.choices?.[question.correct],
-      });
-      setPhase("feedback");
-      return;
-    }
-
-    try {
-      const evalPrompt =
-        "Evaluate this student answer for a medical school question.\n\n" +
-        "QUESTION: " +
-        question.stem +
-        "\n" +
-        "MODEL ANSWER: " +
-        question.correct +
-        "\n" +
-        "MUST INCLUDE: " +
-        (question.mustInclude || []).join(", ") +
-        "\n" +
-        "STUDENT ANSWER: " +
-        answer +
-        "\n\n" +
-        "Determine if the answer is correct, partially correct, or incorrect.\n" +
-        "Be strict — medical accuracy matters.\n\n" +
-        "Return ONLY JSON:\n" +
-        '{"correct":true,"partial":false,"score":0-100,\n' +
-        '"feedback":"Your answer correctly identified X but missed Y...",\n' +
-        '"correction":"The complete answer should include...",\n' +
-        '"missingConcepts":["concept1","concept2"]}';
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: evalPrompt }] }],
-            generationConfig: { maxOutputTokens: 600, temperature: 0.1 },
-            safetySettings: [
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            ],
-          }),
-        }
-      );
-      const d = await res.json();
-      const raw = (d.candidates?.[0]?.content?.parts?.[0]?.text || "")
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/, "")
-        .trim();
-      const first = raw.indexOf("{");
-      const last = raw.lastIndexOf("}");
-      const eval_ = JSON.parse(raw.slice(first, last + 1));
-
-      setFeedback({
-        correct: eval_.correct || eval_.score >= 80,
-        partial: eval_.partial || (eval_.score >= 50 && eval_.score < 80),
-        score: eval_.score,
-        message: eval_.feedback,
-        correction: eval_.correction,
-        missing: eval_.missingConcepts || [],
-        hint: !eval_.correct && newAttempts < 3 ? question.hint : null,
-        showAnswer: newAttempts >= 3,
-        correctAnswer: question.correct,
-        explanation: question.explanation,
-      });
-    } catch (e) {
-      setFeedback({
-        correct: false,
-        message: "Could not evaluate — check your answer against: " + question.correct,
-        showAnswer: true,
-        correctAnswer: question.correct,
-      });
-    }
-    setPhase("feedback");
-  };
-
-  const advance = () => {
-    if (!feedback?.correct && attempts < 3) {
-      setSelectedOpt(null);
-      setUserAnswer("");
-      setFeedback(null);
-      setPhase("question");
-      setTimeout(() => inputRef.current?.focus(), 100);
-      return;
-    }
-
-    const wasCorrect = feedback?.correct;
-    setStreak((prev) => (wasCorrect ? prev + 1 : 0));
-    setTotalDone((prev) => prev + 1);
-
-    const next = queueIdx + 1;
-    if (next >= questions.length) {
-      setPhase("mastered");
-      return;
-    }
-
-    setQueueIdx(next);
-    setQuestion(questions[next]);
-    setAttempts(0);
-    setSelectedOpt(null);
-    setUserAnswer("");
-    setFeedback(null);
-    setPhase("question");
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
-
-  const progressPct = questions.length > 0 ? Math.round((queueIdx / questions.length) * 100) : 0;
-
-  if (phase === "loading")
-    return (
-      <div style={{ padding: 40, textAlign: "center" }}>
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: "50%",
-            margin: "0 auto 16px",
-            border: "3px solid " + T.border1,
-            borderTopColor: tc,
-            animation: "spin 0.8s linear infinite",
-          }}
-        />
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>Generating deep learn session...</div>
-        <style>{`
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to   { transform: rotate(360deg); }
-  }
-`}</style>
-      </div>
-    );
-
-  if (phase === "mastered")
-    return (
-      <div style={{ padding: 32, textAlign: "center" }}>
-        <div style={{ fontSize: 48, marginBottom: 16 }}>🎯</div>
-        <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 24, fontWeight: 900, marginBottom: 8 }}>
-          Session Complete!
-        </div>
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 14, marginBottom: 24 }}>
-          {totalDone} questions · {streak} streak
-        </div>
-        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-          <button
-            onClick={onBackToConfig || generateQuestions}
-            style={{
-              background: tc,
-              border: "none",
-              color: "#fff",
-              padding: "12px 24px",
-              borderRadius: 9,
-              cursor: "pointer",
-              fontFamily: SERIF,
-              fontSize: 16,
-              fontWeight: 700,
-            }}
-          >
-            New Session →
-          </button>
-          <button
-            onClick={onComplete}
-            style={{
-              background: T.inputBg,
-              border: "1px solid " + T.border1,
-              color: T.text2,
-              padding: "12px 24px",
-              borderRadius: 9,
-              cursor: "pointer",
-              fontFamily: MONO,
-              fontSize: 14,
-            }}
-          >
-            Done
-          </button>
-        </div>
-      </div>
-    );
-
-  if (!question) return null;
-
-  const isCorrect = feedback?.correct;
-  const canAdvance = feedback && (isCorrect || attempts >= 3);
-
-  return (
-    <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-      {patientCase && (
-        <div
-          style={{
-            background: T.inputBg,
-            border: "1px solid " + tc + "40",
-            borderLeft: "4px solid " + tc,
-            borderRadius: 10,
-            padding: "14px 16px",
-            marginBottom: 16,
-          }}
-        >
-          <div style={{ fontFamily: MONO, color: tc, fontSize: 9, letterSpacing: 1.5, marginBottom: 6 }}>
-            PATIENT CASE
-          </div>
-          <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 14, lineHeight: 1.7 }}>{getPatientCaseText(patientCase)}</div>
-        </div>
-      )}
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <div style={{ flex: 1, height: 4, background: T.border1, borderRadius: 2 }}>
-          <div
-            style={{
-              height: "100%",
-              background: tc,
-              borderRadius: 2,
-              width: progressPct + "%",
-              transition: "width 0.4s",
-            }}
-          />
-        </div>
-        <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
-          {queueIdx + 1}/{questions.length}
-        </span>
-        {streak >= 2 && (
-          <span style={{ fontFamily: MONO, color: "#f59e0b", fontSize: 12 }}>
-            🔥{streak}
-          </span>
-        )}
-      </div>
-
-      <div style={{ fontFamily: MONO, color: tc, fontSize: 11, letterSpacing: 1.5 }}>
-        {question.type === "mcq" ? "MULTIPLE CHOICE" : question.type === "short" ? "SHORT ANSWER" : "FILL IN THE BLANK"}
-        {attempts > 0 && !feedback?.correct && (
-          <span style={{ color: T.statusBad, marginLeft: 12 }}>ATTEMPT {attempts}/3</span>
-        )}
-      </div>
-
-      <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 18, lineHeight: 1.6, fontWeight: 600 }}>
-        {question.stem}
-      </div>
-
-      {question.type === "mcq" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {Object.entries(question.choices || {}).map(([key, val]) => {
-            let bg = T.inputBg;
-            let border = T.border1;
-            let color = T.text1;
-
-            if (feedback) {
-              if (key === question.correct) {
-                bg = T.statusGoodBg;
-                border = T.statusGood;
-                color = T.statusGood;
-              } else if (key === selectedOpt && !isCorrect) {
-                bg = T.statusBadBg;
-                border = T.statusBad;
-                color = T.statusBad;
-              }
-            } else if (key === selectedOpt) {
-              bg = tc + "18";
-              border = tc;
-              color = tc;
-            }
-
-            return (
-              <div
-                key={key}
-                onClick={() => !feedback && setSelectedOpt(key)}
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  padding: "11px 14px",
-                  borderRadius: 9,
-                  border: "1px solid " + border,
-                  background: bg,
-                  cursor: feedback ? "default" : "pointer",
-                  transition: "all 0.15s",
-                }}
-              >
-                <span style={{ fontFamily: MONO, fontWeight: 700, color, fontSize: 15, flexShrink: 0 }}>
-                  {key}.
-                </span>
-                <span style={{ fontFamily: MONO, color, fontSize: 14, lineHeight: 1.5 }}>{val}</span>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {question.type !== "mcq" && (
-        <textarea
-          ref={inputRef}
-          value={userAnswer}
-          onChange={(e) => setUserAnswer(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && e.metaKey) submitAnswer();
-          }}
-          disabled={!!feedback}
-          placeholder={
-            question.type === "fill"
-              ? "Type the answer..."
-              : "Type your explanation... (⌘+Enter to submit)"
-          }
-          style={{
-            background: T.inputBg,
-            border: "1px solid " + T.border1,
-            borderRadius: 9,
-            padding: "12px 14px",
-            color: T.text1,
-            fontFamily: MONO,
-            fontSize: 14,
-            lineHeight: 1.6,
-            resize: "vertical",
-            minHeight: question.type === "fill" ? 44 : 100,
-            width: "100%",
-            boxSizing: "border-box",
-            opacity: feedback ? 0.7 : 1,
-          }}
-        />
-      )}
-
-      {feedback && (
-        <div
-          style={{
-            padding: "14px 16px",
-            borderRadius: 10,
-            border:
-              "1px solid " + (isCorrect ? T.statusGood : feedback.partial ? T.statusWarn : T.statusBad),
-            background: isCorrect ? T.statusGoodBg : feedback.partial ? T.statusWarnBg : T.statusBadBg,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: MONO,
-              fontWeight: 700,
-              fontSize: 15,
-              color: isCorrect ? T.statusGood : feedback.partial ? T.statusWarn : T.statusBad,
-              marginBottom: 6,
-            }}
-          >
-            {isCorrect ? "✓ Correct!" : feedback.partial ? "◐ Partially correct" : "✗ Not quite"}
-            {feedback.score != null && !isCorrect && (
-              <span style={{ fontSize: 12, marginLeft: 8 }}>{feedback.score}%</span>
-            )}
-          </div>
-
-          <div style={{ fontFamily: MONO, color: T.text1, fontSize: 13, lineHeight: 1.6, marginBottom: feedback.missing?.length ? 8 : 0 }}>
-            {feedback.message || feedback.explanation}
-          </div>
-
-          {feedback.missing?.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <span style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 11, letterSpacing: 1 }}>
-                MISSING:{" "}
-              </span>
-              <span style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 12 }}>
-                {feedback.missing.join(" · ")}
-              </span>
-            </div>
-          )}
-
-          {feedback.correction && !isCorrect && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: "8px 10px",
-                background: T.cardBg,
-                borderRadius: 6,
-                fontFamily: MONO,
-                color: T.text1,
-                fontSize: 13,
-                lineHeight: 1.6,
-              }}
-            >
-              <span style={{ color: tc, fontWeight: 700 }}>Complete answer: </span>
-              {feedback.correction}
-            </div>
-          )}
-
-          {feedback.hint && !canAdvance && (
-            <div style={{ marginTop: 8, fontFamily: MONO, color: T.statusWarn, fontSize: 12, fontStyle: "italic" }}>
-              💡 {feedback.hint}
-            </div>
-          )}
-
-          {feedback.showAnswer && !isCorrect && (
-            <div
-              style={{
-                marginTop: 8,
-                padding: "8px 10px",
-                background: T.statusGoodBg,
-                borderRadius: 6,
-                border: "1px solid " + T.statusGood,
-              }}
-            >
-              <span style={{ fontFamily: MONO, color: T.statusGood, fontWeight: 700, fontSize: 12 }}>
-                CORRECT ANSWER:{" "}
-              </span>
-              <span style={{ fontFamily: MONO, color: T.text1, fontSize: 13 }}>
-                {question.type === "mcq"
-                  ? `${feedback.correctAnswer}. ${question.choices?.[feedback.correctAnswer]}`
-                  : feedback.correctAnswer}
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-
-      <div style={{ display: "flex", gap: 10 }}>
-        {!feedback ? (
-          <button
-            onClick={submitAnswer}
-            disabled={phase === "evaluating" || (!selectedOpt && !userAnswer.trim())}
-            style={{
-              flex: 1,
-              background: tc,
-              border: "none",
-              color: "#fff",
-              padding: "12px 0",
-              borderRadius: 9,
-              cursor: "pointer",
-              fontFamily: SERIF,
-              fontSize: 17,
-              fontWeight: 900,
-              opacity: !selectedOpt && !userAnswer.trim() ? 0.4 : 1,
-            }}
-          >
-            {phase === "evaluating" ? "Evaluating..." : "Submit →"}
-          </button>
-        ) : canAdvance ? (
-          <button
-            onClick={advance}
-            style={{
-              flex: 1,
-              background: tc,
-              border: "none",
-              color: "#fff",
-              padding: "12px 0",
-              borderRadius: 9,
-              cursor: "pointer",
-              fontFamily: SERIF,
-              fontSize: 17,
-              fontWeight: 900,
-            }}
-          >
-            {queueIdx + 1 >= questions.length ? "Finish ✓" : "Next Question →"}
-          </button>
-        ) : (
-          <button
-            onClick={advance}
-            style={{
-              flex: 1,
-              background: T.statusBadBg,
-              border: "1px solid " + T.statusBad,
-              color: T.statusBad,
-              padding: "12px 0",
-              borderRadius: 9,
-              cursor: "pointer",
-              fontFamily: MONO,
-              fontSize: 15,
-              fontWeight: 700,
-            }}
-          >
-            Try Again ({3 - attempts} attempts left)
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
 async function generateSAQs(lectureContent, blockObjectives, lectureTitle, patientCaseText, lec, blockId, crossAugment = null) {
-  const fallback = [];
+  const buildObjectiveFallbackQuestions = () => {
+    const objs = (blockObjectives || []).slice(0, 3);
+    return objs
+      .map((obj) => {
+        const text = String(obj.objective || obj.text || "").trim();
+        const q =
+          text.length > 5
+            ? text
+            : `Review a key learning objective for ${(lectureTitle || "this topic").slice(0, 48)}.`;
+        return {
+          q,
+          keyPoints: "Think about the key mechanism and clinical significance",
+          objectiveText: text,
+          lectureTags: null,
+          isFallback: true,
+        };
+      })
+      .filter((item) => (item.q || "").length > 5);
+  };
+
   try {
     const lecObjs = (blockObjectives || [])
       .slice(0, 5)
@@ -1983,38 +1374,18 @@ Generate questions weighted toward the weak and struggling objectives in the stu
 If any weak/struggling objectives exist, at least 2 of the 3 questions must directly address a weak or struggling objective.
 If the student's last score was >= 70%, increase question difficulty — target Bloom's level 4-5 for at least one question.` +
       (crossAugment?.userSuffix ? "\n\n" + crossAugment.userSuffix : "");
-    const text = await callAI(systemPrompt, userPrompt, 800);
-    const clean = (text || "").replace(/```json\n?|```/g, "").trim();
-    let parsed = null;
-    try {
-      parsed = JSON.parse(clean);
-    } catch {
-      const first = clean.indexOf("{");
-      const last = clean.lastIndexOf("}");
-      if (first !== -1 && last > first) {
-        try {
-          parsed = JSON.parse(clean.slice(first, last + 1));
-        } catch {}
-      }
-    }
-    if (!parsed || typeof parsed !== "object") {
-      const qMatch = clean.match(/"q"\s*:\s*\[([\s\S]*?)\]/);
-      const questionsMatch = clean.match(/"questions"\s*:\s*\[([\s\S]*?)\]/);
-      const arrMatch = qMatch || questionsMatch;
-      if (arrMatch) {
-        const items = arrMatch[1].match(/"((?:[^"\\]|\\.)*)"/g)?.map((s) => s.replace(/^"|"$/g, "").replace(/\\"/g, '"').trim()).filter((s) => s.length > 5) || [];
-        if (items.length > 0) parsed = { q: items };
-      }
-    }
-    if ((!parsed || !parsed.q?.length) && clean.length > 0) {
-      const questionLines = clean.split(/\n/).map((s) => s.replace(/^\s*[\d.]+\s*[-–]?\s*/, "").trim()).filter((s) => s.length > 15 && (s.endsWith("?") || /^(what|which|how|why|describe|explain|identify)/i.test(s)));
-      if (questionLines.length > 0) parsed = { q: questionLines.slice(0, 5) };
-    }
+
+    const jsonFallback = { q: [] };
+    let parsed = await callAIJSON(systemPrompt, userPrompt, jsonFallback, 2000);
+    if (Array.isArray(parsed)) parsed = { q: parsed };
+    if (!parsed || typeof parsed !== "object") parsed = { q: [] };
+
     const rawQuestions = parsed?.q ?? parsed?.questions ?? [];
-    const rawArray = Array.isArray(rawQuestions) ? rawQuestions : (rawQuestions != null ? [rawQuestions] : []);
-    console.log("generateSAQs raw result:", parsed != null ? "ok" : "parse failed", "questions count:", rawArray.length);
+    const rawArray = Array.isArray(rawQuestions) ? rawQuestions : rawQuestions != null ? [rawQuestions] : [];
+    console.log("generateSAQs raw result:", rawArray.length ? "ok" : "empty", "questions count:", rawArray.length);
+
     const objList = (blockObjectives || []).slice(0, 5);
-    const questions = rawArray
+    let questions = rawArray
       .map((qText, i) => ({
         q: typeof qText === "string" ? qText : (qText?.q ?? qText?.question ?? ""),
         keyPoints: typeof qText === "object" && qText != null
@@ -2022,13 +1393,19 @@ If the student's last score was >= 70%, increase question difficulty — target 
           : "",
         objectiveText: objList[i]?.objective || objList[i]?.text || "",
         lectureTags: Array.isArray(qText?.lectureTags) ? qText.lectureTags : qText?.lecture_tags || null,
+        isFallback: !!qText?.isFallback,
       }))
       .filter((item) => (item.q || "").length > 5);
+
+    if (!questions.length) {
+      console.warn("SAQ generation failed — using fallback questions");
+      questions = buildObjectiveFallbackQuestions();
+    }
     console.log("setSaqs called with:", questions.length, "questions");
-    return questions.length > 0 ? questions : fallback;
+    return questions;
   } catch (err) {
     console.error("generateSAQs error:", err);
-    return fallback;
+    return buildObjectiveFallbackQuestions();
   }
 }
 
@@ -2742,17 +2119,22 @@ function DeepLearnSession({
   initialPreSAQScore,
   initialInputMode,
   initialHandwriteDone,
+  initialTeachingSection,
+  initialSectionExplanation,
+  initialSectionUnderstood,
+  initialStructureSaqAttempts,
+  initialRecallStep,
   crossCtx = null,
   skipIntroPrep = false,
+  deeplinkObjectiveId = null,
 }) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
   // Phase state machine
-  // Phases: "brainDump" | "patientCase" | "structureFunction" |
-  //         "algorithmDraw" | "readRecall" | "mcq" | "summary"
-  const [phase, setPhase] = useState(initialPhase || "brainDump");
+  // Phases: "prime" | "teach" | "patient" | "selftest" | "gaps" | "apply" | "summary"
+  const [phase, setPhase] = useState(migrateDeepLearnPhase(initialPhase));
   const [prepComplete, setPrepComplete] = useState(() => Boolean(resuming || skipIntroPrep));
   useEffect(() => {
     if (resuming || prepComplete) return;
@@ -2781,7 +2163,7 @@ function DeepLearnSession({
     return e.case ? e : null;
   });
   const [structureContent, setStructureContent] = useState(initialStructureContent ?? null);
-  const [algorithm, setAlgorithm] = useState(initialAlgorithm ?? null);
+  const [algorithm] = useState(initialAlgorithm ?? null);
   const [recallPrompts, setRecallPrompts] = useState(initialRecallPrompts ?? []);
   const [mcqQuestions, setMcqQuestions] = useState(initialMcqQuestions ?? []);
   const [currentRecall, setCurrentRecall] = useState(initialCurrentRecall ?? 0);
@@ -2796,19 +2178,24 @@ function DeepLearnSession({
   const [saqEvals, setSaqEvals] = useState(initialSaqFeedback ?? {});
   const [saqEvaluatingIdx, setSaqEvaluatingIdx] = useState(null);
   const [saqQuestions, setSaqQuestions] = useState(initialSaqQuestions ?? []);
+  const [questionsError, setQuestionsError] = useState(null);
+  const [structureQuestionsError, setStructureQuestionsError] = useState(null);
   const [structureSaqQuestions, setStructureSaqQuestions] = useState(initialStructureSaqQuestions ?? []);
   const [structureSaqAnswers, setStructureSaqAnswers] = useState(initialStructureSaqAnswers ?? {});
   const [structureSaqEvals, setStructureSaqEvals] = useState(initialStructureSaqEvals ?? {});
-  const [structureSaqAttempts, setStructureSaqAttempts] = useState({});
+  const [structureSaqAttempts, setStructureSaqAttempts] = useState(() =>
+    normalizeNumericIndexRecord(initialStructureSaqAttempts)
+  );
   const [structureSaqEvaluatingIdx, setStructureSaqEvaluatingIdx] = useState(null);
   const [recallAnswer, setRecallAnswer] = useState(initialRecallAnswer || "");
   const [recallFeedback, setRecallFeedback] = useState(initialRecallFeedback ?? null);
-  const [recallStep, setRecallStep] = useState("read");
+  const [recallStep, setRecallStep] = useState(() =>
+    initialRecallStep === "recall" || initialRecallStep === "read" ? initialRecallStep : "read"
+  );
   const [recallText, setRecallText] = useState("");
   const [recallResult, setRecallResult] = useState(null);
   const [algorithmText, setAlgorithmText] = useState(initialAlgorithmText || "");
   const [algorithmFeedback, setAlgorithmFeedback] = useState(initialAlgorithmFeedback ?? null);
-  const [algorithmDoneOnIpad, setAlgorithmDoneOnIpad] = useState(false);
   const [mcqSelected, setMcqSelected] = useState(null);
   const [mcqFeedback, setMcqFeedback] = useState(null);
   const [mcqResults, setMcqResults] = useState(initialMcqResults ?? []);
@@ -2863,21 +2250,53 @@ function DeepLearnSession({
   const [preSAQScore, setPreSAQScore] = useState(initialPreSAQScore ?? null);
   const [postMCQScore, setPostMCQScore] = useState(null);
 
-  const PHASE_ORDER = [
-    "brainDump",
-    "patientCase",
-    "structureFunction",
-    "algorithmDraw",
-    "readRecall",
-    "mcq",
-    "summary",
-  ];
+  const [teachingSection, setTeachingSection] = useState(() =>
+    typeof initialTeachingSection === "number" && initialTeachingSection >= 0 ? initialTeachingSection : 0
+  );
+  const [sectionExplanation, setSectionExplanation] = useState(() =>
+    initialSectionExplanation != null && initialSectionExplanation !== "" ? String(initialSectionExplanation) : null
+  );
+  const [sectionUnderstood, setSectionUnderstood] = useState(() => normalizeSectionUnderstood(initialSectionUnderstood));
+  const [loadingSection, setLoadingSection] = useState(false);
+
+  useEffect(() => {
+    const n = resolvedObjectives?.length ?? 0;
+    if (n === 0) return;
+    setTeachingSection((s) => (typeof s === "number" && s >= n ? n - 1 : s));
+  }, [resolvedObjectives.length]);
+
+  const deeplinkTeachAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!deeplinkObjectiveId || resuming) return;
+    if (phase !== "teach") return;
+    if (deeplinkTeachAppliedRef.current) return;
+    const list = resolvedObjectives || [];
+    const idx = list.findIndex((o) => o.id === deeplinkObjectiveId);
+    if (idx < 0) return;
+    deeplinkTeachAppliedRef.current = true;
+    setTeachingSection(idx);
+    setSectionExplanation(null);
+  }, [deeplinkObjectiveId, resuming, phase, resolvedObjectives]);
+
+  useEffect(() => {
+    if (!deeplinkObjectiveId || resuming || phase !== "teach") return;
+    const list = resolvedObjectives || [];
+    const idx = list.findIndex((o) => o.id === deeplinkObjectiveId);
+    if (idx < 0 || teachingSection !== idx) return;
+    const domId = `rxt-dl-teach-obj-${deeplinkObjectiveId}`;
+    const timer = window.setTimeout(() => {
+      document.getElementById(domId)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [teachingSection, phase, deeplinkObjectiveId, resuming, resolvedObjectives]);
+
+  const PHASE_ORDER = DL_PHASE_ORDER;
 
   const [visitedPhases, setVisitedPhases] = useState(() => {
-    const order = ["brainDump", "patientCase", "structureFunction", "algorithmDraw", "readRecall", "mcq", "summary"];
-    const idx = initialPhase ? order.indexOf(initialPhase) : 0;
+    const migrated = migrateDeepLearnPhase(initialPhase);
+    const idx = DL_PHASE_ORDER.indexOf(migrated);
     const upTo = idx >= 0 ? idx + 1 : 1;
-    return new Set(order.slice(0, upTo));
+    return new Set(DL_PHASE_ORDER.slice(0, upTo));
   });
 
   const advancePhase = (nextPhase) => {
@@ -2892,10 +2311,9 @@ function DeepLearnSession({
     }
   };
 
-  // Persist after every phase change
-  useEffect(() => {
-    if (!sessionId || !saveProgress || phase === "summary") return;
-    saveProgress(sessionId, {
+  // Debounced persist (~450ms) for all session fields; immediate flush when phase changes
+  const dlSessionSnapshot = useMemo(
+    () => ({
       sessionId,
       blockId,
       lecId: resolvedObjectives?.[0]?.linkedLecId ?? topic?.lecId,
@@ -2914,6 +2332,7 @@ function DeepLearnSession({
       structureSaqQuestions,
       structureSaqAnswers,
       structureSaqEvals,
+      structureSaqAttempts,
       patientCase,
       structureContent,
       algorithm,
@@ -2923,18 +2342,86 @@ function DeepLearnSession({
       currentRecall,
       recallAnswer,
       recallFeedback,
+      recallStep,
       mcqQuestions,
-      mcqAnswers: {}, // current selection not persisted per question
+      mcqAnswers: {},
       mcqResults,
       preSAQScore,
       inputMode,
       handwriteDone,
-    });
-  }, [phase, sessionId, saveProgress]);
+      teachingSection,
+      sectionExplanation,
+      sectionUnderstood,
+    }),
+    [
+      sessionId,
+      blockId,
+      resolvedObjectives,
+      topic,
+      lectureTitle,
+      lectureContent,
+      crossCtx,
+      phase,
+      brainDump,
+      brainDumpFeedback,
+      saqAnswers,
+      saqEvals,
+      saqQuestions,
+      structureSaqQuestions,
+      structureSaqAnswers,
+      structureSaqEvals,
+      structureSaqAttempts,
+      patientCase,
+      structureContent,
+      algorithm,
+      algorithmText,
+      algorithmFeedback,
+      recallPrompts,
+      currentRecall,
+      recallAnswer,
+      recallFeedback,
+      recallStep,
+      mcqQuestions,
+      mcqResults,
+      preSAQScore,
+      inputMode,
+      handwriteDone,
+      teachingSection,
+      sectionExplanation,
+      sectionUnderstood,
+    ]
+  );
 
-  // First-pass fallback: skip "read" step and go straight to recall (student was taught in Phase 4)
+  const dlSaveDebounceRef = useRef(null);
+  const dlPrevPhaseSaveRef = useRef(null);
+
   useEffect(() => {
-    if (phase === "readRecall" && recallPrompts.length === 0) {
+    if (!sessionId || !saveProgress || phase === "summary") return;
+    if (dlSaveDebounceRef.current) clearTimeout(dlSaveDebounceRef.current);
+    dlSaveDebounceRef.current = setTimeout(() => {
+      dlSaveDebounceRef.current = null;
+      saveProgress(sessionId, dlSessionSnapshot);
+    }, 450);
+    return () => {
+      if (dlSaveDebounceRef.current) clearTimeout(dlSaveDebounceRef.current);
+    };
+  }, [sessionId, saveProgress, phase, dlSessionSnapshot]);
+
+  useEffect(() => {
+    if (!sessionId || !saveProgress) return;
+    const prev = dlPrevPhaseSaveRef.current;
+    dlPrevPhaseSaveRef.current = phase;
+    if (prev == null || prev === phase) return;
+    if (dlSaveDebounceRef.current) {
+      clearTimeout(dlSaveDebounceRef.current);
+      dlSaveDebounceRef.current = null;
+    }
+    saveProgress(sessionId, dlSessionSnapshot);
+  }, [phase, sessionId, saveProgress, dlSessionSnapshot]);
+
+  // First-pass fallback: skip "read" step and go straight to recall (student was taught earlier in session)
+  useEffect(() => {
+    if (phase === "selftest" && recallPrompts.length === 0) {
       setRecallStep("recall");
     }
   }, [phase, recallPrompts.length]);
@@ -2983,6 +2470,71 @@ function DeepLearnSession({
   );
   const isCrossLecture = crossSystemPrefix.length > 0;
 
+  const loadStructureContentForGaps = useCallback(async () => {
+    try {
+      const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
+      const structBody = isCrossLecture
+        ? `Create an integrated structural/functional breakdown across these lectures: ${(crossCtx.lecs || [])
+            .map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}`)
+            .join("; ")}.\n\n` +
+          `Objectives:\n${objList}\n\n` +
+          `Show how topics bridge across lectures (shared anatomy, pathways, clinical links). Follow: Patient Complaint → Organ → Architecture → Cell → Protein → Clinical Application, integrating across sources where relevant.\n\n` +
+          `Return ONLY JSON:\n` +
+          `{"levels":[{"level":"Patient Complaint","content":"...","whyItMatters":"..."},...],"keyMechanism":"..."}`
+        : `Create a structural and functional breakdown for: ${lectureTitle}\n\n` +
+          `Objectives:\n${objList}\n\n` +
+          `Follow this hierarchy: Patient Complaint → Organ → Architecture → Cell → Protein → Clinical Application\n\n` +
+          `For each level, explain the "Why?" — how does it connect to patient care?\n` +
+          `Apply the "Make Me Care" test — only include facts that directly explain patient presentations.\n\n` +
+          `Return ONLY JSON:\n` +
+          `{"levels":[{"level":"Patient Complaint","content":"Patient presents with X because...","whyItMatters":"This matters clinically because..."},...],"keyMechanism":"The core mechanism connecting all levels is..."}`;
+      const structResult = await geminiJSON(crossHdr + structBody, 2000);
+      setStructureContent(structResult);
+    } catch (err) {
+      console.error("loadStructureContentForGaps failed:", err);
+      setStructureContent({
+        levels: [
+          {
+            level: "Overview",
+            content: "Structure breakdown could not be generated. You can continue with the questions below.",
+            whyItMatters: "Use the lecture objectives to guide your study.",
+          },
+        ],
+        keyMechanism: "Proceed with the SAQs to reinforce the material.",
+      });
+    }
+  }, [isCrossLecture, crossSystemPrefix, crossCtx, objList, lectureTitle]);
+
+  useEffect(() => {
+    if (phase !== "gaps") return;
+    const skipStructureLoad = isFirstPass && isAnatomyContent && walkthroughObjectives.length > 0;
+    if (skipStructureLoad) return;
+    const hasStructure =
+      (structureContent?.levels && structureContent.levels.length > 0) || !!structureContent?.keyMechanism;
+    if (hasStructure) return;
+
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        await loadStructureContentForGaps();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    phase,
+    isFirstPass,
+    isAnatomyContent,
+    walkthroughObjectives.length,
+    structureContent?.levels?.length,
+    structureContent?.keyMechanism,
+    loadStructureContentForGaps,
+  ]);
+
   const saqCrossAugment = useMemo(() => {
     if (!isCrossLecture) return null;
     return {
@@ -3005,50 +2557,6 @@ function DeepLearnSession({
         "Make the case reveal connections between the lectures.",
     };
   }, [isCrossLecture, crossSystemPrefix]);
-
-  const algorithmPhaseConfig = useMemo(() => {
-    if (isCrossLecture) {
-      const lecNames = (crossCtx.lecs || []).map((l) => l.lectureTitle || l.fileName || "").filter(Boolean).join(", ");
-      return {
-        title: "Map the Connections",
-        subtitle: "CROSS-LECTURE SYNTHESIS",
-        instruction: `Without looking anything up, map how these lectures connect: ${lecNames || lectureTitle || "the selected topics"}. Focus on shared anatomy, clinical overlaps, pathways spanning topics, and conditions needing integrated knowledge. Reveal connections rather than siloing each lecture.`,
-        overviewHelp: "The overview below is a scaffold — open it if you're stuck. Think integration across lectures, not isolation.",
-        placeholder: `Map connections here...
-Example:
-Topic A ↔ Topic B: shared structure / clinical overlap
-Decision flow that spans lectures: ...`,
-        hint: "Cross-lecture connections",
-        buttonLabel: "Check My Map →",
-        evalPrompt: `Evaluate this cross-lecture connection map. Check whether the student linked the right concepts across topics, identified clinical overlaps, and avoided treating lectures as isolated silos. Be specific about missing links.`,
-      };
-    }
-    return isAnatomyContent
-      ? {
-          title: "Map the Structure",
-          subtitle: "STRUCTURAL SYNTHESIS",
-          instruction: `Without looking anything up, map out the key structures and their relationships for ${lectureTitle || "this topic"}. Draw connections: what connects to what, what supplies what, what passes through what.`,
-          overviewHelp: "The overview below is a scaffold of key structures and relationships from the lecture — open it if you're stuck or want a starting point.",
-          placeholder: `Map it out here...
-Example format:
-Structure A → attaches to B → supplied by C
-Nerve X → originates from Y → innervates Z
-Region 1 contains: (list structures)`,
-          hint: "Structural overview",
-          buttonLabel: "Check My Map →",
-          evalPrompt: `Evaluate this anatomy structure map. Check if key structures, relationships, nerve supplies, and clinical correlations are correctly identified. Be encouraging but specific about gaps.`,
-        }
-      : {
-          title: "Draw the Algorithm",
-          subtitle: "ALGORITHM SYNTHESIS",
-          instruction: `Without looking anything up, write out the decision algorithm for ${lectureTitle || "this topic"}. If you can't draw it from memory, you don't know it yet.`,
-          overviewHelp: "The overview below is a scaffold from the lecture — open it if you're stuck or want a starting point.",
-          placeholder: "Write your algorithm here... Start point → Decision 1 → Yes/No branches → Endpoints",
-          hint: "Algorithm structure",
-          buttonLabel: "Check My Algorithm →",
-          evalPrompt: `Evaluate this clinical decision algorithm. Check if the key decision points, branches, and endpoints are correct. Be specific about what's missing or wrong.`,
-        };
-  }, [isCrossLecture, crossCtx, isAnatomyContent, lectureTitle]);
 
   const gemini = async (prompt, maxTokens = 2000) => {
     const res = await fetch(
@@ -3085,20 +2593,98 @@ Region 1 contains: (list structures)`,
   const normalizeSaqQuestions = (raw) => {
     const list = Array.isArray(raw) ? raw : [];
     return list.map((item) => {
-      if (typeof item === "string") return { question: item, keyPoints: [], objectiveText: "", lectureTags: null };
+      if (typeof item === "string")
+        return { question: item, keyPoints: [], objectiveText: "", lectureTags: null, isFallback: false };
       const question = item?.q ?? item?.question ?? "";
       const kp = item?.keyPoints;
       const keyPoints = Array.isArray(kp) ? kp : (typeof kp === "string" ? kp.split(/,\s*/).map((s) => s.trim()) : []);
       const objectiveText = item?.objectiveText ?? "";
       const lectureTags = item?.lectureTags || item?.lecture_tags || null;
-      return { question, keyPoints, objectiveText, lectureTags };
+      const isFallback = !!item?.isFallback;
+      return { question, keyPoints, objectiveText, lectureTags, isFallback };
     });
   };
+
+  async function runBrainDumpFollowupQuestions() {
+    let questions = null;
+    let attempts = 0;
+    while (!questions && attempts < 2) {
+      attempts += 1;
+      try {
+        const saqs = await generateSAQs(
+          lectureContent,
+          resolvedObjectives || [],
+          lectureTitle,
+          null,
+          lec,
+          blockId,
+          saqCrossAugment || undefined
+        );
+        const next = normalizeSaqQuestions(saqs);
+        if (Array.isArray(next) && next.length > 0) questions = next;
+      } catch (err) {
+        console.warn(`Question generation attempt ${attempts} failed:`, err?.message || err);
+      }
+    }
+    if (!questions?.length) {
+      setQuestionsError(
+        "Questions could not be generated — tap Retry or continue to the next phase."
+      );
+      return false;
+    }
+    setQuestionsError(null);
+    setSaqQuestions(questions);
+    return true;
+  }
+
+  async function runStructureSaqQuestions(objectiveRowsOverride = null) {
+    const objs =
+      objectiveRowsOverride ??
+      (usingManualObjectives && manualObjectives?.length ? manualObjectives : null) ??
+      resolvedObjectives ??
+      [];
+    if (!Array.isArray(objs) || objs.length === 0) {
+      setStructureQuestionsError("Add objectives or use manual entry to generate questions.");
+      setStructureSaqQuestions([]);
+      return false;
+    }
+    let questions = null;
+    let attempts = 0;
+    while (!questions && attempts < 2) {
+      attempts += 1;
+      try {
+        const saqs = await generateSAQs(
+          lectureContent,
+          objs,
+          lectureTitle,
+          patientCase?.case ?? null,
+          lec,
+          blockId,
+          saqCrossAugment || undefined
+        );
+        const normalized = normalizeSaqQuestions(saqs);
+        if (normalized.length > 0) questions = normalized;
+      } catch (err) {
+        console.warn(`Structure question generation attempt ${attempts} failed:`, err?.message || err);
+      }
+    }
+    if (!questions?.length) {
+      setStructureQuestionsError(
+        "Questions could not be generated — tap Retry or continue to the next phase."
+      );
+      setStructureSaqQuestions([]);
+      return false;
+    }
+    setStructureQuestionsError(null);
+    setStructureSaqQuestions(questions);
+    return true;
+  }
 
   // PHASE 1: Brain Dump + SAQ Priming (retry a few times; fallback to generateSAQs so questions show without user clicking Retry)
   const initBrainDump = async () => {
     setLoading(true);
-    const maxAttempts = 3;
+    setQuestionsError(null);
+    const maxAttempts = 2;
     const delay = (ms) => new Promise((r) => setTimeout(r, ms));
     try {
       let questions = [];
@@ -3129,31 +2715,15 @@ Region 1 contains: (list structures)`,
       }
       if (questions.length > 0) {
         setSaqQuestions(questions);
+        setQuestionsError(null);
       } else {
-        try {
-          const saqs = await generateSAQs(
-            lectureContent,
-            resolvedObjectives || [],
-            lectureTitle,
-            null,
-            lec,
-            blockId,
-            saqCrossAugment || undefined
-          );
-          const fallback = normalizeSaqQuestions(saqs);
-          if (fallback.length > 0) {
-            setSaqQuestions(fallback);
-          } else {
-            setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
-          }
-        } catch (fallbackErr) {
-          console.error("initBrainDump fallback generateSAQs error:", fallbackErr);
-          setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
-        }
+        const ok = await runBrainDumpFollowupQuestions();
+        if (!ok) setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
       }
     } catch (err) {
       console.error("initBrainDump SAQ generation error:", err);
-      setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
+      const ok = await runBrainDumpFollowupQuestions();
+      if (!ok) setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setLoading(false);
     }
@@ -3167,6 +2737,7 @@ Region 1 contains: (list structures)`,
   const submitBrainDump = async () => {
     if (!brainDump.trim()) return;
     setLoading(true);
+    setQuestionsError(null);
     try {
       const sessionContext = buildSessionContext(lec, blockId, resolvedObjectives || []);
       const crossBrain =
@@ -3175,83 +2746,78 @@ Region 1 contains: (list structures)`,
               .map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}`)
               .join("; ")}. Evaluate their recall for each lecture separately AND note any cross-lecture connections they made. Call out missing connections explicitly.\n\n`
           : "";
-      const raw = await gemini(
+      const systemPrompt =
+        "You are a medical education tutor evaluating a student's brain dump before study. " +
+        "Respond with ONLY a single JSON object (no markdown fences). " +
+        "Fields: strengths (array of strings), gaps (array), misconceptions (array), readinessScore (0-100 integer), message (string). " +
+        "Be encouraging but honest. Weight feedback using weak/struggling objectives in the student context when provided.";
+
+      const userPrompt =
         crossBrain +
-          `A medical student was asked to brain dump everything they know about: ${lectureTitle}\n\n` +
-          `Their response:\n"${brainDump}"\n\n` +
-          `Learning objectives:\n${objList}\n\n` +
-          `Evaluate what they got right, what gaps exist, and what misconceptions to watch for.\n` +
-          `Be encouraging but honest.\n\n` +
-          `Weight your evaluation based on the weak objectives listed in the student context. If the student missed any struggling objectives in their brain dump, explicitly call those out by name in your feedback.\n\n` +
-          `Return ONLY JSON:\n` +
-          `{"strengths":["knew X","mentioned Y"],"gaps":["missing A","no mention of B"],"misconceptions":["confused X with Y"],"readinessScore":40,"message":"Good start! You have the basics of X but..."}` +
-          `\n\n---\nSTUDENT CONTEXT:\n${sessionContext}\n---`,
-        1000
-      );
-      const evalText = String(raw || "")
-        .replace(/^```json\s*/i, "")
-        .replace(/^```\s*/i, "")
-        .replace(/\s*```$/g, "")
-        .trim();
-      let evalData = safeJSONLocal(raw);
-      if (!evalData || Object.keys(evalData).length === 0) {
-        const first = evalText.indexOf("{");
-        const last = evalText.lastIndexOf("}");
-        if (first !== -1 && last > first) {
-          try {
-            evalData = JSON.parse(evalText.slice(first, last + 1));
-          } catch {
-            evalData = null;
-          }
+        `A medical student was asked to brain dump everything they know about: ${lectureTitle}\n\n` +
+        `Their response:\n"${brainDump}"\n\n` +
+        `Learning objectives:\n${objList}\n\n` +
+        `Evaluate what they got right, what gaps exist, and what misconceptions to watch for.\n\n` +
+        `Return ONLY JSON:\n` +
+        `{"strengths":["knew X","mentioned Y"],"gaps":["missing A","no mention of B"],"misconceptions":["confused X with Y"],"readinessScore":40,"message":"Good start! You have the basics of X but..."}\n\n` +
+        `---\nSTUDENT CONTEXT:\n${sessionContext}\n---`;
+
+      const fallbackEval = {
+        strengths: [],
+        gaps: [],
+        misconceptions: [],
+        readinessScore: 30,
+        message: "Could not evaluate — continue to questions below.",
+      };
+
+      try {
+        const evalPayload = await callAIJSON(systemPrompt, userPrompt, fallbackEval, 1500);
+        const rawScore =
+          evalPayload?.readinessScore ??
+          evalPayload?.readiness_score ??
+          evalPayload?.readiness ??
+          evalPayload?.score ??
+          evalPayload?.Score;
+        let readinessScore = null;
+        if (rawScore !== undefined && rawScore !== null && rawScore !== "") {
+          const n = Number(rawScore);
+          if (!Number.isNaN(n)) readinessScore = Math.min(100, Math.max(0, Math.round(n)));
         }
-      }
-      if (!evalData || Object.keys(evalData).length === 0) {
-        const scoreMatch = evalText.match(/"readinessScore"\s*:\s*(\d+)/i) || evalText.match(/"score"\s*:\s*(\d+)/i);
-        const msgMatch = evalText.match(/"message"\s*:\s*"((?:[^"\\]|\\.)*)"/);
-        const strengthsMatch = evalText.match(/"strengths"\s*:\s*\[([^\]]*)\]/);
-        const gapsMatch = evalText.match(/"gaps"\s*:\s*\[([^\]]*)\]/);
-        const readiness = scoreMatch ? Math.min(100, Math.max(0, parseInt(scoreMatch[1], 10))) : 0;
-        const message = msgMatch ? msgMatch[1].replace(/\\"/g, '"').slice(0, 300) : "";
-        const strengths = strengthsMatch
-          ? strengthsMatch[1].match(/"([^"]+)"/g)?.map((s) => s.replace(/^"|"$/g, "").replace(/\\"/g, '"')) ?? []
-          : [];
-        const gaps = gapsMatch
-          ? gapsMatch[1].match(/"([^"]+)"/g)?.map((s) => s.replace(/^"|"$/g, "").replace(/\\"/g, '"')) ?? []
-          : [];
-        if (readiness > 0 || message || strengths.length > 0 || gaps.length > 0) {
-          evalData = { readinessScore: readiness, message, strengths, gaps, misconceptions: [] };
-        }
-      }
-      if (evalData && Object.keys(evalData).length > 0) {
+        const msg = String(evalPayload?.message ?? evalPayload?.Message ?? evalPayload?.feedback ?? "").trim();
         setBrainDumpFeedback({
-          strengths: evalData.strengths ?? evalData.Strengths ?? [],
-          gaps: evalData.gaps ?? evalData.Gaps ?? [],
-          misconceptions: evalData.misconceptions ?? evalData.Misconceptions ?? [],
-          readinessScore: evalData.readinessScore ?? evalData.readiness_score ?? evalData.score ?? evalData.Score ?? 0,
-          message: evalData.message ?? evalData.Message ?? "",
+          strengths: Array.isArray(evalPayload?.strengths) ? evalPayload.strengths : Array.isArray(evalPayload?.Strengths) ? evalPayload.Strengths : [],
+          gaps: Array.isArray(evalPayload?.gaps) ? evalPayload.gaps : Array.isArray(evalPayload?.Gaps) ? evalPayload.Gaps : [],
+          misconceptions: Array.isArray(evalPayload?.misconceptions)
+            ? evalPayload.misconceptions
+            : Array.isArray(evalPayload?.Misconceptions)
+              ? evalPayload.Misconceptions
+              : [],
+          readinessScore,
+          message:
+            msg ||
+            (readinessScore != null
+              ? ""
+              : "Could not evaluate — continue to questions below."),
         });
-      } else {
+      } catch (err) {
+        console.warn("Brain dump eval failed:", err?.message || err);
         setBrainDumpFeedback({
-          strengths: [],
+          readinessScore: null,
+          message:
+            "Good start — you have some prior knowledge. Continue to the questions below to build on this.",
           gaps: [],
+          strengths: ["Prior knowledge noted"],
           misconceptions: [],
-          readinessScore: 0,
-          message: "The evaluation response couldn’t be read. You can continue to the questions below.",
         });
       }
-      const saqs = await generateSAQs(
-        lectureContent,
-        resolvedObjectives || [],
-        lectureTitle,
-        null,
-        lec,
-        blockId,
-        saqCrossAugment || undefined
-      );
-      const next = normalizeSaqQuestions(saqs);
-      setSaqQuestions((prev) => (next.length > 0 ? next : prev.length > 0 ? prev : []));
+
+      const ok = await runBrainDumpFollowupQuestions();
+      if (!ok) {
+        setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
+      }
     } catch (err) {
       console.error("submitBrainDump error:", err);
+      await runBrainDumpFollowupQuestions();
       setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
     } finally {
       setLoading(false);
@@ -3322,39 +2888,43 @@ Region 1 contains: (list structures)`,
     }
   };
 
-  const advanceFromBrainDump = async () => {
-    advancePhase("patientCase");
+  const generateTeachingSection = async (objIndex) => {
+    const objs = resolvedObjectives || [];
+    const obj = objs[objIndex];
+    if (!obj) return;
+    const objText = (obj.objective || obj.text || "").trim();
+    if (!objText) return;
+
+    setLoadingSection(true);
+    try {
+      const content =
+        isCrossLecture && crossCtx?.combinedContent
+          ? crossCtx.combinedContent
+          : getLecText(lec) || lectureContent || lec?.text || "";
+      const slice = content.slice(0, 4000);
+      const result = await callAI(
+        `You are a medical tutor teaching ${lectureTitle || "this lecture"}. Be conversational, clear, and use analogies. Teach one concept at a time. End with ONE check question to verify understanding.`,
+        `Teach this specific learning objective using the lecture content below. Be thorough but concise.\n\nOBJECTIVE: ${objText}\n\nLECTURE CONTENT:\n${slice}\n\nStructure your response as:\n1. Core concept explanation (3-5 sentences)\n2. Key mechanism or process\n3. Clinical relevance (1-2 sentences)\n4. Check question: "Quick check: [simple question]"`,
+        1500
+      );
+      setSectionExplanation(result);
+    } catch (err) {
+      console.error("generateTeachingSection failed:", err);
+      setSectionExplanation(
+        "Teaching content could not be generated. Use your lecture materials, tap Explain differently, or continue to the next objective."
+      );
+    } finally {
+      setLoadingSection(false);
+    }
+  };
+
+  const advanceFromBrainDump = () => {
+    advancePhase("teach");
     setPatientCase(null);
     setLoadingTooLong(false);
-    setLoading(true);
-    try {
-      const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
-      const structBody = isCrossLecture
-        ? `Create an integrated structural/functional breakdown across these lectures: ${(crossCtx.lecs || [])
-            .map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${l.lectureTitle || l.fileName || ""}`)
-            .join("; ")}.\n\n` +
-          `Objectives:\n${objList}\n\n` +
-          `Show how topics bridge across lectures (shared anatomy, pathways, clinical links). Follow: Patient Complaint → Organ → Architecture → Cell → Protein → Clinical Application, integrating across sources where relevant.\n\n` +
-          `Return ONLY JSON:\n` +
-          `{"levels":[{"level":"Patient Complaint","content":"...","whyItMatters":"..."},...],"keyMechanism":"..."}`
-        : `Create a structural and functional breakdown for: ${lectureTitle}\n\n` +
-          `Objectives:\n${objList}\n\n` +
-          `Follow this hierarchy: Patient Complaint → Organ → Architecture → Cell → Protein → Clinical Application\n\n` +
-          `For each level, explain the "Why?" — how does it connect to patient care?\n` +
-          `Apply the "Make Me Care" test — only include facts that directly explain patient presentations.\n\n` +
-          `Return ONLY JSON:\n` +
-          `{"levels":[{"level":"Patient Complaint","content":"Patient presents with X because...","whyItMatters":"This matters clinically because..."},...],"keyMechanism":"The core mechanism connecting all levels is..."}`;
-      const structResult = await geminiJSON(crossHdr + structBody, 2000);
-      setStructureContent(structResult);
-    } catch (err) {
-      console.error("advanceFromBrainDump structure content failed:", err);
-      setStructureContent({
-        levels: [{ level: "Overview", content: "Structure breakdown could not be generated. You can continue with the patient case and questions below.", whyItMatters: "Use the lecture objectives to guide your study." }],
-        keyMechanism: "Proceed with the patient case and SAQs to reinforce the material.",
-      });
-    } finally {
-      setLoading(false);
-    }
+    setTeachingSection(0);
+    setSectionExplanation(null);
+    setSectionUnderstood({});
   };
 
   const patientCaseFallback = () => ({
@@ -3363,7 +2933,7 @@ Region 1 contains: (list structures)`,
   });
 
   useEffect(() => {
-    if (phase !== "patientCase") return;
+    if (phase !== "patient") return;
     if (patientCase?.case) return;
 
     if (!isCrossLecture && lec?.teachingMap?.clinicalHook) {
@@ -3377,6 +2947,31 @@ Region 1 contains: (list structures)`,
     let cancelled = false;
 
     const load = async () => {
+      const masteredTexts = (resolvedObjectives || [])
+        .filter((_, i) => sectionUnderstood[i])
+        .map((o) => (o.objective || o.text || "").trim())
+        .filter(Boolean);
+
+      if (masteredTexts.length > 0) {
+        try {
+          const result = await callAI(
+            `You create clinical cases for medical education. The case must test the specific mechanisms just learned — not general knowledge.`,
+            `Create a SHORT patient case (3-4 sentences) that requires applying these specific concepts:\n${masteredTexts.join("\n")}\n\nThe case should:\n- Present a patient with a clinical problem\n- Require the student to apply the mechanisms above to explain what's happening\n- End with: "Using what you just learned, explain what is happening at the cellular/vascular level."\n\nLecture: ${lectureTitle || ""}`,
+            800
+          );
+          if (!cancelled) {
+            setPatientCase({
+              case: result,
+              focus:
+                "Using what you just learned, explain what is happening at the cellular/vascular level.",
+            });
+          }
+          return;
+        } catch (err) {
+          console.error("Objective-based patient case failed:", err);
+        }
+      }
+
       const contentForCase =
         isCrossLecture && crossCtx?.combinedContent ? crossCtx.combinedContent : lectureContent;
       console.log(
@@ -3440,10 +3035,11 @@ Region 1 contains: (list structures)`,
     isCrossLecture,
     crossCtx?.combinedContent,
     patientCaseCrossAugment,
+    sectionUnderstood,
   ]);
 
   useEffect(() => {
-    if (phase === "structureFunction" && resolvedObjectives.length === 0 && (blockObjectives || []).length > 0 && !manualInput) {
+    if (phase === "gaps" && resolvedObjectives.length === 0 && (blockObjectives || []).length > 0 && !manualInput) {
       const text = (blockObjectives || []).map((o) => (o.objective || o.text || "").trim()).filter(Boolean).join("\n");
       if (text) setManualInput(text);
     }
@@ -3460,67 +3056,13 @@ Region 1 contains: (list structures)`,
   }, [resolvedObjectives.length, blockObjectives, manualInput, lec?.id, lec?.mergedFrom]);
 
   useEffect(() => {
-    if (phase !== "patientCase" || patientCase?.case) {
+    if (phase !== "patient" || patientCase?.case) {
       setLoadingTooLong(false);
       return;
     }
     const t = setTimeout(() => setLoadingTooLong(true), 8000);
     return () => clearTimeout(t);
   }, [phase, patientCase?.case]);
-
-  // PHASE 2: Patient Case Presentation
-  // PHASE 3: Structure/Function Mastery
-  const advanceToAlgorithm = async () => {
-    setLoading(true);
-    try {
-      const crossHdr = isCrossLecture ? crossSystemPrefix + "\n\n" : "";
-      const algoPrompt = isCrossLecture
-        ? `Guide the student to map how the selected lectures connect for integrated exam prep.\n\n` +
-          `Lectures: ${(crossCtx.lecs || []).map((l) => `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""}`).join(", ")}\n\n` +
-          `Objectives:\n${objList}\n\n` +
-          `Focus on: shared anatomical regions, clinical overlaps, pathways that span multiple topics, or conditions that require integrated knowledge.\n` +
-          `Structure the walkthrough to reveal connections rather than covering each lecture in isolation.\n\n` +
-          `Return ONLY JSON (use algorithm-shaped scaffold: title, entryPoint, steps with yes/no branches, keyBranches, memoryHook):\n` +
-          `{"title":"Connections across X and Y","entryPoint":"...","steps":[{"step":1,"question":"...","yes":"...","no":"..."}],"keyBranches":[],"memoryHook":"..."}`
-        : `Create a diagnostic/management algorithm for: ${lectureTitle}\n\n` +
-          `The algorithm must:\n` +
-          `- Start from a clear entry point (a patient symptom or lab finding)\n` +
-          `- Use Yes/No decision branches\n` +
-          `- Be completeable from memory\n` +
-          `- Cover the 80% high-yield pathway\n\n` +
-          `Return ONLY JSON:\n` +
-          `{"title":"Algorithm for X","entryPoint":"Patient presents with Y","steps":[{"step":1,"question":"Is Z present?","yes":"Go to step 2","no":"Consider diagnosis A"},...],"keyBranches":["Branch 1: if X then Y","Branch 2: if A then B"],"memoryHook":"Remember: ABCDE"}`;
-      const parsed = await geminiJSON(crossHdr + algoPrompt, 1500);
-      setAlgorithm(parsed);
-      advancePhase("algorithmDraw");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const submitAlgorithm = async () => {
-    if (!algorithmText.trim()) return;
-    setLoading(true);
-    try {
-      const taskPhrase = isCrossLecture
-        ? "map cross-lecture connections for"
-        : isAnatomyContent
-          ? "map key structures and relationships for"
-          : "write out the diagnostic algorithm for";
-      const fb = await geminiJSON(
-        `A student was asked to ${taskPhrase}: ${lectureTitle}\n\n` +
-          `The correct reference:\n${JSON.stringify(algorithm?.steps || algorithm)}\n\n` +
-          `Student's attempt:\n"${algorithmText}"\n\n` +
-          `${algorithmPhaseConfig.evalPrompt}\n\n` +
-          `Return ONLY JSON:\n` +
-          `{"score":75,"correct":["got entry point","identified branch 1"],"missed":["missed branch 2","forgot endpoint"],"feedback":"Good structure but..."}`,
-        600
-      );
-      setAlgorithmFeedback(fb);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const advanceToReadRecall = async () => {
     setLoading(true);
@@ -3548,7 +3090,7 @@ Region 1 contains: (list structures)`,
       setCurrentRecall(0);
       setRecallAnswer("");
       setRecallFeedback(null);
-      advancePhase("readRecall");
+      advancePhase("selftest");
     } finally {
       setLoading(false);
     }
@@ -3582,7 +3124,7 @@ Region 1 contains: (list structures)`,
       setRecallAnswer("");
       setRecallFeedback(null);
     } else {
-      advanceToMCQ();
+      advancePhase("gaps");
     }
   };
 
@@ -3656,7 +3198,7 @@ Region 1 contains: (list structures)`,
       setCurrentMCQ(0);
       setMcqSelected(null);
       setMcqFeedback(null);
-      advancePhase("mcq");
+      advancePhase("apply");
     } finally {
       setLoading(false);
     }
@@ -3698,7 +3240,7 @@ Region 1 contains: (list structures)`,
     }
   };
 
-  if (loading && phase === "brainDump")
+  if (loading && phase === "prime")
     return (
       <div style={{ padding: 48, textAlign: "center" }}>
         <div
@@ -4172,22 +3714,8 @@ Region 1 contains: (list structures)`,
     );
   }
 
-  const phaseIcons = {
-    brainDump: "🧠",
-    patientCase: "🏥",
-    structureFunction: "🔬",
-    algorithmDraw: "📊",
-    readRecall: "📖",
-    mcq: "✅",
-  };
-  const phaseLabels = {
-    brainDump: "Prime",
-    patientCase: "Patient",
-    structureFunction: "Structure",
-    algorithmDraw: isCrossLecture ? "Connect" : "Algorithm",
-    readRecall: "Recall",
-    mcq: "Apply",
-  };
+  const phaseIcons = Object.fromEntries(DEEP_LEARN_PHASES.map((p) => [p.id, p.icon]));
+  const phaseLabels = Object.fromEntries(DEEP_LEARN_PHASES.map((p) => [p.id, p.label]));
 
   const dlLectureTagColor = (tag) => {
     const u = String(tag || "").toUpperCase();
@@ -4383,7 +3911,7 @@ Region 1 contains: (list structures)`,
       <CrossLectureStrip />
 
       {/* Phase 1: Brain Dump + SAQ */}
-      {phase === "brainDump" && (
+      {phase === "prime" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
@@ -4416,7 +3944,7 @@ Region 1 contains: (list structures)`,
               </button>
             )}
             <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              PHASE {PHASE_ORDER.indexOf(phase) + 1} OF {PHASE_ORDER.length - 1} · ACTIVE RECALL PRIMING
+              {DEEP_LEARN_PHASES.find((p) => p.id === "prime")?.subtitle || "BRAIN DUMP"}
             </div>
             {PHASE_ORDER.indexOf(phase) === 0 && <div />}
           </div>
@@ -4616,16 +4144,36 @@ Region 1 contains: (list structures)`,
                 gap: 12,
               }}
             >
-              <div
-                style={{
-                  fontFamily: MONO,
-                  color: tc,
-                  fontSize: 11,
-                  fontWeight: 700,
-                }}
-              >
-                Readiness: {brainDumpFeedback?.readinessScore ?? "—"}%
-              </div>
+              {(() => {
+                const displayReadiness = brainDumpFeedback?.readinessScore ?? null;
+                return displayReadiness != null ? (
+                  <div
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color:
+                        displayReadiness >= 60
+                          ? T.statusGood
+                          : displayReadiness >= 30
+                            ? T.statusWarn
+                            : T.statusBad,
+                    }}
+                  >
+                    Readiness: {displayReadiness}%
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      color: T.textSecondary || T.text3,
+                      fontSize: 13,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    Continue to questions below
+                  </div>
+                );
+              })()}
 
               {brainDumpFeedback.message && (
                 <div
@@ -4898,52 +4446,78 @@ Region 1 contains: (list structures)`,
             </div>
           )}
           {saqQuestions.length === 0 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", padding: "16px" }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Questions could not be generated.</div>
-              <button
-                type="button"
-                onClick={async () => {
-                  setLoading(true);
-                  try {
-                    const saqs = await generateSAQs(
-                      lectureContent,
-                      resolvedObjectives || [],
-                      lectureTitle,
-                      null,
-                      lec,
-                      blockId,
-                      saqCrossAugment || undefined
-                    );
-                    const next = normalizeSaqQuestions(saqs);
-                    setSaqQuestions((prev) => (next.length > 0 ? next : prev.length > 0 ? prev : []));
-                  } catch {
-                    setSaqQuestions((prev) => (prev.length > 0 ? prev : []));
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-                disabled={loading}
+            <div style={{ textAlign: "center", marginTop: 16, padding: "0 16px 16px" }}>
+              <div
                 style={{
-                  background: tc,
-                  border: "none",
-                  color: "#fff",
-                  padding: "10px 20px",
-                  borderRadius: 8,
+                  fontSize: 13,
+                  color: T.textSecondary || T.text3,
+                  marginBottom: 12,
                   fontFamily: MONO,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: loading ? "default" : "pointer",
+                  maxWidth: 420,
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                  lineHeight: 1.5,
                 }}
               >
-                {loading ? "Generating…" : "⟳ Retry"}
-              </button>
+                {questionsError ||
+                  "Questions could not be generated — tap Retry or continue to the next phase."}
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setQuestionsError(null);
+                    setLoading(true);
+                    try {
+                      await runBrainDumpFollowupQuestions();
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 8,
+                    background: T.accent || tc,
+                    color: "#fff",
+                    border: "none",
+                    cursor: loading ? "default" : "pointer",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    fontFamily: MONO,
+                  }}
+                >
+                  {loading ? "Generating…" : "↺ Retry"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuestionsError(null);
+                    advanceFromBrainDump();
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 8,
+                    border: `1px solid ${T.border1 || T.border2}`,
+                    background: "transparent",
+                    color: T.text1,
+                    cursor: loading ? "default" : "pointer",
+                    fontSize: 13,
+                    fontFamily: MONO,
+                    fontWeight: 600,
+                  }}
+                >
+                  Skip → Next phase
+                </button>
+              </div>
             </div>
           )}
 
           {brainDumpFeedback && (
             <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
               <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
-                The patient case will load on the next screen (may take a few seconds).
+                Guided teaching is next — one objective at a time from your lecture.
               </div>
               <button
                 onClick={advanceFromBrainDump}
@@ -4961,15 +4535,15 @@ Region 1 contains: (list structures)`,
                   width: "100%",
                 }}
               >
-                {loading ? "Preparing patient case..." : "Meet Your Patient →"}
+                {loading ? "Preparing…" : "Start guided teaching →"}
               </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Phase 2: Patient Case */}
-      {phase === "patientCase" && (
+      {/* Phase 2: Guided teaching (objective-driven) */}
+      {phase === "teach" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
@@ -5002,7 +4576,267 @@ Region 1 contains: (list structures)`,
               </button>
             )}
             <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              PHASE {PHASE_ORDER.indexOf(phase) + 1} OF {PHASE_ORDER.length - 1} · CLINICAL ANCHOR
+              {DEEP_LEARN_PHASES.find((p) => p.id === "teach")?.subtitle || "GUIDED TEACHING"}
+            </div>
+            {PHASE_ORDER.indexOf(phase) === 0 && <div />}
+          </div>
+          <div>
+            <div
+              style={{
+                fontFamily: SERIF,
+                color: T.text1,
+                fontSize: 22,
+                fontWeight: 900,
+                marginBottom: 4,
+              }}
+            >
+              {DEEP_LEARN_PHASES.find((p) => p.id === "teach")?.title || "Guided Teaching"}
+            </div>
+            <div
+              style={{
+                fontFamily: MONO,
+                color: T.text3,
+                fontSize: 13,
+                lineHeight: 1.6,
+              }}
+            >
+              Each step focuses on one objective from this lecture. Ask for a lesson, then continue when it clicks.
+            </div>
+            {deeplinkObjectiveId &&
+              !resuming &&
+              resolvedObjectives.length > 0 &&
+              !resolvedObjectives.some((o) => o.id === deeplinkObjectiveId) && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: "10px 12px",
+                    background: T.statusWarnBg,
+                    border: "1px solid " + T.statusWarnBorder,
+                    borderRadius: 8,
+                    fontFamily: MONO,
+                    fontSize: 12,
+                    color: T.statusWarn,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Could not match the linked drill objective to this lecture&apos;s list — browse objectives with the
+                  numbered steps above.
+                </div>
+              )}
+          </div>
+
+          {resolvedObjectives.length === 0 ? (
+            <div
+              style={{
+                padding: 16,
+                background: T.cardBg,
+                border: "1px solid " + T.border1,
+                borderRadius: 10,
+                fontFamily: MONO,
+                fontSize: 13,
+                color: T.text2,
+                lineHeight: 1.6,
+              }}
+            >
+              No objectives are linked to this lecture yet. Add objectives in your block or paste them manually where
+              Deep Learn asks, then restart or go back and enter them — guided teaching needs at least one objective.
+            </div>
+          ) : (
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 4,
+                  marginBottom: 16,
+                  flexWrap: "wrap",
+                }}
+              >
+                {resolvedObjectives.map((obj, i) => (
+                  <div
+                    key={obj.id || `obj-${i}`}
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: "50%",
+                      background: sectionUnderstood[i] ? "#16a34a" : i === teachingSection ? T.accent || tc : T.border1,
+                      cursor: i <= teachingSection ? "pointer" : "default",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 10,
+                      color: "white",
+                      fontWeight: 700,
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => i <= teachingSection && setTeachingSection(i)}
+                    onKeyDown={(e) => e.key === "Enter" && i <= teachingSection && setTeachingSection(i)}
+                  >
+                    {sectionUnderstood[i] ? "✓" : i + 1}
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: T.accent || tc,
+                  marginBottom: 8,
+                  letterSpacing: "0.03em",
+                  fontFamily: MONO,
+                }}
+              >
+                OBJECTIVE {teachingSection + 1} OF {resolvedObjectives.length}
+              </div>
+              <div
+                id={
+                  resolvedObjectives[teachingSection]?.id
+                    ? `rxt-dl-teach-obj-${resolvedObjectives[teachingSection].id}`
+                    : undefined
+                }
+                style={{
+                  fontWeight: 700,
+                  fontSize: 16,
+                  marginBottom: 16,
+                  lineHeight: 1.4,
+                  fontFamily: SERIF,
+                  color: T.text1,
+                }}
+              >
+                {resolvedObjectives[teachingSection]?.objective ||
+                  resolvedObjectives[teachingSection]?.text ||
+                  ""}
+              </div>
+
+              {loadingSection ? (
+                <div style={{ color: T.textSecondary || T.text3, fontSize: 13, fontFamily: MONO }}>Teaching this section…</div>
+              ) : sectionExplanation ? (
+                <div
+                  style={{
+                    fontSize: 14,
+                    lineHeight: 1.7,
+                    color: T.text1,
+                    marginBottom: 20,
+                    whiteSpace: "pre-wrap",
+                    fontFamily: MONO,
+                  }}
+                >
+                  {sectionExplanation}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void generateTeachingSection(teachingSection)}
+                  style={{
+                    padding: "10px 20px",
+                    borderRadius: 8,
+                    background: T.accent || tc,
+                    color: "white",
+                    border: "none",
+                    cursor: "pointer",
+                    fontWeight: 600,
+                    fontSize: 14,
+                    fontFamily: MONO,
+                  }}
+                >
+                  📖 Teach me this objective →
+                </button>
+              )}
+
+              {sectionExplanation && (
+                <div style={{ display: "flex", gap: 8, marginTop: 16, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSectionUnderstood((prev) => ({ ...prev, [teachingSection]: true }));
+                      if (teachingSection < resolvedObjectives.length - 1) {
+                        setTeachingSection((s) => s + 1);
+                        setSectionExplanation(null);
+                      } else {
+                        setPatientCase(null);
+                        advancePhase("patient");
+                      }
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: "10px 0",
+                      borderRadius: 8,
+                      background: "#16a34a",
+                      color: "white",
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 13,
+                      fontFamily: MONO,
+                      minWidth: 160,
+                    }}
+                  >
+                    {teachingSection < resolvedObjectives.length - 1
+                      ? "✓ Got it — next objective →"
+                      : "✓ Got it — meet your patient →"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSectionExplanation(null);
+                      void generateTeachingSection(teachingSection);
+                    }}
+                    style={{
+                      padding: "10px 16px",
+                      borderRadius: 8,
+                      border: "1px solid " + T.border1,
+                      background: "transparent",
+                      color: T.text1,
+                      cursor: "pointer",
+                      fontSize: 13,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    ↺ Explain differently
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Phase 3: Patient anchor */}
+      {phase === "patient" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
+              <button
+                type="button"
+                onClick={goBackPhase}
+                style={{
+                  background: "none",
+                  border: "1px solid " + T.border1,
+                  borderRadius: 8,
+                  padding: "6px 14px",
+                  color: T.text3,
+                  fontFamily: MONO,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = tc;
+                  e.currentTarget.style.color = tc;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = T.border1;
+                  e.currentTarget.style.color = T.text3;
+                }}
+              >
+                ← Previous Phase
+              </button>
+            )}
+            <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
+              {DEEP_LEARN_PHASES.find((p) => p.id === "patient")?.subtitle || "PATIENT ANCHOR"}
             </div>
             {PHASE_ORDER.indexOf(phase) === 0 && <div />}
           </div>
@@ -5167,7 +5001,7 @@ Region 1 contains: (list structures)`,
           </div>
 
           <button
-            onClick={() => advancePhase("structureFunction")}
+            onClick={() => void advanceToReadRecall()}
             style={{
               background: tc,
               border: "none",
@@ -5180,14 +5014,172 @@ Region 1 contains: (list structures)`,
               fontWeight: 900,
             }}
           >
-            Start Learning →
+            Self-Test →
           </button>
         </div>
       )}
 
-      {/* Phase 3: Structure/Function */}
-      {phase === "structureFunction" && structureContent && (
+      {/* Phase 6: Fix Your Gaps (structure + anatomy walkthrough) */}
+      {phase === "gaps" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {isFirstPass && isAnatomyContent && walkthroughObjectives.length === 0 && (
+            <div
+              style={{
+                padding: 20,
+                background: "#fff8ee",
+                border: "1.5px solid " + (T.statusWarn || "#f59e0b"),
+                borderRadius: 12,
+                marginBottom: 20,
+              }}
+            >
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.statusWarn || "#d97706", fontFamily: MONO, marginBottom: 8 }}>
+                △ NO OBJECTIVES FOUND
+              </div>
+              <div style={{ fontSize: 14, color: "#555", marginBottom: 12 }}>
+                Objectives couldn&apos;t be loaded for this lecture. Enter them manually to continue — one per line, or paste them from your lecture slides.
+              </div>
+              <textarea
+                value={manualInput}
+                onChange={(e) => setManualInput(e.target.value)}
+                placeholder={"One per line, e.g.:\nDescribe the key structures and their function\nIdentify the main clinical correlations\nExplain the underlying mechanism"}
+                style={{
+                  width: "100%",
+                  minHeight: 120,
+                  padding: "10px 12px",
+                  borderRadius: 8,
+                  border: "1.5px solid #ddd",
+                  fontFamily: MONO,
+                  fontSize: 13,
+                  resize: "vertical",
+                  marginBottom: 10,
+                  boxSizing: "border-box",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const lines = manualInput
+                    .split("\n")
+                    .map((l) => l.trim())
+                    .filter((l) => l.length > 5)
+                    .map((text, i) => ({
+                      id: `manual-${i}`,
+                      text,
+                      objective: text,
+                      linkedLecId: lec?.id,
+                      sourceFile: lec?.id,
+                      lectureType: lec?.lectureType,
+                      lectureNumber: lec?.lectureNumber,
+                      status: "untested",
+                      bloom_level: 2,
+                      bloom_level_name: "Understand",
+                    }));
+                  if (lines.length === 0) return;
+                  setManualObjectives(lines);
+                  setUsingManualObjectives(true);
+                }}
+                style={{
+                  padding: "10px 20px",
+                  background: T.statusWarn || "#f59e0b",
+                  color: "white",
+                  border: "none",
+                  borderRadius: 8,
+                  fontFamily: MONO,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                }}
+              >
+                ✓ Use These Objectives
+              </button>
+            </div>
+          )}
+          {isFirstPass && isAnatomyContent && walkthroughObjectives.length > 0 && (
+            <>
+              <PatientBanner />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
+                  <button
+                    type="button"
+                    onClick={goBackPhase}
+                    style={{
+                      background: "none",
+                      border: "1px solid " + T.border1,
+                      borderRadius: 8,
+                      padding: "6px 14px",
+                      color: T.text3,
+                      fontFamily: MONO,
+                      fontSize: 11,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = tc;
+                      e.currentTarget.style.color = tc;
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = T.border1;
+                      e.currentTarget.style.color = T.text3;
+                    }}
+                  >
+                    ← Previous Phase
+                  </button>
+                )}
+                <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
+                  {DEEP_LEARN_PHASES.find((p) => p.id === "gaps")?.subtitle || "FIX YOUR GAPS"}
+                </div>
+                {PHASE_ORDER.indexOf(phase) === 0 && <div />}
+              </div>
+              {usingManualObjectives && (
+                <div style={{ fontSize: 11, color: T.statusProgress || tc, fontFamily: MONO, marginBottom: 8 }}>
+                  ◑ Using manually entered objectives ·
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => {
+                      setManualObjectives([]);
+                      setUsingManualObjectives(false);
+                      setManualInput("");
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && (setManualObjectives([]), setUsingManualObjectives(false), setManualInput(""))}
+                    style={{ cursor: "pointer", textDecoration: "underline", marginLeft: 4 }}
+                  >
+                    clear
+                  </span>
+                </div>
+              )}
+              <FirstPassWalkthrough
+                lec={lec}
+                lectureContent={lectureContent}
+                lecObjectives={walkthroughObjectives}
+                blockId={blockId}
+                lecId={lec?.id}
+                lectureNumber={lec?.lectureNumber}
+                lectureType={lec?.lectureType}
+                mergedFrom={lec?.mergedFrom || []}
+                getBlockObjectives={getBlockObjectives}
+                lectureTitle={lectureTitle || lec?.lectureTitle || lec?.fileName}
+                patientCase={patientCase}
+                T={T}
+                tc={tc}
+                onComplete={() => void advanceToMCQ()}
+                sessionId={sessionId}
+                deleteSession={deleteSession}
+              />
+            </>
+          )}
+          {!(isFirstPass && isAnatomyContent && walkthroughObjectives.length > 0) && (
+            <>
+              {!structureContent && loading && (
+                <div style={{ padding: 32, textAlign: "center", fontFamily: MONO, color: T.text3 }}>Building your gap review…</div>
+              )}
+              {!structureContent && !loading && (
+                <div style={{ padding: 32, textAlign: "center", fontFamily: MONO, color: T.text3 }}>Preparing structure review…</div>
+              )}
+              {structureContent && (
+                <>
           <PatientBanner />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
@@ -5220,7 +5212,7 @@ Region 1 contains: (list structures)`,
               </button>
             )}
             <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              PHASE {PHASE_ORDER.indexOf(phase) + 1} OF {PHASE_ORDER.length - 1} · THE NO-GAPS MODEL
+              {DEEP_LEARN_PHASES.find((p) => p.id === "gaps")?.subtitle || "FIX YOUR GAPS"}
             </div>
             {PHASE_ORDER.indexOf(phase) === 0 && <div />}
           </div>
@@ -5234,7 +5226,7 @@ Region 1 contains: (list structures)`,
                 marginBottom: 4,
               }}
             >
-              Structure → Function → Patient
+              {DEEP_LEARN_PHASES.find((p) => p.id === "gaps")?.title || "Fix Your Gaps"}
             </div>
             <div
               style={{
@@ -5243,8 +5235,8 @@ Region 1 contains: (list structures)`,
                 fontSize: 13,
               }}
             >
-              Walk the hierarchy. At each level ask: "How does this explain my
-              patient's presentation?" Answer each question, then connect it to your patient's presentation.
+              Walk the hierarchy. At each level ask: &quot;How does this explain my patient&apos;s presentation?&quot; Answer
+              each question, then connect it to your patient.
             </div>
           </div>
 
@@ -5380,21 +5372,10 @@ Region 1 contains: (list structures)`,
                   if (lines.length === 0) return;
                   setManualObjectives(lines);
                   setUsingManualObjectives(true);
+                  setStructureQuestionsError(null);
                   setLoading(true);
                   try {
-                    const saqs = await generateSAQs(
-                      lectureContent,
-                      lines,
-                      lectureTitle,
-                      patientCase?.case ?? null,
-                      lec,
-                      blockId,
-                      saqCrossAugment || undefined
-                    );
-                    const normalized = normalizeSaqQuestions(saqs);
-                    setStructureSaqQuestions(normalized.length > 0 ? normalized : []);
-                  } catch {
-                    setStructureSaqQuestions([]);
+                    await runStructureSaqQuestions(lines);
                   } finally {
                     setLoading(false);
                   }
@@ -5571,45 +5552,71 @@ Region 1 contains: (list structures)`,
               <span style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Generating questions…</span>
             </div>
           ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center", padding: "20px" }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Questions could not be generated.</div>
-              <button
-                type="button"
-                onClick={async () => {
-                  setLoading(true);
-                  try {
-                    const saqs = await generateSAQs(
-                      lectureContent,
-                      resolvedObjectives || [],
-                      lectureTitle,
-                      patientCase?.case ?? null,
-                      lec,
-                      blockId,
-                      saqCrossAugment || undefined
-                    );
-                    const normalized = normalizeSaqQuestions(saqs);
-                    setStructureSaqQuestions(normalized.length > 0 ? normalized : []);
-                  } catch {
-                    setStructureSaqQuestions([]);
-                  } finally {
-                    setLoading(false);
-                  }
-                }}
-                disabled={loading}
+            <div style={{ textAlign: "center", marginTop: 16, padding: "20px" }}>
+              <div
                 style={{
-                  background: tc,
-                  border: "none",
-                  color: "#fff",
-                  padding: "10px 20px",
-                  borderRadius: 8,
+                  fontSize: 13,
+                  color: T.textSecondary || T.text3,
+                  marginBottom: 12,
                   fontFamily: MONO,
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: loading ? "default" : "pointer",
+                  maxWidth: 420,
+                  marginLeft: "auto",
+                  marginRight: "auto",
+                  lineHeight: 1.5,
                 }}
               >
-                ⟳ Retry
-              </button>
+                {structureQuestionsError ||
+                  "Questions could not be generated — tap Retry or continue to the next phase."}
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setStructureQuestionsError(null);
+                    setLoading(true);
+                    try {
+                      await runStructureSaqQuestions();
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 8,
+                    background: T.accent || tc,
+                    color: "#fff",
+                    border: "none",
+                    cursor: loading ? "default" : "pointer",
+                    fontWeight: 600,
+                    fontSize: 13,
+                    fontFamily: MONO,
+                  }}
+                >
+                  {loading ? "Generating…" : "↺ Retry"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStructureQuestionsError(null);
+                    void advanceToMCQ();
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: "8px 20px",
+                    borderRadius: 8,
+                    border: `1px solid ${T.border1 || T.border2}`,
+                    background: "transparent",
+                    color: T.text1,
+                    cursor: loading ? "default" : "pointer",
+                    fontSize: 13,
+                    fontFamily: MONO,
+                    fontWeight: 600,
+                  }}
+                >
+                  Skip → Next phase
+                </button>
+              </div>
             </div>
           )}
 
@@ -5624,7 +5631,7 @@ Region 1 contains: (list structures)`,
                 )}
                 <button
                   type="button"
-                  onClick={advanceToAlgorithm}
+                  onClick={() => void advanceToMCQ()}
                   disabled={loading || !allAttempted}
                   style={{
                     background: allAttempted ? tc : T.border1,
@@ -5638,470 +5645,20 @@ Region 1 contains: (list structures)`,
                     fontWeight: 900,
                   }}
                 >
-                  {loading ? "Building algorithm..." : "Build the Algorithm →"}
+                  {loading ? "Generating MCQs..." : "Clinical MCQs →"}
                 </button>
               </>
             );
           })()}
-        </div>
-      )}
-
-      {/* Phase 4: Algorithm Draw */}
-      {phase === "algorithmDraw" && algorithm && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <PatientBanner />
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
-              <button
-                type="button"
-                onClick={goBackPhase}
-                style={{
-                  background: "none",
-                  border: "1px solid " + T.border1,
-                  borderRadius: 8,
-                  padding: "6px 14px",
-                  color: T.text3,
-                  fontFamily: MONO,
-                  fontSize: 11,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = tc;
-                  e.currentTarget.style.color = tc;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = T.border1;
-                  e.currentTarget.style.color = T.text3;
-                }}
-              >
-                ← Previous Phase
-              </button>
-            )}
-            <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              PHASE {PHASE_ORDER.indexOf(phase) + 1} OF {PHASE_ORDER.length - 1} · {algorithmPhaseConfig.subtitle}
-            </div>
-            {PHASE_ORDER.indexOf(phase) === 0 && <div />}
-          </div>
-          {usingManualObjectives && (
-            <div style={{ fontSize: 11, color: T.statusProgress || tc, fontFamily: MONO, marginBottom: 8 }}>
-              ◑ Using manually entered objectives ·
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={() => {
-                  setManualObjectives([]);
-                  setUsingManualObjectives(false);
-                  setManualInput("");
-                }}
-                onKeyDown={(e) => e.key === "Enter" && (setManualObjectives([]), setUsingManualObjectives(false), setManualInput(""))}
-                style={{ cursor: "pointer", textDecoration: "underline", marginLeft: 4 }}
-              >
-                clear
-              </span>
-            </div>
-          )}
-          {isFirstPass && isAnatomyContent ? (
-            walkthroughObjectives.length === 0 ? (
-              <div
-                style={{
-                  padding: 20,
-                  background: "#fff8ee",
-                  border: "1.5px solid " + (T.statusWarn || "#f59e0b"),
-                  borderRadius: 12,
-                  marginBottom: 20,
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 700, color: T.statusWarn || "#d97706", fontFamily: MONO, marginBottom: 8 }}>
-                  △ NO OBJECTIVES FOUND
-                </div>
-                <div style={{ fontSize: 14, color: "#555", marginBottom: 12 }}>
-                  Objectives couldn't be loaded for this lecture. Enter them manually to continue — one per line, or paste them from your lecture slides.
-                </div>
-                <textarea
-                  value={manualInput}
-                  onChange={(e) => setManualInput(e.target.value)}
-                  placeholder={"One per line, e.g.:\nDescribe the key structures and their function\nIdentify the main clinical correlations\nExplain the underlying mechanism"}
-                  style={{
-                    width: "100%",
-                    minHeight: 120,
-                    padding: "10px 12px",
-                    borderRadius: 8,
-                    border: "1.5px solid #ddd",
-                    fontFamily: MONO,
-                    fontSize: 13,
-                    resize: "vertical",
-                    marginBottom: 10,
-                    boxSizing: "border-box",
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={() => {
-                    const lines = manualInput
-                      .split("\n")
-                      .map((l) => l.trim())
-                      .filter((l) => l.length > 5)
-                      .map((text, i) => ({
-                        id: `manual-${i}`,
-                        text,
-                        objective: text,
-                        linkedLecId: lec?.id,
-                        sourceFile: lec?.id,
-                        lectureType: lec?.lectureType,
-                        lectureNumber: lec?.lectureNumber,
-                        status: "untested",
-                        bloom_level: 2,
-                        bloom_level_name: "Understand",
-                      }));
-                    if (lines.length === 0) return;
-                    setManualObjectives(lines);
-                    setUsingManualObjectives(true);
-                  }}
-                  style={{
-                    padding: "10px 20px",
-                    background: T.statusWarn || "#f59e0b",
-                    color: "white",
-                    border: "none",
-                    borderRadius: 8,
-                    fontFamily: MONO,
-                    fontWeight: 700,
-                    fontSize: 13,
-                    cursor: "pointer",
-                  }}
-                >
-                  ✓ Use These Objectives
-                </button>
-              </div>
-            ) : (
-            <FirstPassWalkthrough
-              lec={lec}
-              lectureContent={lectureContent}
-              lecObjectives={walkthroughObjectives}
-              blockId={blockId}
-              lecId={lec?.id}
-              lectureNumber={lec?.lectureNumber}
-              lectureType={lec?.lectureType}
-              mergedFrom={lec?.mergedFrom || []}
-              getBlockObjectives={getBlockObjectives}
-              lectureTitle={lectureTitle || lec?.lectureTitle || lec?.fileName}
-              patientCase={patientCase}
-              T={T}
-              tc={tc}
-              onComplete={() => advanceToReadRecall()}
-              sessionId={sessionId}
-              deleteSession={deleteSession}
-            />
-            )
-          ) : (
-          <>
-          <div>
-            <div
-              style={{
-                fontFamily: SERIF,
-                color: T.text1,
-                fontSize: 28,
-                fontWeight: 900,
-                marginBottom: 12,
-              }}
-            >
-              {algorithmPhaseConfig.title}
-            </div>
-            <p
-              style={{
-                fontFamily: MONO,
-                color: T.text2,
-                fontSize: 13,
-                lineHeight: 1.7,
-                marginBottom: 12,
-              }}
-            >
-              {algorithmPhaseConfig.instruction}
-            </p>
-            {algorithmPhaseConfig.overviewHelp && (
-              <p style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginBottom: 16 }}>
-                {algorithmPhaseConfig.overviewHelp}
-              </p>
-            )}
-          </div>
-
-          <details
-            open={isAnatomyContent}
-            style={{
-              marginBottom: 16,
-              cursor: "pointer",
-              background: T.inputBg,
-              border: "1px solid " + T.border1,
-              borderRadius: 10,
-              padding: "12px 16px",
-            }}
-          >
-            <summary
-              style={{
-                fontFamily: MONO,
-                color: T.text3,
-                fontSize: 12,
-                cursor: "pointer",
-                userSelect: "none",
-              }}
-            >
-              {algorithmPhaseConfig.hint}
-            </summary>
-            <div style={{ marginTop: 12 }}>
-              {isAnatomyContent && structureContent?.levels?.length > 0 ? (
-                <>
-                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginBottom: 10 }}>
-                    Use this hierarchy as a scaffold: connect structures at each level (what attaches to what, what supplies what).
-                  </div>
-                  {(structureContent.levels || []).map((level, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        marginBottom: 10,
-                        paddingLeft: 8,
-                        borderLeft: "3px solid " + tc,
-                      }}
-                    >
-                      <div style={{ fontFamily: MONO, color: tc, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
-                        {level.level}
-                      </div>
-                      <div style={{ fontFamily: MONO, color: T.text2, fontSize: 11, lineHeight: 1.5 }}>
-                        {level.content}
-                      </div>
-                      {level.whyItMatters && (
-                        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 4, fontStyle: "italic" }}>
-                          Why it matters: {level.whyItMatters}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {structureContent.keyMechanism && (
-                    <div style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 11, marginTop: 10, paddingTop: 8, borderTop: "1px solid " + T.border1 }}>
-                      🧠 Key mechanism: {structureContent.keyMechanism}
-                    </div>
-                  )}
                 </>
-              ) : (algorithm?.entryPoint || (algorithm?.steps?.length > 0)) ? (
-                <>
-                  <div
-                    style={{
-                      fontFamily: MONO,
-                      color: tc,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      marginBottom: 6,
-                    }}
-                  >
-                    Entry: {algorithm?.entryPoint}
-                  </div>
-                  {(algorithm?.steps || []).map((step, i) => (
-                    <div
-                      key={i}
-                      style={{
-                        fontFamily: MONO,
-                        color: T.text2,
-                        fontSize: 11,
-                        marginBottom: 4,
-                        paddingLeft: 12,
-                      }}
-                    >
-                      {step.step}. {step.question}
-                      <span style={{ color: T.statusGood }}> YES → {step.yes}</span>
-                      <span style={{ color: T.statusBad }}> | NO → {step.no}</span>
-                    </div>
-                  ))}
-                  {algorithm?.memoryHook && (
-                    <div
-                      style={{
-                        fontFamily: MONO,
-                        color: T.statusWarn,
-                        fontSize: 11,
-                        marginTop: 8,
-                      }}
-                    >
-                      🧠 Memory hook: {algorithm.memoryHook}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, lineHeight: 1.5 }}>
-                  <div style={{ marginBottom: 8 }}>Use the example format in the box below. For the back, include:</div>
-                  <ul style={{ margin: 0, paddingLeft: 18 }}>
-                    <li>Major muscle groups and what they attach to</li>
-                    <li>Nerves (e.g. dorsal rami, nerve supply to muscles)</li>
-                    <li>Regions (e.g. cervical, thoracic, lumbar) and what they contain</li>
-                  </ul>
-                  <div style={{ marginTop: 8 }}>Example: <span style={{ color: T.text2 }}>Latissimus dorsi → attaches to spine and humerus → supplied by thoracodorsal nerve</span></div>
-                </div>
               )}
-            </div>
-          </details>
-
-          <textarea
-            value={algorithmText}
-            onChange={(e) => setAlgorithmText(e.target.value)}
-            placeholder={algorithmPhaseConfig.placeholder}
-            style={{
-              background: T.inputBg,
-              border: "1px solid " + T.border1,
-              borderRadius: 10,
-              padding: "14px 16px",
-              color: T.text1,
-              fontFamily: MONO,
-              fontSize: 13,
-              lineHeight: 1.6,
-              resize: "vertical",
-              minHeight: 160,
-              width: "100%",
-              boxSizing: "border-box",
-            }}
-          />
-
-          {!algorithmFeedback && !algorithmDoneOnIpad ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                onClick={submitAlgorithm}
-                disabled={!algorithmText.trim() || loading}
-                style={{
-                  background: algorithmText.trim() ? tc : T.border1,
-                  border: "none",
-                  color: "#fff",
-                  padding: "13px 0",
-                  borderRadius: 10,
-                  cursor: algorithmText.trim() ? "pointer" : "not-allowed",
-                  fontFamily: SERIF,
-                  fontSize: 15,
-                  fontWeight: 900,
-                }}
-              >
-                {loading ? "Evaluating..." : algorithmPhaseConfig.buttonLabel}
-              </button>
-              <button
-                type="button"
-                onClick={() => setAlgorithmDoneOnIpad(true)}
-                style={{
-                  background: "none",
-                  border: "1px solid " + T.border1,
-                  color: T.text3,
-                  padding: "12px 0",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  fontFamily: MONO,
-                  fontSize: 12,
-                }}
-              >
-                ✍️ I did this on iPad / paper — skip typing
-              </button>
-            </div>
-          ) : (algorithmFeedback || algorithmDoneOnIpad) ? (
-            <>
-              {algorithmFeedback && (
-                <div
-                  style={{
-                    background: T.cardBg,
-                    border: "1px solid " + T.border1,
-                    borderRadius: 12,
-                    padding: "16px 20px",
-                  }}
-                >
-                  <div
-                    style={{
-                      fontFamily: MONO,
-                      color: tc,
-                      fontSize: 13,
-                      fontWeight: 700,
-                      marginBottom: 8,
-                    }}
-                  >
-                    Score: {algorithmFeedback.score}%
-                  </div>
-                  {algorithmFeedback.correct?.length > 0 && (
-                    <div style={{ marginBottom: 8 }}>
-                      {algorithmFeedback.correct.map((c, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            fontFamily: MONO,
-                            color: T.statusGood,
-                            fontSize: 12,
-                          }}
-                        >
-                          ✓ {c}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {algorithmFeedback.missed?.length > 0 && (
-                    <div style={{ marginBottom: 8 }}>
-                      {algorithmFeedback.missed.map((m, i) => (
-                        <div
-                          key={i}
-                          style={{
-                            fontFamily: MONO,
-                            color: T.statusBad,
-                            fontSize: 12,
-                          }}
-                        >
-                          ✗ {m}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div
-                    style={{
-                      fontFamily: MONO,
-                      color: T.text2,
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {algorithmFeedback.feedback}
-                  </div>
-                </div>
-              )}
-              {algorithmDoneOnIpad && !algorithmFeedback && (
-                <div
-                  style={{
-                    background: T.cardBg,
-                    border: "1px solid " + T.border1,
-                    borderRadius: 12,
-                    padding: "16px 20px",
-                    fontFamily: MONO,
-                    color: T.text2,
-                    fontSize: 12,
-                  }}
-                >
-                  ✓ Done on iPad or paper — handwriting strengthens recall. Continue when ready.
-                </div>
-              )}
-              <button
-                onClick={advanceToReadRecall}
-                disabled={loading}
-                style={{
-                  background: tc,
-                  border: "none",
-                  color: "#fff",
-                  padding: "13px 0",
-                  borderRadius: 10,
-                  cursor: "pointer",
-                  fontFamily: SERIF,
-                  fontSize: 15,
-                  fontWeight: 900,
-                }}
-              >
-                {loading ? "Preparing recall..." : "Read & Recall →"}
-              </button>
             </>
-          ) : null}
-          </>
           )}
         </div>
       )}
 
-      {/* Phase 5: Read & Recall */}
-      {phase === "readRecall" && (() => {
+      {/* Phase 4: Self-Test */}
+      {phase === "selftest" && (() => {
         const lectureText =
           isCrossLecture && crossCtx?.lecs?.length
             ? (crossCtx.lecs || [])
@@ -6149,7 +5706,7 @@ Region 1 contains: (list structures)`,
               </button>
             )}
             <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              PHASE {PHASE_ORDER.indexOf(phase) + 1} OF {PHASE_ORDER.length - 1} · READ & RECALL
+              {DEEP_LEARN_PHASES.find((p) => p.id === "selftest")?.subtitle || "SELF-TEST"}
               {recallPrompts.length > 0 ? ` (${currentRecall + 1}/${recallPrompts.length})` : ""}
             </div>
             {PHASE_ORDER.indexOf(phase) === 0 && <div />}
@@ -6419,7 +5976,7 @@ Region 1 contains: (list structures)`,
       })()}
 
       {/* Phase 6: MCQ Application */}
-      {phase === "mcq" && mcqQuestions.length > 0 && (
+      {phase === "apply" && mcqQuestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <PatientBanner />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
@@ -6453,7 +6010,7 @@ Region 1 contains: (list structures)`,
               </button>
             )}
             <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              PHASE {PHASE_ORDER.indexOf(phase) + 1} OF {PHASE_ORDER.length - 1} · MCQ APPLICATION ({currentMCQ + 1}/{mcqQuestions.length})
+              {DEEP_LEARN_PHASES.find((p) => p.id === "apply")?.subtitle || "CLINICAL MCQ"} ({currentMCQ + 1}/{mcqQuestions.length})
             </div>
             {PHASE_ORDER.indexOf(phase) === 0 && <div />}
           </div>
@@ -6979,18 +6536,6 @@ Region 1 contains: (list structures)`,
   );
 }
 
-const phaseNumber = (phase) =>
-  ({
-    brainDump: 1,
-    saq: 1,
-    patientCase: 2,
-    structureFunction: 3,
-    algorithmDraw: 4,
-    readRecall: 5,
-    mcq: 6,
-    summary: 7,
-  }[phase] ?? 1);
-
 // Wrapper: show Config then Session (mastery loop)
 export default function DeepLearn({
   blockId,
@@ -7007,6 +6552,8 @@ export default function DeepLearn({
   makeTopicKey,
   performanceHistory = {},
   initialRapidFireMode = false,
+  preselectLecId = null,
+  deeplinkObjectiveId = null,
 }) {
   const { T } = useTheme();
   const tc = termColor || T.purple;
@@ -7280,7 +6827,8 @@ export default function DeepLearn({
 
   const [savedDeepLearnSessions, setSavedDeepLearnSessions] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("rxt-dl-sessions") || "{}");
+      const raw = JSON.parse(localStorage.getItem("rxt-dl-sessions") || "{}");
+      return migrateSavedDeepLearnSessionsMap(raw);
     } catch {
       return {};
     }
@@ -7288,10 +6836,14 @@ export default function DeepLearn({
 
   const saveDeepLearnProgress = useCallback((sessionId, data) => {
     setSavedDeepLearnSessions((prev) => {
+      const normalized = {
+        ...data,
+        phase: typeof data?.phase === "string" ? migrateDeepLearnPhase(data.phase) : data?.phase,
+      };
       const updated = {
         ...prev,
         [sessionId]: {
-          ...data,
+          ...normalized,
           lastSaved: new Date().toISOString(),
         },
       };
@@ -7321,6 +6873,7 @@ export default function DeepLearn({
       isCrossLecture: !!cfg.isCrossLecture,
       crossCtx: cfg.crossCtx || null,
       displayLectureTitle: cfg.displayLectureTitle || null,
+      deeplinkObjectiveId: cfg.deeplinkObjectiveId ?? null,
     });
     setPhase("session");
   }, []);
@@ -7335,6 +6888,7 @@ export default function DeepLearn({
   const handleStart = useCallback(
     ({ sessionType, selectedTopics, blockId: bid }) => {
       const lecTopics = (selectedTopics || []).filter((t) => t.lecId);
+      const sessionDeeplink = lecTopics.length >= 2 ? null : deeplinkObjectiveId ?? null;
       if (lecTopics.length >= 2) {
         const idsKey = crossIdsKey(lecTopics);
         const sessionId = `dl_cross_${bid}_${idsKey.replace(/,/g, "_")}_${Date.now()}`;
@@ -7345,7 +6899,13 @@ export default function DeepLearn({
         });
         if (existingSession) {
           setPendingDeepLearnStart({
-            cfg: { sessionType, selectedTopics: lecTopics, blockId: bid, isCrossLecture: true },
+            cfg: {
+              sessionType,
+              selectedTopics: lecTopics,
+              blockId: bid,
+              isCrossLecture: true,
+              deeplinkObjectiveId: null,
+            },
             sessionId,
             existingSession,
           });
@@ -7365,15 +6925,18 @@ export default function DeepLearn({
       );
       if (existingSession) {
         setPendingDeepLearnStart({
-          cfg: { sessionType, selectedTopics, blockId: bid },
+          cfg: { sessionType, selectedTopics, blockId: bid, deeplinkObjectiveId: sessionDeeplink },
           sessionId,
           existingSession,
         });
         return;
       }
-      launchDeepLearn({ sessionType, selectedTopics, blockId: bid }, sessionId);
+      launchDeepLearn(
+        { sessionType, selectedTopics, blockId: bid, deeplinkObjectiveId: sessionDeeplink },
+        sessionId
+      );
     },
-    [savedDeepLearnSessions, launchDeepLearn]
+    [savedDeepLearnSessions, launchDeepLearn, deeplinkObjectiveId]
   );
 
   const firstTopic = sessionParams?.resuming
@@ -7961,8 +7524,8 @@ export default function DeepLearn({
               </strong>
               {" "}— paused at{" "}
               <strong style={{ color: tc }}>
-                Phase {phaseNumber(pendingDeepLearnStart.existingSession.phase)}{" "}
-                ({pendingDeepLearnStart.existingSession.phase})
+                Phase {deepLearnPhaseNumber(pendingDeepLearnStart.existingSession.phase)}{" "}
+                ({migrateDeepLearnPhase(pendingDeepLearnStart.existingSession.phase)})
               </strong>
               <br />
               <span style={{ color: T.text3, fontSize: 10 }}>
@@ -7994,7 +7557,7 @@ export default function DeepLearn({
                   fontWeight: 900,
                 }}
               >
-                ▶ Resume from Phase {phaseNumber(pendingDeepLearnStart.existingSession.phase)}
+                ▶ Resume from Phase {deepLearnPhaseNumber(pendingDeepLearnStart.existingSession.phase)}
               </button>
               <button
                 onClick={() => {
@@ -8389,7 +7952,7 @@ export default function DeepLearn({
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontFamily: MONO, color: T.text1, fontSize: 12, fontWeight: 700 }}>{s.lectureTitle}</div>
                       <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
-                        Phase {phaseNumber(s.phase)} · {s.phase}
+                        Phase {deepLearnPhaseNumber(s.phase)} · {migrateDeepLearnPhase(s.phase)}
                         {" · "}saved{" "}
                         {new Date(s.lastSaved).toLocaleDateString("en-US", {
                           month: "short",
@@ -8442,6 +8005,7 @@ export default function DeepLearn({
             onStart={handleStart}
             T={T}
             tc={tc}
+            preselectLecId={preselectLecId}
           />
         </>
       )}
@@ -8506,8 +8070,14 @@ export default function DeepLearn({
           initialPreSAQScore={sessionParams?.resuming ? sessionParams.preSAQScore : undefined}
           initialInputMode={sessionParams?.resuming ? sessionParams.inputMode : undefined}
           initialHandwriteDone={sessionParams?.resuming ? sessionParams.handwriteDone : undefined}
+          initialTeachingSection={sessionParams?.resuming ? sessionParams.teachingSection : undefined}
+          initialSectionExplanation={sessionParams?.resuming ? sessionParams.sectionExplanation : undefined}
+          initialSectionUnderstood={sessionParams?.resuming ? sessionParams.sectionUnderstood : undefined}
+          initialStructureSaqAttempts={sessionParams?.resuming ? sessionParams.structureSaqAttempts : undefined}
+          initialRecallStep={sessionParams?.resuming ? sessionParams.recallStep : undefined}
           crossCtx={resumedCrossCtx}
           skipIntroPrep={!!sessionParams?.isCrossLecture && !sessionParams?.resuming}
+          deeplinkObjectiveId={sessionParams?.deeplinkObjectiveId ?? null}
         />
       )}
     </div>

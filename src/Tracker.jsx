@@ -6,6 +6,272 @@ import { recordWrongAnswer } from "./weakConcepts";
 function sGet(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } }
 function sSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
 
+/** Spacing for next review after a log (used when syncing `rxt-tracker-v2`). */
+function getNextReviewDate(sessionCount, rating) {
+  const days =
+    rating === "struggling"
+      ? 1
+      : sessionCount <= 1
+        ? 3
+        : sessionCount <= 2
+          ? 7
+          : sessionCount <= 3
+            ? 14
+            : 30;
+  const next = new Date();
+  next.setDate(next.getDate() + days);
+  return next.toISOString();
+}
+
+/** Same study-coach pipeline as App `getStudyCoachSteps`, but perf/completion come from React state (not LS reads). */
+function computeStudyCoachSteps(lec, blockId, perf, completion, getBlockObjectives) {
+  const objText = (o) => (o.objective || o.text || "").trim();
+  try {
+    const objs =
+      blockId && lec?.id && typeof getBlockObjectives === "function"
+        ? (getBlockObjectives(blockId) || []).filter((o) => o.linkedLecId === lec.id)
+        : [];
+
+    const perfKey = `${lec.id}__${blockId}`;
+    const lecPerf = perf[perfKey];
+    const lecComp = completion[perfKey];
+    const sessionCount = lecComp?.sessionCount || lecPerf?.sessions?.length || 0;
+    const lastScore = lecPerf?.score || 0;
+
+    const masteredObjs = objs.filter((o) => (o.consecutiveCorrect || 0) >= 3).length;
+    const strugglingObjs = objs.filter((o) => o.status === "struggling");
+    const masteryPct = objs.length > 0 ? masteredObjs / objs.length : 0;
+
+    const allSteps = [
+      {
+        id: "prime",
+        phase: 1,
+        number: 1,
+        icon: "🧠",
+        title: "Prime your brain first",
+        subtitle: "Before touching any material",
+        color: "#dc2626",
+        description: `Before you open any slides or watch any video, take 2 minutes and write down everything you already know about "${lec?.lectureTitle || "this lecture"}". Don't worry if it's nothing — that's normal. This primes your brain to absorb new information better.`,
+        howTo: [
+          "Open a blank note or grab paper",
+          "Set a 2-minute timer",
+          "Write everything you know about this topic — no peeking",
+          "Then start Deep Learn below",
+        ],
+        whyItWorks: `Pre-testing yourself before learning — even when you know nothing — improves encoding by up to 50%. Your brain forms stronger connections when it has existing hooks to attach new information to.`,
+        action: "deep_learn",
+        actionLabel: "🧠 Start Deep Learn",
+        done: sessionCount >= 1,
+        skippable: false,
+      },
+      {
+        id: "encode",
+        phase: 1,
+        number: 2,
+        icon: "📖",
+        title: "Encode — understand it first",
+        subtitle: "Watch, listen, or use Deep Learn",
+        color: "#dc2626",
+        description: `Now engage with the material actively. You can watch a Ninja Nerd video on this topic, attend/re-watch the lecture, or use Deep Learn below. The key: every 5-10 minutes, PAUSE and recall what you just learned before continuing. Don't just let it play.`,
+        howTo: [
+          "Option A: Watch a Ninja Nerd video on this topic",
+          "Option B: Use Deep Learn — guided teaching per objective (Prime → Learn → Patient → Self-test → Gaps → Apply)",
+          "Option C: Attend or re-watch the lecture recording",
+          "⚠ Every 5-10 min: pause and write what you just learned",
+          "Log your activity below when done",
+        ],
+        whyItWorks: `Passive watching or reading produces poor retention. Pausing to recall every few minutes (the "pause-and-recall" method) is 2-3x more effective than continuous watching. Active engagement forces your brain to process, not just receive.`,
+        action: "deep_learn",
+        actionLabel: "🧠 Deep Learn",
+        done: sessionCount >= 1,
+        skippable: false,
+      },
+      {
+        id: "feynman",
+        phase: 2,
+        number: 3,
+        icon: "💬",
+        title: "Explain it back — Feynman check",
+        subtitle: "If you can't explain it simply, you don't know it yet",
+        color: "#d97706",
+        description: `Close everything. Pick any 2-3 objectives from this lecture and explain them out loud as if teaching a friend with no medical background. Where you stumble or go blank = exactly what you don't actually know yet. Go back and fill those gaps before moving on.`,
+        howTo: [
+          "Close your notes and the app",
+          "Pick 2-3 objectives from the list below",
+          "Explain each one out loud or in writing — simple language",
+          "Notice where you get stuck or vague",
+          "Those gaps = go back to Encode (Step 2) — use Deep Learn's Learn phase for those objectives only, not the whole lecture",
+        ],
+        whyItWorks: `The Feynman technique exposes the gap between "I recognize this" and "I actually understand this." Most students discover this gap on exam day. You want to find it now.`,
+        action: "drill",
+        actionLabel: "⚡ Self-test with Drill",
+        done: sessionCount >= 2 || lastScore >= 70,
+        skippable: true,
+      },
+      {
+        id: "retrieve",
+        phase: 2,
+        number: 4,
+        icon: "⚡",
+        title: "Retrieval practice — test yourself",
+        subtitle: "This IS the studying, not preparation for studying",
+        color: "#d97706",
+        description: `Now test yourself on every objective without notes. This is the single most important step — research shows retrieval practice produces 50-80% better long-term retention than re-studying. Mark each objective: mastered, getting there, or struggling. Your goal is to find your gaps, not to feel good.`,
+        howTo: [
+          "Click Drill below",
+          "Answer each objective without looking at notes",
+          "Be honest — mark struggling if you're not sure",
+          "Struggling objectives automatically get flagged for extra practice",
+          `Aim for at least one full pass through all ${objs.length} objectives`,
+        ],
+        whyItWorks: `Every time you successfully retrieve a memory, the memory trace strengthens. Every time you fail to retrieve it, you identify exactly what to study. Both outcomes are useful. Re-reading feels productive but produces 50% less retention than testing yourself.`,
+        action: "drill",
+        actionLabel: "⚡ Start Drill",
+        done: objs.some((o) => (o.drillCount || 0) > 0),
+        skippable: false,
+      },
+      {
+        id: "gaps",
+        phase: 2,
+        number: 5,
+        icon: "🔍",
+        title: "Fix your gaps",
+        subtitle:
+          strugglingObjs.length > 0
+            ? `${strugglingObjs.length} objectives need work`
+            : "Almost there — clean up remaining weak spots",
+        color: "#7c3aed",
+        description:
+          strugglingObjs.length > 0
+            ? `You have ${strugglingObjs.length} struggling objectives. Go back to Deep Learn and redo Guided Teaching / Gaps for THOSE OBJECTIVES ONLY — don't re-read everything. Then drill again until they're solid. Focused restudy of weak areas is 3x more efficient than reviewing everything.`
+            : `Run one more drill pass. Your goal is to get every objective to at least "getting there" before moving to clinical questions.`,
+        howTo:
+          strugglingObjs.length > 0
+            ? [
+                `Focus only on: ${strugglingObjs
+                  .slice(0, 3)
+                  .map((o) => objText(o).slice(0, 40))
+                  .join(", ")}`,
+                "Open Deep Learn → Learn phase for those objectives only",
+                "Or watch the part of the video covering that topic",
+                "Then drill again — just those objectives",
+              ]
+            : [
+                "Run another drill pass",
+                'Focus on objectives you rated "getting there"',
+                "Repeat until all objectives feel solid",
+              ],
+        whyItWorks: `Targeted restudy of weak areas is far more efficient than re-reading everything. Identify your exact gaps and fill only those.`,
+        action: strugglingObjs.length > 0 ? "deep_learn" : "drill",
+        actionLabel: strugglingObjs.length > 0 ? "🧠 Review weak sections" : "⚡ Drill again",
+        done: strugglingObjs.length === 0 && objs.every((o) => (o.drillCount || 0) > 0),
+        skippable: true,
+      },
+      {
+        id: "quiz",
+        phase: 3,
+        number: 6,
+        icon: "📝",
+        title: "Apply it — clinical questions",
+        subtitle: "Study in the format you'll be tested in",
+        color: "#0891b2",
+        description: `Now that you know the material, practice applying it to patient scenarios — exactly how your exam will test you. Clinical vignette questions force you to USE the knowledge, not just recognize it. Wrong answers include explanations of WHY they're wrong, which is often more valuable than the correct answer.`,
+        howTo: [
+          "Click Quiz below",
+          "Choose 10 questions to start",
+          "Read each option carefully — don't rush",
+          "After answering, read ALL the wrong answer explanations",
+          "The teaching points are high yield — read every one",
+        ],
+        whyItWorks: `Transfer-appropriate processing: practicing in the exact format of your exam produces significantly better performance than studying in any other format. Clinical vignettes also force you to connect mechanisms to outcomes — exactly what Step 1 tests.`,
+        action: "quiz",
+        actionLabel: "📝 Start Quiz",
+        done: lastScore >= 80,
+        skippable: false,
+      },
+      {
+        id: "connect",
+        phase: 3,
+        number: 7,
+        icon: "🔗",
+        title: "Connect to other lectures",
+        subtitle: "Build the bigger picture",
+        color: "#0891b2",
+        description: `Ask yourself: how does this lecture connect to what you've already learned? How might ${lec?.lectureTitle || "this lecture"} come up in the same patient case as other lectures? Cross-lecture connections are what Step 1 actually tests — not isolated facts.`,
+        howTo: [
+          "Think: what concepts from other lectures relate to this one?",
+          "Quiz yourself with cross-objective questions",
+          "Try to create a 1-sentence connection between this lecture and one other",
+        ],
+        whyItWorks: `Elaborative interrogation — asking "how does this connect?" — is one of the highest-yield encoding strategies. Isolated facts fade. Connected knowledge persists.`,
+        action: "quiz",
+        actionLabel: "📝 Cross-lecture Quiz",
+        done: lastScore >= 85 && masteryPct >= 0.7,
+        skippable: true,
+      },
+      {
+        id: "spaced",
+        phase: 4,
+        number: 8,
+        icon: "📅",
+        title: "Space it out — come back later",
+        subtitle: "Review in 3 days, then 7, then 14",
+        color: "#16a34a",
+        description: `You're done for now. Come back in 3 days and do a quick 5-minute drill. If you score 80%+, wait 7 days before the next review. Each successful review doubles the interval. This is how you build knowledge that lasts until the exam — and beyond.`,
+        howTo: [
+          "The app will remind you when this lecture is due for review",
+          "When it appears in Reviews Due — just do a quick drill",
+          "If score drops below 80% — go back to Fix gaps (Step 5)",
+          "If score stays above 80% — move the interval further out",
+        ],
+        whyItWorks: `The spacing effect is the most well-replicated finding in memory research. Reviewing at increasing intervals is 2-3x more efficient than massed practice (cramming). One hour spread over 3 sessions beats 3 hours in one sitting.`,
+        action: "drill",
+        actionLabel: "📅 Quick Review Drill",
+        done: masteryPct >= 0.8 && sessionCount >= 3,
+        skippable: false,
+      },
+    ];
+
+    const currentStepIdx = allSteps.findIndex((s) => !s.done);
+    const currentStep = allSteps[currentStepIdx] || allSteps[allSteps.length - 1];
+
+    return {
+      steps: allSteps,
+      currentStep,
+      currentStepIdx: currentStepIdx === -1 ? allSteps.length - 1 : currentStepIdx,
+      totalSteps: allSteps.length,
+      completedSteps: allSteps.filter((s) => s.done).length,
+    };
+  } catch {
+    const stub = {
+      phase: 1,
+      icon: "🧠",
+      title: "Prime your brain first",
+      subtitle: "Before touching any material",
+      color: "#dc2626",
+      description: "Before you start, write down what you already know about this lecture.",
+      howTo: ["Open a blank note", "Set a 2-minute timer", "Write what you know — no peeking", "Then start Deep Learn"],
+      whyItWorks: "Retrieval practice before learning improves encoding.",
+      action: "deep_learn",
+      actionLabel: "🧠 Start Deep Learn",
+      done: false,
+      skippable: false,
+    };
+    const steps = Array.from({ length: 8 }, (_, i) => ({
+      ...stub,
+      id: ["prime", "encode", "feynman", "retrieve", "gaps", "quiz", "connect", "spaced"][i],
+      number: i + 1,
+    }));
+    return {
+      steps,
+      currentStep: steps[0],
+      currentStepIdx: 0,
+      totalSteps: 8,
+      completedSteps: 0,
+    };
+  }
+}
+
 /** Lecture rows keyed by id from rxt-lec-meta (for orphan filtering). */
 function loadLecMetaById() {
   try {
@@ -40,6 +306,20 @@ function mergeTrackerDisplayStatus(lecId, blockId, fallbackConf) {
   const ps = getLecStatus(lecId, blockId);
   if (ps !== "untested") return ps;
   return fallbackConf || null;
+}
+
+/** Title for tracker rows: prefer in-memory `lec`, else `rxt-lec-meta` (avoids stale row.topic when props omit this id). */
+function getTrackerLectureTitle(lectureId, lecFromProps) {
+  const fromProps = (lecFromProps?.lectureTitle || lecFromProps?.fileName || lecFromProps?.filename || "").trim();
+  if (fromProps) return fromProps;
+  if (!lectureId) return "";
+  try {
+    const all = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    const l = Array.isArray(all) ? all.find((x) => x?.id === lectureId) : null;
+    return (l?.lectureTitle || l?.title || l?.filename || l?.fileName || "").trim() || "";
+  } catch {
+    return "";
+  }
 }
 
 function cleanOrphanPerfAndCompletion() {
@@ -2948,7 +3228,7 @@ function CalendarTabContent({
   lecs,
   getPressureZone,
   logActivity,
-  setRefreshKey,
+  refreshAllData,
   refreshKey = 0,
   theme: t,
   MONO,
@@ -3580,7 +3860,7 @@ function CalendarTabContent({
                             date: selectedDateStr,
                             examDate,
                           });
-                          setRefreshKey && setRefreshKey((k) => (k || 0) + 1);
+                          refreshAllData && refreshAllData();
                           setQuickDraft({ activityType: "review", confidenceRating: "okay", durationMinutes: "", note: "" });
                           setQuickLectureId("");
                           setQuickOpen(false);
@@ -3635,6 +3915,41 @@ export default function Tracker({
   weakConceptsTabContent = null,
   weakConceptsBadgeCount = 0,
 }) {
+  const ACTIVITY_TYPES = [
+    { id: "lecture", icon: "🎓", label: "Attended lecture" },
+    { id: "video", icon: "▶", label: "Watched video" },
+    { id: "deep_learn", icon: "🧠", label: "Deep Learn" },
+    { id: "drill", icon: "⚡", label: "Drilled" },
+    { id: "quiz", icon: "📝", label: "Quiz" },
+    { id: "anki", icon: "🗂", label: "Anki" },
+    { id: "read", icon: "📖", label: "Read slides" },
+    { id: "sg", icon: "👥", label: "Small group" },
+  ];
+
+  /** Legacy Today/Reviews/Up Next quick-log rows: activity type per lecture+block (avoids one row's selection affecting another). */
+  const [rowLogActivityTypeByKey, setRowLogActivityTypeByKey] = useState(() => ({}));
+  const rowLogActivityRowKey = (lecId, blockId) => (lecId && blockId ? `${lecId}__${blockId}` : "");
+  const rowLogActivityFor = (lecId, blockId) => rowLogActivityTypeByKey[rowLogActivityRowKey(lecId, blockId)] || "lecture";
+  const setRowLogActivityFor = (lecId, blockId, typeId) => {
+    const k = rowLogActivityRowKey(lecId, blockId);
+    if (!k) return;
+    setRowLogActivityTypeByKey((p) => ({ ...(p || {}), [k]: typeId }));
+  };
+  /** Unified Today list: per-lecture expand + activity + rating. */
+  const [expandedTodayRow, setExpandedTodayRow] = useState(null);
+  const [activityType, setActivityType] = useState({});
+  const [selectedRating, setSelectedRating] = useState({});
+  const [todayWhyOpen, setTodayWhyOpen] = useState(null);
+  /** Unified Today expanded row: which lecture id has objectives list open (null = none). */
+  const [showObjsFor, setShowObjsFor] = useState(null);
+  /** Per-lecture: Study Coach “view all steps” roadmap in expanded Today row. */
+  const [showAllSteps, setShowAllSteps] = useState({});
+  /** Unified Today rows marked done this session (instant UI + survives until completion state matches). */
+  const [unifiedDoneKeys, setUnifiedDoneKeys] = useState(() => new Set());
+  /** Unified Today + Up Next: compact “✓ Logged” row immediately after mark (key = `${lecId}__${blockId}`). */
+  const [doneSet, setDoneSet] = useState(() => new Set());
+  /** Per-row session date for unified Today expanded log (key = `${lecId}__${blockId}`). */
+  const [unifiedLogDateByRow, setUnifiedLogDateByRow] = useState(() => ({}));
   const [internalRows, setInternalRows] = useState([]);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("tracker");
@@ -3682,11 +3997,61 @@ export default function Tracker({
   const [quickLogState, setQuickLogState] = useState(() => ({})); // { [lecId]: { open: boolean, submitting: boolean } }
   const [flashTaskId, setFlashTaskId] = useState(null); // { lecId, color } | null
   const [refreshKey, setRefreshKey] = useState(0);
+  const [perfData, setPerfData] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const [completionData, setCompletionData] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+    } catch {
+      return {};
+    }
+  });
   const [quickLogNoteOpen, setQuickLogNoteOpen] = useState(() => ({})); // { [lecId]: boolean }
   const [quickLogDraft, setQuickLogDraft] = useState(() => ({})); // { [lecId]: { activityType, confidenceRating, note } }
   const [quickLogOpenId, setQuickLogOpenId] = useState(null); // Today tab only (single open at a time)
   /** Today tab — UP NEXT row expanded id (`${lecId}__${blockId}`) */
   const [expandedUpNext, setExpandedUpNext] = useState(null);
+  /** UP NEXT: after compact "logged" row, show full form; keyed by lecture id (see also `lec._forceExpand`) */
+  const [forceExpand, setForceExpand] = useState(() => ({}));
+  /** Resolved block id for storage keys (`'all'` = no single block selected). Always a string, never a block object. */
+  const activeBlockId = trackerBlockId ?? activeBlock?.id ?? null;
+  const activeBlockFilter = useMemo(() => {
+    const f = filter;
+    if (f === "All" || f == null || String(f).trim() === "" || String(f).toLowerCase() === "all") {
+      return "all";
+    }
+    const list = Object.values(blocks || {});
+    const byId = list.find((b) => b && b.id === f);
+    if (byId?.id) return String(byId.id);
+    const byName = list.find(
+      (b) => b && (b.name === f || String(b.name || "").trim() === String(f).trim())
+    );
+    if (byName?.id) return String(byName.id);
+    if (activeBlockId) return String(activeBlockId);
+    return "all";
+  }, [filter, blocks, activeBlockId]);
+
+  /** Objectives: prefer `rxt-block-objectives[tryBlock]`; otherwise flatten all blocks (covers filter/id edge cases). */
+  const blockObjectives = useMemo(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const tryBlock = activeBlockFilter !== "all" ? activeBlockFilter : activeBlockId;
+      const blockData = tryBlock ? stored[tryBlock] : null;
+      if (blockData) {
+        return Array.isArray(blockData) ? blockData : Object.values(blockData).filter(Array.isArray).flat();
+      }
+      return Object.values(stored).flatMap((bd) =>
+        Array.isArray(bd) ? bd : Object.values(bd || {}).filter(Array.isArray).flat()
+      );
+    } catch {
+      return [];
+    }
+  }, [activeBlockFilter, activeBlockId, refreshKey]);
   /** `${lectureId}__${blockId}` — optional wrong-questions-only panel on done cards */
   const [quickLogWrongOnlyKey, setQuickLogWrongOnlyKey] = useState(null);
   /** Brief flash under ✓ Done after logging weak concepts */
@@ -3917,6 +4282,35 @@ export default function Tracker({
   const rows = isControlled ? trackerRowsProp : internalRows;
   const setRows = isControlled ? setTrackerRowsProp : setInternalRows;
 
+  const refreshAllData = useCallback(() => {
+    try {
+      setPerfData(JSON.parse(localStorage.getItem("rxt-performance") || "{}"));
+    } catch {
+      setPerfData({});
+    }
+    try {
+      const raw = localStorage.getItem("rxt-completion");
+      const c = raw ? JSON.parse(raw) : {};
+      setCompletionData(c);
+      setCompletion(c);
+    } catch {
+      setCompletionData({});
+      setCompletion({});
+    }
+    try {
+      const rowsJson = JSON.parse(localStorage.getItem("rxt-tracker-v2") || "[]");
+      if (isControlled && setTrackerRowsProp) setTrackerRowsProp(rowsJson);
+      else if (!isControlled) setInternalRows(rowsJson);
+    } catch {}
+    setRefreshKey((k) => k + 1);
+  }, [isControlled, setTrackerRowsProp]);
+
+  const studyCoachForToday = useCallback(
+    (lec, bid) =>
+      computeStudyCoachSteps(lec, bid, perfData, { ...completionData, ...(completion || {}) }, getBlockObjectives),
+    [perfData, completionData, completion, getBlockObjectives, refreshKey]
+  );
+
   const makeKey = makeTopicKey || ((lectureId, blockId) => (lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`));
   const getLecPerf = (lec, blockId) => {
     const key = makeKey(lec.id, blockId);
@@ -4142,30 +4536,18 @@ export default function Tracker({
   }, [activeBlock?.id]);
 
   useEffect(() => {
-    const refreshFromStorage = () => {
-      queueMicrotask(() => {
-        try {
-          const raw = localStorage.getItem("rxt-tracker-v2") || "[]";
-          const parsed = JSON.parse(raw);
-          if (isControlled) setTrackerRowsProp(parsed);
-          else setInternalRows(parsed);
-        } catch {}
-        try {
-          const c = localStorage.getItem("rxt-completion");
-          if (c) setCompletion(JSON.parse(c));
-        } catch {}
-        setRefreshKey((k) => k + 1);
-      });
-    };
-    window.addEventListener("rxt-completion-updated", refreshFromStorage);
-    window.addEventListener("rxt-objectives-updated", refreshFromStorage);
-    window.addEventListener("rxt-start-drill", refreshFromStorage);
+    const handler = () => setTimeout(refreshAllData, 0);
+    window.addEventListener("rxt-tracker-refresh", handler);
+    window.addEventListener("rxt-completion-updated", handler);
+    window.addEventListener("rxt-objectives-updated", handler);
+    window.addEventListener("rxt-start-drill", handler);
     return () => {
-      window.removeEventListener("rxt-completion-updated", refreshFromStorage);
-      window.removeEventListener("rxt-objectives-updated", refreshFromStorage);
-      window.removeEventListener("rxt-start-drill", refreshFromStorage);
+      window.removeEventListener("rxt-tracker-refresh", handler);
+      window.removeEventListener("rxt-completion-updated", handler);
+      window.removeEventListener("rxt-objectives-updated", handler);
+      window.removeEventListener("rxt-start-drill", handler);
     };
-  }, [isControlled, setTrackerRowsProp]);
+  }, [refreshAllData]);
 
   useEffect(() => {
     setTodayFilter("all");
@@ -4176,13 +4558,17 @@ export default function Tracker({
 
   // Save (debounced when uncontrolled; parent persists when controlled)
   const persist = (nr) => {
-    setSaveMsg("saving");
     clearTimeout(timerRef.current);
     if (isControlled) {
-      setSaveMsg("saved");
-      setTimeout(() => setSaveMsg(""), 2000);
+      // Parent's setTrackerRows updater runs synchronously and calls persist(); never call
+      // Tracker setState inside that stack or React warns (update Tracker while rendering App).
+      queueMicrotask(() => {
+        setSaveMsg("saved");
+        setTimeout(() => setSaveMsg(""), 2000);
+      });
       return;
     }
+    setSaveMsg("saving");
     timerRef.current = setTimeout(() => { sSet("rxt-tracker-v2", nr); setSaveMsg("saved"); setTimeout(() => setSaveMsg(""), 2000); }, 500);
   };
 
@@ -4269,7 +4655,7 @@ export default function Tracker({
       const lastConfidence = activityLog[0]?.confidenceRating || activity.confidenceRating;
       const reviewDates = computeReviewDates(lastActivityDate.slice(0, 10), lastConfidence, examDateStr || null).map((d) => d.toISOString().slice(0, 10));
 
-      return {
+      const next = {
         ...(prev || {}),
         [key]: {
           lectureId,
@@ -4285,19 +4671,37 @@ export default function Tracker({
           activityLog,
           lectureType: lec?.lectureType ?? existing?.lectureType ?? null,
           lectureNumber: lec?.lectureNumber ?? existing?.lectureNumber ?? null,
+          sessionCount: (existing?.sessionCount ?? 0) + 1,
         },
       };
+      // Keep localStorage in sync immediately; Tracker coach UI uses perfData/completionData refreshed via refreshAllData / refreshKey.
+      sSet("rxt-completion", next);
+      return next;
     });
 
     // Keep the tracker log rows in sync (best-effort in Tracker)
     const blockName = Object.values(blocks || {}).find((b) => b.id === blockId)?.name || blockId;
-    const topic = (lec?.lectureTitle || lec?.fileName || lec?.filename || "").trim() || "Lecture";
+    const canonicalTitle = getTrackerLectureTitle(lectureId, lec);
+    const topic = canonicalTitle || "Lecture";
 
     setRows((p) => {
       const idx = (p || []).findIndex((r) => r.lectureId === lectureId);
       if (idx >= 0) {
+        const cur = (p || [])[idx];
+        const rowTopic = canonicalTitle || String(cur?.topic || topic || "Lecture").trim();
         const n = (p || []).map((r, i) =>
-          i === idx ? { ...r, blockId, block: r.block || blockName, topic: r.topic || topic, lecture: true, lastStudied: dateKey } : r
+          i === idx
+            ? {
+                ...r,
+                lectureId,
+                blockId,
+                block: r.block || blockName,
+                subject: lec?.subject || lec?.discipline || r.subject || "",
+                topic: rowTopic,
+                lecture: true,
+                lastStudied: dateKey,
+              }
+            : r
         );
         persist(n);
         return n;
@@ -4340,8 +4744,21 @@ export default function Tracker({
     }
   };
 
-  const markLectureReviewedToday = (lectureId, blockId, confidenceRating = "okay", examDateStr = null) => {
-    logActivity(lectureId, blockId, "review", confidenceRating, { date: todayStr(), examDate: examDateStr });
+  /** Writes rxt-completion via logActivity using key `${lectureId}__${blockId}` only — never resolves lectureId from title. */
+  const markLectureReviewedToday = (
+    lectureId,
+    blockId,
+    confidenceRating = "okay",
+    examDateStr = null,
+    activityType = "review",
+    sessionDateInput = null
+  ) => {
+    if (!lectureId || !blockId) return;
+    const logDate =
+      sessionDateInput != null && String(sessionDateInput).trim() !== ""
+        ? new Date(sessionDateInput).toISOString().slice(0, 10)
+        : todayStr();
+    logActivity(lectureId, blockId, activityType || "review", confidenceRating, { date: logDate, examDate: examDateStr });
   };
 
   const logReview = (lectureId, blockId, reviewDate, newConfidenceRating, examDateStr) => {
@@ -4413,7 +4830,7 @@ export default function Tracker({
         }).length
       );
     }, 0);
-  }, [targetBlockIds, lecs, performanceHistory, completion]);
+  }, [targetBlockIds, lecs, performanceHistory, completion, refreshKey]);
 
   const filterCounts = useMemo(
     () => {
@@ -4426,7 +4843,7 @@ export default function Tracker({
       const ok = blockLecs.filter((lec) => isOkFor(lec, lec.blockId)).length;
       return { all, critical, overdue, soon, ok };
     },
-    [targetBlockIds, lecs, isCriticalFor, isOverdueFor, isSoonFor, isOkFor]
+    [targetBlockIds, lecs, isCriticalFor, isOverdueFor, isSoonFor, isOkFor, refreshKey]
   );
 
   const getBlockObjsFromProps = (blockId) => {
@@ -4825,8 +5242,9 @@ export default function Tracker({
               const bids = targetBlockIds;
               if (!bids.length) return null;
               const completions = completion || {};
-              const todayStr = studyDayKeyNow();
-              const todayKey = todayStr;
+              const studyDayKey = studyDayKeyNow();
+              const todayKey = studyDayKey;
+              const todayCalendarStr = new Date().toDateString();
               const dow = startOfStudyDay().toLocaleDateString("en-US", { weekday: "short" });
               const isScheduledToday = (lec) => {
                 if (!lec) return false;
@@ -4839,7 +5257,7 @@ export default function Tracker({
               const loggedToday = (lecId, blockId) => {
                 const entry = completions[`${lecId}__${blockId}`];
                 if (!entry || !entry.activityLog) return false;
-                return entry.activityLog.some((a) => String(a?.date || "").startsWith(todayStr));
+                return entry.activityLog.some((a) => String(a?.date || "").startsWith(studyDayKey));
               };
 
               const allItemsBase = mergedTodayItems;
@@ -4995,7 +5413,16 @@ export default function Tracker({
               })();
 
               const overdueList = searchedItems.filter((it) => it.isOverdue || String(it.matchReason || "").toUpperCase().includes("OVERDUE"));
-              const todayLectures = searchedItems.filter((it) => !overdueList.includes(it) && String(it._matchReason || it.matchReason || "") === "TODAY'S LECTURE");
+              const todayLectures = searchedItems.filter((it) => {
+                if (overdueList.includes(it)) return false;
+                if (String(it._matchReason || it.matchReason || "") !== "TODAY'S LECTURE") return false;
+                const comp = completionData[`${it.lec.id}__${it.blockId}`];
+                if (comp?.lastActivityDate) {
+                  const lastDate = new Date(comp.lastActivityDate).toDateString();
+                  if (lastDate === todayCalendarStr) return false;
+                }
+                return true;
+              });
 
               const sectionLabelStyle = {
                 fontFamily: MONO,
@@ -5016,7 +5443,7 @@ export default function Tracker({
                 gap: 8,
               };
               const renderDonePill = (entry) => {
-                const pill = getDonePillModel(entry, todayStr, t);
+                const pill = getDonePillModel(entry, studyDayKey, t);
                 return (
                   <span
                     style={{
@@ -5098,6 +5525,18 @@ export default function Tracker({
                   .forEach((lec) => {
                     const rk = `${lec.id}__${bid}`;
                     if (shownKeys.has(rk)) return;
+                    const comp = completionData[rk];
+                    if (comp?.lastActivityDate) {
+                      const lastDate = new Date(comp.lastActivityDate).toDateString();
+                      if (lastDate === todayCalendarStr) return;
+                    }
+                    const tr = rows.find((r) => r.lectureId === lec.id || r.id === lec.id);
+                    if (tr?.nextReview) {
+                      const next = new Date(tr.nextReview);
+                      const startOfToday = new Date();
+                      startOfToday.setHours(3, 0, 0, 0);
+                      if (!isNaN(next.getTime()) && next > startOfToday) return;
+                    }
                     if (!isReviewsDuePredicate(lec, bid)) return;
                     const perf = getLecPerf(lec, bid);
                     const nr = perf?.nextReview ? new Date(perf.nextReview) : null;
@@ -5170,6 +5609,7 @@ export default function Tracker({
               });
 
               const upNextSectionItems = upNextCandidates.slice(0, 3);
+              const upNextSectionItemsVisible = upNextSectionItems.filter(({ lec, blockId: b }) => lec?.id && b && !doneSet.has(`${lec.id}__${b}`));
 
               const strugglingCount = searchedItems.filter((item) => {
                 const key = `${item.lec.id}__${item.blockId}`;
@@ -5182,24 +5622,34 @@ export default function Tracker({
               const launchDrillForRow = (lec, filter = "all") => {
                 if (!lec?.id) return;
                 const lecTitle = lec.lectureTitle || lec.title || lec.filename || "";
-                window.dispatchEvent(
-                  new CustomEvent("rxt-start-drill", {
-                    detail: { lecId: lec.id, lecTitle, mode: "mcq", filter },
-                  })
-                );
+                const lecId = lec.id;
+                setTimeout(() => {
+                  window.dispatchEvent(
+                    new CustomEvent("rxt-start-drill", {
+                      detail: { lecId, lecTitle, mode: "mcq", filter },
+                    })
+                  );
+                }, 0);
               };
 
-              const markRowDone = (lec, blockId) => {
-                if (!lec?.id) return;
-                markLectureReviewedToday(lec.id, blockId, "okay", examDateForBlock(blockId));
-                setRefreshKey((k) => k + 1);
+              const refreshUnifiedDoneAfterLog = (lecId, blockId) => {
+                if (!lecId || !blockId) return;
+                const rk = `${lecId}__${blockId}`;
+                setUnifiedDoneKeys((prev) => new Set([...prev, rk]));
+                setExpandedTodayRow(null);
+                setExpandedUpNext(null);
+                try {
+                  window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+                } catch {}
               };
 
-              const logQuickRating = (lec, blockId, ratingLabel) => {
+              const logQuickRating = (lec, blockId, ratingLabel, activityTypeOverride = null) => {
                 if (!lec?.id) return;
                 const conf = ratingLabel === "Good" ? "good" : ratingLabel === "Okay" ? "okay" : "struggling";
-                markLectureReviewedToday(lec.id, blockId, conf, examDateForBlock(blockId));
-                setRefreshKey((k) => k + 1);
+                const at = activityTypeOverride || rowLogActivityFor(lec.id, blockId);
+                markLectureReviewedToday(lec.id, blockId, conf, examDateForBlock(blockId), at);
+                refreshUnifiedDoneAfterLog(lec.id, blockId);
+                setTimeout(refreshAllData, 50);
               };
 
               const toggleLogWrong = (rowKey) => {
@@ -5210,7 +5660,7 @@ export default function Tracker({
                 todayLectures.length > 0 ||
                 sortedReviewsDue.length > 0 ||
                 sortedStrugglingDue.length > 0 ||
-                upNextSectionItems.length > 0;
+                upNextSectionItemsVisible.length > 0;
               if (!hasAny) {
                 return (
                   <div style={{ padding: "18px 16px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -5220,160 +5670,197 @@ export default function Tracker({
                 );
               }
 
-              const allTodayLecs =
-                todayLectures.length > 0 || sortedReviewsDue.length > 0
-                  ? Array.from(
-                      new Map(
-                        [...todayLectures, ...sortedReviewsDue]
-                          .filter((it) => it?.lec?.id && it?.blockId)
-                          .map((it) => [`${it.lec.id}__${it.blockId}`, { lec: it.lec, blockId: it.blockId }])
-                      ).values()
-                    )
-                  : [];
-              const todayCoachOrdered =
-                typeof getStudyCoachSteps === "function"
-                  ? [...allTodayLecs]
-                      .map((x) => ({ ...x, coach: getStudyCoachSteps(x.lec, x.blockId) }))
-                      .sort((a, b) => a.coach.currentStep.number - b.coach.currentStep.number)
-                  : [];
-              const stepBucketCounts = {};
-              for (const row of todayCoachOrdered) {
-                const n = row.coach.currentStep.number;
-                stepBucketCounts[n] = (stepBucketCounts[n] || 0) + 1;
-              }
-              const showStudyPlanCard = typeof getStudyCoachSteps === "function" && allTodayLecs.length > 0;
+              const mergedCompletion = { ...completionData, ...(completion || {}) };
+
+              // Unified list (coach + scores) tracks perfData, completionData, completion, refreshKey, rows via closure; no useMemo here (hooks rule).
+
+              const todayKeys = new Set(
+                todayLectures
+                  .filter((t0) => t0?.lec?.id && t0?.blockId)
+                  .map((t0) => `${t0.lec.id}__${t0.blockId}`)
+              );
+
+              const getNextActionForActivity = (atype, step) => {
+                switch (atype) {
+                  case "lecture":
+                    return {
+                      label: "⚡ Jump to Drill — you've encoded it",
+                      action: "drill",
+                      message:
+                        "You attended the lecture — your brain has encoded the material. Skip straight to retrieval practice to test what stuck.",
+                    };
+                  case "video":
+                    return {
+                      label: "💬 Do Feynman check first",
+                      action: "drill",
+                      message:
+                        "Great — now close the video and explain the main concepts back without notes. Then drill.",
+                    };
+                  case "deep_learn":
+                    return {
+                      label: "⚡ Now Drill to test recall",
+                      action: "drill",
+                      message:
+                        "Perfect first step. Now test yourself — retrieval practice locks in what you just learned.",
+                    };
+                  case "read":
+                    return {
+                      label: "🧠 Deep Learn recommended",
+                      action: "deep_learn",
+                      message:
+                        "Reading slides is passive — your brain didn't process deeply. Deep Learn will actively engage you with the same material.",
+                    };
+                  default:
+                    return {
+                      label: step.actionLabel,
+                      action: step.action,
+                      message: step.description,
+                    };
+                }
+              };
+
+              const unifiedList = [
+                ...todayLectures
+                  .filter((t0) => t0?.lec?.id && t0?.blockId)
+                  .map((t0) => {
+                    const perfKey = `${t0.lec.id}__${t0.blockId}`;
+                    return {
+                      lec: t0.lec,
+                      blockId: t0.blockId,
+                      isToday: true,
+                      isReview: false,
+                      coach: studyCoachForToday(t0.lec, t0.blockId),
+                      sessionCount: mergedCompletion[perfKey]?.sessionCount || 0,
+                      lastScore: perfData[perfKey]?.score,
+                    };
+                  }),
+                ...sortedReviewsDue
+                  .filter((t0) => t0?.lec?.id && t0?.blockId)
+                  .filter((t0) => !todayKeys.has(`${t0.lec.id}__${t0.blockId}`))
+                  .map((t0) => {
+                    const perfKey = `${t0.lec.id}__${t0.blockId}`;
+                    return {
+                      lec: t0.lec,
+                      blockId: t0.blockId,
+                      isToday: false,
+                      isReview: true,
+                      coach: studyCoachForToday(t0.lec, t0.blockId),
+                      sessionCount: mergedCompletion[perfKey]?.sessionCount || 0,
+                      lastScore: perfData[perfKey]?.score,
+                    };
+                  }),
+              ].sort((a, b) => {
+                const ka = `${a.lec.id}__${a.blockId}`;
+                const kb = `${b.lec.id}__${b.blockId}`;
+                const aDone = loggedToday(a.lec.id, a.blockId) || unifiedDoneKeys.has(ka) || doneSet.has(ka);
+                const bDone = loggedToday(b.lec.id, b.blockId) || unifiedDoneKeys.has(kb) || doneSet.has(kb);
+                if (aDone !== bDone) return aDone ? 1 : -1;
+                return a.coach.currentStepIdx - b.coach.currentStepIdx;
+              });
+
+              const markRowDone = (lecId, blockId, options = {}) => {
+                if (!lecId || !blockId) {
+                  if (!lecId) console.error("markRowDone called without lecId");
+                  if (!blockId) console.error("markRowDone called without blockId");
+                  return;
+                }
+                const rating = options?.rating;
+                const rawAt = options?.activityType;
+                const act = rawAt != null && rawAt !== "" && rawAt !== "none" ? rawAt : "review";
+                let conf = "okay";
+                if (rating === "Good") conf = "good";
+                else if (rating === "Okay") conf = "okay";
+                else if (rating === "Struggling") conf = "struggling";
+                const sessionDateStr =
+                  options?.date != null && String(options.date).trim() !== ""
+                    ? new Date(options.date).toISOString().slice(0, 10)
+                    : studyDayKey;
+                markLectureReviewedToday(lecId, blockId, conf, examDateForBlock(blockId), act, sessionDateStr);
+                queueMicrotask(() => {
+                  try {
+                    const rk = completionKey(lecId, blockId);
+                    const allComp = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+                    const completionRecord = allComp[rk] || {};
+                    const storedRows = JSON.parse(localStorage.getItem("rxt-tracker-v2") || "[]");
+                    const rowIdx = storedRows.findIndex((r) => r.lectureId === lecId || r.id === lecId);
+                    const rawRating = options.rating || "okay";
+                    const ratingForSpacing =
+                      rawRating === "Struggling" || rawRating === "struggling" ? "struggling" : rawRating;
+                    const nextReview = getNextReviewDate(completionRecord.sessionCount || 1, ratingForSpacing);
+                    const lastStudied = new Date().toISOString();
+                    const status =
+                      options.rating === "Struggling" || options.rating === "struggling" ? "struggling" : "inprogress";
+                    let n;
+                    if (rowIdx >= 0) {
+                      n = storedRows.map((r, i) =>
+                        i === rowIdx
+                          ? {
+                              ...r,
+                              nextReview,
+                              lastStudied,
+                              status,
+                              blockId: r.blockId || blockId,
+                            }
+                          : r
+                      );
+                    } else {
+                      n = [
+                        ...storedRows,
+                        {
+                          lectureId: lecId,
+                          blockId,
+                          nextReview,
+                          lastStudied,
+                          status,
+                        },
+                      ];
+                    }
+                    localStorage.setItem("rxt-tracker-v2", JSON.stringify(n));
+                    setRows(() => n);
+                    persist(n);
+                  } catch (e) {
+                    console.error("markRowDone tracker-v2 sync", e);
+                  }
+                });
+                refreshUnifiedDoneAfterLog(lecId, blockId);
+                setTimeout(() => {
+                  const rk = `${lecId}__${blockId}`;
+                  setDoneSet((prev) => new Set([...(prev instanceof Set ? prev : new Set()), rk]));
+                  try {
+                    window.dispatchEvent(new CustomEvent("rxt-tracker-refresh"));
+                  } catch {}
+                }, 50);
+              };
+
+              const dispatchUnifiedAction = (action, lecId, blockId, lecTitle) => {
+                const title = lecTitle || "";
+                setTimeout(() => {
+                  if (action === "deep_learn") {
+                    window.dispatchEvent(new CustomEvent("rxt-launch-deeplearn", { detail: { lecId, blockId } }));
+                  } else if (action === "drill") {
+                    window.dispatchEvent(
+                      new CustomEvent("rxt-start-drill", { detail: { lecId, lecTitle: title, mode: "mcq", blockId } })
+                    );
+                  } else if (action === "quiz") {
+                    window.dispatchEvent(new CustomEvent("rxt-launch-quiz", { detail: { lecId, blockId } }));
+                  }
+                }, 0);
+              };
 
               return (
                 <div style={{ padding: "0 16px 18px" }}>
-                  {showStudyPlanCard && (
-                    <div
-                      style={{
-                        padding: "12px 16px",
-                        borderRadius: 10,
-                        background: t.surfaceAlt || t.inputBg || t.cardBg,
-                        border: "1px solid " + (t.border1 || t.border2),
-                        marginBottom: 16,
-                      }}
-                    >
-                      <div
-                        onClick={() => setCoachExpanded(!coachExpanded)}
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
-                          marginBottom: coachExpanded ? 10 : 4,
-                          cursor: "pointer",
-                          userSelect: "none",
-                        }}
-                      >
-                        <div style={{ fontWeight: 700, fontSize: 13 }}>📋 Today’s Study Plan</div>
-                        <span style={{ fontSize: 11, color: t.text3 }}>{coachExpanded ? "▲" : "▼"}</span>
-                      </div>
-                      {!coachExpanded && (
-                        <div style={{ fontSize: 12, color: t.text3, lineHeight: 1.5, marginBottom: 6 }}>
-                          {todayCoachOrdered.length} lecture{todayCoachOrdered.length !== 1 ? "s" : ""} — priority by current step (lowest step number first). Tap to expand the full order.
-                        </div>
-                      )}
-                      {!coachExpanded && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((sn) => {
-                            const c = stepBucketCounts[sn];
-                            if (!c) return null;
-                            const sample = todayCoachOrdered.find((r) => r.coach.currentStep.number === sn);
-                            const col = sample?.coach.currentStep.color || "#6b7280";
-                            return (
-                              <div key={sn} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-                                <span
-                                  style={{
-                                    width: 22,
-                                    height: 22,
-                                    borderRadius: "50%",
-                                    background: col,
-                                    color: "white",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {sn}
-                                </span>
-                                <span style={{ color: col, fontWeight: 600 }}>
-                                  {sample?.coach.currentStep.icon} Step {sn}
-                                </span>
-                                <span style={{ color: t.text3 }}>
-                                  {c} lecture{c > 1 ? "s" : ""}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {coachExpanded && (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                          {todayCoachOrdered.map((row) => {
-                            const st = row.coach.currentStep;
-                            const lecTitle = row.lec.lectureTitle || row.lec.title || row.lec.filename || "Lecture";
-                            return (
-                              <div
-                                key={`${row.lec.id}__${row.blockId}`}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "flex-start",
-                                  gap: 10,
-                                  fontSize: 12,
-                                  paddingBottom: 8,
-                                  borderBottom: "1px solid " + (t.border2 || t.border1),
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    padding: "2px 7px",
-                                    borderRadius: 20,
-                                    fontSize: 10,
-                                    fontWeight: 700,
-                                    background: `${st.color}15`,
-                                    color: st.color,
-                                    border: `1px solid ${st.color}30`,
-                                    whiteSpace: "nowrap",
-                                    flexShrink: 0,
-                                  }}
-                                >
-                                  {st.icon} Step {st.number}
-                                </span>
-                                <div style={{ minWidth: 0, flex: 1 }}>
-                                  <div style={{ fontWeight: 600, color: st.color }}>{st.title}</div>
-                                  <div style={{ color: t.text1, marginTop: 2, wordBreak: "break-word" }}>{lecTitle}</div>
-                                  <div style={{ color: t.text3, fontSize: 11, marginTop: 2 }}>{st.subtitle}</div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      <div
-                        style={{
-                          marginTop: 10,
-                          padding: "6px 10px",
-                          background: t.cardBg,
-                          borderRadius: 6,
-                          fontSize: 11,
-                          color: t.text3,
-                          fontStyle: "italic",
-                          border: "1px solid " + (t.border2 || t.border1),
-                        }}
-                      >
-                        💡 Lower step numbers are higher priority — work through today’s lectures in the listed order when possible.
-                      </div>
-                    </div>
-                  )}
-                  {!hasSeenClickHint && (
-                    <div style={{ fontSize: 11, color: t.text3, textAlign: "center", padding: "6px 0", marginBottom: 8, fontFamily: MONO }}>
-                      Tap any row to log activity
-                    </div>
-                  )}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 12,
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>📋 Today — {unifiedList.length} lectures</div>
+                    <div style={{ fontSize: 11, color: t.text3 }}>Ordered by priority · Step 1 first</div>
+                  </div>
                   {strugglingCount > 0 && (
                     <div
                       style={{
@@ -5394,15 +5881,17 @@ export default function Tracker({
                       <button
                         type="button"
                         onClick={() => {
-                          window.dispatchEvent(
-                            new CustomEvent("rxt-start-drill", {
-                              detail: {
-                                lecId: null,
-                                mode: "mcq",
-                                filter: "struggling",
-                              },
-                            })
-                          );
+                          setTimeout(() => {
+                            window.dispatchEvent(
+                              new CustomEvent("rxt-start-drill", {
+                                detail: {
+                                  lecId: null,
+                                  mode: "mcq",
+                                  filter: "struggling",
+                                },
+                              })
+                            );
+                          }, 0);
                         }}
                         style={{
                           padding: "4px 12px",
@@ -5420,8 +5909,762 @@ export default function Tracker({
                     </div>
                   )}
 
+                  <div style={{ display: "flex", flexDirection: "column" }}>
+                    {(() => {
+                      console.log(
+                        "activeBlockFilter:",
+                        activeBlockFilter,
+                        "activeBlockId:",
+                        activeBlockId
+                      );
+                      return null;
+                    })()}
+                    {unifiedList.map((item) => {
+                      const unifiedLecId = item.lec.id;
+                      const unifiedBlockId = item.blockId;
+                      const unifiedLecTitle =
+                        item.lec.lectureTitle || item.lec.title || item.lec.filename || "Lecture";
+                      const coach = item.coach;
+                      const step = coach.currentStep;
+                      const rowKeyU = `${unifiedLecId}__${unifiedBlockId}`;
+                      const lecObjs = blockObjectives.filter((o) => o.linkedLecId === item.lec.id);
+                      console.log(
+                        "lecObjs for",
+                        item.lec.lectureTitle?.slice(0, 30),
+                        ":",
+                        lecObjs.length,
+                        "| blockObjs total:",
+                        blockObjectives.length
+                      );
+                      const unifiedTypes = [
+                        { id: "none", icon: "○", label: "Nothing yet" },
+                        { id: "lecture", icon: "🎓", label: "Attended lecture" },
+                        { id: "video", icon: "▶", label: "Watched video" },
+                        { id: "deep_learn", icon: "🧠", label: "Did Deep Learn" },
+                        { id: "read", icon: "📖", label: "Read slides" },
+                        { id: "anki", icon: "🗂", label: "Did Anki" },
+                        { id: "sg", icon: "👥", label: "Small group" },
+                      ];
+                      const selected = activityType[unifiedLecId] || "none";
+                      const nextRec = getNextActionForActivity(selected, step);
+                      const isDoneThisRow =
+                        loggedToday(unifiedLecId, unifiedBlockId) || unifiedDoneKeys.has(rowKeyU) || doneSet.has(rowKeyU);
+                      if (doneSet.has(rowKeyU)) {
+                        const atId = selected;
+                        const atLabel =
+                          atId && atId !== "none" ? unifiedTypes.find((u) => u.id === atId)?.label || atId : null;
+                        return (
+                          <div
+                            key={`${unifiedLecId}__${unifiedBlockId}`}
+                            style={{
+                              padding: "8px 14px",
+                              borderRadius: 8,
+                              border: "1px solid #bbf7d0",
+                              background: "#f0fdf4",
+                              marginBottom: 6,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              fontSize: 12,
+                            }}
+                          >
+                            <span style={{ color: "#16a34a", fontWeight: 700 }}>✓ Logged</span>
+                            <span style={{ color: "#16a34a" }}>{unifiedLecTitle}</span>
+                            {atLabel ? (
+                              <span style={{ color: t.textSecondary || t.text3 || "#6b7280", fontSize: 11 }}>· {atLabel}</span>
+                            ) : null}
+                          </div>
+                        );
+                      }
+                      const isOpen = expandedTodayRow === unifiedLecId;
+                      const maxCalDate = new Date().toISOString().split("T")[0];
+                      const effectiveUnifiedLogDate = unifiedLogDateByRow[rowKeyU] || maxCalDate;
+                      return (
+                        <div
+                          key={`${unifiedLecId}__${unifiedBlockId}`}
+                          style={{
+                            padding: "12px 16px",
+                            borderRadius: 10,
+                            border: `1px solid ${t.border1 || t.border2}`,
+                            background: t.surface || t.cardBg,
+                            marginBottom: 8,
+                            opacity: isDoneThisRow ? 0.78 : 1,
+                          }}
+                        >
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => setExpandedTodayRow(expandedTodayRow === unifiedLecId ? null : unifiedLecId)}
+                            onKeyDown={(ev) => {
+                              if (ev.key === "Enter" || ev.key === " ") {
+                                ev.preventDefault();
+                                setExpandedTodayRow(expandedTodayRow === unifiedLecId ? null : unifiedLecId);
+                              }
+                            }}
+                            style={{ cursor: "pointer" }}
+                          >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
+                                  <span
+                                    style={{
+                                      padding: "2px 8px",
+                                      borderRadius: 20,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      background: `${step.color}15`,
+                                      color: step.color,
+                                      border: `1px solid ${step.color}30`,
+                                      whiteSpace: "nowrap",
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {step.icon} Step {step.number}
+                                  </span>
+                                  {isDoneThisRow && (
+                                    <span
+                                      style={{
+                                        padding: "2px 8px",
+                                        borderRadius: 20,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: "#f0fdf4",
+                                        color: "#16a34a",
+                                        border: "1px solid #bbf7d0",
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      ✓ Logged
+                                    </span>
+                                  )}
+                                  <span style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text1 }}>
+                                    {unifiedLecTitle}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, color: step.color, fontWeight: 600, marginBottom: 2 }}>{step.title}</div>
+                                {!isOpen && (
+                                  <div style={{ fontSize: 11, color: t.text3, lineHeight: 1.4 }}>{step.subtitle}</div>
+                                )}
+                              </div>
+                              <span style={{ color: t.text3, fontSize: 12, flexShrink: 0, userSelect: "none", paddingTop: 2 }}>{isOpen ? "▲" : "▼"}</span>
+                            </div>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, fontSize: 11, color: t.text3 }}>
+                              {item.isReview && (
+                                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: t.surfaceAlt || t.inputBg, border: `1px solid ${t.border1 || t.border2}` }}>
+                                  📅 REVIEW DUE
+                                </span>
+                              )}
+                              {item.isToday && (
+                                <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, background: "#dbeafe", border: "1px solid #93c5fd", color: "#1d4ed8" }}>
+                                  TODAY
+                                </span>
+                              )}
+                              <span>
+                                {item.sessionCount || 0} session{item.sessionCount !== 1 ? "s" : ""}
+                              </span>
+                              {item.lastScore != null && (
+                                <span style={{ color: item.lastScore >= 80 ? t.statusGood : item.lastScore >= 60 ? t.statusWarn : t.statusBad }}>
+                                  · {item.lastScore}%
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {isOpen && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              style={{
+                                marginTop: 12,
+                                paddingTop: 12,
+                                borderTop: `1px solid ${t.border1 || t.border2}`,
+                              }}
+                            >
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: t.text3,
+                                  letterSpacing: "0.05em",
+                                  marginBottom: 8,
+                                  fontFamily: MONO,
+                                }}
+                              >
+                                WHAT DID YOU DO WITH THIS LECTURE?
+                              </div>
+                              <div style={{ marginBottom: 10 }}>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: t.textSecondary || t.text3,
+                                    letterSpacing: "0.05em",
+                                    marginBottom: 6,
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  WHEN?
+                                </div>
+                                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                  <input
+                                    type="date"
+                                    value={effectiveUnifiedLogDate}
+                                    max={maxCalDate}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      e.stopPropagation();
+                                      setUnifiedLogDateByRow((prev) => ({
+                                        ...(prev || {}),
+                                        [rowKeyU]: e.target.value,
+                                      }));
+                                    }}
+                                    style={{
+                                      padding: "5px 10px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.border1 || t.border2}`,
+                                      background: t.surfaceAlt || t.inputBg,
+                                      color: t.text1,
+                                      fontSize: 12,
+                                      cursor: "pointer",
+                                      fontFamily: MONO,
+                                    }}
+                                  />
+                                  {["Today", "Yesterday", "2 days ago"].map((label, i) => {
+                                    const d = new Date();
+                                    d.setDate(d.getDate() - i);
+                                    const val = d.toISOString().split("T")[0];
+                                    const isSel = effectiveUnifiedLogDate === val;
+                                    return (
+                                      <button
+                                        key={label}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setUnifiedLogDateByRow((p) => ({ ...(p || {}), [rowKeyU]: val }));
+                                        }}
+                                        style={{
+                                          padding: "4px 10px",
+                                          borderRadius: 20,
+                                          border: `1px solid ${isSel ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                          background: isSel ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                          color: isSel ? "#fff" : (t.textSecondary || t.text3),
+                                          cursor: "pointer",
+                                          fontSize: 11,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        {label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 14 }}>
+                                {unifiedTypes.map((type) => (
+                                  <button
+                                    key={type.id}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActivityType((prev) => ({ ...prev, [unifiedLecId]: type.id }));
+                                    }}
+                                    style={{
+                                      padding: "5px 11px",
+                                      borderRadius: 20,
+                                      border: `1px solid ${selected === type.id ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                      background: selected === type.id ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                      color: selected === type.id ? "white" : t.text3,
+                                      cursor: "pointer",
+                                      fontSize: 11,
+                                      fontWeight: selected === type.id ? 600 : 400,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    {type.icon} {type.label}
+                                  </button>
+                                ))}
+                              </div>
+
+                              <div
+                                style={{
+                                  padding: "10px 14px",
+                                  borderRadius: 8,
+                                  background: `${step.color}08`,
+                                  border: `1px solid ${step.color}25`,
+                                  marginBottom: 12,
+                                }}
+                              >
+                                <div style={{ fontSize: 12, color: t.text1, lineHeight: 1.6, marginBottom: 10 }}>
+                                  {selected === "none" ? step.description : nextRec.message}
+                                </div>
+                                <div style={{ fontSize: 11, color: step.color, fontWeight: 600, marginBottom: 8 }}>{step.title}</div>
+                                <div style={{ fontSize: 11, color: t.text3, lineHeight: 1.5, marginBottom: 10 }}>{step.subtitle}</div>
+
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const act = selected === "none" ? step.action : nextRec.action;
+                                    dispatchUnifiedAction(act, unifiedLecId, unifiedBlockId, unifiedLecTitle);
+                                  }}
+                                  style={{
+                                    padding: "8px 16px",
+                                    borderRadius: 8,
+                                    border: "none",
+                                    background: step.color,
+                                    color: "white",
+                                    cursor: "pointer",
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    marginRight: 8,
+                                  }}
+                                >
+                                  {selected === "none" ? `${step.actionLabel} →` : `${nextRec.label} →`}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    dispatchUnifiedAction("deep_learn", unifiedLecId, unifiedBlockId, unifiedLecTitle);
+                                  }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${t.border1 || t.border2}`,
+                                    background: "transparent",
+                                    color: t.text3,
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    marginRight: 6,
+                                  }}
+                                >
+                                  🧠 Deep Learn
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    dispatchUnifiedAction("drill", unifiedLecId, unifiedBlockId, unifiedLecTitle);
+                                  }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${t.border1 || t.border2}`,
+                                    background: "transparent",
+                                    color: t.text3,
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    marginRight: 6,
+                                  }}
+                                >
+                                  ⚡ Drill
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    dispatchUnifiedAction("quiz", unifiedLecId, unifiedBlockId, unifiedLecTitle);
+                                  }}
+                                  style={{
+                                    padding: "8px 12px",
+                                    borderRadius: 8,
+                                    border: `1px solid ${t.border1 || t.border2}`,
+                                    background: "transparent",
+                                    color: t.text3,
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  📝 Quiz
+                                </button>
+                              </div>
+
+                              {step.howTo && step.howTo.length > 0 && (
+                                <div style={{ marginBottom: 10 }}>
+                                  {step.howTo.map((line, i) => (
+                                    <div
+                                      key={i}
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        marginBottom: 5,
+                                        fontSize: 12,
+                                        color: String(line || "").startsWith("⚠") ? "#d97706" : t.text1,
+                                        lineHeight: 1.5,
+                                      }}
+                                    >
+                                      <span
+                                        style={{
+                                          color: t.accent || t.statusProgress || "#2563eb",
+                                          fontWeight: 700,
+                                          flexShrink: 0,
+                                          fontSize: 11,
+                                          marginTop: 1,
+                                        }}
+                                      >
+                                        {String(line || "").startsWith("Option") || String(line || "").startsWith("⚠") ? "→" : `${i + 1}.`}
+                                      </span>
+                                      <span>{line}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowAllSteps((prev) => ({
+                                    ...prev,
+                                    [item.lec.id]: !prev[item.lec.id],
+                                  }));
+                                }}
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 5,
+                                  background: "none",
+                                  border: "none",
+                                  cursor: "pointer",
+                                  padding: "4px 0",
+                                  fontSize: 11,
+                                  color: t.textSecondary || t.text3,
+                                  marginBottom: showAllSteps[item.lec.id] ? 8 : 12,
+                                }}
+                              >
+                                <span>📋</span>
+                                <span style={{ textDecoration: "underline" }}>
+                                  {showAllSteps[item.lec.id] ? "Hide" : "View"} all {coach.totalSteps} steps
+                                </span>
+                              </button>
+
+                              {showAllSteps[item.lec.id] && (
+                                <div
+                                  style={{
+                                    marginBottom: 12,
+                                    padding: "10px 12px",
+                                    borderRadius: 8,
+                                    background: t.surfaceAlt || t.inputBg,
+                                    border: `1px solid ${t.border1 || t.border2}`,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      color: t.textSecondary || t.text3,
+                                      letterSpacing: "0.05em",
+                                      marginBottom: 8,
+                                    }}
+                                  >
+                                    YOUR LEARNING ROADMAP
+                                  </div>
+                                  {coach.steps.map((s, idx) => (
+                                    <div
+                                      key={s.id}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "flex-start",
+                                        gap: 8,
+                                        marginBottom: 6,
+                                        opacity: s.done ? 0.5 : idx === coach.currentStepIdx ? 1 : 0.75,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          width: 20,
+                                          height: 20,
+                                          borderRadius: "50%",
+                                          background: s.done
+                                            ? "#16a34a"
+                                            : idx === coach.currentStepIdx
+                                              ? s.color
+                                              : t.border1 || t.border2,
+                                          color: "white",
+                                          display: "flex",
+                                          alignItems: "center",
+                                          justifyContent: "center",
+                                          fontSize: 9,
+                                          fontWeight: 700,
+                                          flexShrink: 0,
+                                          marginTop: 1,
+                                        }}
+                                      >
+                                        {s.done ? "✓" : s.number}
+                                      </div>
+                                      <div style={{ flex: 1 }}>
+                                        <div
+                                          style={{
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            color: idx === coach.currentStepIdx ? s.color : t.text1,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 5,
+                                          }}
+                                        >
+                                          {s.icon} {s.title}
+                                          {idx === coach.currentStepIdx && (
+                                            <span
+                                              style={{
+                                                fontSize: 8,
+                                                padding: "1px 5px",
+                                                borderRadius: 8,
+                                                background: s.color,
+                                                color: "white",
+                                                fontWeight: 700,
+                                              }}
+                                            >
+                                              YOU ARE HERE
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div style={{ fontSize: 10, color: t.textSecondary || t.text3, lineHeight: 1.4 }}>
+                                          {s.subtitle}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {lecObjs.length > 0 && (
+                                <div style={{ marginBottom: 12 }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowObjsFor((prev) => (prev === item.lec.id ? null : item.lec.id));
+                                    }}
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 6,
+                                      background: "none",
+                                      border: "none",
+                                      cursor: "pointer",
+                                      padding: "4px 0",
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: t.textSecondary || t.text3,
+                                      letterSpacing: "0.05em",
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        transform: showObjsFor === item.lec.id ? "rotate(90deg)" : "none",
+                                        transition: "transform 0.15s",
+                                        display: "inline-block",
+                                      }}
+                                    >
+                                      ▶
+                                    </span>
+                                    OBJECTIVES ({lecObjs.length})
+                                    <span
+                                      style={{
+                                        fontSize: 10,
+                                        fontWeight: 400,
+                                        color: t.textSecondary || t.text3,
+                                        marginLeft: 2,
+                                      }}
+                                    >
+                                      — tap to {showObjsFor === item.lec.id ? "hide" : "show"}
+                                    </span>
+                                  </button>
+
+                                  {showObjsFor === item.lec.id && (
+                                    <div
+                                      style={{
+                                        marginTop: 6,
+                                        border: `1px solid ${t.border1 || t.border2}`,
+                                        borderRadius: 8,
+                                        background: t.surface || t.cardBg,
+                                        overflow: "hidden",
+                                      }}
+                                    >
+                                      {lecObjs.map((obj, i) => (
+                                        <div
+                                          key={obj.id || i}
+                                          style={{
+                                            padding: "8px 12px",
+                                            borderBottom:
+                                              i < lecObjs.length - 1 ? `1px solid ${t.border1 || t.border2}` : "none",
+                                            fontSize: 12,
+                                            color: t.text1,
+                                            lineHeight: 1.5,
+                                            display: "flex",
+                                            alignItems: "flex-start",
+                                            gap: 8,
+                                            fontFamily: MONO,
+                                          }}
+                                        >
+                                          <span
+                                            style={{
+                                              flexShrink: 0,
+                                              fontSize: 11,
+                                              marginTop: 2,
+                                              color:
+                                                obj.status === "mastered"
+                                                  ? "#16a34a"
+                                                  : obj.status === "struggling"
+                                                    ? "#dc2626"
+                                                    : (obj.consecutiveCorrect || 0) > 0
+                                                      ? "#d97706"
+                                                      : t.textSecondary || t.text3,
+                                            }}
+                                          >
+                                            {obj.status === "mastered"
+                                              ? "✓"
+                                              : obj.status === "struggling"
+                                                ? "⚠"
+                                                : (obj.consecutiveCorrect || 0) > 0
+                                                  ? "◑"
+                                                  : "○"}
+                                          </span>
+                                          <span>{obj.text}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTodayWhyOpen(todayWhyOpen === unifiedLecId ? null : unifiedLecId);
+                                }}
+                                style={{
+                                  padding: "6px 12px",
+                                  borderRadius: 8,
+                                  border: `1px solid ${t.border1 || t.border2}`,
+                                  background: "transparent",
+                                  color: t.text3,
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  marginBottom: todayWhyOpen === unifiedLecId ? 8 : 0,
+                                }}
+                              >
+                                💡 Why this step?
+                              </button>
+                              {todayWhyOpen === unifiedLecId && step.whyItWorks && (
+                                <div
+                                  style={{
+                                    padding: "10px 14px",
+                                    background: t.surfaceAlt || t.inputBg,
+                                    borderRadius: 8,
+                                    fontSize: 12,
+                                    color: t.text3,
+                                    lineHeight: 1.6,
+                                    fontStyle: "italic",
+                                    borderLeft: `3px solid ${step.color}`,
+                                    marginBottom: 12,
+                                  }}
+                                >
+                                  🔬 <strong>The science:</strong> {step.whyItWorks}
+                                </div>
+                              )}
+
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                                <select
+                                  value={selectedRating[unifiedLecId] || ""}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onChange={(e) =>
+                                    setSelectedRating((prev) => ({
+                                      ...prev,
+                                      [unifiedLecId]: e.target.value,
+                                    }))
+                                  }
+                                  style={{
+                                    padding: "6px 10px",
+                                    borderRadius: 6,
+                                    border: `1px solid ${t.border1 || t.border2}`,
+                                    background: t.surfaceAlt || t.inputBg,
+                                    color: t.text1,
+                                    fontSize: 12,
+                                    cursor: "pointer",
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  <option value="">How did it go?</option>
+                                  <option value="Good">✓ Good</option>
+                                  <option value="Okay">△ Okay</option>
+                                  <option value="Struggling">⚠ Struggling</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const snapActivity = activityType[unifiedLecId];
+                                    const snapRating = selectedRating[unifiedLecId];
+                                    const snapDate = unifiedLogDateByRow[rowKeyU] || maxCalDate;
+                                    setTimeout(() => {
+                                      markRowDone(unifiedLecId, unifiedBlockId, {
+                                        activityType: snapActivity,
+                                        rating: snapRating,
+                                        date: snapDate,
+                                      });
+                                    }, 0);
+                                  }}
+                                  style={{
+                                    padding: "6px 14px",
+                                    borderRadius: 6,
+                                    border: `1px solid ${t.statusGood}`,
+                                    background: "transparent",
+                                    color: t.statusGood,
+                                    cursor: "pointer",
+                                    fontSize: 12,
+                                    fontWeight: 600,
+                                    fontFamily: MONO,
+                                  }}
+                                >
+                                  ✓ Log & mark done
+                                </button>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                                {["Good", "Okay", "Struggling"].map((rating) => (
+                                  <button
+                                    key={rating}
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      const lid = item.lec.id;
+                                      const bid = item.blockId;
+                                      const rawAt = activityType[lid];
+                                      const act = rawAt && rawAt !== "none" ? rawAt : "review";
+                                      const snapDate = unifiedLogDateByRow[rowKeyU] || maxCalDate;
+                                      setSelectedRating((prev) => ({ ...prev, [lid]: rating }));
+                                      setTimeout(() => {
+                                        markRowDone(lid, bid, { rating, activityType: act, date: snapDate });
+                                      }, 0);
+                                    }}
+                                    style={{
+                                      padding: "5px 10px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.border1 || t.border2}`,
+                                      background: "transparent",
+                                      color: t.text1,
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    {rating}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
                   {/* TODAY'S LECTURES */}
-                  {todayLectures.length > 0 && (
+                  {false && todayLectures.length > 0 && (
                     <div style={{ marginTop: 16 }}>
                       <div style={sectionLabelStyle}>TODAY'S LECTURES</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -5539,8 +6782,8 @@ export default function Tracker({
                                     >
                                       {todayMeta}
                                     </div>
-                                    {typeof getStudyCoachSteps === "function" && (() => {
-                                      const coach = getStudyCoachSteps(lec, lbid);
+                                    {(() => {
+                                      const coach = studyCoachForToday(lec, lbid);
                                       const step = coach.currentStep;
                                       return (
                                         <span
@@ -5571,7 +6814,10 @@ export default function Tracker({
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          markRowDone(lec, lbid);
+                                          const lid = lec.id;
+                                          const bid0 = lbid;
+                                          console.log("[rxt Mark done] legacy-todays-lectures (disabled UI branch)", lid, bid0);
+                                          markRowDone(lid, bid0);
                                         }}
                                         style={{
                                           padding: "4px 10px",
@@ -5765,6 +7011,48 @@ export default function Tracker({
                                     }}
                                     onClick={(e) => e.stopPropagation()}
                                   >
+                                    <div style={{ width: "100%" }}>
+                                      <div
+                                        style={{
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          color: t.text3,
+                                          letterSpacing: "0.05em",
+                                          marginBottom: 6,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        WHAT DID YOU DO?
+                                      </div>
+                                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+                                        {ACTIVITY_TYPES.map((type) => (
+                                          <button
+                                            key={type.id}
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setRowLogActivityFor(lec.id, lbid, type.id);
+                                            }}
+                                            style={{
+                                              padding: "4px 10px",
+                                              borderRadius: 20,
+                                              border: `1px solid ${rowLogActivityFor(lec.id, lbid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                              background: rowLogActivityFor(lec.id, lbid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                              color: rowLogActivityFor(lec.id, lbid) === type.id ? "white" : t.text3,
+                                              cursor: "pointer",
+                                              fontSize: 11,
+                                              fontWeight: rowLogActivityFor(lec.id, lbid) === type.id ? 600 : 400,
+                                              display: "flex",
+                                              alignItems: "center",
+                                              gap: 4,
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            {type.icon} {type.label}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
                                     <div
                                       style={{ minWidth: 0, flex: "1 1 120px" }}
                                       onClick={(e) => e.stopPropagation()}
@@ -5889,7 +7177,7 @@ export default function Tracker({
                                       }}
                                       onDone={() => {
                                         setQuickLogWrongOnlyKey(null);
-                                        setRefreshKey((k) => k + 1);
+                                        refreshAllData();
                                       }}
                                     />
                                   </div>
@@ -5908,7 +7196,7 @@ export default function Tracker({
                                       lec={lec}
                                       blockId={lbid}
                                       examDate={examDateL}
-                                      todayStr={todayStr}
+                                      todayStr={studyDayKey}
                                       logActivity={logActivity}
                                       onWrongConceptsLogged={(n) => {
                                         if (n > 0) {
@@ -5920,7 +7208,7 @@ export default function Tracker({
                                       }}
                                       onSave={() => {
                                         setQuickLogOpenId(null);
-                                        setRefreshKey((k) => k + 1);
+                                        refreshAllData();
                                       }}
                                       onCancel={() => setQuickLogOpenId(null)}
                                     />
@@ -5947,7 +7235,7 @@ export default function Tracker({
                     </div>
                   )}
 
-                  {[
+                  {false && ([
                     { key: "rev", title: "REVIEWS DUE", items: sortedReviewsDue, headerStyle: sectionLabelStyle },
                     {
                       key: "strug",
@@ -6171,6 +7459,48 @@ export default function Tracker({
                                         }}
                                         onClick={(e) => e.stopPropagation()}
                                       >
+                                        <div style={{ width: "100%" }}>
+                                          <div
+                                            style={{
+                                              fontSize: 11,
+                                              fontWeight: 600,
+                                              color: t.text3,
+                                              letterSpacing: "0.05em",
+                                              marginBottom: 6,
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            WHAT DID YOU DO?
+                                          </div>
+                                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+                                            {ACTIVITY_TYPES.map((type) => (
+                                              <button
+                                                key={type.id}
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setRowLogActivityFor(lec.id, lbid, type.id);
+                                                }}
+                                                style={{
+                                                  padding: "4px 10px",
+                                                  borderRadius: 20,
+                                                  border: `1px solid ${rowLogActivityFor(lec.id, lbid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                              background: rowLogActivityFor(lec.id, lbid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                              color: rowLogActivityFor(lec.id, lbid) === type.id ? "white" : t.text3,
+                                                  cursor: "pointer",
+                                                  fontSize: 11,
+                                                  fontWeight: rowLogActivityFor(lec.id, lbid) === type.id ? 600 : 400,
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                                  gap: 4,
+                                                  fontFamily: MONO,
+                                                }}
+                                              >
+                                                {type.icon} {type.label}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
                                         <div
                                           style={{ minWidth: 0, flex: "1 1 120px" }}
                                           onClick={(e) => e.stopPropagation()}
@@ -6302,7 +7632,10 @@ export default function Tracker({
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              markRowDone(lec, lbid);
+                                              const lid = lec.id;
+                                              const bid0 = lbid;
+                                              console.log("[rxt Mark done] legacy-reviews-due (disabled UI branch)", lid, bid0);
+                                              markRowDone(lid, bid0);
                                             }}
                                             style={{
                                               padding: "4px 10px",
@@ -6436,7 +7769,7 @@ export default function Tracker({
                                             lec={lec}
                                             blockId={lbid}
                                             examDate={examDateR}
-                                            todayStr={todayStr}
+                                            todayStr={studyDayKey}
                                             logActivity={logActivity}
                                             onWrongConceptsLogged={(n) => {
                                               if (n > 0) {
@@ -6448,7 +7781,7 @@ export default function Tracker({
                                             }}
                                             onSave={() => {
                                               setQuickLogOpenId(null);
-                                              setRefreshKey((k) => k + 1);
+                                              refreshAllData();
                                             }}
                                             onCancel={() => setQuickLogOpenId(null)}
                                           />
@@ -6539,8 +7872,8 @@ export default function Tracker({
                                             {conf.label}
                                           </span>
                                         </div>
-                                        {typeof getStudyCoachSteps === "function" && (() => {
-                                          const coach = getStudyCoachSteps(lec, lbid);
+                                        {(() => {
+                                          const coach = studyCoachForToday(lec, lbid);
                                           const step = coach.currentStep;
                                           return (
                                             <span
@@ -6571,7 +7904,10 @@ export default function Tracker({
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              markRowDone(lec, lbid);
+                                              const lid = lec.id;
+                                              const bid0 = lbid;
+                                              console.log("[rxt Mark done] legacy-struggling (disabled UI branch)", lid, bid0);
+                                              markRowDone(lid, bid0);
                                             }}
                                             style={{
                                               padding: "4px 10px",
@@ -6815,6 +8151,48 @@ export default function Tracker({
                                         }}
                                         onClick={(e) => e.stopPropagation()}
                                       >
+                                        <div style={{ width: "100%" }}>
+                                          <div
+                                            style={{
+                                              fontSize: 11,
+                                              fontWeight: 600,
+                                              color: t.text3,
+                                              letterSpacing: "0.05em",
+                                              marginBottom: 6,
+                                              fontFamily: MONO,
+                                            }}
+                                          >
+                                            WHAT DID YOU DO?
+                                          </div>
+                                          <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+                                            {ACTIVITY_TYPES.map((type) => (
+                                              <button
+                                                key={type.id}
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setRowLogActivityFor(lec.id, lbid, type.id);
+                                                }}
+                                                style={{
+                                                  padding: "4px 10px",
+                                                  borderRadius: 20,
+                                                  border: `1px solid ${rowLogActivityFor(lec.id, lbid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                              background: rowLogActivityFor(lec.id, lbid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                              color: rowLogActivityFor(lec.id, lbid) === type.id ? "white" : t.text3,
+                                                  cursor: "pointer",
+                                                  fontSize: 11,
+                                                  fontWeight: rowLogActivityFor(lec.id, lbid) === type.id ? 600 : 400,
+                                                  display: "flex",
+                                                  alignItems: "center",
+                                                  gap: 4,
+                                                  fontFamily: MONO,
+                                                }}
+                                              >
+                                                {type.icon} {type.label}
+                                              </button>
+                                            ))}
+                                          </div>
+                                        </div>
                                         <div
                                           style={{ minWidth: 0, flex: "1 1 120px" }}
                                           onClick={(e) => e.stopPropagation()}
@@ -6937,7 +8315,7 @@ export default function Tracker({
                                           lec={lec}
                                           blockId={lbid}
                                           examDate={examDateR}
-                                          todayStr={todayStr}
+                                          todayStr={studyDayKey}
                                           logActivity={logActivity}
                                           onWrongConceptsLogged={(n) => {
                                             if (n > 0) {
@@ -6949,7 +8327,7 @@ export default function Tracker({
                                           }}
                                           onSave={() => {
                                             setQuickLogOpenId(null);
-                                            setRefreshKey((k) => k + 1);
+                                            refreshAllData();
                                           }}
                                           onCancel={() => setQuickLogOpenId(null)}
                                         />
@@ -6976,7 +8354,7 @@ export default function Tracker({
                                       }}
                                       onDone={() => {
                                         setQuickLogWrongOnlyKey(null);
-                                        setRefreshKey((k) => k + 1);
+                                        refreshAllData();
                                       }}
                                     />
                                   </div>
@@ -7001,9 +8379,9 @@ export default function Tracker({
                       </div>
                     </div>
                   )
-                  )}
+                  ))}
 
-                  {upNextSectionItems.length > 0 && (
+                  {upNextSectionItemsVisible.length > 0 && (
                     <div style={{ marginTop: 20 }}>
                       <div
                         style={{
@@ -7017,14 +8395,37 @@ export default function Tracker({
                       >
                         ○ UP NEXT
                       </div>
-                      {upNextSectionItems.map(({ lec, blockId: upBid }) => {
+                      {upNextSectionItemsVisible.map(({ lec, blockId: upBid }) => {
                         const upNextRowKey = `${lec.id}__${upBid}`;
                         const isUpNextOpen = expandedUpNext === upNextRowKey;
+                        const upNextCompKey = `${lec.id}__${upBid}`;
+                        const upNextCompRecord = completionData[upNextCompKey];
+                        const upNextIsAlreadyLogged =
+                          (upNextCompRecord?.sessionCount ?? 0) > 0 || Boolean(upNextCompRecord?.firstCompletedDate);
+                        const showUpNextCompactLogged =
+                          upNextIsAlreadyLogged && !lec._forceExpand && !forceExpand[lec.id];
+                        const blockObjListRaw =
+                          typeof getBlockObjectives === "function" ? getBlockObjectives(upBid) || [] : [];
+                        const blockObjList =
+                          blockObjListRaw.length > 0
+                            ? blockObjListRaw.filter((o) => o && o.linkedLecId === lec.id)
+                            : blockObjectives.filter((o) => o && o.linkedLecId === lec.id);
+                        const upNextLecObjs = blockObjList;
                         return (
                           <div
                             key={`upnext-${upNextRowKey}`}
                             onClick={() =>
-                              setExpandedUpNext((cur) => (cur === upNextRowKey ? null : upNextRowKey))
+                              setExpandedUpNext((cur) => {
+                                if (cur === upNextRowKey) {
+                                  setForceExpand((p) => {
+                                    const next = { ...p };
+                                    delete next[lec.id];
+                                    return next;
+                                  });
+                                  return null;
+                                }
+                                return upNextRowKey;
+                              })
                             }
                             style={{
                               padding: "10px 14px",
@@ -7078,11 +8479,15 @@ export default function Tracker({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    window.dispatchEvent(
-                                      new CustomEvent("rxt-launch-deeplearn", {
-                                        detail: { lecId: lec.id, blockId: upBid },
-                                      })
-                                    );
+                                    const lid = lec.id;
+                                    const bid = upBid;
+                                    setTimeout(() => {
+                                      window.dispatchEvent(
+                                        new CustomEvent("rxt-launch-deeplearn", {
+                                          detail: { lecId: lid, blockId: bid },
+                                        })
+                                      );
+                                    }, 0);
                                   }}
                                   title="Deep Learn"
                                   style={{
@@ -7109,12 +8514,224 @@ export default function Tracker({
                                   borderTop: `1px solid ${t.border2}`,
                                 }}
                               >
+                                {showUpNextCompactLogged ? (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "space-between",
+                                      flexWrap: "wrap",
+                                      gap: 8,
+                                    }}
+                                  >
+                                    <div style={{ fontSize: 12, color: "#16a34a", fontFamily: MONO }}>
+                                      ✓ Logged — {upNextCompRecord.sessionCount || 1} session
+                                      {upNextCompRecord.sessionCount !== 1 ? "s" : ""}
+                                      {upNextCompRecord.lastActivityDate && (
+                                        <span style={{ color: t.text2 || t.text3, marginLeft: 6 }}>
+                                          ·{" "}
+                                          {new Date(upNextCompRecord.lastActivityDate).toLocaleDateString("en-US", {
+                                            month: "short",
+                                            day: "numeric",
+                                          })}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setForceExpand((prev) => ({ ...prev, [lec.id]: true }));
+                                        }}
+                                        style={{
+                                          padding: "3px 10px",
+                                          borderRadius: 6,
+                                          border: `1px solid ${t.border1 || t.border2}`,
+                                          background: "transparent",
+                                          color: t.text2 || t.text3,
+                                          cursor: "pointer",
+                                          fontSize: 11,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        Edit log
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const lid = lec.id;
+                                          const bid = upBid;
+                                          setTimeout(() => {
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-start-drill", {
+                                                detail: { lecId: lid, blockId: bid },
+                                              })
+                                            );
+                                          }, 0);
+                                        }}
+                                        style={{
+                                          width: 26,
+                                          height: 26,
+                                          borderRadius: 6,
+                                          border: `1px solid ${t?.accent || "#2563eb"}`,
+                                          background: "transparent",
+                                          color: t?.accent || "#2563eb",
+                                          cursor: "pointer",
+                                          fontSize: 12,
+                                        }}
+                                        title="Drill"
+                                      >
+                                        ⚡
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          const lid = lec.id;
+                                          const bid = upBid;
+                                          setTimeout(() => {
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-launch-quiz", {
+                                                detail: { lecId: lid, blockId: bid },
+                                              })
+                                            );
+                                          }, 0);
+                                        }}
+                                        style={{
+                                          width: 26,
+                                          height: 26,
+                                          borderRadius: 6,
+                                          border: "1px solid #d97706",
+                                          background: "transparent",
+                                          color: "#d97706",
+                                          cursor: "pointer",
+                                          fontSize: 12,
+                                        }}
+                                        title="Quiz"
+                                      >
+                                        📝
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <>
                                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                                  <div style={{ width: "100%", marginBottom: 10 }}>
+                                    <div
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        color: t.text3,
+                                        letterSpacing: "0.05em",
+                                        marginBottom: 6,
+                                        fontFamily: MONO,
+                                      }}
+                                    >
+                                      WHAT DID YOU DO?
+                                    </div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                      {ACTIVITY_TYPES.map((type) => (
+                                        <button
+                                          key={type.id}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setRowLogActivityFor(lec.id, upBid, type.id);
+                                          }}
+                                          style={{
+                                            padding: "4px 10px",
+                                            borderRadius: 20,
+                                            border: `1px solid ${rowLogActivityFor(lec.id, upBid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                              background: rowLogActivityFor(lec.id, upBid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                              color: rowLogActivityFor(lec.id, upBid) === type.id ? "white" : t.text3,
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                            fontWeight: rowLogActivityFor(lec.id, upBid) === type.id ? 600 : 400,
+                                            display: "flex",
+                                            alignItems: "center",
+                                            gap: 4,
+                                            fontFamily: MONO,
+                                          }}
+                                        >
+                                          {type.icon} {type.label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  {upNextLecObjs.length > 0 && (
+                                    <div style={{ width: "100%", marginBottom: 12 }}>
+                                      <div
+                                        style={{
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          color: t.text3,
+                                          letterSpacing: "0.05em",
+                                          marginBottom: 6,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        OBJECTIVES ({upNextLecObjs.length})
+                                      </div>
+                                      <div
+                                        style={{
+                                          maxHeight: 150,
+                                          overflowY: "auto",
+                                          border: `1px solid ${t.border1 || t.border2}`,
+                                          borderRadius: 6,
+                                        }}
+                                      >
+                                        {upNextLecObjs.map((obj, i) => {
+                                          const objText = (obj.text || obj.objective || "").trim();
+                                          return (
+                                            <div
+                                              key={obj.id || `obj-${i}`}
+                                              style={{
+                                                padding: "6px 10px",
+                                                borderBottom:
+                                                  i < upNextLecObjs.length - 1 ? `1px solid ${t.border1 || t.border2}` : "none",
+                                                fontSize: 12,
+                                                color: t.text1,
+                                                lineHeight: 1.4,
+                                                display: "flex",
+                                                alignItems: "flex-start",
+                                                gap: 8,
+                                                fontFamily: MONO,
+                                              }}
+                                            >
+                                              <span
+                                                style={{
+                                                  color:
+                                                    obj.status === "mastered"
+                                                      ? "#16a34a"
+                                                      : obj.status === "struggling"
+                                                        ? "#dc2626"
+                                                        : t.text3,
+                                                  flexShrink: 0,
+                                                  fontSize: 11,
+                                                  marginTop: 1,
+                                                }}
+                                              >
+                                                {obj.status === "mastered" ? "✓" : obj.status === "struggling" ? "⚠" : "○"}
+                                              </span>
+                                              <span>{objText || "—"}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      markRowDone(lec, upBid);
+                                      const idSnap = lec.id;
+                                      const bidSnap = upBid;
+                                      console.log("[rxt Mark done] up-next", idSnap, bidSnap);
+                                      setTimeout(() => {
+                                        markRowDone(idSnap, bidSnap);
+                                      }, 0);
                                     }}
                                     style={{
                                       padding: "5px 12px",
@@ -7136,7 +8753,13 @@ export default function Tracker({
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        logQuickRating(lec, upBid, r);
+                                        const lid = lec.id;
+                                        const bidSnap = upBid;
+                                        const r0 = r;
+                                        const atSnap = rowLogActivityFor(lid, bidSnap);
+                                        setTimeout(() => {
+                                          markRowDone(lid, bidSnap, { rating: r0, activityType: atSnap });
+                                        }, 0);
                                       }}
                                       style={{
                                         padding: "5px 10px",
@@ -7158,11 +8781,15 @@ export default function Tracker({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      window.dispatchEvent(
-                                        new CustomEvent("rxt-launch-deeplearn", {
-                                          detail: { lecId: lec.id, blockId: upBid },
-                                        })
-                                      );
+                                      const lid = lec.id;
+                                      const bid = upBid;
+                                      setTimeout(() => {
+                                        window.dispatchEvent(
+                                          new CustomEvent("rxt-launch-deeplearn", {
+                                            detail: { lecId: lid, blockId: bid },
+                                          })
+                                        );
+                                      }, 0);
                                     }}
                                     style={{
                                       padding: "5px 12px",
@@ -7182,11 +8809,15 @@ export default function Tracker({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      window.dispatchEvent(
-                                        new CustomEvent("rxt-start-drill", {
-                                          detail: { lecId: lec.id, blockId: upBid },
-                                        })
-                                      );
+                                      const lid = lec.id;
+                                      const bid = upBid;
+                                      setTimeout(() => {
+                                        window.dispatchEvent(
+                                          new CustomEvent("rxt-start-drill", {
+                                            detail: { lecId: lid, blockId: bid },
+                                          })
+                                        );
+                                      }, 0);
                                     }}
                                     style={{
                                       padding: "5px 12px",
@@ -7206,11 +8837,15 @@ export default function Tracker({
                                     type="button"
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      window.dispatchEvent(
-                                        new CustomEvent("rxt-launch-quiz", {
-                                          detail: { lecId: lec.id, blockId: upBid },
-                                        })
-                                      );
+                                      const lid = lec.id;
+                                      const bid = upBid;
+                                      setTimeout(() => {
+                                        window.dispatchEvent(
+                                          new CustomEvent("rxt-launch-quiz", {
+                                            detail: { lecId: lid, blockId: bid },
+                                          })
+                                        );
+                                      }, 0);
                                     }}
                                     style={{
                                       padding: "5px 12px",
@@ -7263,10 +8898,12 @@ export default function Tracker({
                                       }}
                                       onDone={() => {
                                         setQuickLogWrongOnlyKey(null);
-                                        setRefreshKey((k) => k + 1);
+                                        refreshAllData();
                                       }}
                                     />
                                   </div>
+                                )}
+                                  </>
                                 )}
                               </div>
                             )}
@@ -8403,7 +10040,12 @@ export default function Tracker({
                                               {(task.matchReason === "🔁 REVIEW DUE" || task.matchReason === "📅 WEEKLY SWEEP") && (
                                                 <button
                                                   type="button"
-                                                  onClick={() => markLectureReviewedToday(task.lec.id, bid)}
+                                                  onClick={() => {
+                                                    const tid = task.lec.id;
+                                                    const tbid = task.lec.blockId || bid;
+                                                    console.log("[rxt Mark reviewed today] schedule row", tid, tbid);
+                                                    markLectureReviewedToday(tid, tbid, "okay", examDate);
+                                                  }}
                                                   style={{
                                                     fontFamily: MONO,
                                                     fontSize: 10,
@@ -8536,9 +10178,12 @@ export default function Tracker({
                                             type="button"
                                             onClick={(e) => {
                                               e.stopPropagation();
-                                              setQuickLogState((p) => ({ ...(p || {}), [task.lec.id]: { open: true, submitting: false } }));
-                                              setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: { activityType: "review", confidenceRating: "okay", note: "" } }));
-                                              setQuickLogNoteOpen((p) => ({ ...(p || {}), [task.lec.id]: false }));
+                                              const tid = task.lec.id;
+                                              const tbid = task.lec.blockId || bid;
+                                              console.log("[rxt ✓ Mark done] schedule quick-log open", tid, tbid);
+                                              setQuickLogState((p) => ({ ...(p || {}), [tid]: { open: true, submitting: false } }));
+                                              setQuickLogDraft((p) => ({ ...(p || {}), [tid]: { activityType: "review", confidenceRating: "okay", note: "" } }));
+                                              setQuickLogNoteOpen((p) => ({ ...(p || {}), [tid]: false }));
                                             }}
                                             style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + T.border1, background: T.inputBg, color: T.text2, cursor: "pointer" }}
                                           >
@@ -8636,7 +10281,7 @@ export default function Tracker({
                                                 setQuickLogState((p) => ({ ...(p || {}), [task.lec.id]: { open: false, submitting: false } }));
                                                 setQuickLogDraft((p) => ({ ...(p || {}), [task.lec.id]: undefined }));
                                                 setQuickLogNoteOpen((p) => ({ ...(p || {}), [task.lec.id]: false }));
-                                                setRefreshKey((k) => k + 1);
+                                                refreshAllData();
                                                 if (conf === "struggling") {
                                                   setFlashTaskId({ lecId: task.lec.id, color: T.statusBad });
                                                   setTimeout(() => setFlashTaskId(null), 600);
@@ -8825,7 +10470,7 @@ export default function Tracker({
                   lecs={lecs}
                   getPressureZone={getPressureZone}
                   logActivity={logActivity}
-                  setRefreshKey={setRefreshKey}
+                  refreshAllData={refreshAllData}
                   refreshKey={refreshKey}
                   theme={t}
                   MONO={MONO}

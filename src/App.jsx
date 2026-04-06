@@ -46,6 +46,7 @@ import {
   callAIWithImage,
 } from "./aiClient";
 import { getChunkBody, getLecText } from "./lectureText";
+import { findRelevantLectureExcerpt, excerptPlainText } from "./drillLectureSnippet";
 
 const STUDY_MODES = {
   DEEP_LEARN: {
@@ -281,7 +282,7 @@ function getCBSEObjectives() {
 function useCompletionSyncVersion() {
   const [v, setV] = useState(0);
   useEffect(() => {
-    const h = () => setV((x) => x + 1);
+    const h = () => queueMicrotask(() => setV((x) => x + 1));
     window.addEventListener("rxt-completion-updated", h);
     return () => window.removeEventListener("rxt-completion-updated", h);
   }, []);
@@ -1034,79 +1035,83 @@ function getStudyCoachSteps(lec, blockId) {
         phase: 1,
         number: 1,
         icon: "🧠",
-        title: "Prime your brain",
+        title: "Prime your brain first",
         subtitle: "Before touching any material",
         color: "#dc2626",
-        description:
-          "Write down everything you already know about this topic — no notes, no slides. This activates prior knowledge and makes new information stick better.",
-        whyItWorks:
-          "Retrieval practice before learning (pre-testing) improves encoding by up to 50%. Your brain forms stronger connections when it has existing hooks to attach new info to.",
+        description: `Before you open any slides or watch any video, take 2 minutes and write down everything you already know about "${lec?.lectureTitle || "this lecture"}". Don't worry if it's nothing — that's normal. This primes your brain to absorb new information better.`,
+        howTo: [
+          "Open a blank note or grab paper",
+          "Set a 2-minute timer",
+          "Write everything you know about this topic — no peeking",
+          "Then start Deep Learn below",
+        ],
+        whyItWorks: `Pre-testing yourself before learning — even when you know nothing — improves encoding by up to 50%. Your brain forms stronger connections when it has existing hooks to attach new information to.`,
         action: "deep_learn",
-        actionLabel: "🧠 Start Deep Learn (Phase 1 = Brain Dump)",
-        done: sessionCount >= 1,
-        skippable: false,
-      },
-      {
-        id: "objectives",
-        phase: 1,
-        number: 2,
-        icon: "🎯",
-        title: "Preview the objectives only",
-        subtitle: "NOT the slides — just the objectives",
-        color: "#dc2626",
-        description: `This lecture has ${objs.length} objectives. Read them once to know what you're trying to learn. Do not open the slides yet — your brain will encode better when it knows the destination first.`,
-        whyItWorks:
-          'The "generation effect" — when you know what questions to ask before learning, you process the material more deeply.',
-        action: "view_objectives",
-        actionLabel: "🎯 View objectives",
+        actionLabel: "🧠 Start Deep Learn",
         done: sessionCount >= 1,
         skippable: false,
       },
       {
         id: "encode",
         phase: 1,
-        number: 3,
+        number: 2,
         icon: "📖",
-        title: "Encode — let AI teach you",
-        subtitle: "Active learning, not passive reading",
+        title: "Encode — understand it first",
+        subtitle: "Watch, listen, or use Deep Learn",
         color: "#dc2626",
-        description:
-          "Use Deep Learn to go through this lecture section by section. The AI will explain concepts, ask you questions, and build your understanding. This replaces staring at slides.",
-        whyItWorks:
-          "Passive re-reading is one of the least effective study methods. Active engagement with the material (explaining, questioning, connecting) produces 2-3x better retention.",
+        description: `Now engage with the material actively. You can watch a Ninja Nerd video on this topic, attend/re-watch the lecture, or use Deep Learn below. The key: every 5-10 minutes, PAUSE and recall what you just learned before continuing. Don't just let it play.`,
+        howTo: [
+          "Option A: Watch a Ninja Nerd video on this topic",
+          "Option B: Use Deep Learn — guided teaching walks each objective (Prime → Learn → Patient → Self-test → Gaps → Apply)",
+          "Option C: Attend or re-watch the lecture recording",
+          "⚠ Every 5-10 min: pause and write what you just learned",
+          "Log your activity below when done",
+        ],
+        whyItWorks: `Passive watching or reading produces poor retention. Pausing to recall every few minutes (the "pause-and-recall" method) is 2-3x more effective than continuous watching. Active engagement forces your brain to process, not just receive.`,
         action: "deep_learn",
-        actionLabel: "🧠 Deep Learn this lecture",
+        actionLabel: "🧠 Deep Learn",
         done: sessionCount >= 1,
         skippable: false,
       },
       {
         id: "feynman",
         phase: 2,
-        number: 4,
+        number: 3,
         icon: "💬",
-        title: "Feynman check — explain it back",
-        subtitle: "If you can't explain it simply, you don't know it",
+        title: "Explain it back — Feynman check",
+        subtitle: "If you can't explain it simply, you don't know it yet",
         color: "#d97706",
-        description:
-          "Close everything. Pick 3 objectives and explain them out loud or in writing as if teaching someone with no medical background. Where you get stuck = what you don't actually know.",
-        whyItWorks:
-          "The Feynman technique forces you to identify the exact boundary between what you know and what you think you know. Most students skip this and discover the gap on exam day.",
+        description: `Close everything. Pick any 2-3 objectives from this lecture and explain them out loud as if teaching a friend with no medical background. Where you stumble or go blank = exactly what you don't actually know yet. Go back and fill those gaps before moving on.`,
+        howTo: [
+          "Close your notes and the app",
+          "Pick 2-3 objectives from the list below",
+          "Explain each one out loud or in writing — simple language",
+          "Notice where you get stuck or vague",
+          "Those gaps = go back to Encode (Step 2) — use Deep Learn's Learn phase for those objectives only, not the whole lecture",
+        ],
+        whyItWorks: `The Feynman technique exposes the gap between "I recognize this" and "I actually understand this." Most students discover this gap on exam day. You want to find it now.`,
         action: "drill",
-        actionLabel: "⚡ Drill — test yourself without notes",
+        actionLabel: "⚡ Self-test with Drill",
         done: sessionCount >= 2 || lastScore >= 70,
         skippable: true,
       },
       {
         id: "retrieve",
         phase: 2,
-        number: 5,
+        number: 4,
         icon: "⚡",
-        title: "Retrieval practice — drill the objectives",
-        subtitle: "The most important step most students skip",
+        title: "Retrieval practice — test yourself",
+        subtitle: "This IS the studying, not preparation for studying",
         color: "#d97706",
-        description: `Test yourself on all ${objs.length} objectives without notes. Mark each as mastered, getting there, or struggling. This IS the studying — not preparation for studying.`,
-        whyItWorks:
-          "Retrieval practice (testing yourself) produces 50-80% better long-term retention than re-studying. Every time you successfully recall something, the memory trace strengthens.",
+        description: `Now test yourself on every objective without notes. This is the single most important step — research shows retrieval practice produces 50-80% better long-term retention than re-studying. Mark each objective: mastered, getting there, or struggling. Your goal is to find your gaps, not to feel good.`,
+        howTo: [
+          "Click Drill below",
+          "Answer each objective without looking at notes",
+          "Be honest — mark struggling if you're not sure",
+          "Struggling objectives automatically get flagged for extra practice",
+          `Aim for at least one full pass through all ${objs.length} objectives`,
+        ],
+        whyItWorks: `Every time you successfully retrieve a memory, the memory trace strengthens. Every time you fail to retrieve it, you identify exactly what to study. Both outcomes are useful. Re-reading feels productive but produces 50% less retention than testing yourself.`,
         action: "drill",
         actionLabel: "⚡ Start Drill",
         done: objs.some((o) => (o.drillCount || 0) > 0),
@@ -1115,39 +1120,57 @@ function getStudyCoachSteps(lec, blockId) {
       {
         id: "gaps",
         phase: 2,
-        number: 6,
+        number: 5,
         icon: "🔍",
-        title: "Review your gaps",
-        subtitle: `You have ${untestedObjs.length} untested and ${strugglingObjs.length} struggling objectives`,
-        color: "#d97706",
+        title: "Fix your gaps",
+        subtitle:
+          strugglingObjs.length > 0
+            ? `${strugglingObjs.length} objectives need work`
+            : "Almost there — clean up remaining weak spots",
+        color: "#7c3aed",
         description:
           strugglingObjs.length > 0
-            ? `Focus on: ${strugglingObjs
-                .slice(0, 2)
-                .map((o) => objText(o).slice(0, 40))
-                .join("; ")}... Go back to Deep Learn for these specific sections only.`
-            : untestedObjs.length > 0
-              ? "Some objectives haven't been drilled yet. Run another drill pass to cover all objectives."
-              : "All objectives have been tested. Check your wrong answers and understand WHY each was wrong.",
-        whyItWorks:
-          "Targeted restudy of weak areas is far more efficient than re-reading everything. Work on your gaps, not your strengths.",
+            ? `You have ${strugglingObjs.length} struggling objectives. Go back to Deep Learn and redo Guided Teaching / Gaps for THOSE OBJECTIVES ONLY — don't re-read everything. Then drill again until they're solid. Focused restudy of weak areas is 3x more efficient than reviewing everything.`
+            : `Run one more drill pass. Your goal is to get every objective to at least "getting there" before moving to clinical questions.`,
+        howTo:
+          strugglingObjs.length > 0
+            ? [
+                `Focus only on: ${strugglingObjs
+                  .slice(0, 3)
+                  .map((o) => objText(o).slice(0, 40))
+                  .join(", ")}`,
+                "Open Deep Learn → Learn phase for those objectives only",
+                "Or watch the part of the video covering that topic",
+                "Then drill again — just those objectives",
+              ]
+            : [
+                "Run another drill pass",
+                'Focus on objectives you rated "getting there"',
+                "Repeat until all objectives feel solid",
+              ],
+        whyItWorks: `Targeted restudy of weak areas is far more efficient than re-reading everything. Identify your exact gaps and fill only those.`,
         action: strugglingObjs.length > 0 ? "deep_learn" : "drill",
-        actionLabel: strugglingObjs.length > 0 ? "🧠 Deep Learn weak sections" : "⚡ Drill remaining objectives",
-        done: strugglingObjs.length === 0 && untestedObjs.length === 0,
+        actionLabel: strugglingObjs.length > 0 ? "🧠 Review weak sections" : "⚡ Drill again",
+        done: strugglingObjs.length === 0 && objs.every((o) => (o.drillCount || 0) > 0),
         skippable: true,
       },
       {
         id: "quiz",
         phase: 3,
-        number: 7,
+        number: 6,
         icon: "📝",
-        title: "Clinical application quiz",
-        subtitle: "Apply knowledge to patient scenarios",
-        color: "#7c3aed",
-        description:
-          "Now that you know the material, test applying it. Clinical vignette questions force you to use the knowledge, not just recognize it — exactly what your exam will ask.",
-        whyItWorks:
-          "Transfer-appropriate processing: studying in the format you'll be tested in (clinical MCQs) produces better exam performance than studying in any other format.",
+        title: "Apply it — clinical questions",
+        subtitle: "Study in the format you'll be tested in",
+        color: "#0891b2",
+        description: `Now that you know the material, practice applying it to patient scenarios — exactly how your exam will test you. Clinical vignette questions force you to USE the knowledge, not just recognize it. Wrong answers include explanations of WHY they're wrong, which is often more valuable than the correct answer.`,
+        howTo: [
+          "Click Quiz below",
+          "Choose 10 questions to start",
+          "Read each option carefully — don't rush",
+          "After answering, read ALL the wrong answer explanations",
+          "The teaching points are high yield — read every one",
+        ],
+        whyItWorks: `Transfer-appropriate processing: practicing in the exact format of your exam produces significantly better performance than studying in any other format. Clinical vignettes also force you to connect mechanisms to outcomes — exactly what Step 1 tests.`,
         action: "quiz",
         actionLabel: "📝 Start Quiz",
         done: lastScore >= 80,
@@ -1156,36 +1179,43 @@ function getStudyCoachSteps(lec, blockId) {
       {
         id: "connect",
         phase: 3,
-        number: 8,
+        number: 7,
         icon: "🔗",
         title: "Connect to other lectures",
         subtitle: "Build the bigger picture",
         color: "#0891b2",
-        description:
-          'How does this lecture connect to what you\'ve already learned? Ask yourself: "How would this come up in a patient case alongside LEC 1 or LEC 2?" Cross-lecture connections are what Step 1 tests.',
-        whyItWorks:
-          'Elaborative interrogation — asking "why" and "how does this connect" — is one of the highest-yield encoding strategies for long-term retention.',
+        description: `Ask yourself: how does this lecture connect to what you've already learned? How might ${lec?.lectureTitle || "this lecture"} come up in the same patient case as other lectures? Cross-lecture connections are what Step 1 actually tests — not isolated facts.`,
+        howTo: [
+          "Think: what concepts from other lectures relate to this one?",
+          "Quiz yourself with cross-objective questions",
+          "Try to create a 1-sentence connection between this lecture and one other",
+        ],
+        whyItWorks: `Elaborative interrogation — asking "how does this connect?" — is one of the highest-yield encoding strategies. Isolated facts fade. Connected knowledge persists.`,
         action: "quiz",
-        actionLabel: "📝 Cross-objective Quiz",
+        actionLabel: "📝 Cross-lecture Quiz",
         done: lastScore >= 85 && masteryPct >= 0.7,
         skippable: true,
       },
       {
         id: "spaced",
         phase: 4,
-        number: 9,
+        number: 8,
         icon: "📅",
-        title: "Schedule spaced review",
-        subtitle: "Lock it in long-term",
+        title: "Space it out — come back later",
+        subtitle: "Review in 3 days, then 7, then 14",
         color: "#16a34a",
-        description:
-          "Review this lecture again in 3 days, then 7 days, then 14 days. Each review should be a quick drill — not re-reading. If you get 80%+, space it out further.",
-        whyItWorks:
-          'Spaced repetition exploits the "spacing effect" — the most well-replicated finding in memory research. Reviewing at increasing intervals is 2-3x more efficient than massed practice.',
-        action: "schedule",
-        actionLabel: "📅 Set review reminder",
-        done: masteryPct >= 0.8,
-        skippable: true,
+        description: `You're done for now. Come back in 3 days and do a quick 5-minute drill. If you score 80%+, wait 7 days before the next review. Each successful review doubles the interval. This is how you build knowledge that lasts until the exam — and beyond.`,
+        howTo: [
+          "The app will remind you when this lecture is due for review",
+          "When it appears in Reviews Due — just do a quick drill",
+          "If score drops below 80% — go back to Fix gaps (Step 5)",
+          "If score stays above 80% — move the interval further out",
+        ],
+        whyItWorks: `The spacing effect is the most well-replicated finding in memory research. Reviewing at increasing intervals is 2-3x more efficient than massed practice (cramming). One hour spread over 3 sessions beats 3 hours in one sitting.`,
+        action: "drill",
+        actionLabel: "📅 Quick Review Drill",
+        done: masteryPct >= 0.8 && sessionCount >= 3,
+        skippable: false,
       },
     ];
 
@@ -1203,26 +1233,27 @@ function getStudyCoachSteps(lec, blockId) {
     const stub = {
       phase: 1,
         icon: "🧠",
-        title: "Prime your brain",
+        title: "Prime your brain first",
         subtitle: "Before touching any material",
         color: "#dc2626",
-        description: "Write down everything you already know about this topic.",
+        description: "Before you start, write down what you already know about this lecture.",
+        howTo: ["Open a blank note", "Set a 2-minute timer", "Write what you know — no peeking", "Then start Deep Learn"],
         whyItWorks: "Retrieval practice before learning improves encoding.",
         action: "deep_learn",
-        actionLabel: "🧠 Start Deep Learn (Phase 1 = Brain Dump)",
+        actionLabel: "🧠 Start Deep Learn",
         done: false,
         skippable: false,
     };
-    const steps = Array.from({ length: 9 }, (_, i) => ({
+    const steps = Array.from({ length: 8 }, (_, i) => ({
       ...stub,
-      id: ["prime", "objectives", "encode", "feynman", "retrieve", "gaps", "quiz", "connect", "spaced"][i],
+      id: ["prime", "encode", "feynman", "retrieve", "gaps", "quiz", "connect", "spaced"][i],
       number: i + 1,
     }));
     return {
       steps,
       currentStep: steps[0],
       currentStepIdx: 0,
-      totalSteps: 9,
+      totalSteps: 8,
       completedSteps: 0,
     };
   }
@@ -2893,7 +2924,11 @@ function computeReviewDates(completedDate, confidenceRating, examDate) {
 function logActivityToCompletion(lectureId, blockId, activityType, confidenceRating, options = {}) {
   try {
     if (!lectureId || !blockId) return;
-    const date = options?.date || new Date().toISOString().slice(0, 10);
+    const dateRaw = options?.date || new Date().toISOString().slice(0, 10);
+    const date =
+      typeof dateRaw === "string" && dateRaw.length >= 10
+        ? dateRaw.slice(0, 10)
+        : new Date(dateRaw).toISOString().slice(0, 10);
     const examDate = options?.examDate || null;
     const durationMinutes = options?.durationMinutes ?? null;
     const note = options?.note ?? null;
@@ -2909,21 +2944,29 @@ function logActivityToCompletion(lectureId, blockId, activityType, confidenceRat
       durationMinutes,
       note,
     };
-    const activityLog = [activity, ...(Array.isArray(existing?.activityLog) ? existing.activityLog : [])];
+    const unsorted = [activity, ...(Array.isArray(existing?.activityLog) ? existing.activityLog : [])];
+    const activityLog = [...unsorted].sort((a, b) => new Date(b?.date || 0) - new Date(a?.date || 0));
     const firstCompletedDate = existing?.firstCompletedDate || date;
-    const lastActivityDate = date;
-    const lastConfidence = activity.confidenceRating;
-    const reviewDates = computeReviewDates(lastActivityDate, lastConfidence, examDate).map((d) => d.toISOString().slice(0, 10));
+    const lastActivityDate = activityLog[0]?.date || date;
+    const lastConfidence = activityLog[0]?.confidenceRating || activity.confidenceRating;
+    const reviewDates = computeReviewDates(lastActivityDate.slice(0, 10), lastConfidence, examDate).map((d) =>
+      d.toISOString().slice(0, 10)
+    );
 
     store[key] = {
+      ...(existing || {}),
       lectureId,
       blockId,
       ankiInRotation: activity.activityType === "anki" ? true : !!existing?.ankiInRotation,
+      ankiCardCount: existing?.ankiCardCount ?? null,
+      ankiCardsOverdue: existing?.ankiCardsOverdue ?? null,
+      lastAnkiLogDate: existing?.lastAnkiLogDate ?? null,
       firstCompletedDate,
       lastActivityDate,
       lastConfidence,
       reviewDates,
       activityLog,
+      sessionCount: (existing?.sessionCount ?? 0) + 1,
     };
     safeSetItem("rxt-completion", store);
     window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
@@ -2931,6 +2974,49 @@ function logActivityToCompletion(lectureId, blockId, activityType, confidenceRat
   } catch (e) {
     console.warn("logActivityToCompletion failed:", e);
   }
+}
+
+/** Overview “Log past session”: same completion shape as logActivityToCompletion + one perf session (does not touch objectives / quiz / drill). */
+function saveBackdatedSession(lecId, blockId, options, examDateStr, perfKey) {
+  if (!lecId || !blockId || !options?.date) return;
+  const conf =
+    options.rating === "good" ? "good" : options.rating === "struggling" ? "struggling" : "okay";
+  const dateStr =
+    typeof options.date === "string" && options.date.length >= 10
+      ? options.date.slice(0, 10)
+      : new Date(options.date).toISOString().slice(0, 10);
+  logActivityToCompletion(lecId, blockId, options.activityType || "review", conf, {
+    date: dateStr,
+    examDate: examDateStr || null,
+  });
+  try {
+    const score = conf === "good" ? 85 : conf === "struggling" ? 45 : 65;
+    const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+    const existing = perf[perfKey] || { sessions: [] };
+    const sessions = Array.isArray(existing.sessions) ? [...existing.sessions] : [];
+    const isoDate = `${dateStr}T12:00:00.000Z`;
+    sessions.push({
+      date: isoDate,
+      sessionType: options.activityType || "review",
+      score,
+      lectureId: lecId,
+    });
+    sessions.sort((a, b) => new Date(a?.date || 0) - new Date(b?.date || 0));
+    const scVals = sessions.map((s) => s.score).filter((x) => x != null && !Number.isNaN(Number(x)));
+    const avg = scVals.length ? Math.round(scVals.reduce((a, b) => a + b, 0) / scVals.length) : score;
+    perf[perfKey] = {
+      ...existing,
+      sessions: sessions.slice(-50),
+      score: avg,
+      lastScore: score,
+    };
+    safeSetItem("rxt-performance", perf);
+  } catch (e) {
+    console.warn("saveBackdatedSession perf failed:", e);
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("rxt-tracker-refresh"));
+  } catch {}
 }
 
 async function loadLectures() {
@@ -3267,7 +3353,7 @@ const detectStudyMode = (lec, objectives = []) => {
     return { mode: "pharmacology", label: "Pharmacology", icon: "💊", recommended: ["deepLearn", "flashcards", "mcq"], avoid: [], reason: "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.", color: "#10b981" };
   }
   if (/\bbchm|biochem|metabol|pathway|enzyme|substrate|cofactor|atp|nadh|glycol|krebs|oxidat|synthesis|protein|dna|rna|gene|transcri|translat/i.test(allText)) {
-    return { mode: "biochemistry", label: "Biochemistry & Pathways", icon: "⚗️", recommended: ["deepLearn", "algorithmDraw", "mcq"], avoid: [], reason: "Biochemistry pathways need step-by-step algorithm drawing and mechanism explanation.", color: "#f59e0b" };
+    return { mode: "biochemistry", label: "Biochemistry & Pathways", icon: "⚗️", recommended: ["deepLearn", "flashcards", "mcq"], avoid: [], reason: "Biochemistry pathways benefit from Deep Learn, spaced recall, and application questions.", color: "#f59e0b" };
   }
   if (/\bphys|physiol|homeosta|pressure|volume|flow|cardiac|respirat|renal|filtrat|hormonal|feedback|regulation/i.test(allText)) {
     return { mode: "physiology", label: "Physiology", icon: "❤️", recommended: ["deepLearn", "mcq"], avoid: [], reason: "Physiology needs clinical reasoning and mechanism-based deep learning.", color: "#ef4444" };
@@ -3540,6 +3626,25 @@ function normalizeDrillMcqFromParsed(parsed, lecObjs, currentObjId) {
     conceptTested: root.conceptTested,
     angle: root.angle,
   };
+}
+
+async function generateFallbackQuestion(obj, lec, minimal = false) {
+  const objText = (obj?.text || obj?.objective || "").trim();
+  const lecText = (lec ? getLecText(lec) : "").slice(0, minimal ? 2000 : 3000);
+  if (minimal) {
+    return callAIJSON(
+      `You write medical MCQs. Return JSON only. Exactly 4 options; exactly one isCorrect true; every wrong option must have whyWrong (string). Options must be factual clinical answers — never "I know this" or self-assessment.`,
+      `Objective: "${objText}"\nLecture excerpt:\n${lecText}\n\nReturn one JSON object: stem (string), options (array of 4 with letter, text, isCorrect, whyWrong), explanation, teachingPoint.`,
+      null,
+      1200
+    );
+  }
+  return callAIJSON(
+    `You write medical MCQ questions. Return JSON only. Even if the topic is complex, always write a specific factual question with 4 concrete options. Never use self-assessment options like "I know this" or "I'm not sure".`,
+    `Write ONE specific MCQ for this objective: "${objText}" Using this lecture content: ${lecText} The question must have 4 specific factual options. At least 2 options should be plausible distractors. JSON: { "stem": "Which of the following...", "options": [ {"letter":"A","text":"specific answer","isCorrect":false, "whyWrong":"Because..."}, {"letter":"B","text":"correct answer","isCorrect":true, "whyWrong":null}, {"letter":"C","text":"specific answer","isCorrect":false, "whyWrong":"Because..."}, {"letter":"D","text":"specific answer","isCorrect":false, "whyWrong":"Because..."} ], "explanation": "The correct answer is B because...", "teachingPoint": "Key concept: ..." }`,
+    null,
+    1500
+  );
 }
 
 const validateAndFixQuestions = (questions) => {
@@ -8149,11 +8254,74 @@ function StudyModeButtons({ lec, blockId, objectives, T, tc, MONO, onDeepLearn, 
   );
 }
 
-function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, onStart, onDeepLearn, handleDeepLearnStart, handleRapidFireStart, setAnkiLogTarget, detectStudyMode: detectStudyModeFn, onUpdateLec, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, allBlockObjectives, getBlockObjectives, updateObjective, currentBlock, startObjectiveQuiz, getLectureSubtopicCompletion, getLecCompletion, makeSubtopicKey, performanceHistory = {}, reanalyzeLecture, compactLayout, scheduleEditMode, getLecPerf, hideRow, hideRowDiv, quizLoadingId = null, quizErrorId = null, getLecQuizLevel = null, deleteConfirmId = null, setDeleteConfirmId = null, onDeleteLecture = null, editingLecId = null, setEditingLecId = null, editingTitle = "", setEditingTitle = null, renameLecture = null, hoveredLectureRowId = null, setHoveredLectureRowId = null, smartTruncateTitle = null, onLaunchQuiz = null, onNavigateToTracker = null }) {
+function LecListRow({
+  lec,
+  index,
+  tc,
+  T,
+  sessions,
+  onOpen,
+  isExpanded,
+  onClose,
+  onStart,
+  onDeepLearn,
+  handleDeepLearnStart,
+  handleRapidFireStart,
+  setAnkiLogTarget,
+  detectStudyMode: detectStudyModeFn,
+  onUpdateLec,
+  mergeMode,
+  mergeSelected = [],
+  onMergeToggle,
+  bulkWeekTarget,
+  allObjectives,
+  allBlockObjectives,
+  getBlockObjectives,
+  updateObjective,
+  currentBlock,
+  startObjectiveQuiz,
+  getLectureSubtopicCompletion,
+  getLecCompletion,
+  makeSubtopicKey,
+  performanceHistory = {},
+  reanalyzeLecture,
+  compactLayout,
+  scheduleEditMode,
+  getLecPerf,
+  hideRow,
+  hideRowDiv,
+  quizLoadingId = null,
+  quizErrorId = null,
+  getLecQuizLevel = null,
+  deleteConfirmId = null,
+  setDeleteConfirmId = null,
+  onDeleteLecture = null,
+  editingLecId = null,
+  setEditingLecId = null,
+  editingTitle = "",
+  setEditingTitle = null,
+  renameLecture = null,
+  hoveredLectureRowId = null,
+  setHoveredLectureRowId = null,
+  smartTruncateTitle = null,
+  onLaunchQuiz = null,
+  onNavigateToTracker = null,
+  showBackdateModal = null,
+  setShowBackdateModal = null,
+  backdateActivity = "lecture",
+  setBackdateActivity = null,
+  backdateDate = "",
+  setBackdateDate = null,
+  backdateRating = "good",
+  setBackdateRating = null,
+  openBackdateModalForLec = null,
+  saveBackdateForLecture = null,
+}) {
   const MONO = "'DM Mono','Courier New',monospace";
   const SERIF = "'Playfair Display',Georgia,serif";
   const [quizLoading, setQuizLoading] = useState(false);
   const [coachExpanded, setCoachExpanded] = useState(false);
+  const [showAllSteps, setShowAllSteps] = useState({});
   const [showWhyItWorks, setShowWhyItWorks] = useState(null);
   const renameEscapeRef = useRef(false);
   const isLectureQuizLoading = quizLoadingId === lec.id;
@@ -8462,7 +8630,65 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
         </div>
         {isExpanded && (
           <div style={{ padding: "0 16px 16px", borderTop: "1px solid " + T.border1 }}>
-            <LecListRow lec={lec} index={index} tc={tc} T={T} sessions={sessions} onOpen={onOpen} onClose={onClose} isExpanded={true} onStart={onStart} onDeepLearn={onDeepLearn} handleDeepLearnStart={handleDeepLearnStart} handleRapidFireStart={handleRapidFireStart} setAnkiLogTarget={setAnkiLogTarget} detectStudyMode={detectStudyModeFn} onUpdateLec={onUpdateLec} mergeMode={mergeMode} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle} bulkWeekTarget={bulkWeekTarget} allObjectives={allObjectives} allBlockObjectives={allBlockObjectives} getBlockObjectives={getBlockObjectives} updateObjective={updateObjective} currentBlock={currentBlock} startObjectiveQuiz={startObjectiveQuiz} quizLoadingId={quizLoadingId} quizErrorId={quizErrorId} getLectureSubtopicCompletion={getLectureSubtopicCompletion} getLecCompletion={getLecCompletion} makeSubtopicKey={makeSubtopicKey} performanceHistory={performanceHistory} reanalyzeLecture={reanalyzeLecture} hideRowDiv getLecQuizLevel={getLecQuizLevel} deleteConfirmId={deleteConfirmId} setDeleteConfirmId={setDeleteConfirmId} onDeleteLecture={onDeleteLecture} editingLecId={editingLecId} setEditingLecId={setEditingLecId} editingTitle={editingTitle} setEditingTitle={setEditingTitle} renameLecture={renameLecture} hoveredLectureRowId={hoveredLectureRowId} setHoveredLectureRowId={setHoveredLectureRowId} smartTruncateTitle={smartTruncateTitle} onLaunchQuiz={onLaunchQuiz} onNavigateToTracker={onNavigateToTracker} />
+            <LecListRow
+              lec={lec}
+              index={index}
+              tc={tc}
+              T={T}
+              sessions={sessions}
+              onOpen={onOpen}
+              onClose={onClose}
+              isExpanded={true}
+              onStart={onStart}
+              onDeepLearn={onDeepLearn}
+              handleDeepLearnStart={handleDeepLearnStart}
+              handleRapidFireStart={handleRapidFireStart}
+              setAnkiLogTarget={setAnkiLogTarget}
+              detectStudyMode={detectStudyModeFn}
+              onUpdateLec={onUpdateLec}
+              mergeMode={mergeMode}
+              mergeSelected={mergeSelected}
+              onMergeToggle={onMergeToggle}
+              bulkWeekTarget={bulkWeekTarget}
+              allObjectives={allObjectives}
+              allBlockObjectives={allBlockObjectives}
+              getBlockObjectives={getBlockObjectives}
+              updateObjective={updateObjective}
+              currentBlock={currentBlock}
+              startObjectiveQuiz={startObjectiveQuiz}
+              quizLoadingId={quizLoadingId}
+              quizErrorId={quizErrorId}
+              getLectureSubtopicCompletion={getLectureSubtopicCompletion}
+              getLecCompletion={getLecCompletion}
+              makeSubtopicKey={makeSubtopicKey}
+              performanceHistory={performanceHistory}
+              reanalyzeLecture={reanalyzeLecture}
+              hideRowDiv
+              getLecQuizLevel={getLecQuizLevel}
+              deleteConfirmId={deleteConfirmId}
+              setDeleteConfirmId={setDeleteConfirmId}
+              onDeleteLecture={onDeleteLecture}
+              editingLecId={editingLecId}
+              setEditingLecId={setEditingLecId}
+              editingTitle={editingTitle}
+              setEditingTitle={setEditingTitle}
+              renameLecture={renameLecture}
+              hoveredLectureRowId={hoveredLectureRowId}
+              setHoveredLectureRowId={setHoveredLectureRowId}
+              smartTruncateTitle={smartTruncateTitle}
+              onLaunchQuiz={onLaunchQuiz}
+              onNavigateToTracker={onNavigateToTracker}
+              showBackdateModal={showBackdateModal}
+              setShowBackdateModal={setShowBackdateModal}
+              backdateActivity={backdateActivity}
+              setBackdateActivity={setBackdateActivity}
+              backdateDate={backdateDate}
+              setBackdateDate={setBackdateDate}
+              backdateRating={backdateRating}
+              setBackdateRating={setBackdateRating}
+              openBackdateModalForLec={openBackdateModalForLec}
+              saveBackdateForLecture={saveBackdateForLecture}
+            />
           </div>
         )}
       </div>
@@ -8797,7 +9023,16 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
           </div>
           {detectStudyModeFn && (() => {
             const studyMode = detectStudyModeFn(lec, lecObjs);
-            const recLabels = { flashcards: "Flashcards", imageQuiz: "Image Quiz", anki: "Anki", deepLearn: "Deep Learn", mcq: "MCQ Practice", algorithmDraw: "Algorithm Drawing", labelDiagram: "Label Diagrams" };
+            const recLabels = {
+              flashcards: "Flashcards",
+              imageQuiz: "Image Quiz",
+              anki: "Anki",
+              deepLearn: "Deep Learn",
+              mcq: "MCQ Practice",
+              gaps: "Fix gaps (Deep Learn)",
+              algorithmDraw: "Deep Learn review",
+              labelDiagram: "Label Diagrams",
+            };
             return (
               <div
                 style={{
@@ -8892,6 +9127,146 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                   <div style={{ padding: "12px 16px" }}>
                     <div style={{ fontSize: 13, color: TtextMain, lineHeight: 1.6, marginBottom: 12 }}>{coach.currentStep.description}</div>
 
+                    {coach.currentStep.howTo && (
+                      <div style={{ marginTop: 10, marginBottom: 12 }}>
+                        {coach.currentStep.howTo.map((step, i) => (
+                          <div
+                            key={i}
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              marginBottom: 5,
+                              fontSize: 12,
+                              color: String(step || "").startsWith("⚠") ? "#d97706" : TtextMain,
+                              lineHeight: 1.5,
+                            }}
+                          >
+                            <span
+                              style={{
+                                color: T?.accent || T.statusProgress || "#2563eb",
+                                fontWeight: 700,
+                                flexShrink: 0,
+                                fontSize: 11,
+                                marginTop: 1,
+                              }}
+                            >
+                              {String(step || "").startsWith("Option") || String(step || "").startsWith("⚠") ? "→" : `${i + 1}.`}
+                            </span>
+                            <span>{step}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAllSteps((prev) => ({ ...prev, [lec.id]: !prev[lec.id] }));
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 5,
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: "4px 0",
+                        fontSize: 11,
+                        color: TtextSec,
+                        marginBottom: showAllSteps[lec.id] ? 8 : 12,
+                      }}
+                    >
+                      <span>📋</span>
+                      <span style={{ textDecoration: "underline" }}>
+                        {showAllSteps[lec.id] ? "Hide" : "View"} all {coach.totalSteps} steps
+                      </span>
+                    </button>
+
+                    {showAllSteps[lec.id] && (
+                      <div
+                        style={{
+                          marginBottom: 12,
+                          padding: "10px 12px",
+                          borderRadius: 8,
+                          background: T.surfaceAlt || T.inputBg,
+                          border: `1px solid ${Tborder}`,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: TtextSec,
+                            letterSpacing: "0.05em",
+                            marginBottom: 8,
+                          }}
+                        >
+                          YOUR LEARNING ROADMAP
+                        </div>
+                        {coach.steps.map((s, idx) => (
+                          <div
+                            key={s.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "flex-start",
+                              gap: 8,
+                              marginBottom: 6,
+                              opacity: s.done ? 0.5 : idx === coach.currentStepIdx ? 1 : 0.75,
+                            }}
+                          >
+                            <div
+                              style={{
+                                width: 20,
+                                height: 20,
+                                borderRadius: "50%",
+                                background: s.done ? "#16a34a" : idx === coach.currentStepIdx ? s.color : Tborder,
+                                color: "white",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                fontSize: 9,
+                                fontWeight: 700,
+                                flexShrink: 0,
+                                marginTop: 1,
+                              }}
+                            >
+                              {s.done ? "✓" : s.number}
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: idx === coach.currentStepIdx ? s.color : TtextMain,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: 5,
+                                }}
+                              >
+                                {s.icon} {s.title}
+                                {idx === coach.currentStepIdx && (
+                                  <span
+                                    style={{
+                                      fontSize: 8,
+                                      padding: "1px 5px",
+                                      borderRadius: 8,
+                                      background: s.color,
+                                      color: "white",
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    YOU ARE HERE
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 10, color: TtextSec, lineHeight: 1.4 }}>{s.subtitle}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => {
@@ -8914,8 +9289,6 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                           );
                         } else if (action === "quiz") {
                           onLaunchQuiz?.(lec, bid);
-                        } else if (action === "view_objectives") {
-                          document.getElementById("objectives-section")?.scrollIntoView({ behavior: "smooth" });
                         } else if (action === "schedule") {
                           onNavigateToTracker?.();
                         }
@@ -9547,6 +9920,146 @@ function LecListRow({ lec, index, tc, T, sessions, onOpen, isExpanded, onClose, 
                     }}
                     onAnki={setAnkiLogTarget ? (L) => setAnkiLogTarget(L) : undefined}
                   />
+                  {openBackdateModalForLec && currentBlock?.id && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openBackdateModalForLec(lec.id);
+                      }}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 7,
+                        border: `1px solid ${T.border1 || T.border2}`,
+                        background: "transparent",
+                        color: T.textSecondary || T.text3,
+                        cursor: "pointer",
+                        fontSize: 12,
+                        marginTop: 8,
+                        fontFamily: MONO,
+                      }}
+                    >
+                      + Log past session
+                    </button>
+                  )}
+                  {showBackdateModal === lec.id && saveBackdateForLecture && setBackdateActivity && setBackdateDate && setBackdateRating && setShowBackdateModal && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        padding: "14px 16px",
+                        borderRadius: 10,
+                        border: `1px solid ${T.border1 || T.border2}`,
+                        background: T.surfaceAlt || T.inputBg,
+                        marginTop: 8,
+                      }}
+                    >
+                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, fontFamily: MONO, color: T.text1 }}>
+                        Log a past session
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
+                        {[
+                          { id: "lecture", icon: "🎓", label: "Attended lecture" },
+                          { id: "video", icon: "▶", label: "Watched video" },
+                          { id: "deep_learn", icon: "🧠", label: "Deep Learn" },
+                          { id: "drill", icon: "⚡", label: "Drilled" },
+                          { id: "quiz", icon: "📝", label: "Quiz" },
+                          { id: "read", icon: "📖", label: "Read slides" },
+                          { id: "sg", icon: "👥", label: "Small group" },
+                        ].map((type) => (
+                          <button
+                            key={type.id}
+                            type="button"
+                            onClick={() => setBackdateActivity(type.id)}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: 20,
+                              border: `1px solid ${
+                                backdateActivity === type.id ? (T.accent || tc || "#2563eb") : (T.border1 || T.border2)
+                              }`,
+                              background: backdateActivity === type.id ? (T.accent || tc || "#2563eb") : "transparent",
+                              color: backdateActivity === type.id ? "#fff" : (T.textSecondary || T.text3),
+                              cursor: "pointer",
+                              fontSize: 11,
+                              fontWeight: backdateActivity === type.id ? 600 : 400,
+                              fontFamily: MONO,
+                            }}
+                          >
+                            {type.icon} {type.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+                        <input
+                          type="date"
+                          value={backdateDate || new Date().toISOString().split("T")[0]}
+                          max={new Date().toISOString().split("T")[0]}
+                          onChange={(e) => setBackdateDate(e.target.value)}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 6,
+                            border: `1px solid ${T.border1 || T.border2}`,
+                            background: T.cardBg || T.inputBg,
+                            color: T.text1,
+                            fontSize: 12,
+                            fontFamily: MONO,
+                          }}
+                        />
+                        <select
+                          value={backdateRating}
+                          onChange={(e) => setBackdateRating(e.target.value)}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 6,
+                            border: `1px solid ${T.border1 || T.border2}`,
+                            background: T.cardBg || T.inputBg,
+                            color: T.text1,
+                            fontSize: 12,
+                            cursor: "pointer",
+                            fontFamily: MONO,
+                          }}
+                        >
+                          <option value="good">✓ Good</option>
+                          <option value="okay">△ Okay</option>
+                          <option value="struggling">⚠ Struggling</option>
+                        </select>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        <button
+                          type="button"
+                          onClick={() => saveBackdateForLecture(lec.id)}
+                          style={{
+                            padding: "7px 16px",
+                            borderRadius: 7,
+                            border: "none",
+                            background: T.accent || tc || "#2563eb",
+                            color: "#fff",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: MONO,
+                          }}
+                        >
+                          Save session
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowBackdateModal(null)}
+                          style={{
+                            padding: "7px 14px",
+                            borderRadius: 7,
+                            border: `1px solid ${T.border1 || T.border2}`,
+                            background: "transparent",
+                            color: T.textSecondary || T.text3,
+                            cursor: "pointer",
+                            fontSize: 13,
+                            fontFamily: MONO,
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   {updateObjective && currentBlock?.id && (
                     <button
                       type="button"
@@ -15025,6 +15538,8 @@ export default function App() {
   }, [lectures, blockId, resolveBlockMeta]);
   const [tab,     setTab]     = useState("lectures");
   const [drillMode, setDrillMode] = useState(false);
+  /** While drilling: overlay lecture objectives without exiting drill { blockId, lecId, highlightObjectiveId? } */
+  const [drillObjectivesPeek, setDrillObjectivesPeek] = useState(null);
   const [drillQueue, setDrillQueue] = useState([]);
   const [drillIndex, setDrillIndex] = useState(0);
   const [drillComplete, setDrillComplete] = useState(false);
@@ -15165,9 +15680,13 @@ export default function App() {
   const setTrackerRows = useCallback((updaterOrValue) => {
     setTrackerRowsState((prev) => {
       const next = typeof updaterOrValue === "function" ? updaterOrValue(prev) : updaterOrValue;
-      try {
-        localStorage.setItem("rxt-tracker-v2", JSON.stringify(next));
-      } catch {}
+      // Defer persistence so localStorage writes (and any listeners) never run inside React's updater — avoids setState-during-render cascades.
+      const snapshot = next;
+      queueMicrotask(() => {
+        try {
+          localStorage.setItem("rxt-tracker-v2", JSON.stringify(snapshot));
+        } catch {}
+      });
       return next;
     });
   }, []);
@@ -15191,6 +15710,10 @@ export default function App() {
   const [currentSessionMeta, setCurrentSessionMeta] = useState(null);
   const [sessionSummary, setSessionSummary] = useState(null);
   const [pendingConfidence, setPendingConfidence] = useState(null);
+  const [showBackdateModal, setShowBackdateModal] = useState(null);
+  const [backdateActivity, setBackdateActivity] = useState("lecture");
+  const [backdateDate, setBackdateDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [backdateRating, setBackdateRating] = useState("good");
 
   const [uploading, setUploading] = useState(false);
   const [upMsg, setUpMsg]         = useState("");
@@ -15275,6 +15798,8 @@ export default function App() {
     if (typeof window !== "undefined") localStorage.setItem("rxt-lec-view", v);
   };
   const [expandedLec, setExpandedLec] = useState(null);
+  /** Block Lectures tab (card grid): slide-in detail for selected lecture object. */
+  const [lecturesTabDetailLec, setLecturesTabDetailLec] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [editingLecId, setEditingLecId] = useState(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -15296,6 +15821,8 @@ export default function App() {
   const handleUserSignedInDedupRef = useRef({ id: null, t: 0 });
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState(() => ({ unscheduled: true }));
+  /** Lectures tab (card layout): week numbers in Set are collapsed; empty Set = all expanded. */
+  const [collapsedWeeks, setCollapsedWeeks] = useState(() => new Set());
 
   const [lecSort, setLecSort] = useState(() =>
     typeof window !== "undefined" ? (localStorage.getItem("rxt-lec-sort") || "number") : "number"
@@ -15431,16 +15958,14 @@ export default function App() {
 
   useEffect(() => {
     const handler = () => {
-      // Defer: these events can be dispatched synchronously during another component's render;
-      // updating App state in the same stack causes React cross-render warnings.
-      queueMicrotask(() => {
+      setTimeout(() => {
         refreshObjectivesFromStorage();
         setObjectivesRefreshKey((k) => k + 1);
         try {
           const perf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
           setPerformanceHistory(perf || {});
         } catch {}
-      });
+      }, 0);
     };
     window.addEventListener("rxt-objectives-updated", handler);
     window.addEventListener("rxt-completion-updated", handler);
@@ -15451,21 +15976,27 @@ export default function App() {
   }, [refreshObjectivesFromStorage]);
 
   useEffect(() => {
-    const handler = () =>
-      queueMicrotask(() => setCoverageRefreshKey((k) => k + 1));
+    if (tab !== "lectures") setLecturesTabDetailLec(null);
+  }, [tab]);
+
+  useEffect(() => {
+    setLecturesTabDetailLec(null);
+  }, [activeBlock?.id]);
+
+  useEffect(() => {
+    const handler = () => setTimeout(() => setCoverageRefreshKey((k) => k + 1), 0);
     window.addEventListener("rxt-objectives-updated", handler);
     return () => window.removeEventListener("rxt-objectives-updated", handler);
   }, []);
 
   useEffect(() => {
-    const handler = () =>
-      queueMicrotask(() => setLecturesRefreshKey((k) => k + 1));
+    const handler = () => setTimeout(() => setLecturesRefreshKey((k) => k + 1), 0);
     window.addEventListener("rxt-objectives-updated", handler);
     return () => window.removeEventListener("rxt-objectives-updated", handler);
   }, []);
 
   useEffect(() => {
-    const handler = () => queueMicrotask(() => setRefreshKey((k) => k + 1));
+    const handler = () => setTimeout(() => setRefreshKey((k) => k + 1), 0);
     window.addEventListener("rxt-completion-updated", handler);
     window.addEventListener("rxt-objectives-updated", handler);
     return () => {
@@ -15475,7 +16006,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const handler = () => setSidebarRefreshKey((k) => k + 1);
+    const handler = () => setTimeout(() => setSidebarRefreshKey((k) => k + 1), 0);
     window.addEventListener("rxt-completion-updated", handler);
     window.addEventListener("rxt-objectives-updated", handler);
     return () => {
@@ -16206,6 +16737,34 @@ export default function App() {
   const makeTopicKey = (lectureId, blockId) =>
     lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`;
 
+  const openBackdateModalForLec = useCallback((lecId) => {
+    setShowBackdateModal(lecId);
+    setBackdateActivity("lecture");
+    setBackdateDate(new Date().toISOString().split("T")[0]);
+    setBackdateRating("good");
+  }, []);
+
+  const saveBackdateForLecture = useCallback(
+    (lecId) => {
+      const bid = activeBlock?.id ?? blockId;
+      if (!lecId || !bid) return;
+      saveBackdatedSession(
+        lecId,
+        bid,
+        { activityType: backdateActivity, date: backdateDate, rating: backdateRating },
+        examDates[bid] || null,
+        makeTopicKey(lecId, bid)
+      );
+      try {
+        setPerformanceHistory(JSON.parse(localStorage.getItem("rxt-performance") || "{}"));
+      } catch {
+        setPerformanceHistory({});
+      }
+      setShowBackdateModal(null);
+    },
+    [activeBlock?.id, backdateActivity, backdateDate, backdateRating, blockId, examDates, makeTopicKey, setPerformanceHistory]
+  );
+
   const makeSubtopicKey = (lecId, subtopicIndex, blockId) =>
     `${lecId}__sub${subtopicIndex}__${blockId}`;
 
@@ -16814,7 +17373,7 @@ export default function App() {
     [setReviewedLectures, setBlockObjectives, makeTopicKey, performanceHistory]
   );
 
-  const handleDeepLearnStart = async ({ selectedTopics, blockId: bId }) => {
+  const handleDeepLearnStart = async ({ selectedTopics, blockId: bId, targetObjectiveId }) => {
     const bid = bId ?? activeBlock?.id ?? blockId;
     repairObjectiveAlignment(bid);
     await new Promise((r) => setTimeout(r, 300)); // let setState propagate
@@ -16832,6 +17391,7 @@ export default function App() {
       lecs: getBlockLecs(lectures, resolveBlockMeta(bid)),
       blockObjectives: getBlockObjectives(bid),
       preselectedLecId: lecId,
+      deeplinkObjectiveId: targetObjectiveId || null,
     });
     setView("deeplearn");
   };
@@ -18769,134 +19329,195 @@ ${text}`;
 
   useEffect(() => {
     function handleStartDrill(e) {
-      const detail = e?.detail || {};
-      const { lecId: rawLecId, mode, filter: filterRaw, lecTitle: detailLecTitle } = detail;
-      const lecId =
-        rawLecId != null && rawLecId !== "" ? rawLecId : null;
+      setTimeout(() => {
+        const detail = e?.detail || {};
+        const {
+          lecId: rawLecId,
+          mode,
+          filter: filterRaw,
+          lecTitle: detailLecTitle,
+          blockId: detailBlockIdRaw,
+        } = detail;
+        const lecId =
+          rawLecId != null && rawLecId !== "" ? rawLecId : null;
+        const detailBlockId =
+          detailBlockIdRaw != null && detailBlockIdRaw !== "" ? detailBlockIdRaw : null;
 
-      console.log("Setting up drill for:", lecId);
+        console.log("Setting up drill for:", lecId);
 
-      let metaLec = null;
-      try {
-        const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
-        metaLec = lecId ? allLecs.find((l) => l.id === lecId) : null;
-      } catch {}
+        let metaLec = null;
+        try {
+          const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+          metaLec = lecId ? allLecs.find((l) => l.id === lecId) : null;
+        } catch {}
 
-      const lecFromApp = lecId ? (lectures || []).find((l) => l.id === lecId) : null;
-      if (lecId && !metaLec && !lecFromApp) {
-        alert("Could not find that lecture.");
-        return;
-      }
-
-      const confirmedLecId = lecId ? metaLec?.id || lecFromApp?.id || lecId : null;
-
-      let drillBid = metaLec?.blockId || lecFromApp?.blockId || activeBlock?.id || blockId;
-
-      function syncTermAndBlockFor(bid) {
-        if (!bid) return;
-        const term = (terms || []).find((t) => t.blocks?.some((b) => b.id === bid));
-        if (term) {
-          setTermId(term.id);
-          setBlockId(bid);
-          try {
-            if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
-          } catch {}
+        const lecFromApp = lecId ? (lectures || []).find((l) => l.id === lecId) : null;
+        if (lecId && !metaLec && !lecFromApp) {
+          alert("Could not find that lecture.");
+          return;
         }
-      }
 
-      if (lecFromApp?.blockId) {
-        syncTermAndBlockFor(lecFromApp.blockId);
-        drillBid = lecFromApp.blockId;
-      } else if (metaLec?.blockId) {
-        syncTermAndBlockFor(metaLec.blockId);
-        drillBid = metaLec.blockId;
-      } else if (drillBid) {
-        syncTermAndBlockFor(drillBid);
-      }
+        const confirmedLecId = lecId ? metaLec?.id || lecFromApp?.id || lecId : null;
 
-      if (!drillBid) {
-        alert("No block context for drill. Open a block in the app first.");
-        return;
-      }
+        let drillBid =
+          detailBlockId ||
+          lecFromApp?.blockId ||
+          metaLec?.blockId ||
+          activeBlock?.id ||
+          blockId;
 
-      const lecFilterForBuild = lecId ? confirmedLecId || lecId : "all";
-      const filterVal =
-        filterRaw != null && String(filterRaw).trim() !== ""
-          ? String(filterRaw).trim()
-          : lecId
-            ? "all"
-            : "struggling";
+        function syncTermAndBlockFor(bid) {
+          if (!bid) return;
+          const term = (terms || []).find((t) => t.blocks?.some((b) => b.id === bid));
+          if (term) {
+            setTermId(term.id);
+            setBlockId(bid);
+            try {
+              if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
+            } catch {}
+          }
+        }
 
-      const queue = buildDrillQueue(drillBid, filterVal, lecFilterForBuild);
-      if (!queue?.length) {
-        alert(
-          lecId
-            ? "No objectives match this drill for this lecture."
-            : "No objectives match this drill."
+        if (detailBlockId) {
+          setBlockId(detailBlockId);
+          drillBid = detailBlockId;
+        } else if (lecFromApp?.blockId) {
+          syncTermAndBlockFor(lecFromApp.blockId);
+          drillBid = lecFromApp.blockId;
+        } else if (metaLec?.blockId) {
+          syncTermAndBlockFor(metaLec.blockId);
+          drillBid = metaLec.blockId;
+        } else if (drillBid) {
+          syncTermAndBlockFor(drillBid);
+        }
+
+        if (!drillBid) {
+          alert("No block context for drill. Open a block in the app first.");
+          return;
+        }
+
+        const lecFilterForBuild = lecId ? confirmedLecId || lecId : "all";
+        const filterVal =
+          filterRaw != null && String(filterRaw).trim() !== ""
+            ? String(filterRaw).trim()
+            : lecId
+              ? "all"
+              : "struggling";
+
+        const queue = buildDrillQueue(drillBid, filterVal, lecFilterForBuild);
+        if (!queue?.length) {
+          alert(
+            lecId
+              ? "No objectives match this drill for this lecture."
+              : "No objectives match this drill."
+          );
+          return;
+        }
+
+        setView("block");
+        setTab("objectives");
+
+        const lecTitle =
+          detailLecTitle ||
+          lecFromApp?.lectureTitle ||
+          lecFromApp?.title ||
+          lecFromApp?.filename ||
+          metaLec?.lectureTitle ||
+          lecFromApp?.fileName ||
+          "";
+
+        console.log("rxt-start-drill Target lecture:", lecTitle);
+        console.log("rxt-start-drill Confirmed lecId:", confirmedLecId);
+
+        setSelectedLectureIds(
+          !lecFilterForBuild || lecFilterForBuild === "all" ? new Set() : new Set([lecFilterForBuild])
         );
-        return;
-      }
-
-      setView("block");
-      setTab("objectives");
-
-      const lecTitle =
-        detailLecTitle ||
-        lecFromApp?.lectureTitle ||
-        lecFromApp?.title ||
-        lecFromApp?.filename ||
-        metaLec?.lectureTitle ||
-        lecFromApp?.fileName ||
-        "";
-
-      console.log("rxt-start-drill Target lecture:", lecTitle);
-      console.log("rxt-start-drill Confirmed lecId:", confirmedLecId);
-
-      setSelectedLectureIds(
-        !lecFilterForBuild || lecFilterForBuild === "all" ? new Set() : new Set([lecFilterForBuild])
-      );
-      setPendingDrillConfig({
-        lecId,
-        confirmedLecId,
-        lecTitle,
-        mode: mode === "flashcard" ? "flashcard" : "mcq",
-        filterVal,
-        lecFilter: lecFilterForBuild,
-        blockId: drillBid,
-      });
-      setShowDrillSetup(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+        setPendingDrillConfig({
+          lecId,
+          confirmedLecId,
+          lecTitle,
+          mode: mode === "flashcard" ? "flashcard" : "mcq",
+          filterVal,
+          lecFilter: lecFilterForBuild,
+          blockId: drillBid,
+        });
+        setShowDrillSetup(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }, 0);
     }
     window.addEventListener("rxt-start-drill", handleStartDrill);
     return () => window.removeEventListener("rxt-start-drill", handleStartDrill);
-  }, [lectures, terms, activeBlock?.id, blockId]);
+  }, [lectures, terms, activeBlock?.id, blockId, setBlockId, setTermId]);
 
   useEffect(() => {
     const handleDeepLearn = (e) => {
-      const { lecId, blockId: bid } = e?.detail || {};
-      if (!lecId) return;
-      let lec = null;
-      try {
-        const all = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
-        lec = (all || []).find((l) => l?.id === lecId) || null;
-      } catch {}
-      if (!lec) return;
-      handleDeepLearnStart?.({
-        selectedTopics: [{ id: lec.id + "_full", label: lec.lectureTitle, lecId: lec.id, weak: false }],
-        blockId: bid,
-      });
+      setTimeout(() => {
+        const { lecId, blockId: bidFromDetail, targetObjective } = e?.detail || {};
+        if (!lecId) return;
+
+        const lecFromApp = (lectures || []).find((l) => l?.id === lecId) || null;
+        let lecMeta = null;
+        try {
+          const all = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+          lecMeta = (all || []).find((l) => l?.id === lecId) || null;
+        } catch {}
+        const lec = lecFromApp || lecMeta;
+        if (!lec) return;
+
+        const effectiveBid =
+          bidFromDetail ??
+          lecFromApp?.blockId ??
+          lecMeta?.blockId ??
+          activeBlock?.id ??
+          blockId;
+
+        if (bidFromDetail) setBlockId(bidFromDetail);
+        else {
+          const implicitBid = lecFromApp?.blockId || lecMeta?.blockId;
+          if (implicitBid) setBlockId(implicitBid);
+        }
+
+        const label =
+          lec.lectureTitle ||
+          lec.title ||
+          lec.filename ||
+          lecMeta?.lectureTitle ||
+          lecFromApp?.lectureTitle ||
+          "Lecture";
+
+        handleDeepLearnStart?.({
+          selectedTopics: [{ id: lec.id + "_full", label, lecId: lec.id, weak: false }],
+          blockId: effectiveBid,
+          targetObjectiveId: targetObjective || null,
+        });
+      }, 0);
     };
 
     const handleQuiz = (e) => {
-      const { lecId, blockId: bid } = e?.detail || {};
-      if (!lecId) return;
-      let lec = null;
-      try {
-        const all = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
-        lec = (all || []).find((l) => l?.id === lecId) || null;
-      } catch {}
-      if (!lec) return;
-      openQuizSettingsForLecture(lec, bid);
+      setTimeout(() => {
+        const { lecId, blockId: bidFromDetail } = e?.detail || {};
+        if (!lecId) return;
+
+        const lecFromApp = (lectures || []).find((l) => l?.id === lecId) || null;
+        let lecMeta = null;
+        try {
+          const all = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+          lecMeta = (all || []).find((l) => l?.id === lecId) || null;
+        } catch {}
+        const lec = lecFromApp || lecMeta;
+        if (!lec) return;
+
+        if (bidFromDetail) setBlockId(bidFromDetail);
+        else {
+          const implicitBid = lecFromApp?.blockId || lecMeta?.blockId;
+          if (implicitBid) setBlockId(implicitBid);
+        }
+
+        const effectiveBid =
+          bidFromDetail ?? lecFromApp?.blockId ?? lecMeta?.blockId ?? activeBlock?.id ?? blockId;
+
+        openQuizSettingsForLecture(lec, effectiveBid);
+      }, 0);
     };
 
     window.addEventListener("rxt-launch-deeplearn", handleDeepLearn);
@@ -18905,7 +19526,14 @@ ${text}`;
       window.removeEventListener("rxt-launch-deeplearn", handleDeepLearn);
       window.removeEventListener("rxt-launch-quiz", handleQuiz);
     };
-  }, [handleDeepLearnStart, openQuizSettingsForLecture]);
+  }, [
+    handleDeepLearnStart,
+    openQuizSettingsForLecture,
+    lectures,
+    setBlockId,
+    activeBlock?.id,
+    blockId,
+  ]);
 
   const applyDrillResumeSnapshot = useCallback(
     (saved) => {
@@ -19142,89 +19770,29 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         console.error("Both MCQ attempts failed for:", objText.slice(0, 60));
         if (myGen !== mcqGenTokenRef.current) return;
         mcqRetryRef.current = false;
-        setMcqData({
-          question: `Can you explain: ${objText}`,
-          options: shuffleArray([
-            {
-              text: "Yes, I can explain this fully",
-              correct: true,
-              explanation: "Good — you have mastered this objective.",
-              whyWrong: null,
-            },
-            {
-              text: "I know part of this",
-              correct: false,
-              explanation: "Review this objective in your lecture notes.",
-              whyWrong: null,
-            },
-            {
-              text: "I am not sure about this",
-              correct: false,
-              explanation: "Focus on this in your next study session.",
-              whyWrong: null,
-            },
-            {
-              text: "I have not studied this yet",
-              correct: false,
-              explanation: "Prioritize this before your exam.",
-              whyWrong: null,
-            },
-          ]),
-          overallExplanation: `This objective is from ${lecTitle}. Review it carefully.`,
-          teachingPoint: null,
-          imagePrompt: null,
-          imagePage: null,
-          drillObjectiveIdsForProgress: [obj.id],
-          objectiveText: objText,
-          selectedIndex: null,
-          isFallback: true,
-          fromCache: false,
-          questionLevel,
-        });
-        setCardState("mcq_ready");
-        setDrillCardMode("mcq_ready");
-        drillCardModeRef.current = "mcq_ready";
-      } catch (e) {
-        console.error("generateDrillMCQ failed:", e);
-        if (myGen !== mcqGenTokenRef.current) return;
 
-        const { objText, lecTitle } = buildMCQPrompts(obj, levelConfig);
-
-        if (drillStyle === "mcq") {
-          mcqRetryRef.current = false;
+        const lecForFallback = (lectures || []).find((l) => l.id === obj.linkedLecId) || null;
+        let fbNorm = null;
+        for (const minimal of [false, true]) {
+          const fbParsed = await generateFallbackQuestion(obj, lecForFallback, minimal);
+          if (myGen !== mcqGenTokenRef.current) return;
+          fbNorm = normalizeDrillMcqFromParsed(fbParsed, lecObjs || [], obj.id);
+          if (fbNorm && fbNorm.question && hasValidOptions(fbNorm.options)) break;
+        }
+        if (fbNorm && fbNorm.question && hasValidOptions(fbNorm.options)) {
+          let drillObjectiveIdsForProgress = fbNorm.drillObjectiveIdsForProgress || [];
+          if (!drillObjectiveIdsForProgress.length) drillObjectiveIdsForProgress = [obj.id];
+          else if (!drillObjectiveIdsForProgress.includes(obj.id)) {
+            drillObjectiveIdsForProgress = [obj.id, ...drillObjectiveIdsForProgress];
+          }
           setMcqData({
-            question: `Self-assess: ${objText}`,
-            options: shuffleArray([
-              {
-                text: "I can fully explain this",
-                correct: true,
-                explanation: "Great — mark as mastered.",
-                whyWrong: null,
-              },
-              {
-                text: "I know most of this",
-                correct: false,
-                explanation: "Review the details in your notes.",
-                whyWrong: null,
-              },
-              {
-                text: "I am unclear on this",
-                correct: false,
-                explanation: "Re-read this section of the lecture.",
-                whyWrong: null,
-              },
-              {
-                text: "I do not know this yet",
-                correct: false,
-                explanation: "Add this to your priority review list.",
-                whyWrong: null,
-              },
-            ]),
-            overallExplanation: `Review this objective from ${lecTitle}.`,
-            teachingPoint: null,
-            imagePrompt: null,
-            imagePage: null,
-            drillObjectiveIdsForProgress: [obj.id],
+            question: fbNorm.question,
+            options: shuffleArray(fbNorm.options),
+            overallExplanation: fbNorm.overallExplanation,
+            teachingPoint: fbNorm.teachingPoint,
+            imagePrompt: fbNorm.imagePrompt,
+            imagePage: fbNorm.imagePage,
+            drillObjectiveIdsForProgress,
             objectiveText: objText,
             selectedIndex: null,
             isFallback: true,
@@ -19234,6 +19802,64 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
           setCardState("mcq_ready");
           setDrillCardMode("mcq_ready");
           drillCardModeRef.current = "mcq_ready";
+          return;
+        }
+
+        setMcqData(null);
+        setMcqError(
+          "Could not generate a question after two attempts. Check your connection or API key, then tap Retry."
+        );
+        setCardState("front");
+        setDrillCardMode("mcq_ready");
+        drillCardModeRef.current = "mcq_ready";
+      } catch (e) {
+        console.error("generateDrillMCQ failed:", e);
+        if (myGen !== mcqGenTokenRef.current) return;
+
+        const { objText, lecObjs: lecObjsCatch } = buildMCQPrompts(obj, levelConfig);
+
+        if (drillStyle === "mcq") {
+          mcqRetryRef.current = false;
+          const lecForFallback = (lectures || []).find((l) => l.id === obj.linkedLecId) || null;
+          let fbNormCatch = null;
+          for (const minimal of [false, true]) {
+            const fbParsed = await generateFallbackQuestion(obj, lecForFallback, minimal);
+            if (myGen !== mcqGenTokenRef.current) return;
+            fbNormCatch = normalizeDrillMcqFromParsed(fbParsed, lecObjsCatch || [], obj.id);
+            if (fbNormCatch && fbNormCatch.question && hasValidOptions(fbNormCatch.options)) break;
+          }
+          if (fbNormCatch && fbNormCatch.question && hasValidOptions(fbNormCatch.options)) {
+            let drillObjectiveIdsForProgress = fbNormCatch.drillObjectiveIdsForProgress || [];
+            if (!drillObjectiveIdsForProgress.length) drillObjectiveIdsForProgress = [obj.id];
+            else if (!drillObjectiveIdsForProgress.includes(obj.id)) {
+              drillObjectiveIdsForProgress = [obj.id, ...drillObjectiveIdsForProgress];
+            }
+            setMcqData({
+              question: fbNormCatch.question,
+              options: shuffleArray(fbNormCatch.options),
+              overallExplanation: fbNormCatch.overallExplanation,
+              teachingPoint: fbNormCatch.teachingPoint,
+              imagePrompt: fbNormCatch.imagePrompt,
+              imagePage: fbNormCatch.imagePage,
+              drillObjectiveIdsForProgress,
+              objectiveText: objText,
+              selectedIndex: null,
+              isFallback: true,
+              fromCache: false,
+              questionLevel,
+            });
+            setCardState("mcq_ready");
+            setDrillCardMode("mcq_ready");
+            drillCardModeRef.current = "mcq_ready";
+          } else {
+            setMcqData(null);
+            setMcqError(
+              "Could not generate a question after two attempts. Check your connection or API key, then tap Retry."
+            );
+            setCardState("front");
+            setDrillCardMode("mcq_ready");
+            drillCardModeRef.current = "mcq_ready";
+          }
         } else {
           setDrillCardMode("back");
           drillCardModeRef.current = "back";
@@ -19592,6 +20218,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     setPendingDrillConfig(null);
     drillAllowlistSourcePoolRef.current = null;
     setCbseSessionDeadline(null);
+    setDrillObjectivesPeek(null);
   }, [
     refreshObjectivesFromStorage,
     syncDrillResultsToPerformance,
@@ -19601,6 +20228,16 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     blockId,
     resetDrillSessionResultsRef,
   ]);
+
+  useEffect(() => {
+    if (!drillObjectivesPeek) return;
+    const onKey = (e) => {
+      if (e.defaultPrevented) return;
+      if (e.key === "Escape") setDrillObjectivesPeek(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drillObjectivesPeek]);
 
   const openDrillSummary = useCallback(() => {
     if (drillSummaryBuiltRef.current) return;
@@ -19656,7 +20293,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
   }, [activeBlock?.id, blockId, weakConceptsRefreshKey]);
 
   useEffect(() => {
-    const h = () => setWeakConceptsRefreshKey((k) => k + 1);
+    const h = () => queueMicrotask(() => setWeakConceptsRefreshKey((k) => k + 1));
     window.addEventListener("rxt-weak-concepts-updated", h);
     return () => window.removeEventListener("rxt-weak-concepts-updated", h);
   }, []);
@@ -25842,6 +26479,8 @@ Current student level: ${tierLabel}`;
               lecs={getBlockLecs(lectures, resolveBlockMeta(bid))}
               blockObjectives={blockObjsForDL}
               lecObjectives={lecObjectives}
+              preselectLecId={studyCfg?.preselectedLecId ?? null}
+              deeplinkObjectiveId={studyCfg?.deeplinkObjectiveId ?? null}
               getBlockObjectives={getBlockObjectives}
               questionBanksByFile={(() => {
                 try {
@@ -27066,6 +27705,16 @@ Current student level: ${tierLabel}`;
                       smartTruncateTitle: smartTruncate,
                       onNavigateToTracker: () => setView("tracker"),
                       onLaunchQuiz: openQuizSettingsForLecture,
+                      showBackdateModal,
+                      setShowBackdateModal,
+                      backdateActivity,
+                      setBackdateActivity,
+                      backdateDate,
+                      setBackdateDate,
+                      backdateRating,
+                      setBackdateRating,
+                      openBackdateModalForLec,
+                      saveBackdateForLecture,
                       onDeepLearn: () => {
                         setStudyCfg({
                           blockId: bid,
@@ -27074,6 +27723,52 @@ Current student level: ${tierLabel}`;
                         });
                         setView("deeplearn");
                       },
+                    };
+                    let completionForLectures = {};
+                    try {
+                      completionForLectures = JSON.parse(localStorage.getItem("rxt-completion") || "{}");
+                    } catch {
+                      completionForLectures = {};
+                    }
+                    const padLecDay = (n) => String(n).padStart(2, "0");
+                    const nowLec = new Date();
+                    const todayISOLec = `${nowLec.getFullYear()}-${padLecDay(nowLec.getMonth() + 1)}-${padLecDay(nowLec.getDate())}`;
+                    const dowLabelLec = nowLec.toLocaleDateString("en-US", { weekday: "short" });
+                    function isScheduledTodayLec(lec) {
+                      if (!lec) return false;
+                      if (lec.lectureDate && String(lec.lectureDate).slice(0, 10) === todayISOLec) return true;
+                      if (lec.weekNumber != null && lec.weekNumber !== "" && lec.dayOfWeek) {
+                        return (
+                          String(lec.dayOfWeek).slice(0, 3).toLowerCase() === String(dowLabelLec).slice(0, 3).toLowerCase()
+                        );
+                      }
+                      return false;
+                    }
+                    function isLecOverdueForBlock(lec) {
+                      const p = getLecPerf(lec, bid);
+                      const nr = p?.nextReview ? new Date(p.nextReview) : null;
+                      if (!nr || isNaN(nr.getTime())) return false;
+                      const sod = new Date();
+                      sod.setHours(0, 0, 0, 0);
+                      return nr < sod;
+                    }
+                    const todayFocus = blockLecs
+                      .filter((lec) => isScheduledTodayLec(lec) || isLecOverdueForBlock(lec))
+                      .slice(0, 3);
+                    const needsAttention = blockLecs.filter((lec) => {
+                      const objs = getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id);
+                      const hasStruggling = objs.some((o) => o.status === "struggling");
+                      const lecPerf = getLecPerf(lec, bid);
+                      const lowScore = lecPerf?.score != null && lecPerf.score < 70;
+                      return hasStruggling || lowScore;
+                    });
+                    const toggleWeekCollapsed = (weekNum) => {
+                      setCollapsedWeeks((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(weekNum)) next.delete(weekNum);
+                        else next.add(weekNum);
+                        return next;
+                      });
                     };
                     return (
                       <>
@@ -27100,113 +27795,913 @@ Current student level: ${tierLabel}`;
                           key={lecturesRefreshKey}
                           style={{ padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 8 }}
                         >
-                          {sortedWeekKeys.map((wk) => {
-                            const weekLecs = Object.values(weekGroups[wk] || {}).flat();
-                            const weekStats = getWeekStats(weekLecs, bid);
-                            const isOpen =
-                              expandedWeeks[wk] !== undefined
-                                ? expandedWeeks[wk]
-                                : wk === "unscheduled"
-                                  ? true
-                                  : isCurrentWeek(wk);
-                            const weekLabel =
-                              wk === "unscheduled" ? `Unscheduled (${weekLecs.length})` : `Week ${wk}`;
-                            const dateRange = getWeekDateRange(wk, activeBlock?.startDate);
-                            const avgScore = weekStats.avgScore;
-                            const avgColor = avgScore >= 70 ? "#639922" : avgScore >= 50 ? "#BA7517" : avgScore != null ? "#E24B4A" : null;
-                            const progressColor = weekStats.total ? (weekStats.studied / weekStats.total >= 0.7 ? "#639922" : weekStats.studied / weekStats.total >= 0.5 ? "#BA7517" : "#E24B4A") : "transparent";
-                            return (
+                          {todayFocus.length > 0 && (
+                            <div style={{ marginBottom: 16 }}>
                               <div
-                                key={wk}
                                 style={{
-                                  background: t.cardBg || t.panelBg,
-                                  border: "0.5px solid " + (t.border2 || t.border1),
-                                  borderRadius: 10,
-                                  overflow: "hidden",
-                                  marginBottom: 8,
-                                  ...(wk === "unscheduled"
-                                    ? {
-                                        borderLeft: "3px solid #EF9F27",
-                                        background: "#FAEEDA",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: t.textSecondary || t.text3,
+                                  letterSpacing: "0.08em",
+                                  marginBottom: 10,
+                                  fontFamily: MONO,
+                                }}
+                              >
+                                🎯 TODAY&apos;S FOCUS
+                              </div>
+                              <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 4 }}>
+                                {todayFocus.map((lec) => {
+                                  const coach = getStudyCoachSteps(lec, bid);
+                                  const step = coach.currentStep;
+                                  const perfKey = `${lec.id}__${bid}`;
+                                  const score = getLecPerf(lec, bid)?.score;
+                                  const sess = completionForLectures[perfKey]?.sessionCount || 0;
+                                  return (
+                                    <div
+                                      key={lec.id}
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={() =>
+                                        setLecturesTabDetailLec((cur) => (cur?.id === lec.id ? null : lec))
                                       }
-                                    : {}),
+                                      onKeyDown={(ev) => {
+                                        if (ev.key === "Enter" || ev.key === " ") {
+                                          ev.preventDefault();
+                                          setLecturesTabDetailLec((cur) => (cur?.id === lec.id ? null : lec));
+                                        }
+                                      }}
+                                      style={{
+                                        minWidth: 200,
+                                        maxWidth: 220,
+                                        padding: "14px 16px",
+                                        borderRadius: 12,
+                                        border:
+                                          lecturesTabDetailLec?.id === lec.id
+                                            ? `2px solid ${step.color}`
+                                            : `1px solid ${step.color}30`,
+                                        background: `${step.color}08`,
+                                        cursor: "pointer",
+                                        flexShrink: 0,
+                                        transition: "transform 0.15s, box-shadow 0.15s",
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.transform = "translateY(-2px)";
+                                        e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.transform = "none";
+                                        e.currentTarget.style.boxShadow = "none";
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          justifyContent: "space-between",
+                                          alignItems: "center",
+                                          marginBottom: 8,
+                                        }}
+                                      >
+                                        <span
+                                          style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            padding: "2px 7px",
+                                            borderRadius: 20,
+                                            background: t.surfaceAlt || t.inputBg,
+                                            color: t.textSecondary || t.text3,
+                                            fontFamily: MONO,
+                                          }}
+                                        >
+                                          {lec.lectureType} {lec.lectureNumber}
+                                        </span>
+                                        <span
+                                          style={{
+                                            fontSize: 10,
+                                            fontWeight: 700,
+                                            padding: "2px 7px",
+                                            borderRadius: 20,
+                                            background: `${step.color}15`,
+                                            color: step.color,
+                                            fontFamily: MONO,
+                                          }}
+                                        >
+                                          {step.icon} Step {step.number}
+                                        </span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontWeight: 600,
+                                          fontSize: 13,
+                                          marginBottom: 4,
+                                          lineHeight: 1.3,
+                                          overflow: "hidden",
+                                          display: "-webkit-box",
+                                          WebkitLineClamp: 2,
+                                          WebkitBoxOrient: "vertical",
+                                          color: t.text1,
+                                        }}
+                                      >
+                                        {lec.lectureTitle}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: t.textSecondary || t.text3, marginBottom: 10, fontFamily: MONO }}>
+                                        {score != null ? `${score}% · ` : "Not started · "}
+                                        {sess}x
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          if (step.action === "deep_learn") {
+                                            handleDeepLearnStart({
+                                              selectedTopics: [
+                                                {
+                                                  id: lec.id + "_full",
+                                                  label: lec.lectureTitle,
+                                                  lecId: lec.id,
+                                                  weak: false,
+                                                },
+                                              ],
+                                              blockId: bid,
+                                            });
+                                          } else if (step.action === "drill") {
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-start-drill", {
+                                                detail: { lecId: lec.id, blockId: bid, mode: "mcq", filter: "all" },
+                                              })
+                                            );
+                                          } else if (step.action === "quiz") {
+                                            openQuizSettingsForLecture(lec, bid);
+                                          }
+                                        }}
+                                        style={{
+                                          width: "100%",
+                                          padding: "7px 0",
+                                          borderRadius: 7,
+                                          border: "none",
+                                          background: step.color,
+                                          color: "white",
+                                          cursor: "pointer",
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        {step.actionLabel} →
+                                      </button>
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          gap: 5,
+                                          marginTop: 8,
+                                          paddingTop: 8,
+                                          borderTop: `1px solid ${t.border1 || t.border2}`,
+                                        }}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onKeyDown={(e) => e.stopPropagation()}
+                                        role="presentation"
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeepLearnStart({
+                                              selectedTopics: [
+                                                {
+                                                  id: lec.id + "_full",
+                                                  label: lec.lectureTitle,
+                                                  lecId: lec.id,
+                                                  weak: false,
+                                                },
+                                              ],
+                                              blockId: bid,
+                                            });
+                                          }}
+                                          title="Deep Learn"
+                                          style={{
+                                            flex: 1,
+                                            padding: "5px 0",
+                                            borderRadius: 6,
+                                            border: "1px solid #dc2626",
+                                            background: "transparent",
+                                            color: "#dc2626",
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          🧠 Learn
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-start-drill", {
+                                                detail: { lecId: lec.id, blockId: bid, mode: "mcq", filter: "all" },
+                                              })
+                                            );
+                                          }}
+                                          title="Drill"
+                                          style={{
+                                            flex: 1,
+                                            padding: "5px 0",
+                                            borderRadius: 6,
+                                            border: `1px solid ${t.accent || tc || "#2563eb"}`,
+                                            background: "transparent",
+                                            color: t.accent || tc || "#2563eb",
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          ⚡ Drill
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            openQuizSettingsForLecture(lec, bid);
+                                          }}
+                                          title="Quiz"
+                                          style={{
+                                            flex: 1,
+                                            padding: "5px 0",
+                                            borderRadius: 6,
+                                            border: "1px solid #d97706",
+                                            background: "transparent",
+                                            color: "#d97706",
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          📝 Quiz
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {needsAttention.length > 0 && (
+                            <div style={{ marginBottom: 16 }}>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                  color: t.statusBad,
+                                  letterSpacing: "0.08em",
+                                  marginBottom: 8,
+                                  fontFamily: MONO,
+                                }}
+                              >
+                                ⚠ NEEDS ATTENTION ({needsAttention.length})
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {needsAttention.map((lec) => {
+                                  const lecPerf = getLecPerf(lec, bid);
+                                  return (
+                                    <button
+                                      key={lec.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setLecturesTabDetailLec((cur) => (cur?.id === lec.id ? null : lec))
+                                      }
+                                      style={{
+                                        padding: "5px 12px",
+                                        borderRadius: 20,
+                                        border: `1px solid ${t.statusBad}40`,
+                                        background: `${t.statusBad}08`,
+                                        color: t.statusBad,
+                                        cursor: "pointer",
+                                        fontSize: 12,
+                                        fontWeight: 500,
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 6,
+                                        fontFamily: MONO,
+                                      }}
+                                    >
+                                      <span style={{ fontSize: 10 }}>
+                                        {lec.lectureType} {lec.lectureNumber}
+                                      </span>
+                                      <span
+                                        style={{
+                                          maxWidth: 120,
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {(lec.lectureTitle || "")
+                                          .replace(/CPR Lecture \d+ - /, "")
+                                          .replace(/DLA \d+ - /, "")}
+                                      </span>
+                                      {lecPerf?.score != null && (
+                                        <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.8 }}>{lecPerf.score}%</span>
+                                      )}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {scheduleEditMode
+                            ? sortedWeekKeys.map((wk) => {
+                                const weekLecs = Object.values(weekGroups[wk] || {}).flat();
+                                const weekStats = getWeekStats(weekLecs, bid);
+                                const isOpen =
+                                  expandedWeeks[wk] !== undefined
+                                    ? expandedWeeks[wk]
+                                    : wk === "unscheduled"
+                                      ? true
+                                      : isCurrentWeek(wk);
+                                const weekLabel =
+                                  wk === "unscheduled" ? `Unscheduled (${weekLecs.length})` : `Week ${wk}`;
+                                const dateRange = getWeekDateRange(wk, activeBlock?.startDate);
+                                const avgScore = weekStats.avgScore;
+                                const avgColor =
+                                  avgScore >= 70 ? "#639922" : avgScore >= 50 ? "#BA7517" : avgScore != null ? "#E24B4A" : null;
+                                const progressColor = weekStats.total
+                                  ? weekStats.studied / weekStats.total >= 0.7
+                                    ? "#639922"
+                                    : weekStats.studied / weekStats.total >= 0.5
+                                      ? "#BA7517"
+                                      : "#E24B4A"
+                                  : "transparent";
+                                return (
+                                  <div
+                                    key={wk}
+                                    style={{
+                                      background: t.cardBg || t.panelBg,
+                                      border: "0.5px solid " + (t.border2 || t.border1),
+                                      borderRadius: 10,
+                                      overflow: "hidden",
+                                      marginBottom: 8,
+                                      ...(wk === "unscheduled"
+                                        ? {
+                                            borderLeft: "3px solid #EF9F27",
+                                            background: "#FAEEDA",
+                                          }
+                                        : {}),
+                                    }}
+                                  >
+                                    <div
+                                      onClick={() =>
+                                        setExpandedWeeks((prev) => ({
+                                          ...prev,
+                                          [wk]: !(
+                                            prev[wk] !== undefined
+                                              ? prev[wk]
+                                              : wk === "unscheduled"
+                                                ? true
+                                                : isCurrentWeek(wk)
+                                          ),
+                                        }))
+                                      }
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: 10,
+                                        padding: "10px 14px",
+                                        background: wk === "unscheduled" ? "#FAEEDA" : t.inputBg || t.panelBg,
+                                        cursor: "pointer",
+                                      }}
+                                    >
+                                      <span style={{ color: t.text3, fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 500 }}>
+                                        {weekLabel}
+                                        {isCurrentWeek(wk) && (
+                                          <span
+                                            style={{
+                                              fontSize: 9,
+                                              padding: "1px 6px",
+                                              borderRadius: 4,
+                                              background: "#E6F1FB",
+                                              color: "#0C447C",
+                                              marginLeft: 6,
+                                            }}
+                                          >
+                                            CURRENT
+                                          </span>
+                                        )}
+                                      </span>
+                                      {dateRange && <span style={{ fontSize: 11, color: t.text3 }}>{dateRange}</span>}
+                                      <div style={{ flex: 1 }} />
+                                      <span style={{ fontSize: 11, color: t.text3 }}>
+                                        {weekStats.total} lectures · {weekStats.sessions} sessions
+                                        {avgScore != null && ` · avg `}
+                                        {avgScore != null && <span style={{ color: avgColor }}>{avgScore}%</span>}
+                                      </span>
+                                      <div
+                                        style={{
+                                          width: 64,
+                                          height: 4,
+                                          flexShrink: 0,
+                                          background: t.border2 || t.border1,
+                                          borderRadius: 2,
+                                        }}
+                                      >
+                                        {avgScore != null && avgScore > 0 && (
+                                          <div
+                                            style={{
+                                              width: (avgScore / 100) * 64 + "px",
+                                              height: "100%",
+                                              background: avgColor || t.border1,
+                                              borderRadius: 2,
+                                            }}
+                                          />
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div style={{ height: 3, background: t.border2 || t.border1 }}>
+                                      <div
+                                        style={{
+                                          width: (weekStats.studied / Math.max(weekStats.total, 1)) * 100 + "%",
+                                          height: "100%",
+                                          background: progressColor,
+                                          borderRadius: 0,
+                                        }}
+                                      />
+                                    </div>
+                                    {isOpen && (
+                                      <div style={{ padding: "0 14px" }}>
+                                        {DAY_ORDER.filter((d) => (weekGroups[wk] || {})[d]?.length).map((day) => {
+                                          const dayLecs = ((weekGroups[wk] || {})[day] || [])
+                                            .slice()
+                                            .sort((a, b) => (a.lectureNumber ?? 0) - (b.lectureNumber ?? 0));
+                                          const todayDow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][
+                                            new Date().getDay()
+                                          ];
+                                          const isTodayDay = day === todayDow && isCurrentWeek(wk);
+                                          return (
+                                            <div key={day}>
+                                              <div
+                                                style={{
+                                                  display: "flex",
+                                                  justifyContent: "space-between",
+                                                  padding: "7px 0 4px",
+                                                  borderBottom: "0.5px solid " + (t.border2 || t.border1),
+                                                }}
+                                              >
+                                                <span
+                                                  style={{
+                                                    fontSize: 10,
+                                                    fontWeight: 500,
+                                                    color: t.text3,
+                                                    letterSpacing: "0.06em",
+                                                  }}
+                                                >
+                                                  {day === "unscheduled" ? "UNSCHEDULED" : day.toUpperCase()}
+                                                  {isTodayDay && (
+                                                    <span
+                                                      style={{
+                                                        fontSize: 9,
+                                                        padding: "1px 5px",
+                                                        borderRadius: 3,
+                                                        background: "#E6F1FB",
+                                                        color: "#0C447C",
+                                                        marginLeft: 4,
+                                                      }}
+                                                    >
+                                                      TODAY
+                                                    </span>
+                                                  )}
+                                                </span>
+                                                <span style={{ fontSize: 10, color: t.text3 }}>{dayLecs.length} lectures</span>
+                                              </div>
+                                              {dayLecs.map((lec, idx) => (
+                                                <div
+                                                  key={lec.id}
+                                                  style={{
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: 8,
+                                                    padding: "7px 0",
+                                                    borderBottom:
+                                                      idx < dayLecs.length - 1 ? "0.5px solid " + (t.border2 || t.border1) : "none",
+                                                  }}
+                                                >
+                                                  <LecListRow
+                                                    lec={lec}
+                                                    index={0}
+                                                    onOpen={() => setExpandedLec(lec.id)}
+                                                    onClose={() => setExpandedLec(null)}
+                                                    isExpanded={expandedLec === lec.id}
+                                                    {...lecRowProps}
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })
+                            : sortedWeekKeys.map((wk) => {
+                                const weekLecs = Object.values(weekGroups[wk] || {}).flat();
+                                const weekStats = getWeekStats(weekLecs, bid);
+                                const dateRange = getWeekDateRange(wk, activeBlock?.startDate) || "";
+                                const avgScore = weekStats.avgScore;
+                                const isUnsched = wk === "unscheduled";
+                                return (
+                                  <div key={wk} style={{ marginBottom: 16 }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleWeekCollapsed(wk)}
+                                      style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "space-between",
+                                        width: "100%",
+                                        padding: "8px 12px",
+                                        borderRadius: 8,
+                                        border: "none",
+                                        background: isUnsched ? "#FAEEDA" : t.surfaceAlt || t.inputBg,
+                                        cursor: "pointer",
+                                        marginBottom: 8,
+                                        fontFamily: MONO,
+                                      }}
+                                    >
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                        <span
+                                          style={{
+                                            fontSize: 10,
+                                            transform: collapsedWeeks.has(wk) ? "none" : "rotate(90deg)",
+                                            display: "inline-block",
+                                            transition: "transform 0.15s",
+                                            color: t.text3,
+                                          }}
+                                        >
+                                          ▶
+                                        </span>
+                                        <span style={{ fontWeight: 700, fontSize: 13, color: t.text1 }}>
+                                          {isUnsched ? "Unscheduled" : `Week ${wk}`}
+                                        </span>
+                                        {isCurrentWeek(wk) && (
+                                          <span
+                                            style={{
+                                              fontSize: 9,
+                                              padding: "1px 6px",
+                                              borderRadius: 10,
+                                              background: tc || t.accent || "#2563eb",
+                                              color: "white",
+                                              fontWeight: 700,
+                                            }}
+                                          >
+                                            CURRENT
+                                          </span>
+                                        )}
+                                        {dateRange ? (
+                                          <span style={{ fontSize: 11, color: t.textSecondary || t.text3 }}>{dateRange}</span>
+                                        ) : null}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: t.textSecondary || t.text3, textAlign: "right" }}>
+                                        {weekLecs.length} lectures ·{" "}
+                                        {avgScore != null ? ` avg ${avgScore}%` : " not started"}
+                                      </div>
+                                    </button>
+                                    {!collapsedWeeks.has(wk) && (
+                                      <div
+                                        style={{
+                                          display: "grid",
+                                          gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+                                          gap: 8,
+                                        }}
+                                      >
+                                        {weekLecs.map((lec) => {
+                                          const perfKey = `${lec.id}__${bid}`;
+                                          const lecPerf = getLecPerf(lec, bid);
+                                          const lecComp = completionForLectures[perfKey];
+                                          const score = lecPerf?.score;
+                                          const sessions = lecComp?.sessionCount || 0;
+                                          const coach = getStudyCoachSteps(lec, bid);
+                                          const step = coach.currentStep;
+                                          const objs = getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id);
+                                          const masteredCount = objs.filter((o) => o.status === "mastered").length;
+                                          const borderCol = t.border1 || t.border2;
+                                          return (
+                                            <div
+                                              key={lec.id}
+                                              role="button"
+                                              tabIndex={0}
+                                              onClick={() =>
+                                                setLecturesTabDetailLec((cur) => (cur?.id === lec.id ? null : lec))
+                                              }
+                                              onKeyDown={(ev) => {
+                                                if (ev.key === "Enter" || ev.key === " ") {
+                                                  ev.preventDefault();
+                                                  setLecturesTabDetailLec((cur) => (cur?.id === lec.id ? null : lec));
+                                                }
+                                              }}
+                                              style={{
+                                                padding: "12px 14px",
+                                                borderRadius: 10,
+                                                border:
+                                                  lecturesTabDetailLec?.id === lec.id
+                                                    ? `2px solid ${step.color}`
+                                                    : `1px solid ${borderCol}`,
+                                                background: t.surface || t.cardBg,
+                                                cursor: "pointer",
+                                                transition: "border-color 0.15s",
+                                                position: "relative",
+                                              }}
+                                              onMouseEnter={(e) => {
+                                                e.currentTarget.style.borderColor = step.color;
+                                              }}
+                                              onMouseLeave={(e) => {
+                                                e.currentTarget.style.borderColor =
+                                                  lecturesTabDetailLec?.id === lec.id ? step.color : borderCol;
+                                              }}
+                                            >
+                                              <div
+                                                style={{
+                                                  display: "flex",
+                                                  justifyContent: "space-between",
+                                                  alignItems: "center",
+                                                  marginBottom: 6,
+                                                }}
+                                              >
+                                                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                                  <span
+                                                    style={{
+                                                      fontSize: 10,
+                                                      fontWeight: 700,
+                                                      padding: "1px 6px",
+                                                      borderRadius: 4,
+                                                      background: lec.lectureType === "DLA" ? "#ede9fe" : "#dbeafe",
+                                                      color: lec.lectureType === "DLA" ? "#7c3aed" : "#1d4ed8",
+                                                      fontFamily: MONO,
+                                                    }}
+                                                  >
+                                                    {lec.lectureType} {lec.lectureNumber}
+                                                  </span>
+                                                  <span
+                                                    style={{
+                                                      fontSize: 10,
+                                                      padding: "1px 6px",
+                                                      borderRadius: 4,
+                                                      background: `${step.color}15`,
+                                                      color: step.color,
+                                                      fontWeight: 600,
+                                                      fontFamily: MONO,
+                                                    }}
+                                                  >
+                                                    {step.icon} Step {step.number}
+                                                  </span>
+                                                </div>
+                                                <div
+                                                  style={{
+                                                    fontSize: 12,
+                                                    fontWeight: 700,
+                                                    color:
+                                                      score == null
+                                                        ? t.textSecondary || t.text3
+                                                        : score >= 80
+                                                          ? t.statusGood
+                                                          : score >= 60
+                                                            ? t.statusWarn
+                                                            : t.statusBad,
+                                                    fontFamily: MONO,
+                                                  }}
+                                                >
+                                                  {score != null ? `${score}%` : "—"}
+                                                </div>
+                                              </div>
+                                              <div
+                                                style={{
+                                                  fontWeight: 600,
+                                                  fontSize: 13,
+                                                  marginBottom: 6,
+                                                  lineHeight: 1.3,
+                                                  overflow: "hidden",
+                                                  display: "-webkit-box",
+                                                  WebkitLineClamp: 2,
+                                                  WebkitBoxOrient: "vertical",
+                                                  color: t.text1,
+                                                }}
+                                              >
+                                                {lec.lectureTitle}
+                                              </div>
+                                              {objs.length > 0 && (
+                                                <div
+                                                  style={{
+                                                    height: 3,
+                                                    borderRadius: 2,
+                                                    background: borderCol,
+                                                    marginBottom: 6,
+                                                    overflow: "hidden",
+                                                  }}
+                                                >
+                                                  <div
+                                                    style={{
+                                                      height: "100%",
+                                                      width: `${(masteredCount / objs.length) * 100}%`,
+                                                      background: t.statusGood,
+                                                      borderRadius: 2,
+                                                    }}
+                                                  />
+                                                </div>
+                                              )}
+                                              <div
+                                                style={{
+                                                  display: "flex",
+                                                  justifyContent: "space-between",
+                                                  fontSize: 11,
+                                                  color: t.textSecondary || t.text3,
+                                                  fontFamily: MONO,
+                                                }}
+                                              >
+                                                <span>
+                                                  {sessions > 0
+                                                    ? `${sessions} session${sessions > 1 ? "s" : ""}`
+                                                    : "Not started"}
+                                                </span>
+                                                <span>
+                                                  {masteredCount}/{objs.length} mastered
+                                                </span>
+                                              </div>
+                                              <div
+                                                style={{
+                                                  display: "flex",
+                                                  gap: 5,
+                                                  marginTop: 8,
+                                                  paddingTop: 8,
+                                                  borderTop: `1px solid ${t.border1 || t.border2}`,
+                                                }}
+                                                onClick={(e) => e.stopPropagation()}
+                                                onKeyDown={(e) => e.stopPropagation()}
+                                                role="presentation"
+                                              >
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeepLearnStart({
+                                                      selectedTopics: [
+                                                        {
+                                                          id: lec.id + "_full",
+                                                          label: lec.lectureTitle,
+                                                          lecId: lec.id,
+                                                          weak: false,
+                                                        },
+                                                      ],
+                                                      blockId: bid,
+                                                    });
+                                                  }}
+                                                  title="Deep Learn"
+                                                  style={{
+                                                    flex: 1,
+                                                    padding: "5px 0",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #dc2626",
+                                                    background: "transparent",
+                                                    color: "#dc2626",
+                                                    cursor: "pointer",
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                  }}
+                                                >
+                                                  🧠 Learn
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    window.dispatchEvent(
+                                                      new CustomEvent("rxt-start-drill", {
+                                                        detail: { lecId: lec.id, blockId: bid, mode: "mcq", filter: "all" },
+                                                      })
+                                                    );
+                                                  }}
+                                                  title="Drill"
+                                                  style={{
+                                                    flex: 1,
+                                                    padding: "5px 0",
+                                                    borderRadius: 6,
+                                                    border: `1px solid ${t.accent || tc || "#2563eb"}`,
+                                                    background: "transparent",
+                                                    color: t.accent || tc || "#2563eb",
+                                                    cursor: "pointer",
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                  }}
+                                                >
+                                                  ⚡ Drill
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    openQuizSettingsForLecture(lec, bid);
+                                                  }}
+                                                  title="Quiz"
+                                                  style={{
+                                                    flex: 1,
+                                                    padding: "5px 0",
+                                                    borderRadius: 6,
+                                                    border: "1px solid #d97706",
+                                                    background: "transparent",
+                                                    color: "#d97706",
+                                                    cursor: "pointer",
+                                                    fontSize: 11,
+                                                    fontWeight: 600,
+                                                  }}
+                                                >
+                                                  📝 Quiz
+                                                </button>
+                                              </div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                        </div>
+                        {lecturesTabDetailLec &&
+                          blockLecs.some((l) => l.id === lecturesTabDetailLec.id) && (
+                            <>
+                              <div
+                                role="presentation"
+                                onClick={() => setLecturesTabDetailLec(null)}
+                                style={{
+                                  position: "fixed",
+                                  inset: 0,
+                                  background: "rgba(0,0,0,0.2)",
+                                  zIndex: 499,
+                                }}
+                              />
+                              <div
+                                style={{
+                                  position: "fixed",
+                                  right: 0,
+                                  top: 0,
+                                  bottom: 0,
+                                  width: Math.min(520, typeof window !== "undefined" ? window.innerWidth : 520),
+                                  background: t.surface || t.cardBg,
+                                  borderLeft: `1px solid ${t.border1 || t.border2}`,
+                                  zIndex: 500,
+                                  overflowY: "auto",
+                                  boxShadow: "-4px 0 20px rgba(0,0,0,0.1)",
                                 }}
                               >
                                 <div
-                                  onClick={() =>
-                                    setExpandedWeeks((prev) => ({
-                                      ...prev,
-                                      [wk]: !(
-                                        prev[wk] !== undefined
-                                          ? prev[wk]
-                                          : wk === "unscheduled"
-                                            ? true
-                                            : isCurrentWeek(wk)
-                                      ),
-                                    }))
-                                  }
                                   style={{
+                                    padding: "16px 20px",
+                                    borderBottom: `1px solid ${t.border1 || t.border2}`,
                                     display: "flex",
+                                    justifyContent: "space-between",
                                     alignItems: "center",
-                                    gap: 10,
-                                    padding: "10px 14px",
-                                    background:
-                                      wk === "unscheduled" ? "#FAEEDA" : t.inputBg || t.panelBg,
-                                    cursor: "pointer",
+                                    position: "sticky",
+                                    top: 0,
+                                    background: t.surface || t.cardBg,
+                                    zIndex: 1,
                                   }}
                                 >
-                                  <span style={{ color: t.text3, fontSize: 10 }}>{isOpen ? "▾" : "▸"}</span>
-                                  <span style={{ fontSize: 13, fontWeight: 500 }}>
-                                    {weekLabel}
-                                    {isCurrentWeek(wk) && (
-                                      <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "#E6F1FB", color: "#0C447C", marginLeft: 6 }}>CURRENT</span>
-                                    )}
-                                  </span>
-                                  {dateRange && <span style={{ fontSize: 11, color: t.text3 }}>{dateRange}</span>}
-                                  <div style={{ flex: 1 }} />
-                                  <span style={{ fontSize: 11, color: t.text3 }}>
-                                    {weekStats.total} lectures · {weekStats.sessions} sessions
-                                    {avgScore != null && ` · avg `}
-                                    {avgScore != null && <span style={{ color: avgColor }}>{avgScore}%</span>}
-                                  </span>
-                                  <div style={{ width: 64, height: 4, flexShrink: 0, background: t.border2 || t.border1, borderRadius: 2 }}>
-                                    {avgScore != null && avgScore > 0 && (
-                                      <div style={{ width: (avgScore / 100 * 64) + "px", height: "100%", background: avgColor || t.border1, borderRadius: 2 }} />
-                                    )}
+                                  <div style={{ fontWeight: 700, fontSize: 15, color: t.text1, paddingRight: 12 }}>
+                                    {lecturesTabDetailLec.lectureType} {lecturesTabDetailLec.lectureNumber}
+                                    {" — "}
+                                    {lecturesTabDetailLec.lectureTitle}
                                   </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setLecturesTabDetailLec(null)}
+                                    style={{
+                                      background: "none",
+                                      border: "none",
+                                      fontSize: 20,
+                                      cursor: "pointer",
+                                      color: t.textSecondary || t.text3,
+                                      padding: "4px 8px",
+                                      flexShrink: 0,
+                                    }}
+                                    aria-label="Close lecture detail"
+                                  >
+                                    ×
+                                  </button>
                                 </div>
-                                <div style={{ height: 3, background: t.border2 || t.border1 }}>
-                                  <div style={{ width: (weekStats.studied / Math.max(weekStats.total, 1) * 100) + "%", height: "100%", background: progressColor, borderRadius: 0 }} />
+                                <div style={{ padding: "0 12px 24px" }}>
+                                  <LecListRow
+                                    {...lecRowProps}
+                                    lec={lecturesTabDetailLec}
+                                    index={blockLecs.findIndex((l) => l.id === lecturesTabDetailLec.id)}
+                                    compactLayout={false}
+                                    isExpanded
+                                    hideRowDiv
+                                    onOpen={() => {}}
+                                    onClose={() => setLecturesTabDetailLec(null)}
+                                  />
                                 </div>
-                                {isOpen && (
-                                  <div style={{ padding: "0 14px" }}>
-                                    {DAY_ORDER.filter((d) => (weekGroups[wk] || {})[d]?.length).map((day) => {
-                                      const dayLecs = ((weekGroups[wk] || {})[day] || []).slice().sort((a, b) => (a.lectureNumber ?? 0) - (b.lectureNumber ?? 0));
-                                      const todayDow = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][new Date().getDay()];
-                                      const isTodayDay = day === todayDow && isCurrentWeek(wk);
-                                      return (
-                                        <div key={day}>
-                                          <div style={{ display: "flex", justifyContent: "space-between", padding: "7px 0 4px", borderBottom: "0.5px solid " + (t.border2 || t.border1) }}>
-                                            <span style={{ fontSize: 10, fontWeight: 500, color: t.text3, letterSpacing: "0.06em" }}>
-                                              {day === "unscheduled" ? "UNSCHEDULED" : day.toUpperCase()}
-                                              {isTodayDay && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "#E6F1FB", color: "#0C447C", marginLeft: 4 }}>TODAY</span>}
-                                            </span>
-                                            <span style={{ fontSize: 10, color: t.text3 }}>{dayLecs.length} lectures</span>
-                                          </div>
-                                          {dayLecs.map((lec, idx) => (
-                                            <div key={lec.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: idx < dayLecs.length - 1 ? "0.5px solid " + (t.border2 || t.border1) : "none" }}>
-                                              <LecListRow lec={lec} index={0} onOpen={() => setExpandedLec(lec.id)} onClose={() => setExpandedLec(null)} isExpanded={expandedLec === lec.id} {...lecRowProps} />
-                                            </div>
-                                          ))}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
                               </div>
-                            );
-                          })}
-                        </div>
+                            </>
+                          )}
                       </>
                     );
                   })()}
@@ -29291,18 +30786,43 @@ Current student level: ${tierLabel}`;
                           )}
 
                           {isMcq && mcqError && (
-                            <div
-                              style={{
-                                fontSize: 11,
-                                color: "#A32D2D",
-                                textAlign: "center",
-                                marginBottom: 8,
-                                padding: "4px 8px",
-                                background: "#FCEBEB",
-                                borderRadius: 4,
-                              }}
-                            >
-                              {mcqError}
+                            <div style={{ marginBottom: 8 }}>
+                              <div
+                                style={{
+                                  fontSize: 11,
+                                  color: "#A32D2D",
+                                  textAlign: "center",
+                                  padding: "4px 8px",
+                                  background: "#FCEBEB",
+                                  borderRadius: 4,
+                                }}
+                              >
+                                {mcqError}
+                              </div>
+                              {!mcqData && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setMcqError(null);
+                                    generateDrillMCQ(currentObj);
+                                  }}
+                                  style={{
+                                    display: "block",
+                                    margin: "8px auto 0",
+                                    fontSize: 11,
+                                    padding: "5px 14px",
+                                    border: "0.5px solid var(--color-border-secondary)",
+                                    borderRadius: 6,
+                                    background: "var(--color-background-secondary)",
+                                    color: "var(--color-text-secondary)",
+                                    cursor: "pointer",
+                                    fontFamily: MONO,
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  Retry question
+                                </button>
+                              )}
                             </div>
                           )}
 
@@ -29407,7 +30927,7 @@ Current student level: ${tierLabel}`;
                                     marginBottom: 8,
                                   }}
                                 >
-                                  ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                  ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                 </div>
                               )}
                               {mcqData.options.map((opt, i) => {
@@ -29677,10 +31197,15 @@ Current student level: ${tierLabel}`;
                                     marginBottom: 8,
                                   }}
                                 >
-                                  ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                  ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                 </div>
                               )}
-                              {mcqData.options.map((opt, i) => {
+                              {(() => {
+                                const relEx = findRelevantLectureExcerpt(lecForCard, currentObj, getLecText);
+                                const relText = excerptPlainText(relEx);
+                                const relPreview =
+                                  relText.length > 200 ? relText.slice(0, 200) + "..." : relText;
+                                return mcqData.options.map((opt, i) => {
                                 const letters = ["A", "B", "C", "D"];
                                 const isAnswered = mcqData.selectedIndex != null;
                                 const isSelected = mcqData.selectedIndex === i;
@@ -29835,11 +31360,32 @@ Current student level: ${tierLabel}`;
                                         <span style={{ color: "var(--color-text-primary)", marginLeft: 6 }}>
                                           {opt.whyWrong}
                                         </span>
+                                        {relPreview.length > 0 && (
+                                          <div
+                                            style={{
+                                              marginTop: 10,
+                                              fontSize: 12,
+                                              color: "var(--color-text-secondary)",
+                                              lineHeight: 1.5,
+                                            }}
+                                          >
+                                            <div style={{ fontWeight: 600, marginBottom: 4 }}>📄 From your lecture:</div>
+                                            <div
+                                              style={{
+                                                fontStyle: "italic",
+                                                color: "var(--color-text-primary)",
+                                              }}
+                                            >
+                                              &quot;{relPreview}&quot;
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )}
                                   </div>
                                 );
-                              })}
+                              });
+                              })()}
 
                               <div
                                 style={{
@@ -29863,6 +31409,97 @@ Current student level: ${tierLabel}`;
                                 </div>
                                 <div style={{ fontSize: 12, color: "#3C3489", lineHeight: 1.5 }}>
                                   {mcqData.objectiveText || getObjectiveDisplayText(currentObj)}
+                                </div>
+                              </div>
+
+                              <div
+                                style={{
+                                  marginTop: 14,
+                                  padding: "12px 14px",
+                                  background: "var(--color-background-secondary)",
+                                  border: "1px solid var(--color-border-tertiary)",
+                                  borderRadius: 8,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: "var(--color-text-primary)",
+                                    marginBottom: 6,
+                                  }}
+                                >
+                                  📖 Want to verify or go deeper?
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: 11,
+                                    color: "var(--color-text-secondary)",
+                                    lineHeight: 1.45,
+                                    marginBottom: 10,
+                                  }}
+                                >
+                                  This question tests:{" "}
+                                  {currentObj?.text || currentObj?.objective || mcqData.objectiveText}
+                                </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    flexWrap: "wrap",
+                                    gap: 8,
+                                    justifyContent: "center",
+                                  }}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      window.dispatchEvent(
+                                        new CustomEvent("rxt-launch-deeplearn", {
+                                          detail: {
+                                            lecId: currentObj?.linkedLecId || lecForCard?.id,
+                                            blockId: drillBid,
+                                            targetObjective: currentObj?.id,
+                                          },
+                                        })
+                                      );
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: "1px solid #dc2626",
+                                      background: "transparent",
+                                      color: "#dc2626",
+                                      cursor: "pointer",
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                    }}
+                                  >
+                                    🧠 Deep Learn this section
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const lid = lecForCard?.id || currentObj?.linkedLecId;
+                                      if (lid) {
+                                        setDrillObjectivesPeek({
+                                          blockId: drillBid,
+                                          lecId: lid,
+                                          highlightObjectiveId: currentObj?.id ?? null,
+                                        });
+                                      }
+                                    }}
+                                    style={{
+                                      padding: "5px 12px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.border1}`,
+                                      background: "transparent",
+                                      color: t.text2,
+                                      cursor: "pointer",
+                                      fontSize: 11,
+                                    }}
+                                  >
+                                    📋 View lecture objectives
+                                  </button>
                                 </div>
                               </div>
 
@@ -30305,7 +31942,7 @@ Current student level: ${tierLabel}`;
                                           marginBottom: 8,
                                         }}
                                       >
-                                        ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                        ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                       </div>
                                     )}
                                     {mcqData.options.map((opt, i) => {
@@ -30577,10 +32214,15 @@ Current student level: ${tierLabel}`;
                                           marginBottom: 8,
                                         }}
                                       >
-                                        ⚠ Could not generate a clinical question — use this as a self-reflection prompt
+                                        ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                       </div>
                                     )}
-                                    {mcqData.options.map((opt, i) => {
+                                    {(() => {
+                                      const relEx = findRelevantLectureExcerpt(lecForCard, currentObj, getLecText);
+                                      const relText = excerptPlainText(relEx);
+                                      const relPreview =
+                                        relText.length > 200 ? relText.slice(0, 200) + "..." : relText;
+                                      return mcqData.options.map((opt, i) => {
                                       const letters = ["A", "B", "C", "D"];
                                       const isAnswered = mcqData.selectedIndex != null;
                                       const isSelected = mcqData.selectedIndex === i;
@@ -30735,11 +32377,34 @@ Current student level: ${tierLabel}`;
                                               <span style={{ color: "var(--color-text-primary)", marginLeft: 6 }}>
                                                 {opt.whyWrong}
                                               </span>
+                                              {relPreview.length > 0 && (
+                                                <div
+                                                  style={{
+                                                    marginTop: 10,
+                                                    fontSize: 12,
+                                                    color: "var(--color-text-secondary)",
+                                                    lineHeight: 1.5,
+                                                  }}
+                                                >
+                                                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                                                    📄 From your lecture:
+                                                  </div>
+                                                  <div
+                                                    style={{
+                                                      fontStyle: "italic",
+                                                      color: "var(--color-text-primary)",
+                                                    }}
+                                                  >
+                                                    &quot;{relPreview}&quot;
+                                                  </div>
+                                                </div>
+                                              )}
                                             </div>
                                           )}
                                         </div>
                                       );
-                                    })}
+                                    });
+                                    })()}
 
                                     <div
                                       style={{
@@ -30763,6 +32428,97 @@ Current student level: ${tierLabel}`;
                                       </div>
                                       <div style={{ fontSize: 12, color: "#3C3489", lineHeight: 1.5 }}>
                                         {mcqData.objectiveText || getObjectiveDisplayText(currentObj)}
+                                      </div>
+                                    </div>
+
+                                    <div
+                                      style={{
+                                        marginTop: 14,
+                                        padding: "12px 14px",
+                                        background: "var(--color-background-secondary)",
+                                        border: "1px solid var(--color-border-tertiary)",
+                                        borderRadius: 8,
+                                      }}
+                                    >
+                                      <div
+                                        style={{
+                                          fontSize: 11,
+                                          fontWeight: 600,
+                                          color: "var(--color-text-primary)",
+                                          marginBottom: 6,
+                                        }}
+                                      >
+                                        📖 Want to verify or go deeper?
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontSize: 11,
+                                          color: "var(--color-text-secondary)",
+                                          lineHeight: 1.45,
+                                          marginBottom: 10,
+                                        }}
+                                      >
+                                        This question tests:{" "}
+                                        {currentObj?.text || currentObj?.objective || mcqData.objectiveText}
+                                      </div>
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          flexWrap: "wrap",
+                                          gap: 8,
+                                          justifyContent: "center",
+                                        }}
+                                      >
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            window.dispatchEvent(
+                                              new CustomEvent("rxt-launch-deeplearn", {
+                                                detail: {
+                                                  lecId: currentObj?.linkedLecId || lecForCard?.id,
+                                                  blockId: drillBid,
+                                                  targetObjective: currentObj?.id,
+                                                },
+                                              })
+                                            );
+                                          }}
+                                          style={{
+                                            padding: "5px 12px",
+                                            borderRadius: 6,
+                                            border: "1px solid #dc2626",
+                                            background: "transparent",
+                                            color: "#dc2626",
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                          }}
+                                        >
+                                          🧠 Deep Learn this section
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const lid = lecForCard?.id || currentObj?.linkedLecId;
+                                            if (lid) {
+                                              setDrillObjectivesPeek({
+                                                blockId: drillBid,
+                                                lecId: lid,
+                                                highlightObjectiveId: currentObj?.id ?? null,
+                                              });
+                                            }
+                                          }}
+                                          style={{
+                                            padding: "5px 12px",
+                                            borderRadius: 6,
+                                            border: `1px solid ${t.border1}`,
+                                            background: "transparent",
+                                            color: t.text2,
+                                            cursor: "pointer",
+                                            fontSize: 11,
+                                          }}
+                                        >
+                                          📋 View lecture objectives
+                                        </button>
                                       </div>
                                     </div>
 
@@ -31040,6 +32796,199 @@ Current student level: ${tierLabel}`;
                     );
                   })()
                   )}
+                  {drillMode && drillObjectivesPeek && (() => {
+                    const peek = drillObjectivesPeek;
+                    const peekObjs = (getMSKObjectives(peek.blockId) || []).filter(
+                      (o) => o.linkedLecId === peek.lecId
+                    );
+                    const peekLec = lectures.find((l) => l.id === peek.lecId);
+                    const peekTitle =
+                      peekLec?.lectureTitle || peekLec?.fileName || peekLec?.filename || "Lecture";
+                    return (
+                      <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Lecture objectives"
+                        style={{
+                          position: "fixed",
+                          inset: 0,
+                          zIndex: 200000,
+                          background: "rgba(15,23,42,0.5)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          padding: 16,
+                        }}
+                        onClick={() => setDrillObjectivesPeek(null)}
+                      >
+                        <div
+                          style={{
+                            maxWidth: 520,
+                            width: "100%",
+                            maxHeight: "min(82vh, 680px)",
+                            overflow: "auto",
+                            background: t.cardBg,
+                            border: "1px solid " + t.border1,
+                            borderRadius: 14,
+                            padding: "18px 20px 20px",
+                            boxShadow: "0 24px 60px rgba(0,0,0,0.28)",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div
+                            style={{
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              gap: 12,
+                              marginBottom: 14,
+                            }}
+                          >
+                            <div>
+                              <div
+                                style={{
+                                  fontFamily: MONO,
+                                  fontSize: 10,
+                                  color: t.text3,
+                                  letterSpacing: 1.2,
+                                  marginBottom: 4,
+                                }}
+                              >
+                                LECTURE OBJECTIVES
+                              </div>
+                              <div style={{ fontWeight: 700, fontSize: 15, color: t.text1 }}>{peekTitle}</div>
+                              <div style={{ fontSize: 12, color: t.text3, marginTop: 4 }}>
+                                {peekObjs.length} objective{peekObjs.length === 1 ? "" : "s"} linked to this lecture
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setDrillObjectivesPeek(null)}
+                              style={{
+                                border: "none",
+                                background: t.inputBg,
+                                color: t.text2,
+                                borderRadius: 8,
+                                width: 32,
+                                height: 32,
+                                cursor: "pointer",
+                                fontSize: 16,
+                                lineHeight: 1,
+                              }}
+                              aria-label="Close"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                            {peekObjs.length === 0 ? (
+                              <div style={{ fontSize: 13, color: t.text2, fontFamily: MONO, lineHeight: 1.5 }}>
+                                No objectives linked to this lecture in this block. Assign objectives from the
+                                Objectives tab after closing drill.
+                              </div>
+                            ) : (
+                              peekObjs.map((o) => {
+                                const isHi = peek.highlightObjectiveId && o.id === peek.highlightObjectiveId;
+                                const line = getObjectiveDisplayText(o);
+                                return (
+                                  <div
+                                    key={o.id || line}
+                                    style={{
+                                      padding: "10px 12px",
+                                      borderRadius: 10,
+                                      border: "1px solid " + (isHi ? tc : t.border1),
+                                      background: isHi ? (t.inputBg || "#f8fafc") : t.cardBg,
+                                      fontSize: 13,
+                                      lineHeight: 1.45,
+                                      color: t.text1,
+                                    }}
+                                  >
+                                    {isHi && (
+                                      <div
+                                        style={{
+                                          fontFamily: MONO,
+                                          fontSize: 10,
+                                          color: tc,
+                                          marginBottom: 6,
+                                          fontWeight: 600,
+                                        }}
+                                      >
+                                        ▸ Current drill objective
+                                      </div>
+                                    )}
+                                    {line}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 8,
+                              marginTop: 18,
+                              justifyContent: "flex-end",
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setDrillObjectivesPeek(null)}
+                              style={{
+                                padding: "8px 14px",
+                                borderRadius: 8,
+                                border: "1px solid " + t.border1,
+                                background: "transparent",
+                                color: t.text2,
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                                fontSize: 12,
+                              }}
+                            >
+                              Back to drill
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const lecId = peek.lecId;
+                                const bid = peek.blockId;
+                                setDrillObjectivesPeek(null);
+                                exitDrill();
+                                setTab("objectives");
+                                setView("block");
+                                if (lecId) setExpandedLec(lecId);
+                                if (bid) setBlockId(bid);
+                              }}
+                              style={{
+                                padding: "8px 14px",
+                                borderRadius: 8,
+                                border: "none",
+                                background: tc,
+                                color: "#fff",
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                                fontSize: 12,
+                                fontWeight: 600,
+                              }}
+                            >
+                              Open lecture in block
+                            </button>
+                          </div>
+                          <div
+                            style={{
+                              fontSize: 10,
+                              color: t.text3,
+                              marginTop: 10,
+                              fontFamily: MONO,
+                              textAlign: "center",
+                            }}
+                          >
+                            Esc or backdrop to close · Drill stays active until you open the block
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
               {tab==="analysis" && (
