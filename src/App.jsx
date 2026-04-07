@@ -6,6 +6,8 @@ import {
   pushAllLocalDataToSupabase,
   pullAllDataFromSupabase,
   scheduleSyncToSupabase,
+  checkCloudHasData,
+  clearDebouncedCloudPush,
 } from "./supabase";
 import Tracker, { getConfidenceTrend, addLectureToTodayReview as addLectureToTodayReviewFromTracker } from "./Tracker";
 import LearningModel from "./LearningModel.jsx";
@@ -38,14 +40,30 @@ import {
 import FTM2_DATA from "./ftm2_objectives_full.json";
 import {
   getAvailableProviders,
-  setDefaultProvider,
   DEFAULT_PROVIDER,
   AI_PROVIDERS,
   callAI,
   callAIJSON,
   callAIWithImage,
+  getProviderStatus,
+  getActiveProvider,
 } from "./aiClient";
 import { getChunkBody, getLecText } from "./lectureText";
+import UploadQueuePanel from "./UploadQueuePanel.jsx";
+import { loadUploadQueueFromSession, persistUploadQueueToSession } from "./uploadQueuePersistence.js";
+import {
+  deleteUploadQueueBlob,
+  deleteUploadQueueBlobs,
+  getUploadQueueBlob,
+  putUploadQueueBlob,
+} from "./uploadQueueBlobStore.js";
+import { logUploadPhase } from "./uploadTelemetry.js";
+import {
+  prepareTextForObjectiveExtraction,
+  buildFullTextForObjectiveAi,
+  getSequentialObjectiveSlices,
+  OBJECTIVE_AI_MAX_SECTION,
+} from "./objectiveTextForAi.js";
 import { findRelevantLectureExcerpt, excerptPlainText } from "./drillLectureSnippet";
 
 const STUDY_MODES = {
@@ -3248,12 +3266,17 @@ const safeJSON = (raw) => {
   } catch {}
 
   try {
-    return JSON.parse(
-      cleaned
-        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, " ")
-        .replace(/,\s*([}\]])/g, "$1")
-    );
-  } catch {}
+    // Strip ASCII control chars (invalid in JSON); avoid control-class regex (eslint no-control-regex).
+    let stripped = "";
+    for (let i = 0; i < cleaned.length; i++) {
+      const code = cleaned.charCodeAt(i);
+      if ((code >= 32 && code !== 127) || code === 9 || code === 10 || code === 13) stripped += cleaned[i];
+      else stripped += " ";
+    }
+    return JSON.parse(stripped.replace(/,\s*([}\]])/g, "$1"));
+  } catch {
+    /* ignore */
+  }
 
   const arrayStart = cleaned.indexOf('"questions"');
   if (arrayStart !== -1) {
@@ -3391,6 +3414,11 @@ function stripImageTagFromStem(stem) {
     .trim();
 }
 
+function renderMarkdown(text) {
+  if (!text) return "";
+  return String(text).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+}
+
 /** Use question.imagePrompt or parse [IMAGE: ...] from stem/question text. */
 function resolveMcqImagePrompt(questionLike) {
   let direct =
@@ -3473,7 +3501,7 @@ function normalizeObjectiveQuizAiItem(raw, selected, fallbackIndex) {
       if (!["A", "B", "C", "D"].includes(letter)) continue;
       const text = String(o.text || "")
         .trim()
-        .replace(/^[A-D][\).\s]+/i, "")
+        .replace(/^[A-D][).\\s]+/i, "")
         .trim();
       choices[letter] = text;
       const isCor =
@@ -3552,7 +3580,7 @@ function normalizeDrillMcqFromParsed(parsed, lecObjs, currentObjId) {
     const options = rawOpts.slice(0, 4).map((o) => ({
       text: String(o.text || o.t || o.option || "")
         .trim()
-        .replace(/^[A-D][\).\s]+/i, "")
+        .replace(/^[A-D][).\\s]+/i, "")
         .trim(),
       correct:
         o.isCorrect === true ||
@@ -7864,7 +7892,6 @@ function WeekGroup({
                       onOpen={() => setExpandedLec(lec.id)}
                       onClose={() => setExpandedLec(null)}
                       isExpanded={expandedLec === lec.id}
-                      onLaunchQuiz={openQuizSettingsForLecture}
                       {...lecRowProps}
                     />
                   </div>
@@ -13031,15 +13058,6 @@ function tryParseObjectivesJSON(raw) {
   }
 }
 
-/** For objective extraction: whitespace cleanup only — no truncation. */
-function prepareTextForObjectiveExtraction(rawText) {
-  if (!rawText) return "";
-  return rawText
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
-
 function assessTextQuality(text) {
   if (!text || text.trim().length < 50) {
     return { quality: "empty", reason: "No text extracted" };
@@ -13659,7 +13677,7 @@ ${text}`;
     typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `ext_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 
   try {
-    const raw = await callAI(systemPrompt, userPrompt, 2000);
+    const raw = await callAI(systemPrompt, userPrompt, 4000);
     const parsed = tryParseObjectivesJSON(raw);
     if (!parsed?.objectives) return [];
     const rows = [];
@@ -13787,30 +13805,18 @@ async function _extractObjectivesFromLectureCore(rawText, lec, blockId, fullText
     if (fromAllChunks.length >= 3) return deduplicateExtractedObjectives(fromAllChunks);
   }
 
-  // Fallback: use AI on cleaned fullText
-  if (fullText.length <= 6000) {
-    return deduplicateExtractedObjectives(await extractObjectivesChunk(fullText, lec, bid));
+  const fullTextForAi = buildFullTextForObjectiveAi(fullText, lec?.chunks, getChunkBody);
+
+  // Fallback: use AI on full lecture text (prefer chunk-joined content — never first-N-only truncation)
+  if (fullTextForAi.length <= OBJECTIVE_AI_MAX_SECTION) {
+    return deduplicateExtractedObjectives(await extractObjectivesChunk(fullTextForAi, lec, bid));
   }
-  const chunkSize = 5000;
-  const overlap = 500;
-  const chunks = [];
-  let pos = 0;
-  while (pos < fullText.length) {
-    chunks.push(fullText.slice(pos, pos + chunkSize));
-    pos += chunkSize - overlap;
+  const slices = getSequentialObjectiveSlices(fullTextForAi);
+  const allObjs = [];
+  for (const slice of slices) {
+    const part = await extractObjectivesChunk(slice, lec, bid);
+    allObjs.push(...part);
   }
-  const limit = 3;
-  const allSettled = [];
-  for (let i = 0; i < chunks.length; i += limit) {
-    const batch = chunks.slice(i, i + limit);
-    const settled = await Promise.allSettled(
-      batch.map((chunk) => extractObjectivesChunk(chunk, lec, bid))
-    );
-    allSettled.push(...settled);
-  }
-  const allObjs = allSettled
-    .filter((r) => r.status === "fulfilled")
-    .flatMap((r) => r.value || []);
   return deduplicateExtractedObjectives(allObjs);
 }
 
@@ -14877,7 +14883,7 @@ function isAlreadyProcessed(file, blockId) {
       const lecTitle = (lec.lectureTitle || "").toLowerCase();
       const fileBase = filename
         .toLowerCase()
-        .replace(/[_\-]/g, " ")
+        .replace(/[_-]/g, " ")
         .trim();
       const lecWords = lecTitle.split(" ").filter((w) => w.length > 4);
       const matchCount = lecWords.filter((w) => fileBase.includes(w)).length;
@@ -15453,6 +15459,33 @@ export default function App() {
   });
   const isDark = theme === "dark";
   const [aiProvider, setAiProvider] = useState(DEFAULT_PROVIDER);
+  const [aiNavActive, setAiNavActive] = useState(() => {
+    try {
+      return getActiveProvider();
+    } catch {
+      return DEFAULT_PROVIDER;
+    }
+  });
+  const [aiNavStatus, setAiNavStatus] = useState(() => getProviderStatus());
+
+  useEffect(() => {
+    const sync = (e) => {
+      const active = e?.detail?.active;
+      const st = e?.detail?.status;
+      try {
+        const next = active ?? getActiveProvider();
+        setAiNavActive(next);
+        setAiProvider(next);
+      } catch {
+        setAiNavActive(DEFAULT_PROVIDER);
+        setAiProvider(DEFAULT_PROVIDER);
+      }
+      setAiNavStatus(st ?? getProviderStatus());
+    };
+    sync();
+    window.addEventListener("rxt-provider-changed", sync);
+    return () => window.removeEventListener("rxt-provider-changed", sync);
+  }, []);
 
   const [view,    setView]    = useState("block");
   const [termId, setTermId] = useState("term1");
@@ -15731,12 +15764,22 @@ export default function App() {
   const uploadResolveCollisionRef = useRef(null);
   const uploadCollisionSkipRef = useRef(null);
   const runOneUploadRef = useRef(null);
+  const processUploadQueueRef = useRef(null);
   const dedupeBlockObjectivesSessionRef = useRef(new Set());
   const migrateActivityTagsSessionRef = useRef(new Set());
 
-  const [uploadQueue, setUploadQueue] = useState([]);
+  const uploadQueueRef = useRef([]);
+  const [uploadQueue, setUploadQueue] = useState(() => {
+    const q = loadUploadQueueFromSession();
+    uploadQueueRef.current = q;
+    return q;
+  });
   const [uploadPanelOpen, setUploadPanelOpen] = useState(false);
   const [uploadComplete, setUploadComplete] = useState(false);
+  const [uploadPanelCollapsed, setUploadPanelCollapsed] = useState(false);
+  const isProcessingQueueRef = useRef(false);
+  const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({});
   const [reExtractingLectureId, setReExtractingLectureId] = useState(null);
   const uploadAutoDismissRef = useRef(null);
   const lectureDragCounterRef = useRef(0);
@@ -15750,7 +15793,16 @@ export default function App() {
   const [imageUploadModalStatus, setImageUploadModalStatus] = useState("");
 
   const updateQueueItem = useCallback((queueId, updates) => {
-    setUploadQueue((prev) => prev.map((item) => (item.id === queueId ? { ...item, ...updates } : item)));
+    uploadQueueRef.current = uploadQueueRef.current.map((item) =>
+      item.id === queueId ? { ...item, ...updates } : item
+    );
+    setUploadQueue([...uploadQueueRef.current]);
+    if (updates && Object.prototype.hasOwnProperty.call(updates, "progress")) {
+      setUploadProgress((p) => ({ ...p, [queueId]: updates.progress }));
+    }
+    if (updates?.status === "done" || updates?.status === "error") {
+      void deleteUploadQueueBlob(queueId);
+    }
   }, []);
 
   const dismissUploadPanel = useCallback(() => {
@@ -15758,7 +15810,10 @@ export default function App() {
       clearTimeout(uploadAutoDismissRef.current);
       uploadAutoDismissRef.current = null;
     }
+    void deleteUploadQueueBlobs(uploadQueueRef.current.map((i) => i.id));
+    uploadQueueRef.current = [];
     setUploadQueue([]);
+    setUploadProgress({});
     setUploadPanelOpen(false);
     setUploadComplete(false);
   }, []);
@@ -15771,7 +15826,10 @@ export default function App() {
     if (anyErr) return;
     if (uploadAutoDismissRef.current) clearTimeout(uploadAutoDismissRef.current);
     uploadAutoDismissRef.current = setTimeout(() => {
+      void deleteUploadQueueBlobs(uploadQueueRef.current.map((i) => i.id));
+      uploadQueueRef.current = [];
       setUploadQueue([]);
+      setUploadProgress({});
       setUploadPanelOpen(false);
       setUploadComplete(false);
       uploadAutoDismissRef.current = null;
@@ -15782,6 +15840,10 @@ export default function App() {
         uploadAutoDismissRef.current = null;
       }
     };
+  }, [uploadQueue]);
+
+  useEffect(() => {
+    persistUploadQueueToSession(uploadQueue);
   }, [uploadQueue]);
 
   const [newTermName,  setNewTermName]  = useState("");
@@ -15805,8 +15867,8 @@ export default function App() {
   const [editingTitle, setEditingTitle] = useState("");
   const [hoveredLectureRowId, setHoveredLectureRowId] = useState(null);
   const [user, setUser] = useState(null);
+  const [currentUser, setCurrentUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [syncStatus, setSyncStatus] = useState(null);
   const [hasCloudData, setHasCloudData] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -15818,6 +15880,28 @@ export default function App() {
   useEffect(() => {
     userRef.current = user;
   }, [user]);
+
+  const backgroundSync = useCallback(async () => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user?.id) return;
+      await pushAllLocalDataToSupabase(user.id);
+      setSyncStatus("synced");
+    } catch {
+      /* Fail silently — local data is safe */
+    }
+  }, []);
+
+  const hasSyncedRef = useRef(false);
+
+  useEffect(() => {
+    const onDeferred = () => setTimeout(() => void backgroundSync(), 3000);
+    window.addEventListener("rxt-deferred-cloud-sync", onDeferred);
+    return () => window.removeEventListener("rxt-deferred-cloud-sync", onDeferred);
+  }, [backgroundSync]);
+
   const handleUserSignedInDedupRef = useRef({ id: null, t: 0 });
   const [scheduleEditMode, setScheduleEditMode] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState(() => ({ unscheduled: true }));
@@ -17337,8 +17421,11 @@ export default function App() {
         topicKey: makeTopicKey(lec.id, blockId),
         note: "Marked as reviewed (attended / Anki unsuspended)",
       });
+      setTimeout(() => {
+        void backgroundSync();
+      }, 3000);
     },
-    [setReviewedLectures, setBlockObjectives, syncTrackerRow, makeTopicKey]
+    [setReviewedLectures, setBlockObjectives, syncTrackerRow, makeTopicKey, backgroundSync]
   );
 
   const unmarkLectureReviewed = useCallback(
@@ -20138,9 +20225,6 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       console.log("Drill synced to completion for", Object.keys(lectureSessions).length, "lectures");
 
       syncStrugglingToWeakConcepts(blockId);
-
-      const syncUid = userRef.current?.id;
-      if (syncUid) scheduleSyncToSupabase(syncUid);
     } catch (e) {
       console.error("syncDrillToCompletion failed:", e);
     }
@@ -20167,6 +20251,11 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         drillStatsRef.current?.assessedIndices || [],
         bid
       );
+      if ((drillStatsRef.current?.assessedIndices || []).length > 0) {
+        setTimeout(() => {
+          void backgroundSync();
+        }, 3000);
+      }
     } catch {}
     repairUnlinkedObjectives(bid);
     drillAssessBusyRef.current = false;
@@ -20227,6 +20316,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     activeBlock?.id,
     blockId,
     resetDrillSessionResultsRef,
+    backgroundSync,
   ]);
 
   useEffect(() => {
@@ -21679,75 +21769,104 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     [setLecs]
   );
 
-  const handleUserSignedIn = useCallback(async (signedInUser) => {
-    if (!signedInUser?.id) return;
-    const now = Date.now();
-    const last = handleUserSignedInDedupRef.current;
-    if (last.id === signedInUser.id && now - last.t < 5000) {
-      return;
-    }
-    handleUserSignedInDedupRef.current = { id: signedInUser.id, t: now };
+  useEffect(() => {
+    const performSignInPush = async (userId) => {
+      const now = Date.now();
+      const last = handleUserSignedInDedupRef.current;
+      if (last.id === userId && now - last.t < 5000) {
+        return;
+      }
+      handleUserSignedInDedupRef.current = { id: userId, t: now };
 
-    setSyncing(true);
-    setSyncStatus("pulling");
+      try {
+        const alreadySyncedThisSession =
+          typeof window !== "undefined" && sessionStorage.getItem("rxt-sync-resolved");
 
-    try {
-      const result = await pullAllDataFromSupabase(signedInUser.id);
+        if (alreadySyncedThisSession) {
+          clearDebouncedCloudPush();
+          await pushAllLocalDataToSupabase(userId).catch(() => {});
+          setHasCloudData(true);
+          return;
+        }
 
-      if (result?.empty) {
-        setHasCloudData(false);
-        setSyncStatus("no_cloud_data");
-        const hasLocalTerms =
-          typeof window !== "undefined" && localStorage.getItem("rxt-terms");
+        clearDebouncedCloudPush();
+        setSyncStatus("syncing");
+        await pushAllLocalDataToSupabase(userId);
+        setSyncStatus("synced");
+        setHasCloudData(true);
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("rxt-sync-resolved", "true");
+        }
+        console.log("Auto-synced local data to Supabase");
+        const hasLocalTerms = typeof window !== "undefined" && localStorage.getItem("rxt-terms");
         if (!hasLocalTerms) {
           setShowImportScreen(true);
         }
-        return;
+      } catch (err) {
+        console.warn("Background sync failed:", err);
+        setSyncStatus("error");
       }
+    };
 
-      setHasCloudData(true);
-      setSyncStatus("done");
-      window.location.reload();
-    } catch (e) {
-      console.error("Sign in sync failed:", e);
-      setSyncStatus("error");
-    } finally {
-      setSyncing(false);
-    }
-  }, []);
-
-  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      const u = session?.user ?? null;
+      setUser(u);
+      setCurrentUser(u);
       setAuthLoading(false);
-      if (session?.user) {
-        handleUserSignedIn(session.user);
+      if (session?.user && !hasSyncedRef.current) {
+        hasSyncedRef.current = true;
+        void performSignInPush(session.user.id);
       }
     });
 
     const {
-      data: { subscription: authSub },
+      data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const newUser = session?.user ?? null;
-      setUser(newUser);
+      if (event !== "TOKEN_REFRESHED") {
+        console.log("Auth event:", event, session?.user?.email);
+      }
 
       if (event === "SIGNED_OUT") {
+        clearDebouncedCloudPush();
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("rxt-sync-resolved");
+        }
         setUser(null);
+        setCurrentUser(null);
+        hasSyncedRef.current = false;
         setShowImportScreen(false);
         setHasCloudData(false);
         setSyncStatus(null);
         handleUserSignedInDedupRef.current = { id: null, t: 0 };
         return;
       }
-      if (event === "SIGNED_IN" && newUser) {
-        await handleUserSignedIn(newUser);
+
+      if (event === "TOKEN_REFRESHED" && session?.user) {
+        setCurrentUser(session.user);
+        return;
+      }
+
+      if (event === "SIGNED_IN" && session?.user) {
+        setUser(session.user);
+        setCurrentUser(session.user);
+
+        if (hasSyncedRef.current) return;
+
+        hasSyncedRef.current = true;
+        void performSignInPush(session.user.id);
+        return;
+      }
+
+      if (session?.user) {
+        setUser(session.user);
+        setCurrentUser(session.user);
       }
     });
 
     return () => {
-      authSub?.unsubscribe();
+      subscription?.unsubscribe();
     };
-  }, [handleUserSignedIn]);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) {
@@ -21756,11 +21875,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
-        .from("terms")
-        .select("user_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      const { data } = await supabase.from("terms").select("user_id").eq("user_id", user.id).maybeSingle();
       if (!cancelled) setHasCloudData(!!data);
     })();
     return () => {
@@ -22285,61 +22400,17 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     }
   };
 
-  const handleLectureUpload = async (files, bidParam, tidParam) => {
-    if (!files?.length) return;
-    const uploadBlockId = activeBlock?.id || getActiveBlockFromTerms()?.id || bidParam || "cpr1";
-    const uploadTermId = activeBlock?.termId || getActiveBlockFromTerms()?.termId || tidParam || "term1";
-    const bid = uploadBlockId;
-    const termForBid = terms.find((t) => t.blocks?.some((b) => b.id === bid));
-    const tid = termForBid?.id ?? uploadTermId;
-    const blockMeta = termForBid?.blocks?.find((b) => b.id === bid);
-    console.log(
-      "Upload starting —",
-      Array.from(files)
-        .map((f) => f.name)
-        .join(", "),
-      "| activeBlock:",
-      activeBlock?.id,
-      activeBlock?.name,
-      "| resolved blockId:",
-      bid,
-      "| termId:",
-      tid
-    );
-    const fileList = Array.from(files);
-    const pairs = fileList.map((file) => ({
-      file,
-      queueId: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
-    }));
-    const sortedPairs = [...pairs].sort((a, b) => {
-      const aInfo = detectPartInfo(a.file.name);
-      const bInfo = detectPartInfo(b.file.name);
-      if (aInfo.isPart && bInfo.isPart) {
-        if (aInfo.isPartA && bInfo.isPartB) return -1;
-        if (aInfo.isPartB && bInfo.isPartA) return 1;
-      }
-      return 0;
+  const processUploadQueue = async () => {
+    if (isProcessingQueueRef.current) return;
+    isProcessingQueueRef.current = true;
+    setIsProcessingQueue(true);
+    setUploading(true);
+    logUploadPhase("queue", "queue_batch_start", {
+      queued: uploadQueueRef.current.filter((i) => i.status === "queued").length,
     });
-    setUploadQueue((prev) => [
-      ...prev,
-      ...sortedPairs.map(({ queueId, file }) => ({
-        id: queueId,
-        filename: file.name,
-        status: "pending",
-        progress: 0,
-        error: null,
-        result: null,
-      })),
-    ]);
-    setUploadPanelOpen(true);
-    setUploadComplete(false);
-
     let added = 0;
     let failed = 0;
     const addedInBatch = new Set();
-    setUploading(true);
-    uploadObjectivesExtractedRef.current = new Set();
-    sortedPairs.forEach(({ queueId, file }) => uploadFileByQueueIdRef.current.set(queueId, file));
 
     const commitPdfTail = async ({
       lectureToSave,
@@ -22617,6 +22688,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         status: "done",
         progress: 100,
         result: {
+          lectureId: lectureToSave.id,
           lectureType: lectureToSave.lectureType,
           lectureNumber: lectureToSave.lectureNumber,
           objectiveCount: totalObjCount,
@@ -22640,16 +22712,20 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       );
     };
 
-    const mergePartBIntoPartA = async (filB, partALecSnapshot, queueId) => {
+    const mergePartBIntoPartA = async (filB, partALecSnapshot, queueId, bid) => {
       updateQueueItem(queueId, { status: "extracting", progress: 5 });
       setUpMsg("📖 Extracting Part B…");
       const forceOcr = uploadForceOcrQueueIdRef.current.has(queueId);
       if (forceOcr) uploadForceOcrQueueIdRef.current.delete(queueId);
+      const tMergeEx = typeof performance !== "undefined" ? performance.now() : 0;
       const { contentResult: cr0, method: extractMethodUsed } = await extractWithSmartFallback(
         filB,
         (msg) => setUpMsg(msg),
         { forceMistralOcr: forceOcr }
       );
+      if (typeof performance !== "undefined") {
+        logUploadPhase(queueId, "merge_partB_extract", { method: extractMethodUsed }, performance.now() - tMergeEx);
+      }
       const textB = (cr0.fullText || (cr0.chunks || []).map((c) => getChunkBody(c)).join("\n\n") || "").trim();
       const chunksB =
         cr0.chunks && cr0.chunks.length > 0 ? cr0.chunks : textB ? [{ text: textB }] : [];
@@ -22767,6 +22843,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         progress: 100,
         result: {
           mergedPartB: true,
+          lectureId: mergedLec.id,
           lectureType: mergedLec.lectureType,
           lectureNumber: mergedLec.lectureNumber,
           objectiveCount: nObj,
@@ -22783,7 +22860,10 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       console.log("Merged into:", mergedTitle, "chunks:", mergedChunks.length);
     };
 
-    const runOne = async ({ file, queueId }) => {
+    const runOne = async ({ file, queueId, bid, tid }) => {
+      logUploadPhase(queueId, "runOne_begin", { name: file.name, bid });
+      uploadFileByQueueIdRef.current.set(queueId, file);
+      uploadRetryFilesRef.current.set(queueId, file);
       console.log(
         "Upload starting for:",
         file.name,
@@ -22812,6 +22892,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       const existingInBatch = addedInBatch.has(file.name);
       if ((existingInBlock || existingInBatch) && !window.confirm("A lecture named \"" + file.name + "\" already exists in this block. Replace it?")) {
         failed++;
+        uploadRetryFilesRef.current.set(queueId, file);
         updateQueueItem(queueId, { status: "error", error: "Skipped — duplicate not replaced", progress: 100 });
         return;
       }
@@ -22828,11 +22909,12 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         if (matchA) {
           console.log("Found matching Part A:", matchA.lectureTitle || matchA.filename, "— merging with Part B");
           try {
-            await mergePartBIntoPartA(file, matchA, queueId);
+            await mergePartBIntoPartA(file, matchA, queueId, bid);
             added++;
             addedInBatch.add(file.name);
           } catch (e) {
             console.error("mergePartBIntoPartA failed:", e);
+            uploadRetryFilesRef.current.set(queueId, file);
             updateQueueItem(queueId, { status: "error", error: e.message || "Merge failed", progress: 100 });
             failed++;
           }
@@ -22847,11 +22929,15 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
           setUpMsg("📖 Extracting PDF text...");
           const forceOcr = uploadForceOcrQueueIdRef.current.has(queueId);
           if (forceOcr) uploadForceOcrQueueIdRef.current.delete(queueId);
+          const tExtract = typeof performance !== "undefined" ? performance.now() : 0;
           const { contentResult: cr0, method: extractMethodUsed } = await extractWithSmartFallback(
             file,
             (msg) => setUpMsg(msg),
             { forceMistralOcr: forceOcr }
           );
+          if (typeof performance !== "undefined") {
+            logUploadPhase(queueId, "extract_done", { method: extractMethodUsed }, performance.now() - tExtract);
+          }
           let contentResult = cr0;
           if (contentResult.chunks?.length > 0) {
             console.log("Chunk sample keys:", Object.keys(contentResult.chunks[0]));
@@ -23152,6 +23238,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
           text = (text || "").trim();
           if (!text || text.length < 50) {
             setUpMsg("⚠ No text in " + file.name);
+            uploadRetryFilesRef.current.set(queueId, file);
             updateQueueItem(queueId, { status: "error", error: "No text in file", progress: 100 });
             failed++;
             return;
@@ -23227,6 +23314,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         }
       } catch (e) {
         setUpMsg("✗ " + file.name + ": " + (e.message || String(e)));
+        uploadRetryFilesRef.current.set(queueId, file);
         updateQueueItem(queueId, { status: "error", error: e.message || "Upload failed", progress: 100 });
         failed++;
         console.error("Upload failed:", e);
@@ -23239,6 +23327,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       const {
         file,
         bid,
+        tid,
         lectureToSave,
         colliding,
         contentResult,
@@ -23266,19 +23355,19 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         clearUploadCacheHash(file);
         delLec(colliding.id);
         updateQueueItem(queueId, {
-          status: "pending",
+          status: "queued",
           progress: 0,
           error: null,
+          bid,
+          tid,
           collisionExisting: undefined,
           collisionLabel: undefined,
           showMergeOption: undefined,
           uniqueNumberHint: undefined,
+          statusLabel: "Queued",
         });
-        setUploading(true);
-        try {
-          await runOne({ file, queueId });
-        } finally {
-          setUploading(false);
+        if (!isProcessingQueueRef.current) {
+          void processUploadQueueRef.current?.();
         }
         return;
       }
@@ -23286,19 +23375,19 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         clearUploadCacheHash(file);
         uploadForceUniqueRef.current.set(queueId, true);
         updateQueueItem(queueId, {
-          status: "pending",
+          status: "queued",
           progress: 0,
           error: null,
+          bid,
+          tid,
           collisionExisting: undefined,
           collisionLabel: undefined,
           showMergeOption: undefined,
           uniqueNumberHint: undefined,
+          statusLabel: "Queued",
         });
-        setUploading(true);
-        try {
-          await runOne({ file, queueId });
-        } finally {
-          setUploading(false);
+        if (!isProcessingQueueRef.current) {
+          void processUploadQueueRef.current?.();
         }
         return;
       }
@@ -23355,118 +23444,276 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     };
 
     runOneUploadRef.current = runOne;
-    for (const pair of sortedPairs) {
-      await runOne(pair);
-    }
 
-    setUploading(false);
-    setUploadComplete(true);
     try {
-      const l = await loadLectures();
-      setLecs(l || []);
-      const raw = localStorage.getItem("rxt-block-objectives") || "{}";
-      const parsed = JSON.parse(raw);
-      setBlockObjectives(parsed);
-    } catch (err) {
-      console.warn("Post-upload refresh failed:", err);
+      while (uploadQueueRef.current.some((i) => i.status === "queued")) {
+        const idx = uploadQueueRef.current.findIndex((i) => i.status === "queued");
+        if (idx === -1) break;
+        const item = uploadQueueRef.current[idx];
+        const queueId = item.id;
+        const { bid: itemBid, tid: itemTid } = item;
+        let file = uploadFileByQueueIdRef.current.get(queueId);
+        if (!file) {
+          try {
+            file = await getUploadQueueBlob(queueId);
+            if (file) {
+              uploadFileByQueueIdRef.current.set(queueId, file);
+              uploadRetryFilesRef.current.set(queueId, file);
+              logUploadPhase(queueId, "file_from_idb", { ok: true, name: file.name });
+            }
+          } catch (e) {
+            logUploadPhase(queueId, "file_from_idb", { ok: false, err: String(e) });
+          }
+        }
+        if (!file) {
+          logUploadPhase(queueId, "file_missing", { afterIdb: true });
+          updateQueueItem(queueId, {
+            status: "error",
+            error: "File reference lost — re-upload the PDF",
+            progress: 100,
+            statusLabel: "✗ Failed — tap to retry",
+          });
+          failed++;
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        updateQueueItem(queueId, { status: "processing", progress: 10, statusLabel: "Processing…" });
+        try {
+          const tRun = typeof performance !== "undefined" ? performance.now() : 0;
+          await runOne({ file, queueId, bid: itemBid, tid: itemTid });
+          if (typeof performance !== "undefined") {
+            logUploadPhase(queueId, "runOne_complete", file?.name, performance.now() - tRun);
+          }
+          const st = uploadQueueRef.current.find((i) => i.id === queueId)?.status;
+          if (st === "done") {
+            await new Promise((r) => setTimeout(r, 1500));
+          } else if (st === "error") {
+            await new Promise((r) => setTimeout(r, 1000));
+          }
+        } catch (err) {
+          console.error("Upload queue item failed:", err);
+          updateQueueItem(queueId, {
+            status: "error",
+            error: err?.message || String(err),
+            progress: 0,
+            statusLabel: "✗ Failed — tap to retry",
+          });
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+    } finally {
+      setUploading(false);
+      setUploadComplete(true);
+      try {
+        const l = await loadLectures();
+        setLecs(l || []);
+        const raw = localStorage.getItem("rxt-block-objectives") || "{}";
+        const parsed = JSON.parse(raw);
+        setBlockObjectives(parsed);
+      } catch (err) {
+        console.warn("Post-upload refresh failed:", err);
+      }
+      try {
+        window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+      } catch (_) {}
+
+      const uploadSyncUid = userRef.current?.id;
+      if (uploadSyncUid) scheduleSyncToSupabase(uploadSyncUid);
+      setTimeout(() => void backgroundSync(), 3000);
+
+      const parts = [];
+      if (added) parts.push("✓ Added " + added + " lecture" + (added !== 1 ? "s" : ""));
+      if (failed) parts.push("⚠ " + failed + " failed");
+      setUpMsg(parts.length ? parts.join(", ") : "No files processed.");
+      setTimeout(() => setUpMsg(""), 8000);
+
+      isProcessingQueueRef.current = false;
+      setIsProcessingQueue(false);
     }
-    try {
-      window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
-    } catch (_) {}
-
-    const uploadSyncUid = userRef.current?.id;
-    if (uploadSyncUid) scheduleSyncToSupabase(uploadSyncUid);
-
-    const parts = [];
-    if (added) parts.push("✓ Added " + added + " lecture" + (added !== 1 ? "s" : ""));
-    if (failed) parts.push("⚠ " + failed + " failed");
-    setUpMsg(parts.length ? parts.join(", ") : "No files processed.");
-    setTimeout(() => setUpMsg(""), 8000);
   };
 
-  const retryUploadQueuedFile = useCallback(
-    async (queueId) => {
-      const file = uploadRetryFilesRef.current.get(queueId);
-      const fn = runOneUploadRef.current;
-      if (!file || !fn) return;
-      setUploading(true);
-      updateQueueItem(queueId, { status: "pending", progress: 0, error: null, retryable: false });
-      try {
-        await fn({ file, queueId });
-      } finally {
-        setUploading(false);
-        try {
-          const l = await loadLectures();
-          setLecs(l || []);
-          const raw = localStorage.getItem("rxt-block-objectives") || "{}";
-          setBlockObjectives(JSON.parse(raw));
-          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
-        } catch (_) {}
+  const handleLectureUpload = (files, bidParam, tidParam) => {
+    if (!files?.length) return;
+    const uploadBlockId = activeBlock?.id || getActiveBlockFromTerms()?.id || bidParam || "cpr1";
+    const uploadTermId = activeBlock?.termId || getActiveBlockFromTerms()?.termId || tidParam || "term1";
+    const bid = uploadBlockId;
+    const termForBid = terms.find((t) => t.blocks?.some((b) => b.id === bid));
+    const tid = termForBid?.id ?? uploadTermId;
+    console.log(
+      "Upload starting —",
+      Array.from(files)
+        .map((f) => f.name)
+        .join(", "),
+      "| activeBlock:",
+      activeBlock?.id,
+      activeBlock?.name,
+      "| resolved blockId:",
+      bid,
+      "| termId:",
+      tid
+    );
+    const fileList = Array.from(files);
+    const pairs = fileList.map((file) => ({
+      file,
+      queueId: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : uid(),
+    }));
+    const sortedPairs = [...pairs].sort((a, b) => {
+      const aInfo = detectPartInfo(a.file.name);
+      const bInfo = detectPartInfo(b.file.name);
+      if (aInfo.isPart && bInfo.isPart) {
+        if (aInfo.isPartA && bInfo.isPartB) return -1;
+        if (aInfo.isPartB && bInfo.isPartA) return 1;
+      }
+      return 0;
+    });
+    const newItems = sortedPairs.map(({ queueId, file }) => ({
+      id: queueId,
+      name: file.name,
+      filename: file.name,
+      status: "queued",
+      progress: 0,
+      error: null,
+      result: null,
+      bid,
+      tid,
+      statusLabel: "Queued",
+    }));
+    uploadQueueRef.current = [...uploadQueueRef.current, ...newItems];
+    setUploadQueue([...uploadQueueRef.current]);
+    sortedPairs.forEach(({ queueId, file }) => uploadFileByQueueIdRef.current.set(queueId, file));
+    void Promise.all(
+      sortedPairs.map(({ queueId, file }) =>
+        putUploadQueueBlob(queueId, file).catch((e) =>
+          console.warn("[rxt-upload] IndexedDB persist failed (upload still works in-memory):", e)
+        )
+      )
+    );
+    setUploadPanelOpen(true);
+    setUploadPanelCollapsed(false);
+    setUploadComplete(false);
+    uploadObjectivesExtractedRef.current = new Set();
+    if (!isProcessingQueueRef.current) {
+      void processUploadQueue();
+    }
+  };
+
+  processUploadQueueRef.current = processUploadQueue;
+
+  useEffect(() => {
+    const ac = new AbortController();
+    (async () => {
+      const need = uploadQueueRef.current.filter((i) => i.restoredFromSession);
+      if (!need.length) return;
+      for (const item of need) {
+        const f = await getUploadQueueBlob(item.id);
+        if (ac.signal.aborted) return;
+        if (f) {
+          uploadFileByQueueIdRef.current.set(item.id, f);
+          uploadRetryFilesRef.current.set(item.id, f);
+          const patch = { restoredFromSession: false };
+          if (item.status === "collision") {
+            patch.statusLabel = item.collisionLabel || "Resolve collision below";
+          } else {
+            patch.status = "queued";
+            patch.statusLabel = "Queued";
+            patch.progress = 0;
+          }
+          updateQueueItem(item.id, patch);
+        } else {
+          updateQueueItem(item.id, {
+            restoredFromSession: false,
+            status: "error",
+            error:
+              "PDF not found in browser storage (cleared, private mode, or quota). Re-upload the file.",
+            progress: 0,
+            statusLabel: "Interrupted",
+            retryable: true,
+          });
+        }
+      }
+      if (ac.signal.aborted) return;
+      if (uploadQueueRef.current.some((i) => i.status === "queued") && !isProcessingQueueRef.current) {
+        void processUploadQueueRef.current?.();
+      }
+    })();
+    return () => ac.abort();
+  }, [updateQueueItem]);
+
+  const retryQueueItem = useCallback(
+    (queueId) => {
+      const file = uploadRetryFilesRef.current.get(queueId) || uploadFileByQueueIdRef.current.get(queueId);
+      if (file) uploadFileByQueueIdRef.current.set(queueId, file);
+      updateQueueItem(queueId, {
+        status: "queued",
+        progress: 0,
+        error: null,
+        retryable: false,
+        statusLabel: "Queued",
+      });
+      if (!isProcessingQueueRef.current) {
+        void processUploadQueueRef.current?.();
       }
     },
     [updateQueueItem]
   );
 
+  const retryUploadQueuedFile = retryQueueItem;
+
   const forceReuploadQueuedFile = useCallback(
-    async (queueId) => {
+    (queueId) => {
       const file = uploadFileByQueueIdRef.current.get(queueId);
-      const fn = runOneUploadRef.current;
-      if (!file || !fn) return;
+      if (!file) return;
       clearUploadCacheHash(file);
-      setUploading(true);
       updateQueueItem(queueId, {
-        status: "pending",
+        status: "queued",
         progress: 0,
         error: null,
         result: null,
         retryable: false,
+        statusLabel: "Queued",
       });
-      try {
-        await fn({ file, queueId });
-      } finally {
-        setUploading(false);
-        try {
-          const l = await loadLectures();
-          setLecs(l || []);
-          const raw = localStorage.getItem("rxt-block-objectives") || "{}";
-          setBlockObjectives(JSON.parse(raw));
-          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
-        } catch (_) {}
+      if (!isProcessingQueueRef.current) {
+        void processUploadQueueRef.current?.();
       }
     },
     [updateQueueItem]
   );
 
   const forceOcrQueuedFile = useCallback(
-    async (queueId) => {
+    (queueId) => {
       const file = uploadFileByQueueIdRef.current.get(queueId);
-      const fn = runOneUploadRef.current;
-      if (!file || !fn) return;
+      if (!file) return;
       clearUploadCacheHash(file);
       uploadForceOcrQueueIdRef.current.add(queueId);
-      setUploading(true);
       updateQueueItem(queueId, {
-        status: "pending",
+        status: "queued",
         progress: 0,
         error: null,
         result: null,
         retryable: false,
+        statusLabel: "Queued",
       });
-      try {
-        await fn({ file, queueId });
-      } finally {
-        setUploading(false);
-        try {
-          const l = await loadLectures();
-          setLecs(l || []);
-          const raw = localStorage.getItem("rxt-block-objectives") || "{}";
-          setBlockObjectives(JSON.parse(raw));
-          window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
-        } catch (_) {}
+      if (!isProcessingQueueRef.current) {
+        void processUploadQueueRef.current?.();
       }
     },
     [updateQueueItem]
   );
+
+  const skipQueuedUploadItem = useCallback((queueId) => {
+    const item = uploadQueueRef.current.find((i) => i.id === queueId);
+    if (!item || item.status !== "queued") return;
+    void deleteUploadQueueBlob(queueId);
+    uploadFileByQueueIdRef.current.delete(queueId);
+    uploadRetryFilesRef.current.delete(queueId);
+    uploadQueueRef.current = uploadQueueRef.current.filter((i) => i.id !== queueId);
+    setUploadQueue([...uploadQueueRef.current]);
+    setUploadProgress((p) => {
+      const n = { ...p };
+      delete n[queueId];
+      return n;
+    });
+  }, []);
 
   const reExtractObjectivesForLecture = useCallback(
     async (lecId, blockBid) => {
@@ -23501,6 +23748,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
             lectureNumber: lec.lectureNumber,
           });
           await trySaveCPRLectureExtractedObjectives(blockBid, lecStub, newObjs, true, tombOld);
+          setTimeout(() => void backgroundSync(), 3000);
           return;
         }
 
@@ -23511,13 +23759,14 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
           activity: activityForLectureSave(o, lec),
         }));
         await saveExtractedObjectivesForLecture(lecId, blockBid, enriched);
+        setTimeout(() => void backgroundSync(), 3000);
       } catch (e) {
         console.error("reExtractObjectivesForLecture:", e);
       } finally {
         setReExtractingLectureId(null);
       }
     },
-    [lectures]
+    [lectures, backgroundSync]
   );
 
   // ── Study ──────────────────────────────────
@@ -24418,6 +24667,10 @@ Current student level: ${tierLabel}`;
     setWeakAreas(areas);
     window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
     window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
+    // Defer background push so setState updaters have committed to localStorage.
+    setTimeout(() => {
+      void backgroundSync();
+    }, 3000);
   };
 
   const handleSessionComplete = (arg1, arg2) => {
@@ -24551,6 +24804,9 @@ Current student level: ${tierLabel}`;
           });
           setQuizFlashLectureId(targetLec.id);
           setTimeout(() => setQuizFlashLectureId(null), 1000);
+          setTimeout(() => {
+            void backgroundSync();
+          }, 3000);
         } else {
           setQuizSavedState({ saved: false, score, objectiveSynced: false, trackerSynced: false });
           console.warn("Quiz completed but lecture/block context missing — skipped save");
@@ -25407,7 +25663,7 @@ Current student level: ${tierLabel}`;
         tc={tc}
       />
     )}
-    {showImportScreen && user && (
+    {showImportScreen && currentUser && (
       <div
         style={{
           position: "fixed",
@@ -25437,7 +25693,7 @@ Current student level: ${tierLabel}`;
           </div>
 
           <div style={{ fontSize: 14, color: "var(--color-text-secondary, " + t.text2 + ")", marginBottom: 24, lineHeight: 1.6, fontFamily: MONO }}>
-            Signed in as {user?.email}
+            Signed in as {currentUser?.email}
           </div>
 
           <div
@@ -25561,7 +25817,7 @@ Current student level: ${tierLabel}`;
                       console.warn("Could not import key:", key, e);
                     }
                   });
-                  await pushAllLocalDataToSupabase(user.id);
+                  await pushAllLocalDataToSupabase(currentUser.id);
                   setImportResult({
                     success: true,
                     message: `✓ Imported successfully — ${Object.keys(data).length} data keys restored`,
@@ -25600,7 +25856,7 @@ Current student level: ${tierLabel}`;
                 setImportJson("");
                 setImportResult(null);
                 try {
-                  if (user?.id) await pushAllLocalDataToSupabase(user.id);
+                  if (currentUser?.id) await pushAllLocalDataToSupabase(currentUser.id);
                 } catch (e) {
                   console.warn("Start fresh push:", e);
                 }
@@ -25686,49 +25942,39 @@ Current student level: ${tierLabel}`;
             const providers = getAvailableProviders();
             return (providers.gemini || providers.anthropic) && (
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginRight: 4 }}>
-                <span style={{ fontFamily: MONO, fontSize: 10, color: t.text3 }}>AI:</span>
-                {providers.gemini && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDefaultProvider(AI_PROVIDERS.GEMINI);
-                      setAiProvider(AI_PROVIDERS.GEMINI);
-                    }}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 10px",
+                    borderRadius: 20,
+                    border: "1px solid " + t.border1,
+                    fontSize: 11,
+                    fontWeight: 600,
+                    fontFamily: MONO,
+                    color: t.text2,
+                  }}
+                >
+                  <span
                     style={{
-                      fontFamily: MONO,
-                      fontSize: 10,
-                      padding: "3px 10px",
-                      borderRadius: 5,
-                      border: "1px solid " + (aiProvider === AI_PROVIDERS.GEMINI ? t.statusProgress : t.border1),
-                      background: aiProvider === AI_PROVIDERS.GEMINI ? t.statusProgressBg : t.cardBg,
-                      color: aiProvider === AI_PROVIDERS.GEMINI ? t.statusProgress : t.text3,
-                      cursor: "pointer",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      flexShrink: 0,
+                      background:
+                        aiNavStatus.gemini === "quota" && aiNavStatus.anthropic === "quota"
+                          ? "#dc2626"
+                          : "#16a34a",
                     }}
-                  >
-                    ◆ Gemini
-                  </button>
-                )}
-                {providers.anthropic && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDefaultProvider(AI_PROVIDERS.ANTHROPIC);
-                      setAiProvider(AI_PROVIDERS.ANTHROPIC);
-                    }}
-                    style={{
-                      fontFamily: MONO,
-                      fontSize: 10,
-                      padding: "3px 10px",
-                      borderRadius: 5,
-                      border: "1px solid " + (aiProvider === AI_PROVIDERS.ANTHROPIC ? tc : t.border1),
-                      background: aiProvider === AI_PROVIDERS.ANTHROPIC ? tc + "15" : t.cardBg,
-                      color: aiProvider === AI_PROVIDERS.ANTHROPIC ? tc : t.text3,
-                      cursor: "pointer",
-                    }}
-                  >
-                    ◆ Claude
-                  </button>
-                )}
+                  />
+                  <span>
+                    AI: {aiNavActive === AI_PROVIDERS.GEMINI ? "Gemini" : "Claude"}
+                  </span>
+                  {aiNavStatus.gemini === "quota" && (
+                    <span style={{ color: "#d97706", fontSize: 9, fontWeight: 600 }}>(Gemini quota)</span>
+                  )}
+                </div>
               </div>
             );
           })()}
@@ -25768,7 +26014,7 @@ Current student level: ${tierLabel}`;
           </button>
 
           {!authLoading &&
-            (user ? (
+            (currentUser ? (
               <div
                 style={{
                   display: "flex",
@@ -25779,18 +26025,54 @@ Current student level: ${tierLabel}`;
                 }}
               >
                 <div style={{ position: "relative", display: "flex", alignItems: "center", gap: 8 }}>
-                  {syncing && (
-                    <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")" }}>
-                      {syncStatus === "pushing"
-                        ? "↑ Saving..."
-                        : syncStatus === "pulling"
-                          ? "↓ Loading..."
-                          : "✓ Synced"}
-                    </span>
-                  )}
+                  {currentUser &&
+                    syncStatus &&
+                    syncStatus !== "no_cloud_data" &&
+                    (() => {
+                      const syncIcons = {
+                        syncing: "↑",
+                        synced: "✓",
+                        error: "⚠",
+                        pushing: "↑",
+                        pulling: "↓",
+                        done: "✓",
+                      };
+                      const syncColors = {
+                        syncing: t.statusProgress,
+                        synced: t.statusGood,
+                        error: t.statusWarn,
+                        pushing: t.statusProgress,
+                        pulling: t.statusProgress,
+                        done: t.statusGood,
+                      };
+                      const label =
+                        syncStatus === "syncing" || syncStatus === "pushing"
+                          ? "Saving..."
+                          : syncStatus === "pulling"
+                            ? "Loading..."
+                            : syncStatus === "synced" || syncStatus === "done"
+                              ? "Saved"
+                              : syncStatus === "error"
+                                ? "Sync issue"
+                                : "";
+                      if (!label) return null;
+                      return (
+                        <span
+                          style={{
+                            fontSize: 11,
+                            color: syncColors[syncStatus] || t.text3,
+                            fontWeight: 600,
+                            marginRight: 4,
+                            fontFamily: MONO,
+                          }}
+                        >
+                          {syncIcons[syncStatus] || "•"} {label}
+                        </span>
+                      );
+                    })()}
 
                   <div
-                    title={user.email || undefined}
+                    title={currentUser.email || undefined}
                     onClick={() => setShowUserMenu((prev) => !prev)}
                     style={{
                       width: 28,
@@ -25802,14 +26084,14 @@ Current student level: ${tierLabel}`;
                       alignItems: "center",
                       justifyContent: "center",
                       fontSize: 12,
-                      fontWeight: 500,
+                      fontWeight: 700,
                       cursor: "pointer",
                     }}
                   >
-                    {(user.email?.[0] || "U").toUpperCase()}
+                    {(currentUser.email?.[0] || "U").toUpperCase()}
                   </div>
 
-                {showUserMenu && (
+                {showUserMenu && currentUser && (
                   <div
                     style={{
                       position: "absolute",
@@ -25826,38 +26108,58 @@ Current student level: ${tierLabel}`;
                   >
                     <div
                       style={{
-                        padding: "8px 14px 10px",
+                        padding: "8px 12px 10px",
                         borderBottom: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
+                        marginBottom: 4,
                       }}
                     >
                       <div
                         style={{
-                          fontSize: 12,
-                          fontWeight: 500,
+                          fontSize: 13,
+                          fontWeight: 600,
                           color: "var(--color-text-primary, " + t.text1 + ")",
                         }}
                       >
-                        {user.user_metadata?.full_name || "Student"}
+                        {currentUser.user_metadata?.full_name || "Student"}
                       </div>
-                      <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 2 }}>{user.email}</div>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          color: "var(--color-text-secondary, " + t.text2 + ")",
+                          marginTop: 2,
+                        }}
+                      >
+                        {currentUser.email}
+                      </div>
                     </div>
+
+                    {syncStatus === "synced" && (
+                      <div
+                        style={{
+                          padding: "6px 12px",
+                          fontSize: 11,
+                          color: t.statusGood,
+                          fontFamily: MONO,
+                        }}
+                      >
+                        ✓ Synced to cloud
+                      </div>
+                    )}
 
                     <button
                       type="button"
                       onClick={async () => {
-                        setSyncing(true);
-                        setSyncStatus("pushing");
+                        setShowUserMenu(false);
+                        clearDebouncedCloudPush();
+                        setSyncStatus("syncing");
                         try {
-                          await pushAllLocalDataToSupabase(user.id);
+                          await pushAllLocalDataToSupabase(currentUser.id);
                           setHasCloudData(true);
-                          setSyncStatus("done");
+                          setSyncStatus("synced");
                         } catch (e) {
                           console.error(e);
                           setSyncStatus("error");
-                        } finally {
-                          setSyncing(false);
                         }
-                        setShowUserMenu(false);
                       }}
                       style={{
                         width: "100%",
@@ -25876,9 +26178,38 @@ Current student level: ${tierLabel}`;
 
                     <button
                       type="button"
-                      onClick={() => {
-                        setShowImportScreen(true);
+                      onClick={async () => {
                         setShowUserMenu(false);
+                        clearDebouncedCloudPush();
+                        try {
+                          const hasCloud = await checkCloudHasData(currentUser.id);
+                          if (!hasCloud) {
+                            setSyncStatus("no_cloud_data");
+                            return;
+                          }
+                          if (
+                            !window.confirm(
+                              "Replace all local data with your cloud backup? This page will reload."
+                            )
+                          ) {
+                            return;
+                          }
+                          setSyncStatus("pulling");
+                          const result = await pullAllDataFromSupabase(currentUser.id);
+                          if (result?.empty) {
+                            setHasCloudData(false);
+                            setSyncStatus("no_cloud_data");
+                            return;
+                          }
+                          if (typeof window !== "undefined") {
+                            sessionStorage.setItem("rxt-sync-resolved", "true");
+                          }
+                          setSyncStatus("synced");
+                          window.location.reload();
+                        } catch (e) {
+                          console.error(e);
+                          setSyncStatus("error");
+                        }
                       }}
                       style={{
                         width: "100%",
@@ -25892,8 +26223,40 @@ Current student level: ${tierLabel}`;
                         fontFamily: MONO,
                       }}
                     >
-                      📥 Import JSON
+                      ↓ Load from cloud
                     </button>
+
+                    {syncStatus === "error" && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          clearDebouncedCloudPush();
+                          setSyncStatus("syncing");
+                          try {
+                            await pushAllLocalDataToSupabase(currentUser.id);
+                            setHasCloudData(true);
+                            setSyncStatus("synced");
+                          } catch (e) {
+                            console.error(e);
+                            setSyncStatus("error");
+                          }
+                          setShowUserMenu(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "8px 14px",
+                          fontSize: 12,
+                          textAlign: "left",
+                          background: "transparent",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "#BA7517",
+                          fontFamily: MONO,
+                        }}
+                      >
+                        ↻ Retry sync
+                      </button>
+                    )}
 
                     <button
                       type="button"
@@ -25945,46 +26308,6 @@ Current student level: ${tierLabel}`;
                     >
                       💾 Export backup
                     </button>
-
-                    {hasCloudData && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          setSyncing(true);
-                          setSyncStatus("pulling");
-                          try {
-                            const result = await pullAllDataFromSupabase(user.id);
-                            if (result?.empty) {
-                              setHasCloudData(false);
-                              setSyncStatus("no_cloud_data");
-                              setSyncing(false);
-                              setShowUserMenu(false);
-                              return;
-                            }
-                            setSyncing(false);
-                            setShowUserMenu(false);
-                            window.location.reload();
-                          } catch (e) {
-                            console.error(e);
-                            setSyncStatus("error");
-                            setSyncing(false);
-                          }
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "8px 14px",
-                          fontSize: 12,
-                          textAlign: "left",
-                          background: "transparent",
-                          border: "none",
-                          cursor: "pointer",
-                          color: "var(--color-text-secondary, " + t.text2 + ")",
-                          fontFamily: MONO,
-                        }}
-                      >
-                        ↓ Load from cloud
-                      </button>
-                    )}
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
 
@@ -26919,485 +27242,29 @@ Current student level: ${tierLabel}`;
                 );
               })()}
 
-              {uploadQueue.length > 0 &&
-                (() => {
-                  const busy = uploadQueue.some((i) =>
-                    ["pending", "extracting", "parsing", "linking"].includes(i.status)
-                  );
-                  const hasCollisionPending = uploadQueue.some((i) => i.status === "collision");
-                  const allTerminal =
-                    uploadQueue.every((i) => i.status === "done" || i.status === "error") &&
-                    !hasCollisionPending;
-                  const anyErr = uploadQueue.some((i) => i.status === "error");
-                  const okCount = uploadQueue.filter((i) => i.status === "done").length;
-                  const errCount = uploadQueue.filter((i) => i.status === "error").length;
-                  const totalObj = uploadQueue.reduce((s, i) => s + (i.result?.objectiveCount || 0), 0);
-                  const busyN = uploadQueue.filter((i) =>
-                    ["pending", "extracting", "parsing", "linking"].includes(i.status)
-                  ).length;
-                  const showDismiss = allTerminal && !busy;
-
-                  const statusLabel = (item) => {
-                    switch (item.status) {
-                      case "pending":
-                        return { text: "Waiting...", color: t.text3 };
-                      case "extracting":
-                        return { text: "Extracting text...", color: "#0891b2" };
-                      case "parsing":
-                        return { text: "Parsing objectives...", color: "#BA7517" };
-                      case "linking":
-                        return { text: "Linking objectives...", color: "#185FA5" };
-                      case "collision":
-                        return {
-                          text:
-                            "⚠ " +
-                            (item.collisionLabel || "Lecture") +
-                            " already exists — choose an action below",
-                          color: "#BA7517",
-                        };
-                      case "done":
-                        if (item.result?.skipped) {
-                          return {
-                            text: item.result?.resultSummary || "Already uploaded — skipped",
-                            color: t.text3,
-                          };
-                        }
-                        if (item.result?.mergedPartB) {
-                          return {
-                            text: item.result?.resultSummary || "Merged with Part A",
-                            color: "#185FA5",
-                          };
-                        }
-                        return {
-                          text: item.result?.resultSummary || `${item.result?.objectiveCount ?? 0} objectives`,
-                          color: item.result?.resultSummaryColor || "#27500A",
-                        };
-                      case "error":
-                        return { text: item.error || "Upload failed", color: "#E24B4A" };
-                      default:
-                        return { text: "", color: t.text3 };
-                    }
-                  };
-
-                  const progPct = (item) => {
-                    if (item.status === "pending") return 0;
-                    if (item.status === "error") return 100;
-                    if (item.status === "done") return 100;
-                    if (item.status === "collision") return 0;
-                    return typeof item.progress === "number" ? item.progress : 0;
-                  };
-
-                  const progBg = (item) => {
-                    if (item.status === "error") return "#E24B4A";
-                    if (item.status === "done" && item.result?.mergedPartB) return "#185FA5";
-                    if (item.status === "done") return "#639922";
-                    if (item.status === "collision") return "#BA7517";
-                    return tc;
-                  };
-
-                  return (
-                    <div
-                      style={{
-                        background: "var(--color-background-primary, " + t.cardBg + ")",
-                        border: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
-                        borderRadius: "var(--border-radius-lg, 12px)",
-                        padding: "12px 16px",
-                        marginBottom: 8,
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          marginBottom: 10,
-                          flexWrap: "wrap",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 200 }}>
-                          {busy && (
-                            <>
-                              <span
-                                style={{
-                                  display: "inline-block",
-                                  width: 10,
-                                  height: 10,
-                                  border: "2px solid " + t.border1,
-                                  borderTopColor: tc,
-                                  borderRadius: "50%",
-                                  animation: "rxtUploadSpin 0.7s linear infinite",
-                                }}
-                              />
-                              <span style={{ fontSize: 13, fontWeight: 500, color: t.text1 }}>
-                                Processing {busyN} file(s)...
-                              </span>
-                            </>
-                          )}
-                          {!busy && allTerminal && !anyErr && (
-                            <span style={{ fontSize: 13, fontWeight: 500, color: "#27500A" }}>
-                              ✓ {okCount} lecture(s) uploaded
-                            </span>
-                          )}
-                          {!busy && allTerminal && anyErr && (
-                            <span style={{ fontSize: 13, fontWeight: 500, color: "#BA7517" }}>
-                              ⚠ {errCount} failed · {okCount} succeeded
-                            </span>
-                          )}
-                        </div>
-                        {showDismiss && (
-                          <button
-                            type="button"
-                            onClick={dismissUploadPanel}
-                            style={{
-                              background: "none",
-                              border: "none",
-                              color: t.text3,
-                              fontSize: 11,
-                              cursor: "pointer",
-                              fontFamily: MONO,
-                            }}
-                          >
-                            ✕ Dismiss
-                          </button>
-                        )}
-                      </div>
-                      {!busy && allTerminal && !anyErr && (
-                        <div style={{ fontSize: 13, fontWeight: 500, color: "#27500A", marginBottom: 6 }}>
-                          ✓ {okCount} uploaded · {totalObj} objectives extracted
-                        </div>
-                      )}
-                      {!busy && allTerminal && okCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setTab("lectures")}
-                          style={{
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            marginBottom: 10,
-                            fontSize: 12,
-                            color: "var(--color-text-info, " + t.blue + ")",
-                            cursor: "pointer",
-                            fontFamily: MONO,
-                            textDecoration: "underline",
-                          }}
-                        >
-                          Go to Lectures tab
-                        </button>
-                      )}
-
-                      {uploadQueue.map((item, idx) => {
-                        const sl = statusLabel(item);
-                        const isLast = idx === uploadQueue.length - 1;
-                        return (
-                          <div key={item.id}>
-                            <div
-                              style={{
-                                display: "flex",
-                                alignItems: "center",
-                                gap: 10,
-                                padding: "7px 0",
-                                borderBottom: isLast && !item.result?.typeWarning ? "none" : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
-                              }}
-                            >
-                              <div
-                                style={{
-                                  width: 24,
-                                  height: 24,
-                                  flexShrink: 0,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                {item.status === "pending" && (
-                                  <span
-                                    style={{
-                                      width: 10,
-                                      height: 10,
-                                      borderRadius: "50%",
-                                      border: "1.5px solid " + t.border1,
-                                      display: "block",
-                                    }}
-                                  />
-                                )}
-                                {(item.status === "extracting" ||
-                                  item.status === "parsing" ||
-                                  item.status === "linking") && (
-                                  <span
-                                    style={{
-                                      display: "inline-block",
-                                      width: 10,
-                                      height: 10,
-                                      border: "2px solid " + t.border1,
-                                      borderTopColor: tc,
-                                      borderRadius: "50%",
-                                      animation: "rxtUploadSpin 0.7s linear infinite",
-                                    }}
-                                  />
-                                )}
-                                {item.status === "done" && !item.result?.skipped && (
-                                  <span style={{ color: "#639922", fontSize: 14 }}>✓</span>
-                                )}
-                                {item.status === "done" && item.result?.skipped && (
-                                  <span style={{ color: t.text3, fontSize: 12 }}>○</span>
-                                )}
-                                {item.status === "error" && (
-                                  <span style={{ color: "#E24B4A", fontSize: 14 }}>⚠</span>
-                                )}
-                                {item.status === "collision" && (
-                                  <span style={{ color: "#BA7517", fontSize: 14 }}>⚠</span>
-                                )}
-                              </div>
-                              <div
-                                title={item.filename}
-                                style={{
-                                  flex: 1,
-                                  fontSize: 13,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  minWidth: 0,
-                                  fontFamily: MONO,
-                                  color: t.text1,
-                                }}
-                              >
-                                {item.filename}
-                              </div>
-                              <div
-                                style={{
-                                  flexShrink: 0,
-                                  maxWidth: 200,
-                                  fontSize: 11,
-                                  color: sl.color,
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
-                                  whiteSpace: "nowrap",
-                                  fontFamily: MONO,
-                                }}
-                              >
-                                {sl.text}
-                              </div>
-                              <div
-                                style={{
-                                  width: 80,
-                                  flexShrink: 0,
-                                  height: 3,
-                                  borderRadius: 2,
-                                  background: "var(--color-background-tertiary, " + t.border1 + ")",
-                                  overflow: "hidden",
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    width: progPct(item) + "%",
-                                    height: "100%",
-                                    borderRadius: 2,
-                                    background: progBg(item),
-                                    transition: "width 1.2s ease",
-                                  }}
-                                />
-                              </div>
-                              {item.status === "error" && item.retryable && (
-                                <button
-                                  type="button"
-                                  onClick={() => retryUploadQueuedFile(item.id)}
-                                  style={{
-                                    flexShrink: 0,
-                                    fontSize: 11,
-                                    fontFamily: MONO,
-                                    padding: "3px 8px",
-                                    borderRadius: 4,
-                                    border: "1px solid " + t.border1,
-                                    background: t.inputBg,
-                                    color: t.text2,
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  Retry
-                                </button>
-                              )}
-                              {item.status === "done" && item.result?.skipped && (
-                                <button
-                                  type="button"
-                                  onClick={() => forceReuploadQueuedFile(item.id)}
-                                  style={{
-                                    flexShrink: 0,
-                                    fontSize: 11,
-                                    fontFamily: MONO,
-                                    padding: "3px 8px",
-                                    borderRadius: 4,
-                                    border: "none",
-                                    background: "transparent",
-                                    color: t.blue || "#185FA5",
-                                    cursor: "pointer",
-                                    textDecoration: "underline",
-                                  }}
-                                >
-                                  Re-upload
-                                </button>
-                              )}
-                            </div>
-                            {item.status === "done" && item.result?.textQualityWarning && (
-                              <div
-                                style={{
-                                  padding: "4px 0 8px 34px",
-                                  display: "flex",
-                                  flexWrap: "wrap",
-                                  gap: 8,
-                                  alignItems: "center",
-                                  borderBottom: isLast ? "none" : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    color: "#BA7517",
-                                    fontFamily: MONO,
-                                    lineHeight: 1.4,
-                                  }}
-                                >
-                                  {item.result.textQualityWarning}
-                                </span>
-                                {item.result?.showEnableOcr && (
-                                  <button
-                                    type="button"
-                                    onClick={() => forceOcrQueuedFile(item.id)}
-                                    style={{
-                                      fontSize: 11,
-                                      fontFamily: MONO,
-                                      padding: "4px 10px",
-                                      borderRadius: 4,
-                                      border: "1px solid #BA7517",
-                                      background: "#FAEEDA",
-                                      color: "#633806",
-                                      cursor: "pointer",
-                                    }}
-                                  >
-                                    Enable OCR
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {item.status === "collision" && item.collisionExisting && (
-                              <div
-                                style={{
-                                  padding: "4px 0 10px 34px",
-                                  display: "flex",
-                                  flexWrap: "wrap",
-                                  gap: 6,
-                                  alignItems: "center",
-                                  borderBottom: isLast
-                                    ? "none"
-                                    : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontSize: 11,
-                                    color: "#633806",
-                                    width: "100%",
-                                    fontFamily: MONO,
-                                    lineHeight: 1.4,
-                                  }}
-                                >
-                                  ⚠ {item.collisionLabel} already exists — what would you like to do?
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => uploadResolveCollisionRef.current?.(item.id, "keep")}
-                                  style={{
-                                    fontSize: 11,
-                                    padding: "4px 10px",
-                                    borderRadius: 4,
-                                    border: "1px solid " + t.border1,
-                                    background: t.inputBg,
-                                    color: t.text2,
-                                    cursor: "pointer",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  Keep existing
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => uploadResolveCollisionRef.current?.(item.id, "replace")}
-                                  style={{
-                                    fontSize: 11,
-                                    padding: "4px 10px",
-                                    borderRadius: 4,
-                                    border: "1px solid " + t.border1,
-                                    background: t.inputBg,
-                                    color: t.text2,
-                                    cursor: "pointer",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  Replace
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => uploadResolveCollisionRef.current?.(item.id, "new")}
-                                  style={{
-                                    fontSize: 11,
-                                    padding: "4px 10px",
-                                    borderRadius: 4,
-                                    border: "1px solid " + t.border1,
-                                    background: t.inputBg,
-                                    color: t.text2,
-                                    cursor: "pointer",
-                                    fontFamily: MONO,
-                                  }}
-                                >
-                                  Upload as new ({item.uniqueNumberHint ?? "…"})
-                                </button>
-                                {item.showMergeOption && (
-                                  <button
-                                    type="button"
-                                    onClick={() => uploadResolveCollisionRef.current?.(item.id, "merge")}
-                                    style={{
-                                      fontSize: 11,
-                                      padding: "4px 10px",
-                                      borderRadius: 4,
-                                      border: "1px solid #AFA9EC",
-                                      background: "#EEEDFE",
-                                      color: "#3C3489",
-                                      cursor: "pointer",
-                                      fontFamily: MONO,
-                                      fontWeight: 600,
-                                    }}
-                                  >
-                                    Merge with Part 1
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {item.status === "done" && item.result?.typeWarning && (
-                              <div
-                                style={{
-                                  fontSize: 11,
-                                  color: "#633806",
-                                  padding: "4px 0 8px 34px",
-                                  borderBottom: isLast ? "none" : "0.5px solid var(--color-border-tertiary, " + t.border2 + ")",
-                                }}
-                              >
-                                △ Lecture type not detected — rename file to include DLA, LEC, SG, or TBL and
-                                re-upload for best results
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-
-                      {anyErr && allTerminal && (
-                        <div style={{ fontSize: 11, color: "#BA7517", marginTop: 8 }}>
-                          ⚠ {errCount} file(s) failed — check filenames include lecture type and number (e.g. &apos;LEC 5
-                          - Title.pdf&apos;)
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+              {uploadQueue.length > 0 && (
+                <UploadQueuePanel
+                  uploadQueue={uploadQueue}
+                  t={t}
+                  tc={tc}
+                  monoFont={MONO}
+                  isProcessingQueue={isProcessingQueue}
+                  collapsed={uploadPanelCollapsed}
+                  onToggleCollapsed={() => setUploadPanelCollapsed((c) => !c)}
+                  dismissUploadPanel={dismissUploadPanel}
+                  setTab={setTab}
+                  onOpenLecture={(lectureId) => {
+                    setTab("lectures");
+                    const lec = lectures.find((l) => l.id === lectureId);
+                    if (lec) setLecturesTabDetailLec(lec);
+                  }}
+                  retryQueueItem={retryQueueItem}
+                  forceReuploadQueuedFile={forceReuploadQueuedFile}
+                  forceOcrQueuedFile={forceOcrQueuedFile}
+                  uploadResolveCollisionRef={uploadResolveCollisionRef}
+                  onSkipQueued={skipQueuedUploadItem}
+                />
+              )}
 
               {/* Tabs */}
               <div style={{ display:"flex", borderBottom:"1px solid " + t.border2, background:t.panelBg }}>
@@ -30858,7 +30725,7 @@ Current student level: ${tierLabel}`;
                           )}
 
                           {isMcq && drillCardMode === "mcq_ready" && mcqData && (
-                            <div>
+                            <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
                               {(() => {
                                 const stemRaw = String(mcqData.question || "");
                                 const imagePromptDrill = resolveMcqImagePrompt({
@@ -30909,16 +30776,19 @@ Current student level: ${tierLabel}`;
                                 );
                               })()}
                               <div
-                                style={{
-                                  fontSize: 15,
-                                  fontWeight: 500,
-                                  marginBottom: 16,
-                                  lineHeight: 1.5,
-                                  color: "var(--color-text-primary)",
+                                dangerouslySetInnerHTML={{
+                                  __html: renderMarkdown(
+                                    stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""
+                                  ),
                                 }}
-                              >
-                                {stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""}
-                              </div>
+                                style={{
+                                  fontWeight: 600,
+                                  fontSize: "clamp(16px, 2vw, 20px)",
+                                  lineHeight: 1.5,
+                                  marginBottom: 24,
+                                  color: t.text1,
+                                }}
+                              />
                               {mcqData.isFallback && (
                                 <div
                                   style={{
@@ -30987,25 +30857,25 @@ Current student level: ${tierLabel}`;
                                       display: "flex",
                                       alignItems: "center",
                                       gap: 10,
-                                      padding: "10px 12px",
-                                      borderRadius: 8,
-                                      marginBottom: 8,
+                                      padding: "16px 20px",
+                                      borderRadius: 10,
+                                      marginBottom: 10,
                                       userSelect: "none",
                                       transition: "all 0.12s ease",
-                                      fontSize: 13,
+                                      fontSize: "clamp(14px, 1.6vw, 17px)",
                                       lineHeight: 1.4,
                                     }}
                                   >
                                     <div
                                       style={{
-                                        width: 24,
-                                        height: 24,
+                                        width: 32,
+                                        height: 32,
                                         borderRadius: "50%",
                                         display: "flex",
                                         alignItems: "center",
                                         justifyContent: "center",
                                         fontFamily: "var(--font-mono)",
-                                        fontSize: 11,
+                                        fontSize: 14,
                                         flexShrink: 0,
                                         background: letterBg,
                                         color: letterFg,
@@ -31128,7 +30998,7 @@ Current student level: ${tierLabel}`;
                           )}
 
                           {isMcq && drillCardMode === "mcq_answered" && mcqData && (
-                            <div>
+                            <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
                               {(() => {
                                 const stemRaw = String(mcqData.question || "");
                                 const imagePromptDrill = resolveMcqImagePrompt({
@@ -31179,16 +31049,19 @@ Current student level: ${tierLabel}`;
                                 );
                               })()}
                               <div
-                                style={{
-                                  fontSize: 15,
-                                  fontWeight: 500,
-                                  marginBottom: 16,
-                                  lineHeight: 1.5,
-                                  color: "var(--color-text-primary)",
+                                dangerouslySetInnerHTML={{
+                                  __html: renderMarkdown(
+                                    stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""
+                                  ),
                                 }}
-                              >
-                                {stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""}
-                              </div>
+                                style={{
+                                  fontWeight: 600,
+                                  fontSize: "clamp(16px, 2vw, 20px)",
+                                  lineHeight: 1.5,
+                                  marginBottom: 24,
+                                  color: t.text1,
+                                }}
+                              />
                               {mcqData.isFallback && (
                                 <div
                                   style={{
@@ -31243,7 +31116,7 @@ Current student level: ${tierLabel}`;
                                       ? "—"
                                       : letters[i];
                                 return (
-                                  <div key={i} style={{ marginBottom: 8 }}>
+                                  <div key={i} style={{ marginBottom: 10 }}>
                                     <div
                                       style={{
                                         background: bg,
@@ -31253,25 +31126,25 @@ Current student level: ${tierLabel}`;
                                         display: "flex",
                                         alignItems: "center",
                                         gap: 10,
-                                        padding: "10px 12px",
-                                        borderRadius: hasExplanationBelow ? "8px 8px 0 0" : 8,
+                                        padding: "16px 20px",
+                                        borderRadius: hasExplanationBelow ? "10px 10px 0 0" : 10,
                                         marginBottom: 0,
                                         userSelect: "none",
                                         transition: "all 0.12s ease",
-                                        fontSize: 13,
+                                        fontSize: "clamp(14px, 1.6vw, 17px)",
                                         lineHeight: 1.4,
                                       }}
                                     >
                                       <div
                                         style={{
-                                          width: 24,
-                                          height: 24,
+                                          width: 32,
+                                          height: 32,
                                           borderRadius: "50%",
                                           display: "flex",
                                           alignItems: "center",
                                           justifyContent: "center",
                                           fontFamily: "var(--font-mono)",
-                                          fontSize: 11,
+                                          fontSize: 14,
                                           flexShrink: 0,
                                           background: isCorrect
                                             ? "#639922"
@@ -31304,11 +31177,11 @@ Current student level: ${tierLabel}`;
                                         style={{
                                           padding: "12px 16px 14px 16px",
                                           marginTop: -1,
-                                          borderRadius: "0 0 8px 8px",
+                                          borderRadius: "0 0 10px 10px",
                                           background: "#f0fdf4",
                                           border: "1px solid #bbf7d0",
                                           borderTop: "none",
-                                          fontSize: 13,
+                                          fontSize: "clamp(13px, 1.4vw, 15px)",
                                         }}
                                       >
                                         <div style={{ fontWeight: 700, color: "#16a34a", marginBottom: 8 }}>
@@ -31326,7 +31199,7 @@ Current student level: ${tierLabel}`;
                                               borderRadius: 6,
                                               borderLeft: "3px solid #2563eb",
                                               color: "#1e40af",
-                                              fontSize: 12,
+                                              fontSize: "clamp(12px, 1.3vw, 14px)",
                                               lineHeight: 1.5,
                                             }}
                                           >
@@ -31341,11 +31214,11 @@ Current student level: ${tierLabel}`;
                                         style={{
                                           padding: "8px 16px 12px 16px",
                                           marginTop: -1,
-                                          borderRadius: "0 0 8px 8px",
+                                          borderRadius: "0 0 10px 10px",
                                           background: isSelected ? "#fef2f2" : "#fafafa",
                                           border: `1px solid ${isSelected ? "#fecaca" : "var(--color-border-tertiary)"}`,
                                           borderTop: "none",
-                                          fontSize: 13,
+                                          fontSize: "clamp(12px, 1.3vw, 14px)",
                                           lineHeight: 1.5,
                                         }}
                                       >
@@ -31364,7 +31237,7 @@ Current student level: ${tierLabel}`;
                                           <div
                                             style={{
                                               marginTop: 10,
-                                              fontSize: 12,
+                                              fontSize: "clamp(12px, 1.3vw, 14px)",
                                               color: "var(--color-text-secondary)",
                                               lineHeight: 1.5,
                                             }}
@@ -31871,7 +31744,7 @@ Current student level: ${tierLabel}`;
                                 )}
 
                                 {!isMcq && drillCardMode === "mcq_ready" && mcqData && (
-                                  <div>
+                                  <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
                                     {(() => {
                                       const stemRaw = String(mcqData.question || "");
                                       const imagePromptDrill = resolveMcqImagePrompt({
@@ -31924,16 +31797,19 @@ Current student level: ${tierLabel}`;
                                       );
                                     })()}
                                     <div
-                                      style={{
-                                        fontSize: 15,
-                                        fontWeight: 500,
-                                        marginBottom: 16,
-                                        lineHeight: 1.5,
-                                        color: "var(--color-text-primary)",
+                                      dangerouslySetInnerHTML={{
+                                        __html: renderMarkdown(
+                                          stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""
+                                        ),
                                       }}
-                                    >
-                                      {stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""}
-                                    </div>
+                                      style={{
+                                        fontWeight: 600,
+                                        fontSize: "clamp(16px, 2vw, 20px)",
+                                        lineHeight: 1.5,
+                                        marginBottom: 24,
+                                        color: t.text1,
+                                      }}
+                                    />
                                     {mcqData.isFallback && (
                                       <div
                                         style={{
@@ -32002,25 +31878,25 @@ Current student level: ${tierLabel}`;
                                             display: "flex",
                                             alignItems: "center",
                                             gap: 10,
-                                            padding: "10px 12px",
-                                            borderRadius: 8,
-                                            marginBottom: 8,
+                                            padding: "16px 20px",
+                                            borderRadius: 10,
+                                            marginBottom: 10,
                                             userSelect: "none",
                                             transition: "all 0.12s ease",
-                                            fontSize: 13,
+                                            fontSize: "clamp(14px, 1.6vw, 17px)",
                                             lineHeight: 1.4,
                                           }}
                                         >
                                           <div
                                             style={{
-                                              width: 24,
-                                              height: 24,
+                                              width: 32,
+                                              height: 32,
                                               borderRadius: "50%",
                                               display: "flex",
                                               alignItems: "center",
                                               justifyContent: "center",
                                               fontFamily: "var(--font-mono)",
-                                              fontSize: 11,
+                                              fontSize: 14,
                                               flexShrink: 0,
                                               background: letterBg,
                                               color: letterFg,
@@ -32143,7 +32019,7 @@ Current student level: ${tierLabel}`;
                                 )}
 
                                 {!isMcq && drillCardMode === "mcq_answered" && mcqData && (
-                                  <div>
+                                  <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
                                     {(() => {
                                       const stemRaw = String(mcqData.question || "");
                                       const imagePromptDrill = resolveMcqImagePrompt({
@@ -32196,16 +32072,19 @@ Current student level: ${tierLabel}`;
                                       );
                                     })()}
                                     <div
-                                      style={{
-                                        fontSize: 15,
-                                        fontWeight: 500,
-                                        marginBottom: 16,
-                                        lineHeight: 1.5,
-                                        color: "var(--color-text-primary)",
+                                      dangerouslySetInnerHTML={{
+                                        __html: renderMarkdown(
+                                          stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""
+                                        ),
                                       }}
-                                    >
-                                      {stripImageTagFromStem(mcqData.question || "") || mcqData.question || ""}
-                                    </div>
+                                      style={{
+                                        fontWeight: 600,
+                                        fontSize: "clamp(16px, 2vw, 20px)",
+                                        lineHeight: 1.5,
+                                        marginBottom: 24,
+                                        color: t.text1,
+                                      }}
+                                    />
                                     {mcqData.isFallback && (
                                       <div
                                         style={{
@@ -32260,7 +32139,7 @@ Current student level: ${tierLabel}`;
                                             ? "—"
                                             : letters[i];
                                       return (
-                                        <div key={i} style={{ marginBottom: 8 }}>
+                                        <div key={i} style={{ marginBottom: 10 }}>
                                           <div
                                             style={{
                                               background: bg,
@@ -32270,25 +32149,25 @@ Current student level: ${tierLabel}`;
                                               display: "flex",
                                               alignItems: "center",
                                               gap: 10,
-                                              padding: "10px 12px",
-                                              borderRadius: hasExplanationBelow ? "8px 8px 0 0" : 8,
+                                              padding: "16px 20px",
+                                              borderRadius: hasExplanationBelow ? "10px 10px 0 0" : 10,
                                               marginBottom: 0,
                                               userSelect: "none",
                                               transition: "all 0.12s ease",
-                                              fontSize: 13,
+                                              fontSize: "clamp(14px, 1.6vw, 17px)",
                                               lineHeight: 1.4,
                                             }}
                                           >
                                             <div
                                               style={{
-                                                width: 24,
-                                                height: 24,
+                                                width: 32,
+                                                height: 32,
                                                 borderRadius: "50%",
                                                 display: "flex",
                                                 alignItems: "center",
                                                 justifyContent: "center",
                                                 fontFamily: "var(--font-mono)",
-                                                fontSize: 11,
+                                                fontSize: 14,
                                                 flexShrink: 0,
                                                 background: isCorrect
                                                   ? "#639922"
@@ -32321,11 +32200,11 @@ Current student level: ${tierLabel}`;
                                               style={{
                                                 padding: "12px 16px 14px 16px",
                                                 marginTop: -1,
-                                                borderRadius: "0 0 8px 8px",
+                                                borderRadius: "0 0 10px 10px",
                                                 background: "#f0fdf4",
                                                 border: "1px solid #bbf7d0",
                                                 borderTop: "none",
-                                                fontSize: 13,
+                                                fontSize: "clamp(13px, 1.4vw, 15px)",
                                               }}
                                             >
                                               <div style={{ fontWeight: 700, color: "#16a34a", marginBottom: 8 }}>
@@ -32343,7 +32222,7 @@ Current student level: ${tierLabel}`;
                                                     borderRadius: 6,
                                                     borderLeft: "3px solid #2563eb",
                                                     color: "#1e40af",
-                                                    fontSize: 12,
+                                                    fontSize: "clamp(12px, 1.3vw, 14px)",
                                                     lineHeight: 1.5,
                                                   }}
                                                 >
@@ -32358,11 +32237,11 @@ Current student level: ${tierLabel}`;
                                               style={{
                                                 padding: "8px 16px 12px 16px",
                                                 marginTop: -1,
-                                                borderRadius: "0 0 8px 8px",
+                                                borderRadius: "0 0 10px 10px",
                                                 background: isSelected ? "#fef2f2" : "#fafafa",
                                                 border: `1px solid ${isSelected ? "#fecaca" : "var(--color-border-tertiary)"}`,
                                                 borderTop: "none",
-                                                fontSize: 13,
+                                                fontSize: "clamp(12px, 1.3vw, 14px)",
                                                 lineHeight: 1.5,
                                               }}
                                             >
@@ -32381,7 +32260,7 @@ Current student level: ${tierLabel}`;
                                                 <div
                                                   style={{
                                                     marginTop: 10,
-                                                    fontSize: 12,
+                                                    fontSize: "clamp(12px, 1.3vw, 14px)",
                                                     color: "var(--color-text-secondary)",
                                                     lineHeight: 1.5,
                                                   }}

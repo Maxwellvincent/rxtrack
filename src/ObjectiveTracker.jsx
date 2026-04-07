@@ -792,7 +792,6 @@ export default function ObjectiveTracker({
     const ip = linkedObjectives.filter((o) => o.status === "inprogress").length;
     setStatusFilter(str > 0 ? "struggling" : ip > 0 ? "inprogress" : "untested");
     // Intentionally block only: do not reset filter when objectives update (e.g. after quiz).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blockId]);
 
   const applyObjStatus = useCallback(

@@ -796,17 +796,19 @@ function DeepLearnConfig({
       const tid = preselectLecId + "_full";
       if (topicPool.some((t) => t.id === tid)) {
         didInitSelectionRef.current = true;
-        setSelected([tid]);
+        queueMicrotask(() => setSelected([tid]));
         return;
       }
     }
     if (didInitSelectionRef.current) return;
     didInitSelectionRef.current = true;
-    setSelected((prev) => {
-      if (prev.length > 0) return prev;
-      const firstLec = topicPool.find((t) => t.source === "lecture");
-      return firstLec ? [firstLec.id] : [];
-    });
+    queueMicrotask(() =>
+      setSelected((prev) => {
+        if (prev.length > 0) return prev;
+        const firstLec = topicPool.find((t) => t.source === "lecture");
+        return firstLec ? [firstLec.id] : [];
+      })
+    );
   }, [topicPool, preselectLecId]);
 
   const toggleTopic = (id) =>
@@ -1575,33 +1577,19 @@ Return ONLY: {"case": "specific patient case here", "focus": "specific thing to 
   }
 }
 
-function FirstPassWalkthrough({
-  lec,
-  lectureContent,
-  lecObjectives: lecObjectivesProp,
-  blockId,
-  lecId,
-  lectureNumber,
-  lectureType,
-  mergedFrom,
-  getBlockObjectives,
-  lectureTitle,
-  patientCase,
-  T,
-  tc,
-  onComplete,
-  sessionId,
-  deleteSession,
-}) {
-  const MONO = "'DM Mono','Courier New',monospace";
-  const SERIF = "'Playfair Display',Georgia,serif";
-
-  const [step, setStep] = useState(0);
-  const [reflection, setReflection] = useState("");
-  const [sectionThought, setSectionThought] = useState("");
-  const [showTakeaway, setShowTakeaway] = useState(false);
-  const [sectionData, setSectionData] = useState(null);
-  const [loading, setLoading] = useState(false);
+function FirstPassWalkthrough(props) {
+  const {
+    lec,
+    lectureContent,
+    lecObjectives: lecObjectivesProp,
+    blockId,
+    lecId,
+    lectureNumber,
+    lectureType,
+    mergedFrom,
+    getBlockObjectives,
+    T,
+  } = props;
 
   const objectives = useMemo(() => {
     if (lecObjectivesProp && lecObjectivesProp.length > 0) return lecObjectivesProp;
@@ -1618,12 +1606,14 @@ function FirstPassWalkthrough({
     return blockObjs.filter((o) => String(o.lectureNumber) === String(lectureNumber));
   }, [lecObjectivesProp, blockId, lecId, lectureNumber, lectureType, mergedFrom, getBlockObjectives]);
 
+  const MONO = "'DM Mono','Courier New',monospace";
   console.log("Walkthrough — lectureContent length:", lectureContent?.length);
   console.log("Walkthrough — objectives for this section:", objectives?.length, objectives?.slice(0, 2).map((o) => o?.objective?.slice(0, 40)));
 
   const teachingMap = lec?.teachingMap;
   const mapSections = teachingMap?.sections || [];
   const useTeachingMap = mapSections.length > 0;
+  const lectureText = (lectureContent || "").trim();
 
   if (objectives.length === 0 && !lectureContent?.trim() && !useTeachingMap) {
     return (
@@ -1634,7 +1624,6 @@ function FirstPassWalkthrough({
     );
   }
 
-  const lectureText = (lectureContent || "").trim();
   if (!useTeachingMap && lectureText.length < 100) {
     return (
       <div
@@ -1655,12 +1644,46 @@ function FirstPassWalkthrough({
     );
   }
 
+  return <FirstPassWalkthroughInner {...props} objectives={objectives} />;
+}
+
+function FirstPassWalkthroughInner({
+  lec,
+  lectureContent,
+  objectives,
+  blockId: _blockId,
+  lecId: _lecId,
+  lectureNumber: _lectureNumber,
+  lectureType: _lectureType,
+  mergedFrom: _mergedFrom,
+  getBlockObjectives: _getBlockObjectives,
+  lectureTitle,
+  patientCase,
+  T,
+  tc,
+  onComplete,
+  sessionId,
+  deleteSession,
+}) {
+  const MONO = "'DM Mono','Courier New',monospace";
+  const SERIF = "'Playfair Display',Georgia,serif";
+
+  const [step, setStep] = useState(0);
+  const [sectionThought, setSectionThought] = useState("");
+  const [showTakeaway, setShowTakeaway] = useState(false);
+  const [sectionData, setSectionData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const teachingMap = lec?.teachingMap;
+  const mapSections = teachingMap?.sections || [];
+  const useTeachingMap = mapSections.length > 0;
+
   const allObjs = objectives?.length > 0 ? objectives : null;
   const contentChunks =
     !allObjs && lectureContent
       ? (() => {
           const sections = lectureContent
-            .split(/\n(?=[A-Z][^a-z\n]{10,}|\#{1,3}\s)/)
+            .split(/\n(?=[A-Z][^a-z\n]{10,}|#{1,3}\s)/)
             .filter((s) => s.trim().length > 100)
             .slice(0, 6);
           const chunks = [];
@@ -2731,7 +2754,6 @@ function DeepLearnSession({
 
   useEffect(() => {
     if (resuming || prepComplete) initBrainDump();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resuming, prepComplete]);
 
   const submitBrainDump = async () => {
@@ -2754,11 +2776,11 @@ function DeepLearnSession({
 
       const userPrompt =
         crossBrain +
-        `A medical student was asked to brain dump everything they know about: ${lectureTitle}\n\n` +
-        `Their response:\n"${brainDump}"\n\n` +
-        `Learning objectives:\n${objList}\n\n` +
+          `A medical student was asked to brain dump everything they know about: ${lectureTitle}\n\n` +
+          `Their response:\n"${brainDump}"\n\n` +
+          `Learning objectives:\n${objList}\n\n` +
         `Evaluate what they got right, what gaps exist, and what misconceptions to watch for.\n\n` +
-        `Return ONLY JSON:\n` +
+          `Return ONLY JSON:\n` +
         `{"strengths":["knew X","mentioned Y"],"gaps":["missing A","no mention of B"],"misconceptions":["confused X with Y"],"readinessScore":40,"message":"Good start! You have the basics of X but..."}\n\n` +
         `---\nSTUDENT CONTEXT:\n${sessionContext}\n---`;
 
@@ -4147,11 +4169,11 @@ function DeepLearnSession({
               {(() => {
                 const displayReadiness = brainDumpFeedback?.readinessScore ?? null;
                 return displayReadiness != null ? (
-                  <div
-                    style={{
-                      fontFamily: MONO,
-                      fontSize: 11,
-                      fontWeight: 700,
+              <div
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 11,
+                  fontWeight: 700,
                       color:
                         displayReadiness >= 60
                           ? T.statusGood
@@ -4161,7 +4183,7 @@ function DeepLearnSession({
                     }}
                   >
                     Readiness: {displayReadiness}%
-                  </div>
+              </div>
                 ) : (
                   <div
                     style={{
@@ -4463,28 +4485,28 @@ function DeepLearnSession({
                   "Questions could not be generated — tap Retry or continue to the next phase."}
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={async () => {
+              <button
+                type="button"
+                onClick={async () => {
                     setQuestionsError(null);
-                    setLoading(true);
-                    try {
+                  setLoading(true);
+                  try {
                       await runBrainDumpFollowupQuestions();
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  disabled={loading}
-                  style={{
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                style={{
                     padding: "8px 20px",
-                    borderRadius: 8,
+                  borderRadius: 8,
                     background: T.accent || tc,
                     color: "#fff",
                     border: "none",
                     cursor: loading ? "default" : "pointer",
                     fontWeight: 600,
                     fontSize: 13,
-                    fontFamily: MONO,
+                  fontFamily: MONO,
                   }}
                 >
                   {loading ? "Generating…" : "↺ Retry"}
@@ -4502,14 +4524,14 @@ function DeepLearnSession({
                     border: `1px solid ${T.border1 || T.border2}`,
                     background: "transparent",
                     color: T.text1,
-                    cursor: loading ? "default" : "pointer",
+                  cursor: loading ? "default" : "pointer",
                     fontSize: 13,
                     fontFamily: MONO,
                     fontWeight: 600,
-                  }}
-                >
+                }}
+              >
                   Skip → Next phase
-                </button>
+              </button>
               </div>
             </div>
           )}
@@ -5096,38 +5118,38 @@ function DeepLearnSession({
           )}
           {isFirstPass && isAnatomyContent && walkthroughObjectives.length > 0 && (
             <>
-              <PatientBanner />
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-                {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
-                  <button
-                    type="button"
-                    onClick={goBackPhase}
-                    style={{
-                      background: "none",
-                      border: "1px solid " + T.border1,
-                      borderRadius: 8,
-                      padding: "6px 14px",
-                      color: T.text3,
-                      fontFamily: MONO,
-                      fontSize: 11,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = tc;
-                      e.currentTarget.style.color = tc;
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = T.border1;
-                      e.currentTarget.style.color = T.text3;
-                    }}
-                  >
-                    ← Previous Phase
-                  </button>
-                )}
-                <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
+          <PatientBanner />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
+              <button
+                type="button"
+                onClick={goBackPhase}
+                style={{
+                  background: "none",
+                  border: "1px solid " + T.border1,
+                  borderRadius: 8,
+                  padding: "6px 14px",
+                  color: T.text3,
+                  fontFamily: MONO,
+                  fontSize: 11,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = tc;
+                  e.currentTarget.style.color = tc;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = T.border1;
+                  e.currentTarget.style.color = T.text3;
+                }}
+              >
+                ← Previous Phase
+              </button>
+            )}
+            <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
                   {DEEP_LEARN_PHASES.find((p) => p.id === "gaps")?.subtitle || "FIX YOUR GAPS"}
                 </div>
                 {PHASE_ORDER.indexOf(phase) === 0 && <div />}
@@ -5569,28 +5591,28 @@ function DeepLearnSession({
                   "Questions could not be generated — tap Retry or continue to the next phase."}
               </div>
               <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={async () => {
+              <button
+                type="button"
+                onClick={async () => {
                     setStructureQuestionsError(null);
-                    setLoading(true);
-                    try {
+                  setLoading(true);
+                  try {
                       await runStructureSaqQuestions();
-                    } finally {
-                      setLoading(false);
-                    }
-                  }}
-                  disabled={loading}
-                  style={{
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                disabled={loading}
+                style={{
                     padding: "8px 20px",
-                    borderRadius: 8,
+                  borderRadius: 8,
                     background: T.accent || tc,
                     color: "#fff",
                     border: "none",
                     cursor: loading ? "default" : "pointer",
                     fontWeight: 600,
                     fontSize: 13,
-                    fontFamily: MONO,
+                  fontFamily: MONO,
                   }}
                 >
                   {loading ? "Generating…" : "↺ Retry"}
@@ -5608,14 +5630,14 @@ function DeepLearnSession({
                     border: `1px solid ${T.border1 || T.border2}`,
                     background: "transparent",
                     color: T.text1,
-                    cursor: loading ? "default" : "pointer",
+                  cursor: loading ? "default" : "pointer",
                     fontSize: 13,
                     fontFamily: MONO,
                     fontWeight: 600,
-                  }}
-                >
+                }}
+              >
                   Skip → Next phase
-                </button>
+              </button>
               </div>
             </div>
           )}
@@ -5651,8 +5673,8 @@ function DeepLearnSession({
             );
           })()}
                 </>
-              )}
-            </>
+                  )}
+                </>
           )}
         </div>
       )}
@@ -6615,11 +6637,11 @@ export default function DeepLearn({
   const [rfRevealed, setRfRevealed] = useState(false);
   const [rfComplete, setRfComplete] = useState(false);
   const [rfStats, setRfStats] = useState({ mastered: 0, okay: 0, struggling: 0, skipped: 0 });
-  const [rfStartTime, setRfStartTime] = useState(initialRapidFireMode ? Date.now() : null);
+  const [rfStartTime, setRfStartTime] = useState(null);
   const [rfElapsedSeconds, setRfElapsedSeconds] = useState(0);
   const [rfCardOpacity, setRfCardOpacity] = useState(1);
 
-  const rfSessionStrugglingRef = useRef(new Set());
+  const [rfStrugglingIds, setRfStrugglingIds] = useState([]);
   const rfSavedRef = useRef(false);
   const rfInitOnceRef = useRef(false);
 
@@ -6633,7 +6655,7 @@ export default function DeepLearn({
       setRfStartTime(Date.now());
       setRfElapsedSeconds(0);
       setRfCardOpacity(1);
-      rfSessionStrugglingRef.current.clear();
+      setRfStrugglingIds([]);
       rfSavedRef.current = false;
       rfInitOnceRef.current = true;
       setRapidFireMode(true);
@@ -6652,7 +6674,9 @@ export default function DeepLearn({
     if (!rapidFireLec) return;
     if (rfInitOnceRef.current) return;
     rfInitOnceRef.current = true;
-    startRapidFireWithQueue(buildRapidFireQueue(rapidFireLec, blockId, blockObjectives));
+    queueMicrotask(() =>
+      startRapidFireWithQueue(buildRapidFireQueue(rapidFireLec, blockId, blockObjectives))
+    );
   }, [initialRapidFireMode, rapidFireLec, blockId, blockObjectives, startRapidFireWithQueue]);
 
   useEffect(() => {
@@ -6661,13 +6685,15 @@ export default function DeepLearn({
       const elapsed = Math.floor((Date.now() - rfStartTime) / 1000);
       setRfElapsedSeconds(elapsed);
     }, 1000);
-    setRfElapsedSeconds(Math.floor((Date.now() - rfStartTime) / 1000));
+    queueMicrotask(() =>
+      setRfElapsedSeconds(Math.floor((Date.now() - rfStartTime) / 1000))
+    );
     return () => clearInterval(id);
   }, [rapidFireMode, rfComplete, rfStartTime]);
 
   useEffect(() => {
     if (!rapidFireMode || rfComplete) return;
-    setRfCardOpacity(0);
+    queueMicrotask(() => setRfCardOpacity(0));
     const t = setTimeout(() => setRfCardOpacity(1), 60);
     return () => clearTimeout(t);
   }, [rfRevealed, rfIndex, rapidFireMode, rfComplete]);
@@ -6705,7 +6731,8 @@ export default function DeepLearn({
         console.warn("Rapid Fire objective update failed:", e);
       }
 
-      if (newStatus === "struggling") rfSessionStrugglingRef.current.add(obj.id);
+      if (newStatus === "struggling")
+        setRfStrugglingIds((prev) => (prev.includes(obj.id) ? prev : [...prev, obj.id]));
 
       // Update stats
       setRfStats((prev) => ({
@@ -6977,18 +7004,7 @@ export default function DeepLearn({
       performanceHistory,
       makeTopicKey
     );
-  }, [
-    sessionParams?.isCrossLecture,
-    sessionParams?.crossCtx,
-    sessionParams?.crossLectureIds,
-    sessionParams?.selectedTopics,
-    sessionParams?.blockId,
-    lecs,
-    blockObjectives,
-    performanceHistory,
-    makeTopicKey,
-    blockId,
-  ]);
+  }, [sessionParams, lecs, blockObjectives, performanceHistory, makeTopicKey, blockId]);
 
   const objectivesForSession = sessionParams?.resuming
     ? sessionParams.objectives?.length
@@ -7019,7 +7035,7 @@ export default function DeepLearn({
     };
 
     const assessedCount = rfStats.mastered + rfStats.okay + rfStats.struggling;
-    const elapsedSeconds = rfStartTime ? Math.floor((Date.now() - rfStartTime) / 1000) : rfElapsedSeconds;
+    const elapsedSeconds = rfElapsedSeconds;
 
     const insight =
       rfStats.struggling > rfStats.mastered
@@ -7033,7 +7049,7 @@ export default function DeepLearn({
       const pace =
         elapsedSeconds > 0 ? Math.round(((assessedCount / (elapsedSeconds / 60)) || 0) * 10) / 10 : 0;
 
-      const struggledIds = Array.from(rfSessionStrugglingRef.current);
+      const struggledIds = rfStrugglingIds;
       return (
         <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
           <div style={{ maxWidth: 400, margin: "0 auto", padding: "0 0 20px" }}>

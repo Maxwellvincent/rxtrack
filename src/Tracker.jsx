@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useTheme, getScoreColor, getUrgencyColor, URGENCY_LABELS } from "./theme";
+import { useTheme } from "./theme";
 import { recordWrongAnswer } from "./weakConcepts";
 
 // ── Storage ───────────────────────────────────────────────
@@ -415,7 +415,7 @@ function isCriticalLectureFromData(lec, blockId, perfEntry, completionEntry, get
   return hasStruggling || lowScore || neverStudied || lowConsec;
 }
 
-function isSoonLectureFromData(lec, blockId, perfEntry, completionEntry, getBlockObjectives) {
+function isSoonLectureFromData(lec, blockId, perfEntry, completionEntry, _getBlockObjectives) {
   const nr = perfEntry?.nextReview ? new Date(perfEntry.nextReview) : null;
   const st = startOfStudyDay();
   const threeDaysEnd = new Date(st);
@@ -451,10 +451,6 @@ const MONO  = "'DM Mono','Courier New',monospace";
 const SERIF = "'Playfair Display',Georgia,serif";
 
 const BLOCKS = ["FTM 1","FTM 2","MSK","CPR 1","CPR 2"];
-const BLOCK_COLORS = {
-  "FTM 1":"#ef4444","FTM 2":"#f59e0b",
-  "MSK":"#10b981","CPR 1":"#3b82f6","CPR 2":"#a78bfa"
-};
 
 // Confidence scale — drives how often a subject should be reviewed
 const CONFIDENCE = [
@@ -465,15 +461,6 @@ const CONFIDENCE = [
   { value:5, label:"Solid",      color:"#10b981", bg:"#021710", border:"#064e3b", reviewDays:7  },
   { value:6, label:"Mastered",   color:"#06b6d4", bg:"#021419", border:"#0e4f5e", reviewDays:14 },
 ];
-
-const STEPS = [
-  { key:"preRead",    label:"Pre-Read",     icon:"📖", color:"#60a5fa" },
-  { key:"lecture",    label:"Lecture",      icon:"🎓", color:"#f59e0b" },
-  { key:"postReview", label:"Post-Review",  icon:"📝", color:"#a78bfa" },
-  { key:"anki",       label:"Anki Cards",   icon:"🃏", color:"#10b981" },
-];
-
-const checkColors = ["#60a5fa", "#f59e0b", "#a78bfa", "#6b7280"];
 
 // ── Helpers ───────────────────────────────────────────────
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -1039,66 +1026,6 @@ const SAMPLE = [
 // SMALL COMPONENTS
 // ─────────────────────────────────────────────────────────
 
-function Check({ checked, onClick, color }) {
-  const { T } = useTheme();
-  return (
-    <div onClick={onClick} style={{
-      width:24, height:24, borderRadius:6,
-      border:"1.5px solid "+(checked ? color : T.border1),
-      background: checked ? color+"28" : "transparent",
-      display:"flex", alignItems:"center", justifyContent:"center",
-      cursor:"pointer", transition:"all 0.15s", margin:"0 auto", flexShrink:0,
-    }}>
-      {checked && <span style={{ color, fontSize:14, fontWeight:700, lineHeight:1 }}>✓</span>}
-    </div>
-  );
-}
-
-function DaysBadge({ lastStudied, confidence }) {
-  const { T, isDark } = useTheme();
-  const days = daysSince(lastStudied);
-  const urg  = getUrgency(confidence, lastStudied);
-  const u    = URG[urg];
-  if (days === null) return <span style={{ fontFamily:MONO, color:T.text5, fontSize:13 }}>—</span>;
-  const pillBg = u.label ? (isDark ? u.color+"18" : u.color+"26") : "transparent";
-  return (
-    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:2 }}>
-      <span style={{ fontFamily:MONO, color:u.color, fontSize:17, fontWeight:700, lineHeight:1, textShadow:u.glow }}>{days}d</span>
-      {u.label && <span style={{ fontFamily:MONO, color:u.color, fontSize:13, letterSpacing:1, background:pillBg, padding:"1px 5px", borderRadius:3 }}>{u.label}</span>}
-    </div>
-  );
-}
-
-function ScoreCell({ scores, onAdd, onClear }) {
-  const [val, setVal] = useState("");
-  const { T, isDark } = useTheme();
-  const submit = () => {
-    const n = Number(val);
-    if (!val || isNaN(n) || n < 0 || n > 100) return;
-    onAdd(n); setVal("");
-  };
-  const a = avg(scores);
-  const col = a===null?T.text4:a>=80?T.green:a>=70?T.amber:a>=60?T.amber:T.red;
-  const badgeBg = isDark ? col+"18" : col+"26";
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:3 }}>
-      {a !== null && (
-        <div style={{ display:"flex", alignItems:"center", gap:4 }}>
-          <span style={{ fontFamily:MONO, color:col, fontSize:16, fontWeight:700 }}>{a}%</span>
-          <span style={{ fontFamily:MONO, color:col, background:badgeBg, fontSize:13, padding:"1px 5px", borderRadius:3 }}>×{scores.length}</span>
-          <button onClick={onClear} style={{ background:"none", border:"none", color:T.text4, cursor:"pointer", fontSize:13 }} title="Clear">✕</button>
-        </div>
-      )}
-      <div style={{ display:"flex", gap:3 }}>
-        <input value={val} onChange={e=>setVal(e.target.value)} onKeyDown={e=>e.key==="Enter"&&submit()}
-          placeholder="%" type="number" min={0} max={100}
-          style={{ width:44, background:T.inputBg, border:"1px solid "+T.border1, color:T.text1, padding:"3px 5px", borderRadius:4, fontFamily:MONO, fontSize:14, outline:"none" }} />
-        <button onClick={submit} style={{ background:T.border1, border:"none", color:T.blue, padding:"3px 7px", borderRadius:4, cursor:"pointer", fontFamily:MONO, fontSize:13 }}>+</button>
-      </div>
-    </div>
-  );
-}
-
 // Shared date input style (calendar picker, theme-aware)
 function dateInputStyle(T, isDark) {
   return {
@@ -1114,44 +1041,6 @@ function dateInputStyle(T, isDark) {
     width: "100%",
     colorScheme: isDark ? "dark" : "light",
   };
-}
-
-// Inline-editable text cell
-function EditCell({ value, onChange, placeholder, type }) {
-  const [editing, setEditing] = useState(false);
-  const [draft,   setDraft]   = useState(value || "");
-  const ref = useRef();
-  const { T, isDark } = useTheme();
-  useEffect(() => { setDraft(value || ""); }, [value]);
-  useEffect(() => { if (editing && ref.current) ref.current.focus(); }, [editing]);
-  const commit = () => { setEditing(false); if (draft !== (value||"")) onChange(draft); };
-
-  if (type === "date") {
-    return (
-      <input
-        type="date"
-        value={value || ""}
-        onChange={e => onChange(e.target.value)}
-        style={dateInputStyle(T, isDark)}
-        title="Click to open calendar"
-      />
-    );
-  }
-  return editing ? (
-    <input ref={ref} value={draft} onChange={e=>setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e=>{ if(e.key==="Enter"||e.key==="Tab") commit(); if(e.key==="Escape"){ setDraft(value||""); setEditing(false); } }}
-      style={{ background:T.inputBg, border:"1px solid "+T.blue, color:T.text1, fontFamily:MONO, fontSize:13, padding:"2px 6px", borderRadius:4, outline:"none", width:"100%" }} />
-  ) : (
-    <div onClick={() => setEditing(true)}
-      title="Click to edit"
-      style={{ color:value?T.text2:T.text5, fontFamily:MONO, fontSize:13, cursor:"text", padding:"2px 4px", borderRadius:4,
-        overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", transition:"background 0.1s" }}
-      onMouseEnter={e=>e.currentTarget.style.background=T.rowHover}
-      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
-      {value || placeholder || "—"}
-    </div>
-  );
 }
 
 // Confidence dropdown picker
@@ -1171,7 +1060,7 @@ function ConfPicker({ value, onChange }) {
     <div ref={ref} style={{ position:"relative" }}>
       <div onClick={() => setOpen(p=>!p)} style={{
         display:"flex", alignItems:"center", gap:5, cursor:"pointer", padding:"3px 8px",
-        borderRadius:6, border:"1px solid "+(conf?(isDark?conf.color+"40":conf.color):T.border1),
+        borderRadius:6, border:"1px solid "+triggerBorder,
         background:triggerBg, transition:"all 0.15s", whiteSpace:"nowrap", userSelect:"none",
       }}>
         {conf
@@ -2262,138 +2151,6 @@ function Analytics({ rows }) {
 }
 
 // ─────────────────────────────────────────────────────────
-// SINGLE TABLE ROW
-// ─────────────────────────────────────────────────────────
-const GRID = "20px 58px 110px 1fr 92px 92px 58px 26px 26px 26px 26px 92px 112px 70px 160px 20px";
-
-function TrackerRow({ row, upd, delRow, addScore, clrScore, expanded, setExpanded, flashLastStudied, index, isDark }) {
-  const { T } = useTheme();
-  const bc      = BLOCK_COLORS[row.block] || T.text4;
-  const allDone = row.preRead && row.lecture && row.postReview && row.anki;
-  const urg     = getUrgency(row.confidence, row.lastStudied);
-  const u       = URG[urg];
-  const isOpen  = expanded[row.id];
-  const conf    = row.confidence ? getConf(row.confidence) : null;
-  const todayStr = () => studyDayKeyNow();
-
-  const rowIndex = index != null ? index : 0;
-  const rowBg = urg==="critical" ? (isDark?u.bg:T.redBg) : urg==="overdue" ? (isDark?u.bg:T.amberBg) : allDone ? (isDark?T.greenBg:T.greenBg) : (isDark?"transparent":(rowIndex%2===0?T.hoverBg:T.cardBg));
-  const leftBorder= urg==="critical" ? T.red : urg==="overdue" ? T.amber : "transparent";
-  const rowGlow = (urg==="critical"||urg==="overdue") ? (isDark ? u.glow : (urg==="critical" ? "0 0 14px #ef444426" : "0 0 8px #f9731626")) : "none";
-
-  return (
-    <div style={{ borderBottom:"1px solid " + T.border2 }}>
-      <div
-        style={{ display:"grid", gridTemplateColumns:GRID, gap:6, padding:"9px 16px", alignItems:"center",
-          background:rowBg, borderLeft:"3px solid "+leftBorder, transition:"background 0.2s",
-          boxShadow:rowGlow }}
-        onMouseEnter={e=>{ if(urg==="none"&&!allDone) e.currentTarget.style.background=T.rowHover; }}
-        onMouseLeave={e=>{ e.currentTarget.style.background=rowBg; }}>
-
-        {/* Expand toggle */}
-        <button onClick={()=>setExpanded(p=>({...p,[row.id]:!p[row.id]}))}
-          style={{ background:"none", border:"none", color:T.text5, cursor:"pointer", fontSize:13, padding:0, lineHeight:1, textAlign:"center" }}>
-          {isOpen?"▾":"▸"}
-        </button>
-
-        {/* Block selector */}
-        <select value={row.block} onChange={e=>upd(row.id,{block:e.target.value})}
-          style={{ background:"transparent", border:"none", color:bc, fontFamily:MONO, fontSize:13, cursor:"pointer", outline:"none", width:"100%" }}>
-          {BLOCKS.map(b=><option key={b} style={{ background:T.cardBg, color:BLOCK_COLORS[b]||T.text1 }}>{b}</option>)}
-        </select>
-
-        {/* Subject — inline edit */}
-        <EditCell value={row.subject} onChange={v=>upd(row.id,{subject:v})} placeholder="Subject…" />
-
-        {/* Topic — inline edit + AUTO badge if synced from session or auto-generated */}
-        <div style={{ display:"flex", alignItems:"center", gap:6, minWidth:0 }}>
-        <EditCell value={row.topic} onChange={v=>upd(row.id,{topic:v})} placeholder="Lecture / topic…" />
-          {(row.autoGenerated || (row.reps > 0 && row.lecture && !row.lectureDate)) && (
-            <span style={{ fontFamily:MONO, fontSize:8, color:T.blue, background:T.blue+"18", padding:"1px 5px", borderRadius:3, border:"1px solid "+T.blue+"40", flexShrink:0 }}>AUTO</span>
-          )}
-        </div>
-
-        {/* Lecture date */}
-        <EditCell value={row.lectureDate} onChange={v=>upd(row.id,{lectureDate:v})} type="date" />
-
-        {/* Last studied */}
-        <div style={{ transition:"background 0.3s ease", background:flashLastStudied?T.greenBg:"transparent", borderRadius:6 }}>
-        <EditCell value={row.lastStudied} onChange={v=>upd(row.id,{lastStudied:v})} type="date" />
-        </div>
-
-        {/* Days since */}
-        <DaysBadge lastStudied={row.lastStudied} confidence={row.confidence} />
-
-        {/* Step checkboxes — ticking any = studied today */}
-        {STEPS.map(s=>(
-          <Check key={s.key} checked={row[s.key]} onClick={()=>upd(row.id,{[s.key]:!row[s.key],lastStudied:todayStr()})} color={s.color} />
-        ))}
-
-        {/* Anki date */}
-        <EditCell value={row.ankiDate} onChange={v=>upd(row.id,{ankiDate:v})} type="date" />
-
-        {/* Confidence picker */}
-        <ConfPicker value={row.confidence} onChange={v=>upd(row.id,{confidence:v})} />
-
-        {/* Sessions */}
-        <div style={{ fontFamily:MONO, fontSize:13, color:T.text2 }}>{(row.reps||0) ? (row.reps||0) + " session" + ((row.reps||0)!==1?"s":"") : "—"}</div>
-
-        {/* Score input */}
-        <ScoreCell scores={row.scores} onAdd={sc=>addScore(row.id,sc)} onClear={()=>clrScore(row.id)} />
-
-        {/* Delete */}
-        <button onClick={()=>delRow(row.id)}
-          style={{ background:"none", border:"none", color:T.border1, cursor:"pointer", fontSize:13, padding:2 }}
-          onMouseEnter={e=>e.currentTarget.style.color=T.red}
-          onMouseLeave={e=>e.currentTarget.style.color=T.border1}>✕</button>
-      </div>
-
-      {/* Expanded section */}
-      {isOpen && (
-        <div style={{ padding:"10px 16px 14px 46px", background:T.sidebarBg, borderTop:"1px solid " + T.border2 }}>
-          <div style={{ display:"flex", gap:16, flexWrap:"wrap", marginBottom:10, alignItems:"center" }}>
-            {conf && (
-              <div style={{ display:"flex", alignItems:"center", gap:8, background:isDark?conf.bg:conf.color+"26", border:"1px solid "+conf.color, borderRadius:8, padding:"6px 14px" }}>
-                <div style={{ width:10,height:10,borderRadius:"50%",background:conf.color }}/>
-                <span style={{ fontFamily:MONO, color:conf.color, fontSize:13, fontWeight:600 }}>{conf.label}</span>
-                <span style={{ fontFamily:MONO, color:T.text4, fontSize:13 }}>· review every {conf.reviewDays} days</span>
-              </div>
-            )}
-            {row.scores.length > 0 && (
-              <div style={{ display:"flex", gap:5, alignItems:"center", flexWrap:"wrap" }}>
-                <span style={{ fontFamily:MONO, color:T.text5, fontSize:13 }}>Score log:</span>
-                {row.scores.map((sc,i)=>{ const c=sc>=80?T.green:sc>=70?T.amber:sc>=60?T.amber:T.red; return <span key={i} style={{ fontFamily:MONO,color:c,background:isDark?c+"18":c+"26",fontSize:16,fontWeight:700,padding:"1px 7px",borderRadius:4 }}>{sc}%</span>; })}
-              </div>
-            )}
-            {row.scores.length > 1 && (
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <span style={{ fontFamily:MONO, color:T.text5, fontSize:13 }}>Trend:</span>
-                <div style={{ display:"flex", gap:2 }}>
-                  {row.scores.map((sc,i)=>(
-                    <span key={i} style={{ width:8, height:8, borderRadius:2, background: sc>=70?T.green:sc>=60?T.amber:T.red, flexShrink:0 }} title={sc+"%"} />
-                  ))}
-          </div>
-              </div>
-            )}
-          </div>
-          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
-            <div style={{ fontFamily:MONO, color:T.text5, fontSize:13, letterSpacing:1.5 }}>NOTES / HIGH-YIELD POINTS</div>
-            <button type="button" onClick={()=>upd(row.id,{lastStudied:todayStr()})}
-              style={{ fontFamily:MONO, fontSize:13, color:T.green, background:T.greenBg, border:"1px solid "+T.greenBorder, borderRadius:6, padding:"4px 10px", cursor:"pointer" }}>
-              Mark Studied Today
-            </button>
-          </div>
-          <textarea value={row.notes} onChange={e=>upd(row.id,{notes:e.target.value})}
-            placeholder="Mnemonics, First Aid pages, weak areas, connections to revisit…" rows={2}
-            style={{ width:"100%", maxWidth:740, background:T.inputBg, border:"1px solid " + T.border1, color:T.text2,
-              padding:"8px 12px", borderRadius:8, fontFamily:MONO, fontSize:13, outline:"none", lineHeight:1.6, resize:"vertical" }} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────
 // MAIN EXPORT
 // ─────────────────────────────────────────────────────────
 function deduplicateTrackerRows(rows) {
@@ -2522,7 +2279,7 @@ function LecturesTabContent({
   const [ankiCountsByLec, setAnkiCountsByLec] = useState(() => ({}));
 
   useEffect(() => {
-    setSearchQuery("");
+    queueMicrotask(() => setSearchQuery(""));
   }, [typeFilter]);
 
   const filteredGroups = groups
@@ -3430,7 +3187,7 @@ function CalendarTabContent({
       if (ta !== tb) return ta.localeCompare(tb);
       return toNum(a.lectureNumber) - toNum(b.lectureNumber);
     });
-  }, [bid, blockLecs.length]);
+  }, [bid, blockLecs]);
 
   const selectedActs = activityIndex[selectedDateStr] || [];
   const selectedReviews = reviewIndex[selectedDateStr] || [];
@@ -3973,13 +3730,10 @@ export default function Tracker({
   const [todaySearch, setTodaySearch] = useState("");
   const [showAdd, setShowAdd] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
-  const [expanded, setExpanded] = useState({});
-  const [flashLastStudiedRowId, setFlashLastStudiedRowId] = useState(null);
   const [showStudyLog, setShowStudyLog] = useState(false);
   const [coachExpanded, setCoachExpanded] = useState(false);
   const [showNotStarted, setShowNotStarted] = useState(false);
   const [showManualLog, setShowManualLog] = useState(false);
-  const [expandedRows, setExpandedRows] = useState(() => new Set());
   const [openStudyLogGroups, setOpenStudyLogGroups] = useState(() => ({}));
   const todayKeyForSchedule = () => studyDayKeyNow();
   const [expandedScheduleDays, setExpandedScheduleDays] = useState(() => {
@@ -4177,17 +3931,8 @@ export default function Tracker({
       return next;
     });
   };
-  const toggleRow = (rowKey) => {
-    setExpandedRows((prev) => {
-      const next = new Set(prev);
-      if (next.has(rowKey)) next.delete(rowKey);
-      else next.add(rowKey);
-      return next;
-    });
-  };
   const timerRef = useRef(null);
-  const flashTimerRef = useRef(null);
-  const { T: t, isDark } = useTheme();
+  const { T: t } = useTheme();
 
   // ── Completion store (localStorage: rxt-completion) ─────────────
   // Key: lectureId__blockId
@@ -4308,17 +4053,23 @@ export default function Tracker({
   const studyCoachForToday = useCallback(
     (lec, bid) =>
       computeStudyCoachSteps(lec, bid, perfData, { ...completionData, ...(completion || {}) }, getBlockObjectives),
-    [perfData, completionData, completion, getBlockObjectives, refreshKey]
+    [perfData, completionData, completion, getBlockObjectives]
   );
 
-  const makeKey = makeTopicKey || ((lectureId, blockId) => (lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`));
-  const getLecPerf = (lec, blockId) => {
-    const key = makeKey(lec.id, blockId);
-    if (performanceHistory[key]) return performanceHistory[key];
-    const fallbackKey = Object.keys(performanceHistory || {}).find((k) => k.startsWith(lec.id + "__"));
-    if (fallbackKey) return performanceHistory[fallbackKey];
-    return null;
-  };
+  const makeKey = useMemo(
+    () => makeTopicKey || ((lectureId, blockId) => (lectureId ? `${lectureId}__${blockId}` : `block__${blockId}`)),
+    [makeTopicKey]
+  );
+  const getLecPerf = useCallback(
+    (lec, blockId) => {
+      const key = makeKey(lec.id, blockId);
+      if (performanceHistory[key]) return performanceHistory[key];
+      const fallbackKey = Object.keys(performanceHistory || {}).find((k) => k.startsWith(lec.id + "__"));
+      if (fallbackKey) return performanceHistory[fallbackKey];
+      return null;
+    },
+    [performanceHistory, makeKey]
+  );
 
   const targetBlockIds = useMemo(() => {
     if (trackerBlockId) return [trackerBlockId];
@@ -4450,11 +4201,9 @@ export default function Tracker({
     blocks,
     lecs,
     completion,
-    performanceHistory,
     getBlockObjectives,
     targetBlockIds,
-    trackerBlockId,
-    refreshKey,
+    getLecPerf,
   ]);
 
   const mergedTodayItems = useMemo(() => {
@@ -4505,7 +4254,7 @@ export default function Tracker({
       allItems.push(...Array.from(map.values()));
     });
     return allItems;
-  }, [targetBlockIds, examDates, generateDailySchedule, lecs, performanceHistory, refreshKey]);
+  }, [targetBlockIds, examDates, generateDailySchedule, lecs, getLecPerf]);
 
   // Load (when uncontrolled)
   useEffect(() => {
@@ -4525,7 +4274,7 @@ export default function Tracker({
       setInternalRows(loaded);
     }
     setReady(true);
-  }, []);
+  }, [isControlled]);
 
   // When navigating to Tracker from a block, select that block's tab
   useEffect(() => {
@@ -4533,7 +4282,7 @@ export default function Tracker({
       setTrackerBlockId(activeBlock.id);
       if (activeBlock?.name) setFilter(activeBlock.name);
     }
-  }, [activeBlock?.id]);
+  }, [activeBlock?.id, activeBlock?.name]);
 
   useEffect(() => {
     const handler = () => setTimeout(refreshAllData, 0);
@@ -4573,23 +4322,7 @@ export default function Tracker({
   };
 
   const todayStr = () => studyDayKeyNow();
-  const triggerFlash = (id) => {
-    setFlashLastStudiedRowId(id);
-    clearTimeout(flashTimerRef.current);
-    flashTimerRef.current = setTimeout(() => setFlashLastStudiedRowId(null), 1500);
-  };
-  const upd = (id, patch) => {
-    setRows(p => { const n = p.map(r => r.id === id ? { ...r, ...patch } : r); persist(n); return n; });
-    if (patch.lastStudied !== undefined) triggerFlash(id);
-  };
   const addRow   = row        => setRows(p=>{ const n=[...p,row]; persist(n); return n; });
-  const delRow   = id         => setRows(p=>{ const n=p.filter(r=>r.id!==id); persist(n); return n; });
-  const addScore = (id, sc)   => {
-    const today = todayStr();
-    setRows(p=>{ const n=p.map(r=>r.id===id?{...r,scores:[...r.scores,sc],lastStudied:today}:r); persist(n); return n; });
-    triggerFlash(id);
-  };
-  const clrScore = id         => setRows(p=>{ const n=p.map(r=>r.id===id?{...r,scores:[]}:r); persist(n); return n; });
 
   const mapActivityIcon = (t) =>
     t === "deep_learn" ? "🧠"
@@ -4789,33 +4522,6 @@ export default function Tracker({
     });
   }
 
-  const COL_HEADS = ["","Block","Subject","Lecture / Topic","Lecture Date","Last Studied","Days Ago","📖","🎓","📝","🃏","Anki Date","Confidence","Sessions","Score",""];
-  const COL_TIPS  = ["","","","","Lecture date","Last date studied","Days since last study","Pre-Read","Attended Lecture","Post-Lecture Review","Anki Cards Released","Anki card release date","Confidence level (drives review frequency)","Number of practice sessions","Practice question score",""];
-
-  const totalSessions = rows.reduce((a,r)=>a+(r.reps||0),0);
-  const overallAvgScore = avg(rows.flatMap(r=>r.scores||[]));
-  const repsBySubject = {};
-  rows.forEach(r=>{ const s=r.subject||"Unknown"; repsBySubject[s]=(repsBySubject[s]||0)+(r.reps||0); });
-  const mostPracticedSubject = Object.keys(repsBySubject).length ? Object.entries(repsBySubject).sort((a,b)=>b[1]-a[1])[0][0] : null;
-  const withImprovement = rows.filter(r=>(r.scores||[]).length>=2).map(r=>{ const s=r.scores; return { row:r, diff: s[s.length-1]-s[0] }; });
-  const mostImproved = withImprovement.length ? withImprovement.sort((a,b)=>b.diff-a.diff)[0] : null;
-  const needingAttention = rows.filter(r=>{ const s=r.scores||[]; return s.length>=2 && s[s.length-1]<65 && s[s.length-2]<65; });
-
-  const blocksArray = Object.values(blocks || {});
-  const visibleBlocks = blocksArray.filter(block => {
-    if (filter === "All") return true;
-    const name = (block.name || "").trim();
-    const id = block.id || "";
-    const filterNorm = (filter || "").toLowerCase().replace(/\s/g, "");
-    const nameNorm = name.toLowerCase().replace(/\s/g, "");
-    return (
-      block.name === filter ||
-      block.id === filter ||
-      (nameNorm && nameNorm === filterNorm)
-    );
-  });
-  const allBlockLecs = blocksArray.flatMap(b => (lecs || []).filter(l => l.blockId === b.id));
-
   const notStartedCount = useMemo(() => {
     return targetBlockIds.reduce((n, bid) => {
       const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
@@ -4830,7 +4536,7 @@ export default function Tracker({
         }).length
       );
     }, 0);
-  }, [targetBlockIds, lecs, performanceHistory, completion, refreshKey]);
+  }, [targetBlockIds, lecs, completion, getLecPerf]);
 
   const filterCounts = useMemo(
     () => {
@@ -4843,139 +4549,8 @@ export default function Tracker({
       const ok = blockLecs.filter((lec) => isOkFor(lec, lec.blockId)).length;
       return { all, critical, overdue, soon, ok };
     },
-    [targetBlockIds, lecs, isCriticalFor, isOverdueFor, isSoonFor, isOkFor, refreshKey]
+    [targetBlockIds, lecs, isCriticalFor, isOverdueFor, isSoonFor, isOkFor]
   );
-
-  const getBlockObjsFromProps = (blockId) => {
-    const data = objectives[blockId] || { imported: [], extracted: [] };
-    const all = [...(data.imported || []), ...(data.extracted || [])];
-    const seen = new Set();
-    return all.filter((obj) => {
-      const key = (obj.objective || "").slice(0, 60).toLowerCase().replace(/\W/g, "");
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  };
-
-  const lecRowsByBlock = useMemo(() => {
-    const out = {};
-    const perf = performanceHistory || {};
-    const rev = reviewedLectures || {};
-    const active = activeSessions || {};
-    visibleBlocks.forEach((block) => {
-      const blockLecs = (lecs || []).filter((l) => l.blockId === block.id);
-      const blockObjs = getBlockObjsFromProps(block.id);
-      const seenLecIds = new Set();
-      out[block.id] = blockLecs
-        .filter((lec) => {
-          if (seenLecIds.has(lec.id)) return false;
-          seenLecIds.add(lec.id);
-          return true;
-        })
-        .map((lec) => {
-          const lecKey = makeKey(lec.id, block.id);
-          const fallbackKey = Object.keys(perf).find((k) => k.startsWith(lec.id + "__"));
-          const perfEntry = perf[lecKey] || (fallbackKey ? perf[fallbackKey] : null);
-          const rawSessions = perfEntry?.sessions || [];
-          const lecSessions = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
-          const sessionCount = lecSessions.length;
-          const perfEntries = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
-          const avgScore =
-            perfEntries.length > 0
-              ? Math.round(
-                  perfEntries.reduce((a, s) => a + (s.score ?? 0), 0) / perfEntries.length
-                )
-              : null;
-          const isReviewed = !!rev[lecKey];
-          const firstStudiedRaw = perfEntry?.firstStudied
-            ? perfEntry.firstStudied
-            : perfEntries.length > 0
-              ? perfEntries.map((s) => s.date).filter(Boolean).sort()[0]
-              : isReviewed && rev[lecKey]?.date
-                ? rev[lecKey].date
-                : null;
-          const firstStudied = firstStudiedRaw ? new Date(firstStudiedRaw) : null;
-          const lastSession = lecSessions.slice(-1)[0] || null;
-          const lastStudied = perfEntry?.lastStudied
-            ? new Date(perfEntry.lastStudied)
-            : lastSession?.date
-              ? new Date(lastSession.date)
-              : null;
-          const postMCQ = perfEntry?.postMCQScore ?? perfEntry?.lastScore ?? lastSession?.score ?? null;
-          const nextReview = perfEntry?.nextReview ? new Date(perfEntry.nextReview) : null;
-          const daysUntil = nextReview
-            ? Math.ceil((nextReview - new Date()) / (1000 * 60 * 60 * 24))
-            : null;
-          const preSAQ = perfEntry?.preSAQScore ?? null;
-          const lecObjs = blockObjs.filter(
-            (o) =>
-              String(o.lectureNumber) === String(lec.lectureNumber) ||
-              o.linkedLecId === lec.id
-          );
-          const masteredCount = lecObjs.filter((o) => o.status === "mastered").length;
-          const inProgressCount = lecObjs.filter((o) => o.status === "inprogress").length;
-          let status = "untested";
-          if (active[lecKey]) status = "inprogress";
-          else if (sessionCount > 0 && avgScore !== null && avgScore >= 80) status = "ok";
-          else if (sessionCount > 0 && avgScore !== null && avgScore < 60) status = "weak";
-          else if (sessionCount > 0) status = "inprogress";
-          else if (isReviewed) status = "reviewed";
-          else if (inProgressCount > 0) status = "inprogress";
-          let urgency = "untouched";
-          if (status === "ok") urgency = "ok";
-          else if (status === "weak") urgency = "weak";
-          else if (status === "inprogress") urgency = "soon";
-          else if (lastStudied && daysUntil !== null && daysUntil <= 0) urgency = "overdue";
-          else if (lastStudied && daysUntil !== null && daysUntil <= 3) urgency = "soon";
-          else if (lastStudied && postMCQ !== null && postMCQ < 60) urgency = "weak";
-          else if (lastStudied) urgency = "ok";
-          return {
-            lec,
-            perfEntry,
-            lecSessions,
-            lastStudied,
-            firstStudied,
-            nextReview,
-            daysUntil,
-            preSAQ,
-            postMCQ,
-            confidence: perfEntry?.confidenceLevel ?? null,
-            sessionCount,
-            mastered: masteredCount,
-            struggling: lecObjs.filter((o) => o.status === "struggling").length,
-            total: lecObjs.length,
-            status,
-            urgency,
-            isReviewed,
-          };
-        });
-    });
-    return out;
-  }, [visibleBlocks, lecs, performanceHistory, objectives, reviewedLectures, activeSessions, makeKey]);
-
-  const globalStudyLog = Object.entries(performanceHistory || {})
-    .flatMap(([key, perf]) => {
-      const lecId = key.split("__")[0];
-      const sessions = (perf.sessions || []).filter(
-        s => !s.lectureId || s.lectureId === lecId
-      );
-      return sessions.map(s => {
-        const label = resolveTopicLabel
-          ? resolveTopicLabel(key, s, s.blockId)
-          : (() => {
-              const lec = allBlockLecs.find(l => key.startsWith(l.id));
-              return lec?.lectureTitle || (key.includes("block__") ? "Block Exam" : key);
-            })();
-        return {
-          ...s,
-          key,
-          label,
-        };
-      });
-    })
-    .sort((a,b) => new Date(b.date) - new Date(a.date))
-    .slice(0, 20);
 
   if (!ready) return (
     <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center",padding:60 }}>
@@ -5432,16 +5007,6 @@ export default function Tracker({
                 letterSpacing: "0.06em",
                 marginBottom: 6,
               };
-              const cardStyle = {
-                height: 44,
-                padding: "8px 12px",
-                background: t.cardBg,
-                border: "0.5px solid " + t.border2,
-                borderRadius: 10,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              };
               const renderDonePill = (entry) => {
                 const pill = getDonePillModel(entry, studyDayKey, t);
                 return (
@@ -5818,6 +5383,9 @@ export default function Tracker({
                     localStorage.setItem("rxt-tracker-v2", JSON.stringify(n));
                     setRows(() => n);
                     persist(n);
+                    try {
+                      window.dispatchEvent(new CustomEvent("rxt-deferred-cloud-sync"));
+                    } catch {}
                   } catch (e) {
                     console.error("markRowDone tracker-v2 sync", e);
                   }
@@ -5910,15 +5478,6 @@ export default function Tracker({
                   )}
 
                   <div style={{ display: "flex", flexDirection: "column" }}>
-                    {(() => {
-                      console.log(
-                        "activeBlockFilter:",
-                        activeBlockFilter,
-                        "activeBlockId:",
-                        activeBlockId
-                      );
-                      return null;
-                    })()}
                     {unifiedList.map((item) => {
                       const unifiedLecId = item.lec.id;
                       const unifiedBlockId = item.blockId;
@@ -5928,14 +5487,6 @@ export default function Tracker({
                       const step = coach.currentStep;
                       const rowKeyU = `${unifiedLecId}__${unifiedBlockId}`;
                       const lecObjs = blockObjectives.filter((o) => o.linkedLecId === item.lec.id);
-                      console.log(
-                        "lecObjs for",
-                        item.lec.lectureTitle?.slice(0, 30),
-                        ":",
-                        lecObjs.length,
-                        "| blockObjs total:",
-                        blockObjectives.length
-                      );
                       const unifiedTypes = [
                         { id: "none", icon: "○", label: "Nothing yet" },
                         { id: "lecture", icon: "🎓", label: "Attended lecture" },
@@ -6663,8 +6214,10 @@ export default function Tracker({
                     })}
                   </div>
 
-                  {/* TODAY'S LECTURES */}
-                  {false && todayLectures.length > 0 && (
+                  {/* TODAY'S LECTURES (disabled stub) */}
+                  {(
+                  // eslint-disable-next-line no-constant-binary-expression -- disabled UI stub
+                  false && todayLectures.length > 0 && (
                     <div style={{ marginTop: 16 }}>
                       <div style={sectionLabelStyle}>TODAY'S LECTURES</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -7233,9 +6786,11 @@ export default function Tracker({
                         })}
                       </div>
                     </div>
-                  )}
+                  ))}
 
-                  {false && ([
+                  {(
+                  // eslint-disable-next-line no-constant-binary-expression -- disabled UI stub
+                  false && ([
                     { key: "rev", title: "REVIEWS DUE", items: sortedReviewsDue, headerStyle: sectionLabelStyle },
                     {
                       key: "strug",
@@ -8379,7 +7934,7 @@ export default function Tracker({
                       </div>
                     </div>
                   )
-                  ))}
+                  )))}
 
                   {upNextSectionItemsVisible.length > 0 && (
                     <div style={{ marginTop: 20 }}>
@@ -8916,8 +8471,10 @@ export default function Tracker({
               );
             })()}
 
-            {/* 📅 Schedule — Exam countdown + smart daily study scheduler */}
-            {false && (() => {
+            {/* 📅 Schedule — Exam countdown + smart daily study scheduler (disabled stub) */}
+            {(
+            // eslint-disable-next-line no-constant-binary-expression -- disabled UI stub
+            false && (() => {
               const blockId =
                 filter !== "All"
                   ? (Object.values(blocks || {}).find((b) => b.name === filter || b.id === filter)?.id)
@@ -10448,7 +10005,7 @@ export default function Tracker({
                   )}
                 </div>
               );
-            })()}
+            })())}
 
             {/* Calendar tab (Step A): existing exam date selector (unchanged) */}
             {activeTab === "calendar" && (() => {
