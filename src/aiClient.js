@@ -117,36 +117,22 @@ export function getAvailableProviders() {
   };
 }
 
-// Retry transient failures (rate limit, timeout, 5xx). Do not retry 4xx auth/bad request.
-const MAX_AI_RETRIES = 5;
-const RETRY_DELAY_MS = 1500;
-
-function isRetryableStatus(status) {
-  return status === 429 || status === 503 || status === 502 || status === 500 || status === 408;
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-async function withRetry(fn) {
-  let lastErr;
-  for (let attempt = 1; attempt <= MAX_AI_RETRIES; attempt++) {
+async function withRetry(fn, retries = 3) {
+  for (let i = 0; i < retries; i++) {
     try {
       return await fn();
     } catch (err) {
-      lastErr = err;
-      const msg = String(err?.message || "");
-      const statusMatch = msg.match(/(?:Gemini|Anthropic)\s+(\d+)/);
-      const status = statusMatch ? parseInt(statusMatch[1], 10) : null;
-      const isRetryable =
-        status != null ? isRetryableStatus(status) : /network|timeout|failed to fetch/i.test(msg);
-      if (attempt === MAX_AI_RETRIES || !isRetryable) throw err;
-      const delay = RETRY_DELAY_MS * Math.pow(1.5, attempt - 1);
-      await sleep(delay);
+      const is429 = err.message?.includes("429");
+
+      if (is429 && i < retries - 1) {
+        const delay = Math.pow(2, i + 1) * 1000;
+        console.log(`Rate limited — waiting ${delay / 1000}s before retry`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
     }
   }
-  throw lastErr;
 }
 
 // --- Gemini ---
@@ -208,8 +194,19 @@ async function callGeminiOnce(systemPrompt, userPrompt, maxTokens = 1000, gemini
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
+let geminiCallQueue = Promise.resolve();
+
+async function callGeminiQueued(systemPrompt, userPrompt, maxTokens = 1000, geminiOpts = {}) {
+  return new Promise((resolve, reject) => {
+    geminiCallQueue = geminiCallQueue
+      .then(() => callGeminiOnce(systemPrompt, userPrompt, maxTokens, geminiOpts))
+      .then(resolve)
+      .catch(reject);
+  });
+}
+
 async function callGemini(systemPrompt, userPrompt, maxTokens = 1000, geminiOpts = {}) {
-  return withRetry(() => callGeminiOnce(systemPrompt, userPrompt, maxTokens, geminiOpts));
+  return withRetry(() => callGeminiQueued(systemPrompt, userPrompt, maxTokens, geminiOpts));
 }
 
 // --- Anthropic ---
@@ -281,6 +278,15 @@ async function callGeminiVisionOnce(systemPrompt, userPrompt, base64, mimeType, 
   return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
+async function callGeminiVisionQueued(systemPrompt, userPrompt, base64, mimeType, maxTokens = 2000) {
+  return new Promise((resolve, reject) => {
+    geminiCallQueue = geminiCallQueue
+      .then(() => callGeminiVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens))
+      .then(resolve)
+      .catch(reject);
+  });
+}
+
 async function callAnthropicVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens = 2000) {
   if (!ANTHROPIC_KEY) throw new Error("No Anthropic API key set (VITE_ANTHROPIC_API_KEY)");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -334,7 +340,7 @@ export async function callAIWithImage(
 ) {
   let raw;
   if (GEMINI_KEY) {
-    raw = await withRetry(() => callGeminiVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens));
+    raw = await withRetry(() => callGeminiVisionQueued(systemPrompt, userPrompt, base64, mimeType, maxTokens));
   } else if (ANTHROPIC_KEY) {
     raw = await withRetry(() => callAnthropicVisionOnce(systemPrompt, userPrompt, base64, mimeType, maxTokens));
   } else {

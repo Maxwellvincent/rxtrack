@@ -19,6 +19,7 @@ import DeepLearn from "./DeepLearn";
 import ObjectiveTracker from "./ObjectiveTracker";
 import { loadPDFJS, parseExamPDF } from "./examParser";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
+import { DIFFICULTY_TIERS, buildDifficultyInstruction } from "./difficultyEngine";
 import {
   dedupeMcqQuestionChoices,
   mcqResultCountsTowardCorrectScore,
@@ -3723,6 +3724,128 @@ function matchSlideImageForMcqEnhanced(imagePrompt, imagePage, slideImages) {
     if (hit) return hit;
   }
   return matchSlideImageForMcq(imagePrompt, null, slideImages);
+}
+
+/**
+ * WikimediaImagePanel — auto-fetches a relevant image from Wikimedia Commons
+ * when a question has an imagePrompt but no matching lecture slide.
+ * Falls back gracefully to the text placeholder on failure.
+ */
+function WikimediaImagePanel({ query, fallbackLabel }) {
+  const [imgUrl, setImgUrl] = React.useState(null);
+  const [imgTitle, setImgTitle] = React.useState(null);
+  const [status, setStatus] = React.useState("loading"); // loading | found | notfound | error
+
+  React.useEffect(() => {
+    if (!query) return;
+    setStatus("loading");
+    setImgUrl(null);
+    setImgTitle(null);
+
+    // Append "histology" or "anatomy" only if the query doesn't already contain a visual term
+    const visualTerms = ["histolog", "anatom", "microscop", "stain", "slide", "patholog", "diagram", "x-ray", "ecg", "mri", "ct scan"];
+    const q = visualTerms.some((t) => query.toLowerCase().includes(t))
+      ? query
+      : query + " histology";
+
+    fetch(
+      `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
+      `&gsrsearch=${encodeURIComponent(q)}&gsrnamespace=6` +
+      `&prop=imageinfo&iiprop=url|mime&iiurlwidth=900` +
+      `&gsrlimit=8&gsrsort=relevance&format=json&origin=*`
+    )
+      .then((r) => r.json())
+      .then((data) => {
+        const pages = Object.values(data?.query?.pages || {});
+        const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+        const imgs = pages
+          .filter((p) => allowed.includes(p.imageinfo?.[0]?.mime))
+          .map((p) => ({
+            url: p.imageinfo?.[0]?.url,
+            title: (p.title || "").replace(/^File:/, "").replace(/\.[^.]+$/, ""),
+          }))
+          .filter((p) => p.url);
+        if (imgs.length > 0) {
+          setImgUrl(imgs[0].url);
+          setImgTitle(imgs[0].title);
+          setStatus("found");
+        } else {
+          setStatus("notfound");
+        }
+      })
+      .catch(() => setStatus("error"));
+  }, [query]);
+
+  const label = fallbackLabel || query;
+
+  if (status === "loading") {
+    return (
+      <div
+        style={{
+          padding: "14px 18px",
+          background: "var(--color-background-secondary)",
+          borderRadius: 10,
+          color: "var(--color-text-tertiary)",
+          fontSize: 13,
+          margin: "12px 0",
+          border: "1px dashed var(--color-border-tertiary)",
+          textAlign: "center",
+        }}
+      >
+        🔍 Finding image…
+      </div>
+    );
+  }
+
+  if (status === "found" && imgUrl) {
+    return (
+      <div style={{ margin: "12px 0" }}>
+        <img
+          src={imgUrl}
+          alt={label}
+          style={{
+            width: "100%",
+            maxHeight: 340,
+            objectFit: "contain",
+            borderRadius: 10,
+            border: "1px solid var(--color-border-tertiary)",
+            display: "block",
+            background: "#f5f5f5",
+          }}
+          onError={() => setStatus("notfound")}
+        />
+        <div
+          style={{
+            fontSize: 10,
+            color: "var(--color-text-tertiary)",
+            marginTop: 4,
+            textAlign: "right",
+            fontStyle: "italic",
+          }}
+        >
+          📷 {imgTitle} · Wikimedia Commons
+        </div>
+      </div>
+    );
+  }
+
+  // notfound / error — text placeholder
+  return (
+    <div
+      style={{
+        padding: "14px 18px",
+        background: "var(--color-background-secondary)",
+        borderRadius: 10,
+        color: "var(--color-text-secondary)",
+        fontStyle: "italic",
+        fontSize: 13,
+        margin: "12px 0",
+        border: "1px dashed var(--color-border-tertiary)",
+      }}
+    >
+      🖼 {label}
+    </div>
+  );
 }
 
 /** Map AI multi-style objective quiz item → Session vignette shape (choices A–D, correct letter, extras). */
@@ -15653,7 +15776,28 @@ function buildDrillQueue(blockId, filter, lecFilter, objectiveIds) {
   if (pool.length === 0 && drillAllowlistSourcePoolRef.current?.length) {
     pool = [...drillAllowlistSourcePoolRef.current];
   }
+
+  // Deduplicate by ID first, then by normalized objective text
+  // Prevents the same concept appearing twice when imported + extracted overlap
+  const seenIds = new Set();
+  const seenTexts = new Set();
+  pool = pool.filter((o) => {
+    if (!o) return false;
+    if (o.id && seenIds.has(o.id)) return false;
+    if (o.id) seenIds.add(o.id);
+    const txt = (o.objective || o.text || "").trim().toLowerCase().slice(0, 80);
+    if (txt && seenTexts.has(txt)) return false;
+    if (txt) seenTexts.add(txt);
+    return true;
+  });
+
   pool = filterDrillPoolByLecture(pool, lecFilter);
+
+  // Panic mode: starred objectives only
+  if (localStorage.getItem("rxt-panic-mode") === "true") {
+    pool = pool.filter((o) => o.starred === true);
+  }
+
   if (Array.isArray(objectiveIds) && objectiveIds.length > 0) {
     const idSet = new Set(objectiveIds.map((x) => String(x)));
     pool = pool.filter((o) => o?.id != null && idSet.has(String(o.id)));
@@ -15671,6 +15815,9 @@ function buildDrillQueue(blockId, filter, lecFilter, objectiveIds) {
       );
     } else if (nf === "struggling") {
       pool = pool.filter((o) => o.status === "struggling");
+    } else if (nf === "srs_due") {
+      const today = new Date().toISOString().split("T")[0];
+      pool = pool.filter((o) => !o.srsNextReview || o.srsNextReview <= today);
     }
   }
 
@@ -15700,9 +15847,16 @@ function expandDrillQueueToTarget(baseObjs, targetCount) {
   }
   const n = baseObjs.length;
   let expanded = [];
+  let passNum = 0;
   while (expanded.length < targetCount) {
     const need = targetCount - expanded.length;
-    expanded = [...expanded, ...baseObjs.slice(0, need)];
+    // Shuffle every pass after the first so the same objective never appears
+    // in the same position across consecutive rounds (prevents back-to-back repeats)
+    const pass = passNum === 0
+      ? [...baseObjs]
+      : [...baseObjs].sort(() => Math.random() - 0.5);
+    expanded = [...expanded, ...pass.slice(0, need)];
+    passNum++;
   }
   return expanded.map((obj, idx) => ({
     ...obj,
@@ -16627,7 +16781,7 @@ export default function App() {
   const [drillStyle, setDrillStyle] = useState(() => {
     try {
       const saved = localStorage.getItem("rxt-drill-style");
-      return saved === "mcq" ? "mcq" : "flashcard";
+      return saved === "mcq" ? "mcq" : saved === "exam_block" ? "exam_block" : "flashcard";
     } catch {
       return "flashcard";
     }
@@ -16637,10 +16791,23 @@ export default function App() {
       localStorage.setItem("rxt-drill-style", drillStyle);
     } catch {}
   }, [drillStyle]);
+  const [panicModeActive, setPanicModeActive] = useState(() => {
+    try { return localStorage.getItem("rxt-panic-mode") === "true"; } catch { return false; }
+  });
+  const [examDate, setExamDate] = useState(() => {
+    try { return localStorage.getItem("rxt-exam-date") || ""; } catch { return ""; }
+  });
   const [revealedCardKey, setRevealedCardKey] = useState(null);
   const [cardState, setCardState] = useState("front");
   const [cardBack, setCardBack] = useState(null);
   const [drillCardMode, setDrillCardMode] = useState("back");
+  // Exam Block mode state
+  const [examBlockAnswers, setExamBlockAnswers] = useState([]);
+  const [examBlockReview, setExamBlockReview] = useState(false);
+  const [examBlockSecondsLeft, setExamBlockSecondsLeft] = useState(null);
+  const [examBlockSize, setExamBlockSize] = useState(40);
+  const examBlockTimerRef = useRef(null);
+  const examBlockAnswersRef = useRef([]);
   const [mcqData, setMcqData] = useState(null);
   const [mcqError, setMcqError] = useState(null);
   const [eliminatedOptions, setEliminatedOptions] = useState([]);
@@ -16672,6 +16839,7 @@ export default function App() {
   const revealedCardKeyRef = useRef(null);
   const drillCardModeRef = useRef("back");
   const handleDrillMCQAnswerRef = useRef(() => {});
+  const handleDrillAssessRef = useRef(() => {});
   const mcqRetryRef = useRef(false);
   const mcqGenTokenRef = useRef(0);
   const handleDrillSkipRef = useRef(() => {});
@@ -19611,6 +19779,15 @@ For each extracted objective, find if it duplicates or overlaps with any importe
       const obj = flat[idx];
       const patch = computeDrillProgressAfterAnswer(obj, wasCorrect);
       const now = new Date().toISOString();
+      const SRS_INTERVALS_DAYS = [1, 1, 3, 7, 14, 30];
+      const intervalDays = wasCorrect
+        ? (SRS_INTERVALS_DAYS[Math.min(patch.newConsecutive, SRS_INTERVALS_DAYS.length - 1)] || 1)
+        : 1;
+      const srsNextReview = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + intervalDays);
+        return d.toISOString().split("T")[0];
+      })();
       flat[idx] = {
         ...obj,
         drillCount: patch.newDrillCount,
@@ -19618,6 +19795,7 @@ For each extracted objective, find if it duplicates or overlaps with any importe
         consecutiveCorrect: patch.newConsecutive,
         lastDrilledAt: now,
         status: patch.newStatus,
+        srsNextReview,
       };
       saveMSKObjectives(blockId, flat);
     } catch (e) {
@@ -19717,10 +19895,12 @@ For each extracted objective, find if it duplicates or overlaps with any importe
   const drillBlockIdRef = useRef(drillBlockId);
   const drillCompletionSyncedRef = useRef(false);
   const drillSessionStrugglingRef = useRef(new Set());
+  const sessionReQueuedRef = useRef(new Set());
   const drillSummaryBuiltRef = useRef(false);
   const drillCardFirstRenderRef = useRef(true);
   const drillKeyHandlersRef = useRef({});
   const drillAssessBusyRef = useRef(false);
+  const advanceDrillRef = useRef(null);
 
   useEffect(() => {
     drillQueueRef.current = drillQueue;
@@ -19796,10 +19976,32 @@ For each extracted objective, find if it duplicates or overlaps with any importe
         });
         return { ...prev, selectedIndex: optionIndex };
       });
+      if (drillStyleRef.current === "exam_block") {
+        // Exam block: silent recording, no feedback, immediate advance
+        if (drillAssessBusyRef.current) return;
+        drillAssessBusyRef.current = true;
+        const isCorrectForEB = mcqData?.options?.[optionIndex]?.correct === true;
+        const currentObj = drillQueueRef.current[drillIndexRef.current];
+        if (currentObj) {
+          const bid = currentObj._drillBlockId || activeBlock?.id || blockId;
+          examBlockAnswersRef.current.push({
+            obj: currentObj,
+            mcqData: mcqData ? { ...mcqData, selectedIndex: optionIndex } : null,
+            selectedIndex: optionIndex,
+            wasCorrect: isCorrectForEB,
+            correctIndex: mcqData?.options?.findIndex((o) => o.correct),
+          });
+          setExamBlockAnswers([...examBlockAnswersRef.current]);
+          updateDrillProgression(currentObj.id, bid, isCorrectForEB, true);
+        }
+        drillAssessBusyRef.current = false;
+        advanceDrillRef.current?.();
+        return;
+      }
       setDrillCardMode("mcq_answered");
       drillCardModeRef.current = "mcq_answered";
     },
-    [activeBlock?.id, activeBlock?.name, blockId, lectures]
+    [activeBlock?.id, activeBlock?.name, blockId, lectures, mcqData, updateDrillProgression]
   );
 
   const generateCardAnswer = useCallback(async (obj) => {
@@ -19857,8 +20059,11 @@ Provide the answer to this objective in 2-4 sentences.`;
         )
         .join("\n");
       const lecBody = lec ? getLecText(lec) : "";
-      const levelBlock =
-        levelConfig && levelConfig.promptInstruction ? `\n${levelConfig.promptInstruction}\n` : "";
+      const isPanicMode = (() => { try { return localStorage.getItem("rxt-panic-mode") === "true"; } catch { return false; } })();
+      const panicTierInfo = isPanicMode ? DIFFICULTY_TIERS["exam"] : null;
+      const levelBlock = isPanicMode
+        ? `\n${buildDifficultyInstruction({ ...panicTierInfo, tier: "exam", sessionCount: 99, lastScore: 100 })}\n`
+        : (levelConfig && levelConfig.promptInstruction ? `\n${levelConfig.promptInstruction}\n` : "");
 
       const systemPrompt = `${LECTURE_MARKDOWN_SYSTEM_INSTRUCTION}
 
@@ -19882,13 +20087,13 @@ ${(() => {
         const bloomOverride =
           qr === 1 ? "recall" : qr === 2 ? "application" : qr >= 3 ? "clinical reasoning" : null;
         if (bloomOverride) {
-          return `DIFFICULTY ROUND ${qr} (${bloomOverride}): ${
-            bloomOverride === "recall"
-              ? "Prioritize definitions, recognition, and direct facts from the lecture."
-              : bloomOverride === "application"
-                ? "Prioritize scenarios, mechanisms, and comparing or applying concepts."
-                : "Prioritize multi-step reasoning, clinical vignettes, and integration across objectives."
-          }`;
+          const angleGuide =
+            qr === 1
+              ? "Test the definition, identification, or core fact directly."
+              : qr === 2
+                ? "DIFFERENT ANGLE REQUIRED: The student already saw a recall question on this objective. Now test the mechanism, a comparison, or a clinical scenario — do NOT ask the same factual question again."
+                : "FRESH ANGLE REQUIRED: The student has seen recall and application questions on this objective. Now test a downstream consequence, an exception, a clinical decision, or cross-concept integration. A student who only memorised the definition should get this wrong.";
+          return `DIFFICULTY ROUND ${qr} (${bloomOverride}): ${angleGuide}`;
         }
         return `BLOOM LEVEL: ${
           bloomLevel === 1
@@ -19901,7 +20106,9 @@ ${(() => {
 
 Return JSON only. No markdown fences. One object (not an array) with exactly 4 options, exactly one isCorrect true.
 For EVERY wrong option include whyWrong (string). Correct option: whyWrong null.
-Include teachingPoint and which objective(s) via objectiveIndices (1-based indices into the list below).`;
+Include teachingPoint and which objective(s) via objectiveIndices (1-based indices into the list below).
+imagePrompt: null unless the question tests something visual (histology slide, anatomy structure, lab finding, ECG, X-ray). If visual, provide a plain-English description.
+visualSearchQuery: if imagePrompt is set, also provide a short Wikimedia Commons search query (e.g. "bone marrow sinusoid hematopoiesis H&E stain"). Otherwise null.`;
 
       const starredNote = obj.starred
         ? `\n⭐ THIS IS A MASTERY-REQUIRED OBJECTIVE (professor-designated, exam-critical). ` +
@@ -19918,7 +20125,7 @@ LECTURE CONTENT:
 ${lecBody.slice(0, 5000)}
 ${levelBlock}${starredNote}
 Write exactly ONE MCQ. Return JSON only:
-{"stem":"...","style":"vignette","objectiveIndices":[${currentIdx}],"options":[{"letter":"A","text":"...","isCorrect":false,"whyWrong":"..."},{"letter":"B","text":"...","isCorrect":true,"whyWrong":null},{"letter":"C","text":"...","isCorrect":false,"whyWrong":"..."},{"letter":"D","text":"...","isCorrect":false,"whyWrong":"..."}],"explanation":"...","teachingPoint":"...","imagePrompt":null,"imagePage":null,"objectiveId":"${obj.id || ""}"}`;
+{"stem":"...","style":"vignette","objectiveIndices":[${currentIdx}],"options":[{"letter":"A","text":"...","isCorrect":false,"whyWrong":"..."},{"letter":"B","text":"...","isCorrect":true,"whyWrong":null},{"letter":"C","text":"...","isCorrect":false,"whyWrong":"..."},{"letter":"D","text":"...","isCorrect":false,"whyWrong":"..."}],"explanation":"...","teachingPoint":"...","imagePrompt":null,"imagePage":null,"visualSearchQuery":null,"objectiveId":"${obj.id || ""}"}`;
 
       return { systemPrompt, userPrompt, objText, lecTitle, lecObjs };
     },
@@ -20002,7 +20209,7 @@ Write exactly ONE MCQ. Return JSON only:
   const scheduleMcqPrefetchForQueue = useCallback((queue) => {
     prefetchCacheRef.current = {};
     activePrefetchesRef.current = 0;
-    if (drillStyle !== "mcq" || !queue?.length) return;
+    if ((drillStyle !== "mcq" && drillStyle !== "exam_block") || !queue?.length) return;
     if (queue[1]) prefetchMCQRef.current?.(queue[1]);
     if (queue[2]) {
       setTimeout(() => prefetchMCQRef.current?.(queue[2]), 200);
@@ -20142,6 +20349,7 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
         });
         resetDrillSessionResultsRef();
         drillSessionStrugglingRef.current.clear();
+        sessionReQueuedRef.current.clear();
         drillCardFirstRenderRef.current = true;
         revealedCardKeyRef.current = null;
         setRevealedCardKey(null);
@@ -20306,6 +20514,7 @@ ${text}`;
       });
       resetDrillSessionResultsRef();
       drillSessionStrugglingRef.current.clear();
+      sessionReQueuedRef.current.clear();
       drillCardFirstRenderRef.current = true;
       revealedCardKeyRef.current = null;
       setRevealedCardKey(null);
@@ -20398,6 +20607,7 @@ ${text}`;
       });
       resetDrillSessionResultsRef();
       drillSessionStrugglingRef.current.clear();
+      sessionReQueuedRef.current.clear();
       drillCardFirstRenderRef.current = true;
       revealedCardKeyRef.current = null;
       setRevealedCardKey(null);
@@ -20681,6 +20891,7 @@ ${text}`;
         levelAdvances: 0,
       };
       drillSessionStrugglingRef.current.clear();
+      sessionReQueuedRef.current.clear();
       drillCardFirstRenderRef.current = true;
       revealedCardKeyRef.current = null;
       setRevealedCardKey(null);
@@ -21316,6 +21527,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
     resetDrillSessionResultsRef();
     drillSessionStrugglingRef.current.clear();
+    sessionReQueuedRef.current.clear();
     drillCardFirstRenderRef.current = true;
     revealedCardKeyRef.current = null;
     setRevealedCardKey(null);
@@ -21346,6 +21558,15 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     drillAllowlistSourcePoolRef.current = null;
     setCbseSessionDeadline(null);
     setDrillObjectivesPeek(null);
+    // Clear exam block state
+    if (examBlockTimerRef.current) {
+      clearInterval(examBlockTimerRef.current);
+      examBlockTimerRef.current = null;
+    }
+    examBlockAnswersRef.current = [];
+    setExamBlockAnswers([]);
+    setExamBlockReview(false);
+    setExamBlockSecondsLeft(null);
   }, [
     refreshObjectivesFromStorage,
     syncDrillResultsToPerformance,
@@ -21473,6 +21694,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
         resetDrillSessionResultsRef();
         drillSessionStrugglingRef.current.clear();
+        sessionReQueuedRef.current.clear();
         drillCardFirstRenderRef.current = true;
         setDrillMode(true);
         captureDrillLevelSnapshot(relevantObjs, bid);
@@ -21519,6 +21741,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
       resetDrillSessionResultsRef();
       drillSessionStrugglingRef.current.clear();
+      sessionReQueuedRef.current.clear();
       drillCardFirstRenderRef.current = true;
       setDrillMode(true);
       const primaryBid = out[0]._drillBlockId || activeBlock?.id || blockId;
@@ -21551,12 +21774,34 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     setExitConfirmVisible(true);
   }, [drillQueue.length, drillIndex, exitDrill, openDrillSummary]);
 
+  const togglePanicMode = useCallback(() => {
+    setPanicModeActive((prev) => {
+      const next = !prev;
+      try { localStorage.setItem("rxt-panic-mode", String(next)); } catch {}
+      return next;
+    });
+  }, []);
+
   const toggleDrillStyleAndReset = useCallback(() => {
     setDrillStyle((prev) => {
-      const next = prev === "flashcard" ? "mcq" : "flashcard";
+      let next;
+      if (prev === "flashcard") next = "mcq";
+      else if (prev === "mcq") next = "exam_block";
+      else next = "flashcard";
       if (next === "flashcard") {
         prefetchCacheRef.current = {};
         activePrefetchesRef.current = 0;
+      }
+      if (prev === "exam_block" || next === "exam_block") {
+        // Clear exam block state on style change
+        if (examBlockTimerRef.current) {
+          clearInterval(examBlockTimerRef.current);
+          examBlockTimerRef.current = null;
+        }
+        examBlockAnswersRef.current = [];
+        setExamBlockAnswers([]);
+        setExamBlockReview(false);
+        setExamBlockSecondsLeft(null);
       }
       return next;
     });
@@ -21624,6 +21869,14 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       const q = drillQueueRef.current;
       if (prev + 1 >= q.length) {
         setDrillComplete(true);
+        // Auto-trigger exam block review when session ends
+        if (drillStyleRef.current === "exam_block") {
+          if (examBlockTimerRef.current) {
+            clearInterval(examBlockTimerRef.current);
+            examBlockTimerRef.current = null;
+          }
+          setExamBlockReview(true);
+        }
         try {
           localStorage.removeItem("rxt-drill-progress");
         } catch {}
@@ -21640,6 +21893,11 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
       return next;
     });
   }, [saveDrillProgressToStorage, activeBlock?.id, blockId]);
+
+  // Keep ref in sync so early-defined callbacks (before advanceDrill) can call it safely
+  useEffect(() => {
+    advanceDrillRef.current = advanceDrill;
+  }, [advanceDrill]);
 
   const handleDrillAssess = useCallback(
     (newStatus) => {
@@ -21697,6 +21955,27 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
           drillAssessBusyRef.current = false;
           advanceDrill();
         }, 400);
+        return;
+      }
+      // Exam block: silent recording, no feedback, immediate advance
+      if (drillStyle === "exam_block") {
+        drillAssessBusyRef.current = true;
+        const ebSnap = { mcqData, selectedAnswer, studentReasoning };
+        const mcqHasPickEB = ebSnap?.mcqData && ebSnap.selectedIndex != null;
+        const mcqObjCorrectEB = mcqHasPickEB && ebSnap.mcqData.options[ebSnap.selectedIndex]?.correct === true;
+        const isCorrect = mcqHasPickEB ? mcqObjCorrectEB : newStatus !== "struggling";
+        const bid = obj._drillBlockId || activeBlock?.id || blockId;
+        examBlockAnswersRef.current.push({
+          obj,
+          mcqData: ebSnap.mcqData,
+          selectedIndex: ebSnap.selectedIndex,
+          wasCorrect: isCorrect,
+          correctIndex: ebSnap.mcqData?.options?.findIndex((o) => o.correct),
+        });
+        setExamBlockAnswers([...examBlockAnswersRef.current]);
+        updateDrillProgression(obj.id, bid, isCorrect, true);
+        drillAssessBusyRef.current = false;
+        advanceDrill();
         return;
       }
       drillAssessBusyRef.current = true;
@@ -21846,6 +22125,17 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         }, 1200);
         return;
       }
+      // Wrong answer → re-queue this objective ~6 cards later (once per session)
+      if (!wasCorrectForProgress && !sessionReQueuedRef.current.has(obj.id)) {
+        sessionReQueuedRef.current.add(obj.id);
+        const reQueueObj = { ...obj, _isRequeue: true };
+        setDrillQueue((prev) => {
+          const insertAt = Math.min(drillIndexRef.current + 6, prev.length);
+          const next = [...prev];
+          next.splice(insertAt, 0, reQueueObj);
+          return next;
+        });
+      }
       setTimeout(() => {
         setSaveConfirmed(null);
         drillAssessBusyRef.current = false;
@@ -21854,6 +22144,10 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     },
     [activeBlock?.id, blockId, mcqData, selectedAnswer, studentReasoning, setBlockObjectives, updateSingleObjectiveStatus, updateDrillProgression, advanceDrill, drillStyle, getBlockObjectives]
   );
+
+  useEffect(() => {
+    handleDrillAssessRef.current = handleDrillAssess;
+  }, [handleDrillAssess]);
 
   const handleDrillSkip = useCallback(() => {
     drillResultsRef.current.skipped += 1;
@@ -22083,7 +22377,7 @@ What is the clinical significance of this finding?`,
   useEffect(() => {
     if (!drillMode) return;
     if (drillComplete) return;
-    if (drillStyle !== "mcq") return;
+    if (drillStyle !== "mcq" && drillStyle !== "exam_block") return;
     const q = drillQueueRef.current;
     if (!q.length) return;
     const currentObj = q[drillIndex];
@@ -22100,7 +22394,7 @@ What is the clinical significance of this finding?`,
   }, [drillMode, drillIndex, drillStyle, drillComplete, drillQueue.length]);
 
   useEffect(() => {
-    if (drillStyle !== "mcq") {
+    if (drillStyle !== "mcq" && drillStyle !== "exam_block") {
       prefetchCacheRef.current = {};
       activePrefetchesRef.current = 0;
     }
@@ -31142,6 +31436,7 @@ Current student level: ${tierLabel}`;
                           setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
                           resetDrillSessionResultsRef();
                           drillSessionStrugglingRef.current.clear();
+                          sessionReQueuedRef.current.clear();
                           drillCardFirstRenderRef.current = true;
                           revealedCardKeyRef.current = null;
                           setRevealedCardKey(null);
@@ -31186,6 +31481,8 @@ Current student level: ${tierLabel}`;
                     ).length;
                     const nUntested = poolScoped.filter((o) => !o.status || o.status === "untested").length;
                     const nAll = poolScoped.length;
+                    const today = new Date().toISOString().split("T")[0];
+                    const nSrsDue = poolScoped.filter((o) => !o.srsNextReview || o.srsNextReview <= today).length;
                     let previewQueue = buildDrillQueue(drillBid, drillFilter, selectedLectureIds);
                     if (drillIdAllowlist?.length) {
                       const allow = new Set(drillIdAllowlist);
@@ -31283,6 +31580,7 @@ Current student level: ${tierLabel}`;
                             setMcqError(null);
                             mcqRetryRef.current = false;
                             drillSessionStrugglingRef.current.clear();
+                            sessionReQueuedRef.current.clear();
                             captureDrillLevelSnapshot(strugglingQueue, drillBid);
                             captureDrillWeakConceptSnapshot(drillBid);
                             scheduleMcqPrefetchForQueue(strugglingQueue);
@@ -31291,22 +31589,149 @@ Current student level: ${tierLabel}`;
                       );
                     }
 
+                    // Exam block review screen
+                    if (drillStyle === "exam_block" && examBlockReview && examBlockAnswers.length > 0) {
+                      const totalQ = examBlockAnswers.length;
+                      const correctQ = examBlockAnswers.filter((a) => a.wasCorrect).length;
+                      const pct = Math.round((correctQ / totalQ) * 100);
+                      return (
+                        <div style={{ maxWidth: 860, margin: "0 auto", padding: "12px 0 32px" }}>
+                          <div style={{ textAlign: "center", marginBottom: 24 }}>
+                            <div style={{ fontSize: 22, fontWeight: 700, color: t.text1, marginBottom: 4 }}>Exam Block Complete</div>
+                            <div style={{ fontSize: 36, fontWeight: 700, color: pct >= 75 ? "#639922" : pct >= 60 ? "#EF9F27" : "#E24B4A", marginBottom: 4 }}>
+                              {pct}%
+                            </div>
+                            <div style={{ fontSize: 15, color: t.text3, marginBottom: 16 }}>
+                              {correctQ} / {totalQ} correct
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (examBlockTimerRef.current) clearInterval(examBlockTimerRef.current);
+                                examBlockAnswersRef.current = [];
+                                setExamBlockAnswers([]);
+                                setExamBlockReview(false);
+                                setExamBlockSecondsLeft(null);
+                                setDrillComplete(false);
+                                setDrillQueue([]);
+                                setDrillIndex(0);
+                                setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+                                resetDrillSessionResultsRef();
+                              }}
+                              style={{
+                                padding: "10px 20px",
+                                fontSize: 13,
+                                fontWeight: 600,
+                                background: tc,
+                                color: "#fff",
+                                border: "none",
+                                borderRadius: 8,
+                                cursor: "pointer",
+                                fontFamily: MONO,
+                              }}
+                            >
+                              Start New Block
+                            </button>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                            {examBlockAnswers.map((answer, idx) => {
+                              const opts = answer.mcqData?.options || [];
+                              const correctIdx = answer.correctIndex ?? opts.findIndex((o) => o.correct);
+                              return (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    border: answer.wasCorrect ? "1px solid #A3C46A" : "1px solid #F09595",
+                                    borderRadius: 10,
+                                    padding: "16px 20px",
+                                    background: answer.wasCorrect ? "#F5FAF0" : "#FFF5F5",
+                                  }}
+                                >
+                                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                                    <span style={{ fontFamily: MONO, fontSize: 12, color: t.text3 }}>Q{idx + 1}</span>
+                                    <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: answer.wasCorrect ? "#639922" : "#E24B4A" }}>
+                                      {answer.wasCorrect ? "✓ Correct" : "✗ Incorrect"}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: 14, color: t.text1, marginBottom: 10, fontWeight: 500 }}>
+                                    {answer.mcqData?.stem || (answer.obj?.objective || answer.obj?.text || "")}
+                                  </div>
+                                  {opts.length > 0 && (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 10 }}>
+                                      {opts.map((opt, oi) => {
+                                        const isSelected = oi === answer.selectedIndex;
+                                        const isCorrect = oi === correctIdx;
+                                        let bg = "transparent";
+                                        let borderColor = t.border1;
+                                        let color = t.text2;
+                                        if (isCorrect) { bg = "#EAF3DE"; borderColor = "#639922"; color = "#3A6014"; }
+                                        else if (isSelected && !isCorrect) { bg = "#FCEBEB"; borderColor = "#E24B4A"; color = "#8B1A1A"; }
+                                        return (
+                                          <div key={oi} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid " + borderColor, background: bg, fontSize: 13, color }}>
+                                            <strong>{opt.letter || String.fromCharCode(65 + oi)}.</strong> {opt.text}
+                                            {isSelected && !isCorrect && opt.whyWrong && (
+                                              <div style={{ marginTop: 4, fontSize: 12, color: "#8B1A1A", fontStyle: "italic" }}>
+                                                Why wrong: {opt.whyWrong}
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                  {answer.mcqData?.explanation && (
+                                    <div style={{ fontSize: 13, color: t.text2, background: t.inputBg || t.cardBg, padding: "8px 12px", borderRadius: 6, marginTop: 4 }}>
+                                      <strong>Explanation:</strong> {answer.mcqData.explanation}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    }
+
                     if (drillQueue.length === 0 || (drillQueue.length > 0 && drillComplete)) {
                       if (drillQueue.length > 0 && drillComplete && !showDrillSummary) {
                         return null;
                       }
                       return (
-                        <div style={{ maxWidth: 400, margin: "0 auto", padding: "12px 0 24px" }}>
-                          <div style={{ fontSize: 18, fontWeight: 500, color: t.text1, marginBottom: 4, textAlign: "center" }}>Objective drill</div>
-                          <div style={{ fontSize: 12, color: t.text3, marginBottom: 20, textAlign: "center" }}>
+                        <div style={{ maxWidth: 780, margin: "0 auto", padding: "12px 0 24px" }}>
+                          <div style={{ fontSize: 22, fontWeight: 500, color: t.text1, marginBottom: 4, textAlign: "center" }}>Objective drill</div>
+                          <div style={{ fontSize: 14, color: t.text3, marginBottom: 12, textAlign: "center" }}>
                             Cycle through objectives, self-assess, and mark as you go
                           </div>
-                          <div style={{ fontSize: 12, color: t.text2, marginBottom: 8 }}>Which objectives?</div>
+                          {panicModeActive && (
+                            <div style={{ background: "#E24B4A", color: "white", padding: "8px 16px", borderRadius: 8, textAlign: "center", fontSize: 13, fontWeight: 600, marginBottom: 12 }}>
+                              🚨 EXAM MODE — Starred objectives only · USMLE-level questions
+                            </div>
+                          )}
+                          <div style={{ textAlign: "center", marginBottom: 16 }}>
+                            <button
+                              type="button"
+                              onClick={togglePanicMode}
+                              style={{
+                                padding: "8px 16px",
+                                fontSize: 13,
+                                cursor: "pointer",
+                                fontWeight: 600,
+                                background: panicModeActive ? "#E24B4A" : t.inputBg || t.cardBg,
+                                color: panicModeActive ? "white" : t.text2,
+                                border: panicModeActive ? "none" : "1px solid " + t.border1,
+                                borderRadius: 8,
+                              }}
+                            >
+                              {panicModeActive ? "🚨 Exit Exam Mode" : "🎯 Enter Exam Mode"}
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 14, color: t.text2, marginBottom: 8 }}>Which objectives?</div>
                           <div style={{ display: "flex", flexWrap: "wrap" }}>
                             {[
                               { key: "struggling", label: `⚠ Struggling only (${nStruggling})` },
                               { key: "weak_untested", label: `△ Weak + untested (${nWeak})` },
                               { key: "untested", label: `○ Untested only (${nUntested})` },
+                              { key: "srs_due", label: `📅 Due for review (${nSrsDue})` },
                               { key: "all", label: `All objectives (${nAll})` },
                             ].map(({ key, label }) => {
                               const active = drillFilter === key;
@@ -31315,12 +31740,34 @@ Current student level: ${tierLabel}`;
                                   ? { bg: "#FCEBEB", border: "#F09595" }
                                   : key === "weak_untested"
                                     ? { bg: "#FAEEDA", border: "#EF9F27" }
-                                    : { bg: t.inputBg || t.cardBg, border: t.border1 };
+                                    : key === "srs_due"
+                                      ? { bg: "#E8F4FD", border: "#5AADDD" }
+                                      : { bg: t.inputBg || t.cardBg, border: t.border1 };
                               return (
                                 <button
                                   key={key}
                                   type="button"
-                                  onClick={() => setDrillFilter(key)}
+                                  onClick={() => {
+                                    setDrillFilter(key);
+                                    // Auto-select lectures that contain objectives matching the chosen filter
+                                    if (key === "struggling" || key === "untested" || key === "srs_due") {
+                                      const fullPool = getDrillPoolBase(drillBid, new Set(), drillIdAllowlist);
+                                      const todayStr = new Date().toISOString().split("T")[0];
+                                      const matchingObjs =
+                                        key === "struggling"
+                                          ? fullPool.filter((o) => o.status === "struggling")
+                                          : key === "srs_due"
+                                            ? fullPool.filter((o) => !o.srsNextReview || o.srsNextReview <= todayStr)
+                                            : fullPool.filter((o) => !o.status || o.status === "untested");
+                                      const relevantLecIds = new Set(
+                                        matchingObjs.map((o) => o.linkedLecId).filter(Boolean)
+                                      );
+                                      setSelectedLectureIds(relevantLecIds);
+                                    } else {
+                                      // "all" and "weak_untested" → reset to all lectures
+                                      setSelectedLectureIds(new Set());
+                                    }
+                                  }}
                                   style={{
                                     ...pillBase,
                                     background: active ? styles.bg : "transparent",
@@ -31335,7 +31782,7 @@ Current student level: ${tierLabel}`;
                           </div>
                           <div
                             style={{
-                              fontSize: 11,
+                              fontSize: 13,
                               color: "var(--color-text-tertiary, " + t.text3 + ")",
                               textTransform: "uppercase",
                               letterSpacing: 0.06,
@@ -31349,7 +31796,7 @@ Current student level: ${tierLabel}`;
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: "1fr 1fr",
+                              gridTemplateColumns: "1fr 1fr 1fr",
                               gap: 8,
                               marginBottom: 8,
                             }}
@@ -31366,9 +31813,9 @@ Current student level: ${tierLabel}`;
                                 background: drillStyle === "flashcard" ? "#EEEDFE" : "transparent",
                               }}
                             >
-                              <div style={{ fontSize: 16, marginBottom: 6 }}>🃏</div>
-                              <div style={{ fontSize: 13, fontWeight: 500, color: drillStyle === "flashcard" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>Flashcard</div>
-                              <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>See the answer, self-assess</div>
+                              <div style={{ fontSize: 20, marginBottom: 6 }}>🃏</div>
+                              <div style={{ fontSize: 15, fontWeight: 500, color: drillStyle === "flashcard" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>Flashcard</div>
+                              <div style={{ fontSize: 13, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>See the answer, self-assess</div>
                             </div>
                             <div
                               role="button"
@@ -31382,18 +31829,34 @@ Current student level: ${tierLabel}`;
                                 background: drillStyle === "mcq" ? "#EEEDFE" : "transparent",
                               }}
                             >
-                              <div style={{ fontSize: 16, marginBottom: 6 }}>❓</div>
-                              <div style={{ fontSize: 13, fontWeight: 500, color: drillStyle === "mcq" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>MCQ</div>
-                              <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>AI generates a question for each objective</div>
+                              <div style={{ fontSize: 20, marginBottom: 6 }}>❓</div>
+                              <div style={{ fontSize: 15, fontWeight: 500, color: drillStyle === "mcq" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>MCQ</div>
+                              <div style={{ fontSize: 13, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>AI generates a question for each objective</div>
+                            </div>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => setDrillStyle("exam_block")}
+                              style={{
+                                padding: "12px 14px",
+                                border: drillStyle === "exam_block" ? "1.5px solid #7F77DD" : "0.5px solid var(--color-border-tertiary)",
+                                borderRadius: "var(--border-radius-md, 8px)",
+                                cursor: "pointer",
+                                background: drillStyle === "exam_block" ? "#EEEDFE" : "transparent",
+                              }}
+                            >
+                              <div style={{ fontSize: 20, marginBottom: 6 }}>⏱</div>
+                              <div style={{ fontSize: 15, fontWeight: 500, color: drillStyle === "exam_block" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>Exam Block</div>
+                              <div style={{ fontSize: 13, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>Timed · no feedback · full review at end</div>
                             </div>
                           </div>
-                          <div style={{ fontSize: 12, color: t.text2, marginTop: 16, marginBottom: 8 }}>
+                          <div style={{ fontSize: 14, color: t.text2, marginTop: 16, marginBottom: 8 }}>
                             From which lectures?
                             <span style={{ color: t.text1, fontWeight: 600 }}>{` → ${drillLectureScopeSummary}`}</span>
                           </div>
                           <div
                             style={{
-                              maxHeight: 200,
+                              maxHeight: 320,
                               overflowY: "auto",
                               marginBottom: 8,
                               padding: "4px 2px 0 0",
@@ -31426,7 +31889,7 @@ Current student level: ${tierLabel}`;
                             {drillBlockLecsSorted.map((lec) => {
                               const cnt = (getBlockObjectives(drillBid) || []).filter((o) => o.linkedLecId === lec.id).length;
                               const title = lec.lectureTitle || lec.fileName || lec.id;
-                              const titleShown = smartTruncate(title, 48);
+                              const titleShown = smartTruncate(title, 72);
                               const isOn = selectedLectureIds.has(lec.id);
                               const allMode = selLecCount === 0;
                               return (
@@ -31455,7 +31918,7 @@ Current student level: ${tierLabel}`;
                                         : "0.5px solid " + (t.border2 || t.border1),
                                     color: !allMode && isOn ? t.text1 : t.text3,
                                     fontFamily: MONO,
-                                    fontSize: 11,
+                                    fontSize: 13,
                                   }}
                                 >
                                   <span style={{ marginRight: 8 }}>{!allMode && isOn ? "◉" : "○"}</span>
@@ -31465,7 +31928,7 @@ Current student level: ${tierLabel}`;
                               );
                             })}
                           </div>
-                          <div style={{ fontSize: 13, color: t.text3, marginTop: 12 }}>
+                          <div style={{ fontSize: 14, color: t.text3, marginTop: 12 }}>
                             {nPreview === 0 ? (
                               <span style={{ color: t.text4 || t.text3 }}>No objectives match this filter</span>
                             ) : (
@@ -31475,13 +31938,13 @@ Current student level: ${tierLabel}`;
                             )}
                           </div>
                           {nPreview > 0 && drillFilter === "weak_untested" && (
-                            <div style={{ fontSize: 11, color: t.text3, marginTop: 6, fontFamily: MONO }}>
+                            <div style={{ fontSize: 13, color: t.text3, marginTop: 6, fontFamily: MONO }}>
                               includes ⚠ {nStruggling} struggling · △ {nInProgressDrill} in progress · ○ {nUntested}{" "}
                               untested
                             </div>
                           )}
                           {nPreview > 0 && drillFilter === "struggling" && (
-                            <div style={{ fontSize: 11, color: t.text3, marginTop: 6, fontFamily: MONO }}>
+                            <div style={{ fontSize: 13, color: t.text3, marginTop: 6, fontFamily: MONO }}>
                               ⚠ Struggling objectives only ({nStruggling} in this scope)
                             </div>
                           )}
@@ -31516,6 +31979,7 @@ Current student level: ${tierLabel}`;
                                 setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
                                 resetDrillSessionResultsRef();
                                 drillSessionStrugglingRef.current.clear();
+                                sessionReQueuedRef.current.clear();
                                 drillCardFirstRenderRef.current = true;
                                 revealedCardKeyRef.current = null;
                                 setRevealedCardKey(null);
@@ -31529,6 +31993,25 @@ Current student level: ${tierLabel}`;
                                 captureDrillLevelSnapshot(queue, drillBid);
                                 captureDrillWeakConceptSnapshot(drillBid);
                                 scheduleMcqPrefetchForQueue(queue);
+                                // Exam block: reset answers and start countdown timer
+                                if (drillStyle === "exam_block") {
+                                  if (examBlockTimerRef.current) clearInterval(examBlockTimerRef.current);
+                                  examBlockAnswersRef.current = [];
+                                  setExamBlockAnswers([]);
+                                  setExamBlockReview(false);
+                                  const totalSeconds = queue.length * 90;
+                                  setExamBlockSecondsLeft(totalSeconds);
+                                  examBlockTimerRef.current = setInterval(() => {
+                                    setExamBlockSecondsLeft((prev) => {
+                                      if (prev <= 1) {
+                                        clearInterval(examBlockTimerRef.current);
+                                        setExamBlockReview(true);
+                                        return 0;
+                                      }
+                                      return prev - 1;
+                                    });
+                                  }, 1000);
+                                }
                               }}
                               style={{
                                 padding: "10px 18px",
@@ -31617,7 +32100,15 @@ Current student level: ${tierLabel}`;
                     void cbseTimerTick;
 
                     return (
-                      <div style={{ padding: "0 8px 24px" }}>
+                      <div
+                        style={{
+                          maxWidth: 960,
+                          width: "100%",
+                          margin: "0 auto",
+                          padding: "0 24px 24px",
+                          boxSizing: "border-box",
+                        }}
+                      >
                         <div style={{ width: "100%", height: 3, background: t.border1 || t.pillBg }}>
                           <div
                             style={{
@@ -31630,6 +32121,23 @@ Current student level: ${tierLabel}`;
                             }}
                           />
                         </div>
+                        {panicModeActive && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: "6px 12px",
+                              borderRadius: 6,
+                              background: "#E24B4A",
+                              color: "white",
+                              fontFamily: MONO,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              textAlign: "center",
+                            }}
+                          >
+                            🚨 EXAM MODE
+                          </div>
+                        )}
                         {cbseSecLeft != null && (
                           <div
                             style={{
@@ -31645,6 +32153,22 @@ Current student level: ${tierLabel}`;
                           >
                             ⏱ Time remaining: {Math.floor(cbseSecLeft / 60)}:
                             {String(cbseSecLeft % 60).padStart(2, "0")}
+                          </div>
+                        )}
+                        {drillStyle === "exam_block" && examBlockSecondsLeft != null && (
+                          <div
+                            style={{
+                              marginTop: 8,
+                              padding: "8px 12px",
+                              borderRadius: 8,
+                              background: t.inputBg,
+                              border: "1px solid " + t.border1,
+                              fontFamily: MONO,
+                              fontSize: 13,
+                              color: examBlockSecondsLeft < 120 ? "#E24B4A" : t.text2,
+                            }}
+                          >
+                            ⏱ Exam Block — {Math.floor(examBlockSecondsLeft / 60)}:{String(examBlockSecondsLeft % 60).padStart(2, "0")} remaining · No feedback until end
                           </div>
                         )}
                         <div
@@ -31821,7 +32345,7 @@ Current student level: ${tierLabel}`;
                         {(() => {
                           const displayCode = getDisplayObjectiveCode(currentObj);
                           const isRevealed = revealedCardKey === currentObj?.id;
-                          const isMcq = drillStyle === "mcq";
+                          const isMcq = drillStyle === "mcq" || drillStyle === "exam_block";
                           const mcqShowSpinner =
                             isMcq &&
                             (drillCardMode === "mcq_loading" ||
@@ -31835,8 +32359,10 @@ Current student level: ${tierLabel}`;
                             borderRadius: 12,
                             padding: 24,
                             minHeight: 220,
-                            maxWidth: 640,
+                            maxWidth: isMcq ? 900 : 640,
+                            width: "100%",
                             margin: "0 auto",
+                            boxSizing: "border-box",
                             display: "flex",
                             flexDirection: "column",
                             cursor: isMcq || isRevealed ? "default" : "pointer",
@@ -32209,7 +32735,15 @@ Current student level: ${tierLabel}`;
                           )}
 
                           {isMcq && drillCardMode === "mcq_ready" && mcqData && (
-                            <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
+                            <div
+                              style={{
+                                maxWidth: 900,
+                                width: "100%",
+                                margin: "0 auto",
+                                padding: "0 32px",
+                                boxSizing: "border-box",
+                              }}
+                            >
                               {(() => {
                                 const stemRaw = String(mcqData.question || "");
                                 const imagePromptDrill = resolveMcqImagePrompt({
@@ -32242,21 +32776,12 @@ Current student level: ${tierLabel}`;
                                     />
                                   );
                                 }
+                                // No lecture slide — auto-fetch from Wikimedia Commons
                                 return (
-                                  <div
-                                    style={{
-                                      padding: "14px 18px",
-                                      background: "var(--color-background-secondary)",
-                                      borderRadius: 10,
-                                      color: "var(--color-text-secondary)",
-                                      fontStyle: "italic",
-                                      fontSize: 13,
-                                      margin: "12px 0",
-                                      border: "1px dashed var(--color-border-tertiary)",
-                                    }}
-                                  >
-                                    🖼 {imagePromptDrill}
-                                  </div>
+                                  <WikimediaImagePanel
+                                    query={mcqData.visualSearchQuery || imagePromptDrill}
+                                    fallbackLabel={imagePromptDrill}
+                                  />
                                 );
                               })()}
                               <div
@@ -32266,7 +32791,9 @@ Current student level: ${tierLabel}`;
                                   fontWeight: 600,
                                   fontSize: "clamp(16px, 2vw, 20px)",
                                   lineHeight: 1.5,
-                                  marginBottom: 24,
+                                  width: "100%",
+                                  maxWidth: "none",
+                                  padding: "24px 0",
                                   color: t.text1,
                                   cursor: "text",
                                   userSelect: "text",
@@ -32289,6 +32816,7 @@ Current student level: ${tierLabel}`;
                                   ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                 </div>
                               )}
+                              <div style={{ width: "100%", maxWidth: "none" }}>
                               {mcqData.options.map((opt, i) => {
                                 const letters = ["A", "B", "C", "D"];
                                 const isElim = eliminatedOptions.includes(i);
@@ -32353,6 +32881,8 @@ Current student level: ${tierLabel}`;
                                       transition: "all 0.12s ease",
                                       fontSize: "clamp(14px, 1.6vw, 17px)",
                                       lineHeight: 1.4,
+                                      width: "100%",
+                                      boxSizing: "border-box",
                                     }}
                                   >
                                     <div
@@ -32416,6 +32946,7 @@ Current student level: ${tierLabel}`;
                                   </div>
                                 );
                               })}
+                              </div>
                               <div
                                 style={{
                                   fontSize: 10,
@@ -32487,7 +33018,15 @@ Current student level: ${tierLabel}`;
                           )}
 
                           {isMcq && drillCardMode === "mcq_answered" && mcqData && (
-                            <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
+                            <div
+                              style={{
+                                maxWidth: 900,
+                                width: "100%",
+                                margin: "0 auto",
+                                padding: "0 32px",
+                                boxSizing: "border-box",
+                              }}
+                            >
                               {(() => {
                                 const stemRaw = String(mcqData.question || "");
                                 const imagePromptDrill = resolveMcqImagePrompt({
@@ -32520,21 +33059,12 @@ Current student level: ${tierLabel}`;
                                     />
                                   );
                                 }
+                                // No lecture slide — auto-fetch from Wikimedia Commons
                                 return (
-                                  <div
-                                    style={{
-                                      padding: "14px 18px",
-                                      background: "var(--color-background-secondary)",
-                                      borderRadius: 10,
-                                      color: "var(--color-text-secondary)",
-                                      fontStyle: "italic",
-                                      fontSize: 13,
-                                      margin: "12px 0",
-                                      border: "1px dashed var(--color-border-tertiary)",
-                                    }}
-                                  >
-                                    🖼 {imagePromptDrill}
-                                  </div>
+                                  <WikimediaImagePanel
+                                    query={mcqData.visualSearchQuery || imagePromptDrill}
+                                    fallbackLabel={imagePromptDrill}
+                                  />
                                 );
                               })()}
                               <div
@@ -32544,7 +33074,9 @@ Current student level: ${tierLabel}`;
                                   fontWeight: 600,
                                   fontSize: "clamp(16px, 2vw, 20px)",
                                   lineHeight: 1.5,
-                                  marginBottom: 24,
+                                  width: "100%",
+                                  maxWidth: "none",
+                                  padding: "24px 0",
                                   color: t.text1,
                                   cursor: "text",
                                   userSelect: "text",
@@ -32567,6 +33099,7 @@ Current student level: ${tierLabel}`;
                                   ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                 </div>
                               )}
+                              <div style={{ width: "100%", maxWidth: "none" }}>
                               {(() => {
                                 const relevantChunk = findRelevantMcqLectureChunk(lecForCard, currentObj);
                                 const chunkText = mcqLectureSnippetPreview(relevantChunk);
@@ -32608,7 +33141,10 @@ Current student level: ${tierLabel}`;
                                       ? "—"
                                       : letters[i];
                                 return (
-                                  <div key={i} style={{ marginBottom: 10 }}>
+                                  <div
+                                    key={i}
+                                    style={{ marginBottom: 10, width: "100%", boxSizing: "border-box" }}
+                                  >
                                     <div
                                       style={{
                                         background: bg,
@@ -32625,6 +33161,8 @@ Current student level: ${tierLabel}`;
                                         transition: "all 0.12s ease",
                                         fontSize: "clamp(14px, 1.6vw, 17px)",
                                         lineHeight: 1.4,
+                                        width: "100%",
+                                        boxSizing: "border-box",
                                       }}
                                     >
                                       <div
@@ -32748,6 +33286,7 @@ Current student level: ${tierLabel}`;
                                 );
                               });
                               })()}
+                              </div>
 
                               <div
                                 style={{
@@ -33233,7 +33772,15 @@ Current student level: ${tierLabel}`;
                                 )}
 
                                 {!isMcq && drillCardMode === "mcq_ready" && mcqData && (
-                                  <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
+                                  <div
+                                    style={{
+                                      maxWidth: 900,
+                                      width: "100%",
+                                      margin: "0 auto",
+                                      padding: "0 32px",
+                                      boxSizing: "border-box",
+                                    }}
+                                  >
                                     {(() => {
                                       const stemRaw = String(mcqData.question || "");
                                       const imagePromptDrill = resolveMcqImagePrompt({
@@ -33292,7 +33839,9 @@ Current student level: ${tierLabel}`;
                                         fontWeight: 600,
                                         fontSize: "clamp(16px, 2vw, 20px)",
                                         lineHeight: 1.5,
-                                        marginBottom: 24,
+                                        width: "100%",
+                                        maxWidth: "none",
+                                        padding: "24px 0",
                                         color: t.text1,
                                         cursor: "text",
                                         userSelect: "text",
@@ -33315,6 +33864,7 @@ Current student level: ${tierLabel}`;
                                         ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                       </div>
                                     )}
+                                    <div style={{ width: "100%", maxWidth: "none" }}>
                                     {mcqData.options.map((opt, i) => {
                                       const letters = ["A", "B", "C", "D"];
                                       const isElim = eliminatedOptions.includes(i);
@@ -33379,6 +33929,8 @@ Current student level: ${tierLabel}`;
                                             transition: "all 0.12s ease",
                                             fontSize: "clamp(14px, 1.6vw, 17px)",
                                             lineHeight: 1.4,
+                                            width: "100%",
+                                            boxSizing: "border-box",
                                           }}
                                         >
                                           <div
@@ -33442,6 +33994,7 @@ Current student level: ${tierLabel}`;
                                         </div>
                                       );
                                     })}
+                                    </div>
                                     <div
                                       style={{
                                         fontSize: 10,
@@ -33513,7 +34066,15 @@ Current student level: ${tierLabel}`;
                                 )}
 
                                 {!isMcq && drillCardMode === "mcq_answered" && mcqData && (
-                                  <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 20px" }}>
+                                  <div
+                                    style={{
+                                      maxWidth: 900,
+                                      width: "100%",
+                                      margin: "0 auto",
+                                      padding: "0 32px",
+                                      boxSizing: "border-box",
+                                    }}
+                                  >
                                     {(() => {
                                       const stemRaw = String(mcqData.question || "");
                                       const imagePromptDrill = resolveMcqImagePrompt({
@@ -33572,7 +34133,9 @@ Current student level: ${tierLabel}`;
                                         fontWeight: 600,
                                         fontSize: "clamp(16px, 2vw, 20px)",
                                         lineHeight: 1.5,
-                                        marginBottom: 24,
+                                        width: "100%",
+                                        maxWidth: "none",
+                                        padding: "24px 0",
                                         color: t.text1,
                                         cursor: "text",
                                         userSelect: "text",
@@ -33595,6 +34158,7 @@ Current student level: ${tierLabel}`;
                                         ⚠ Backup question (from lecture content) — verify details in your notes if unsure
                                       </div>
                                     )}
+                                    <div style={{ width: "100%", maxWidth: "none" }}>
                                     {(() => {
                                       const relevantChunk = findRelevantMcqLectureChunk(lecForCard, currentObj);
                                       const chunkText = mcqLectureSnippetPreview(relevantChunk);
@@ -33636,7 +34200,10 @@ Current student level: ${tierLabel}`;
                                             ? "—"
                                             : letters[i];
                                       return (
-                                        <div key={i} style={{ marginBottom: 10 }}>
+                                        <div
+                                          key={i}
+                                          style={{ marginBottom: 10, width: "100%", boxSizing: "border-box" }}
+                                        >
                                           <div
                                             style={{
                                               background: bg,
@@ -33653,6 +34220,8 @@ Current student level: ${tierLabel}`;
                                               transition: "all 0.12s ease",
                                               fontSize: "clamp(14px, 1.6vw, 17px)",
                                               lineHeight: 1.4,
+                                              width: "100%",
+                                              boxSizing: "border-box",
                                             }}
                                           >
                                             <div
@@ -33778,6 +34347,7 @@ Current student level: ${tierLabel}`;
                                       );
                                     });
                                     })()}
+                                    </div>
 
                                     <div
                                       style={{

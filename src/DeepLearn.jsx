@@ -6266,7 +6266,18 @@ What is the clinical significance of this finding?`,
 
       {/* Phase 6: MCQ Application */}
       {phase === "apply" && mcqQuestions.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+            maxWidth: 960,
+            width: "100%",
+            margin: "0 auto",
+            padding: "0 24px",
+            boxSizing: "border-box",
+          }}
+        >
           <PatientBanner />
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             {PHASE_ORDER.indexOf(phase) > 0 && phase !== "summary" && (
@@ -6359,13 +6370,13 @@ What is the clinical significance of this finding?`,
           <div
             style={{
               width: "100%",
-              maxWidth: 860,
+              maxWidth: 900,
               margin: "0 auto",
               boxSizing: "border-box",
               background: T.cardBg,
               border: "1px solid " + T.border1,
               borderRadius: 12,
-              padding: "18px 24px",
+              padding: "0 32px",
             }}
           >
             <div
@@ -6377,6 +6388,9 @@ What is the clinical significance of this finding?`,
                 fontSize: 16,
                 lineHeight: 1.75,
                 fontWeight: 600,
+                width: "100%",
+                maxWidth: "none",
+                padding: "24px 0",
                 cursor: "text",
                 userSelect: "text",
                 position: "relative",
@@ -6390,9 +6404,9 @@ What is the clinical significance of this finding?`,
           <div
             style={{
               width: "100%",
-              maxWidth: 860,
+              maxWidth: 900,
               margin: "0 auto",
-              padding: "0 24px",
+              padding: "0 32px",
               boxSizing: "border-box",
               display: "flex",
               flexDirection: "column",
@@ -6432,6 +6446,8 @@ What is the clinical significance of this finding?`,
                       background: bg,
                       cursor: mcqFeedback ? "default" : "pointer",
                       transition: "all 0.15s",
+                      width: "100%",
+                      boxSizing: "border-box",
                     }}
                   >
                     <span

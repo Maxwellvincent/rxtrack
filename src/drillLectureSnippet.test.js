@@ -3,6 +3,8 @@ import {
   objectiveTextKeywords,
   findRelevantLectureExcerpt,
   excerptPlainText,
+  findRelevantMcqLectureChunk,
+  mcqLectureSnippetPreview,
 } from "./drillLectureSnippet";
 
 describe("objectiveTextKeywords", () => {
@@ -50,5 +52,41 @@ describe("excerptPlainText", () => {
   it("joins chunk markdown or text", () => {
     expect(excerptPlainText({ source: "chunk", markdown: "  x  " })).toBe("x");
     expect(excerptPlainText({ source: "chunk", text: "y" })).toBe("y");
+  });
+});
+
+describe("findRelevantMcqLectureChunk", () => {
+  it("skips metadata chunks and picks body with two keyword hits", () => {
+    const cover =
+      "St. George University\nBasic Principles of Medicine\nModule: XYZ\n" + "filler ".repeat(40);
+    const body =
+      "The brachial plexus is formed by ventral rami. The median nerve runs with important vascular structures in the arm. More clinical content continues here.";
+    const lec = { chunks: [{ text: cover }, { markdown: body }] };
+    const ch = findRelevantMcqLectureChunk(lec, { text: "Explain brachial plexus and median nerve anatomy" });
+    expect(ch).toBeTruthy();
+    expect(String(ch.markdown || ch.text).toLowerCase()).toContain("brachial");
+  });
+
+  it("returns null when fewer than two keywords match", () => {
+    const body = "xxxxxxxx brachial xxxxxxxx ".repeat(12);
+    const lec = { chunks: [{ markdown: body }] };
+    expect(
+      findRelevantMcqLectureChunk(lec, { text: "Explain zebratestword and brachial relations" })
+    ).toBeNull();
+  });
+});
+
+describe("mcqLectureSnippetPreview", () => {
+  it("returns null when filtered text is too short", () => {
+    expect(mcqLectureSnippetPreview({ text: "short" })).toBeNull();
+  });
+
+  it("returns snippet when enough long lines remain", () => {
+    const chunk = {
+      text:
+        "Line one with enough characters in it here for the filter.\nLine two also with enough content here for display.\n",
+    };
+    const p = mcqLectureSnippetPreview(chunk);
+    expect(p && p.length > 50).toBe(true);
   });
 });

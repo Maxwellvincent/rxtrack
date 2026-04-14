@@ -395,6 +395,55 @@ function rankDayOfWeek(dow) {
   return i >= 0 ? i : 99;
 }
 
+function resolveBlockForSchedule(blocks, blockId) {
+  if (!blocks || !blockId) return null;
+  if (Array.isArray(blocks)) {
+    return blocks.find((b) => b && b.id === blockId) || null;
+  }
+  return blocks[blockId] || null;
+}
+
+/**
+ * Calendar date from lectureDate or weekNumber + dayOfWeek + block.startDate
+ * (aligned with App.jsx generateDailySchedule getAvailableDate).
+ */
+export function getDerivedLectureDate(lec, blockId, blocks) {
+  if (!lec) return null;
+  if (lec.lectureDate) {
+    const d = new Date(lec.lectureDate);
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  if (!lec.weekNumber || lec.dayOfWeek == null || lec.dayOfWeek === "") return null;
+  const block = resolveBlockForSchedule(blocks, blockId);
+  const blockStart = block?.startDate ? new Date(block.startDate) : null;
+  if (!blockStart || isNaN(blockStart.getTime())) return null;
+  blockStart.setHours(0, 0, 0, 0);
+  const DOW = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
+  let targetDow = DOW[lec.dayOfWeek];
+  if (targetDow === undefined) {
+    const order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+    const s = String(lec.dayOfWeek).slice(0, 3).toLowerCase();
+    const idx = order.findIndex((x) => s.startsWith(x));
+    const monSunMap = [1, 2, 3, 4, 5, 6, 0];
+    targetDow = idx >= 0 ? monSunMap[idx] : 1;
+  }
+  const wn = Number(lec.weekNumber);
+  if (!Number.isFinite(wn)) return null;
+  const startDay = blockStart.getDay();
+  const toMonday = startDay === 0 ? -6 : 1 - startDay;
+  const weekOneMon = new Date(blockStart);
+  weekOneMon.setDate(blockStart.getDate() + toMonday);
+  weekOneMon.setHours(0, 0, 0, 0);
+  const derived = new Date(weekOneMon);
+  derived.setDate(
+    weekOneMon.getDate() + (wn - 1) * 7 + (targetDow === 0 ? 6 : targetDow - 1)
+  );
+  derived.setHours(0, 0, 0, 0);
+  return derived;
+}
+
 function lecObjsForLecture(objs, lec) {
   return (objs || []).filter(
     (o) =>
@@ -3707,6 +3756,8 @@ export default function Tracker({
   const [doneSet, setDoneSet] = useState(() => new Set());
   /** Per-row session date for unified Today expanded log (key = `${lecId}__${blockId}`). */
   const [unifiedLogDateByRow, setUnifiedLogDateByRow] = useState(() => ({}));
+  /** Per-lecture date for UP NEXT expanded log (key = lec id). */
+  const [logDate, setLogDate] = useState(() => ({}));
   const [internalRows, setInternalRows] = useState([]);
   const [ready, setReady] = useState(false);
   const [tab, setTab] = useState("tracker");
@@ -4817,15 +4868,20 @@ export default function Tracker({
               const bids = targetBlockIds;
               if (!bids.length) return null;
               const completions = completion || {};
+              const compMerged = { ...completionData, ...completions };
               const studyDayKey = studyDayKeyNow();
-              const todayKey = studyDayKey;
               const todayCalendarStr = new Date().toDateString();
-              const dow = startOfStudyDay().toLocaleDateString("en-US", { weekday: "short" });
-              const isScheduledToday = (lec) => {
+              const isScheduledToday = (lec, bid) => {
                 if (!lec) return false;
-                if (lec.lectureDate && String(lec.lectureDate).slice(0, 10) === todayKey) return true;
+                if (lec.lectureDate) {
+                  const lecDate = new Date(lec.lectureDate).toDateString();
+                  return lecDate === new Date().toDateString();
+                }
                 if (lec.weekNumber && lec.dayOfWeek) {
-                  return String(lec.dayOfWeek).slice(0, 3).toLowerCase() === String(dow).slice(0, 3).toLowerCase();
+                  const derivedDate = getDerivedLectureDate(lec, bid, blocks);
+                  if (derivedDate) {
+                    return derivedDate.toDateString() === new Date().toDateString();
+                  }
                 }
                 return false;
               };
@@ -4833,6 +4889,15 @@ export default function Tracker({
                 const entry = completions[`${lecId}__${blockId}`];
                 if (!entry || !entry.activityLog) return false;
                 return entry.activityLog.some((a) => String(a?.date || "").startsWith(studyDayKey));
+              };
+              const isCompletedToday = (lec, bid) => {
+                if (loggedToday(lec.id, bid)) return true;
+                const comp = compMerged[`${lec.id}__${bid}`];
+                if (comp?.lastActivityDate) {
+                  const lastDate = new Date(comp.lastActivityDate).toDateString();
+                  if (lastDate === todayCalendarStr) return true;
+                }
+                return false;
               };
 
               const allItemsBase = mergedTodayItems;
@@ -4843,7 +4908,7 @@ export default function Tracker({
                   const blockLecs = (lecs || []).filter((l) => l.blockId === bid);
                   blockLecs.forEach((lec) => {
                     // Include all lecture types (DLA/LEC/SG/TBL/LAB/CLIN) when scheduled today
-                    if (isScheduledToday(lec)) {
+                    if (isScheduledToday(lec, bid)) {
                       const key = `${lec.id}__${bid}`;
                       if (!next.some((i) => `${i.lec?.id}__${i.blockId}` === key)) {
                         next.push({
@@ -4991,6 +5056,7 @@ export default function Tracker({
               const todayLectures = searchedItems.filter((it) => {
                 if (overdueList.includes(it)) return false;
                 if (String(it._matchReason || it.matchReason || "") !== "TODAY'S LECTURE") return false;
+                if (!isScheduledToday(it.lec, it.blockId)) return false;
                 const comp = completionData[`${it.lec.id}__${it.blockId}`];
                 if (comp?.lastActivityDate) {
                   const lastDate = new Date(comp.lastActivityDate).toDateString();
@@ -5150,6 +5216,7 @@ export default function Tracker({
               );
 
               const upNextCandidates = [];
+              const upNextFarFuture = new Date("9999-12-31");
               bids.forEach((bid) => {
                 if (!bid) return;
                 (lecs || [])
@@ -5157,20 +5224,23 @@ export default function Tracker({
                   .forEach((lec) => {
                     const rk = `${lec.id}__${bid}`;
                     if (shownKeys.has(rk)) return;
-                    if (isScheduledToday(lec)) return;
+                    if (isScheduledToday(lec, bid)) return;
+                    if (isCompletedToday(lec, bid)) return;
+                    const comp = compMerged[rk];
+                    const sessionCount = comp?.sessionCount || 0;
                     const perf = getLecPerf(lec, bid);
                     const rawSessions = perf?.sessions || [];
                     const lecSessions = rawSessions.filter((s) => !s.lectureId || s.lectureId === lec.id);
-                    if (lecSessions.length > 0) return;
+                    const hasStarted = sessionCount > 0 || lecSessions.length > 0;
+                    if (hasStarted && !isOverdueFor(lec, bid)) return;
                     upNextCandidates.push({ lec, blockId: bid });
                   });
               });
 
               upNextCandidates.sort((a, b) => {
-                const wa = a.lec.weekNumber ?? 99;
-                const wb = b.lec.weekNumber ?? 99;
-                if (wa !== wb) return wa - wb;
-                return rankDayOfWeek(a.lec.dayOfWeek) - rankDayOfWeek(b.lec.dayOfWeek);
+                const dateA = getDerivedLectureDate(a.lec, a.blockId, blocks) || upNextFarFuture;
+                const dateB = getDerivedLectureDate(b.lec, b.blockId, blocks) || upNextFarFuture;
+                return dateA.getTime() - dateB.getTime();
               });
 
               const upNextSectionItems = upNextCandidates.slice(0, 3);
@@ -7952,6 +8022,7 @@ export default function Tracker({
                       </div>
                       {upNextSectionItemsVisible.map(({ lec, blockId: upBid }) => {
                         const upNextRowKey = `${lec.id}__${upBid}`;
+                        const maxCalDateUp = new Date().toISOString().split("T")[0];
                         const isUpNextOpen = expandedUpNext === upNextRowKey;
                         const upNextCompKey = `${lec.id}__${upBid}`;
                         const upNextCompRecord = completionData[upNextCompKey];
@@ -8004,8 +8075,34 @@ export default function Tracker({
                               }}
                             >
                               <div>
-                                <div style={{ fontSize: 14, fontWeight: 500, fontFamily: MONO, color: t.text1 }}>
-                                  {lec.lectureTitle || lec.title || lec.filename}
+                                <div
+                                  style={{
+                                    fontSize: 14,
+                                    fontWeight: 500,
+                                    fontFamily: MONO,
+                                    color: t.text1,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flexWrap: "wrap",
+                                    gap: 4,
+                                  }}
+                                >
+                                  <span>{lec.lectureTitle || lec.title || lec.filename}</span>
+                                  {(() => {
+                                    const lecDate = getDerivedLectureDate(lec, upBid, blocks);
+                                    const dayLabel = lecDate
+                                      ? lecDate.toLocaleDateString("en-US", {
+                                          weekday: "short",
+                                          month: "short",
+                                          day: "numeric",
+                                        })
+                                      : "Unscheduled";
+                                    return (
+                                      <span style={{ fontSize: 10, color: t.text3, marginLeft: 6, fontWeight: 500 }}>
+                                        📅 {dayLabel}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                                 <div
                                   style={{
@@ -8172,49 +8269,188 @@ export default function Tracker({
                                   </div>
                                 ) : (
                                   <>
-                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
-                                  <div style={{ width: "100%", marginBottom: 10 }}>
-                                    <div
+                                <div style={{ marginBottom: 10 }}>
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: t.textSecondary || t.text3,
+                                      letterSpacing: "0.05em",
+                                      marginBottom: 6,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    WHEN?
+                                  </div>
+                                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                                    <input
+                                      type="date"
+                                      value={logDate[lec.id] || maxCalDateUp}
+                                      max={maxCalDateUp}
+                                      onChange={(e) => {
+                                        e.stopPropagation();
+                                        setLogDate((prev) => ({
+                                          ...(prev || {}),
+                                          [lec.id]: e.target.value,
+                                        }));
+                                      }}
+                                      onClick={(e) => e.stopPropagation()}
                                       style={{
-                                        fontSize: 11,
-                                        fontWeight: 600,
-                                        color: t.text3,
-                                        letterSpacing: "0.05em",
-                                        marginBottom: 6,
+                                        padding: "5px 10px",
+                                        borderRadius: 6,
+                                        border: `1px solid ${t.border1 || t.border2}`,
+                                        background: t.surfaceAlt || t.inputBg,
+                                        color: t.text1,
+                                        fontSize: 12,
+                                        cursor: "pointer",
                                         fontFamily: MONO,
                                       }}
-                                    >
-                                      WHAT DID YOU DO?
-                                    </div>
-                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                                      {ACTIVITY_TYPES.map((type) => (
+                                    />
+                                    {["Today", "Yesterday", "2 days ago"].map((label, i) => {
+                                      const d = new Date();
+                                      d.setDate(d.getDate() - i);
+                                      const val = d.toISOString().split("T")[0];
+                                      const isSelected = (logDate[lec.id] || maxCalDateUp) === val;
+                                      return (
                                         <button
-                                          key={type.id}
+                                          key={label}
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            setRowLogActivityFor(lec.id, upBid, type.id);
+                                            setLogDate((prev) => ({
+                                              ...(prev || {}),
+                                              [lec.id]: val,
+                                            }));
                                           }}
                                           style={{
                                             padding: "4px 10px",
                                             borderRadius: 20,
-                                            border: `1px solid ${rowLogActivityFor(lec.id, upBid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
-                                              background: rowLogActivityFor(lec.id, upBid) === type.id ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
-                                              color: rowLogActivityFor(lec.id, upBid) === type.id ? "white" : t.text3,
+                                            border: `1px solid ${isSelected ? (t.accent || t.statusProgress || "#2563eb") : (t.border1 || t.border2)}`,
+                                            background: isSelected ? (t.accent || t.statusProgress || "#2563eb") : "transparent",
+                                            color: isSelected ? "#fff" : (t.textSecondary || t.text3),
                                             cursor: "pointer",
                                             fontSize: 11,
-                                            fontWeight: rowLogActivityFor(lec.id, upBid) === type.id ? 600 : 400,
-                                            display: "flex",
-                                            alignItems: "center",
-                                            gap: 4,
                                             fontFamily: MONO,
                                           }}
                                         >
-                                          {type.icon} {type.label}
+                                          {label}
                                         </button>
-                                      ))}
-                                    </div>
+                                      );
+                                    })}
                                   </div>
+                                </div>
+                                <div style={{ marginBottom: 10 }}>
+                                  <div
+                                    style={{
+                                      fontSize: 11,
+                                      fontWeight: 600,
+                                      color: t.textSecondary || t.text3,
+                                      letterSpacing: "0.05em",
+                                      marginBottom: 6,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    WHAT DID YOU DO?
+                                  </div>
+                                  <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                    {ACTIVITY_TYPES.map((type) => (
+                                      <button
+                                        key={type.id}
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setActivityType((prev) => ({
+                                            ...prev,
+                                            [lec.id]: type.id,
+                                          }));
+                                        }}
+                                        style={{
+                                          padding: "5px 11px",
+                                          borderRadius: 20,
+                                          border: `1px solid ${
+                                            activityType[lec.id] === type.id
+                                              ? (t.accent || t.statusProgress || "#2563eb")
+                                              : (t.border1 || t.border2)
+                                          }`,
+                                          background:
+                                            activityType[lec.id] === type.id
+                                              ? (t.accent || t.statusProgress || "#2563eb")
+                                              : "transparent",
+                                          color: activityType[lec.id] === type.id ? "#fff" : (t.textSecondary || t.text3),
+                                          cursor: "pointer",
+                                          fontSize: 11,
+                                          fontWeight: activityType[lec.id] === type.id ? 600 : 400,
+                                          fontFamily: MONO,
+                                        }}
+                                      >
+                                        {type.icon} {type.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: 8,
+                                    marginTop: 8,
+                                    marginBottom: 8,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <select
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) =>
+                                      setSelectedRating((prev) => ({
+                                        ...prev,
+                                        [lec.id]: e.target.value,
+                                      }))
+                                    }
+                                    value={selectedRating[lec.id] || ""}
+                                    style={{
+                                      padding: "6px 10px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.border1 || t.border2}`,
+                                      background: t.surfaceAlt || t.inputBg,
+                                      color: t.text1,
+                                      fontSize: 12,
+                                      cursor: "pointer",
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    <option value="">How did it go?</option>
+                                    <option value="Good">✓ Good</option>
+                                    <option value="Okay">△ Okay</option>
+                                    <option value="Struggling">⚠ Struggling</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setTimeout(() => {
+                                        markRowDone(lec.id, upBid, {
+                                          activityType: activityType[lec.id] || "lecture",
+                                          rating: selectedRating[lec.id] || "Good",
+                                          date: logDate[lec.id] || maxCalDateUp,
+                                        });
+                                      }, 0);
+                                      setExpandedUpNext(null);
+                                    }}
+                                    style={{
+                                      padding: "6px 16px",
+                                      borderRadius: 6,
+                                      border: `1px solid ${t.statusGood}`,
+                                      background: "transparent",
+                                      color: t.statusGood,
+                                      cursor: "pointer",
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      fontFamily: MONO,
+                                    }}
+                                  >
+                                    ✓ Log & mark done
+                                  </button>
+                                </div>
                                   {upNextLecObjs.length > 0 && (
                                     <div style={{ width: "100%", marginBottom: 12 }}>
                                       <div
@@ -8277,60 +8513,6 @@ export default function Tracker({
                                       </div>
                                     </div>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const idSnap = lec.id;
-                                      const bidSnap = upBid;
-                                      console.log("[rxt Mark done] up-next", idSnap, bidSnap);
-                                      setTimeout(() => {
-                                        markRowDone(idSnap, bidSnap);
-                                      }, 0);
-                                    }}
-                                    style={{
-                                      padding: "5px 12px",
-                                      borderRadius: 6,
-                                      border: `1px solid ${t.statusGood}`,
-                                      background: "transparent",
-                                      color: t.statusGood,
-                                      cursor: "pointer",
-                                      fontSize: 12,
-                                      fontWeight: 600,
-                                      fontFamily: MONO,
-                                    }}
-                                  >
-                                    ✓ Mark done
-                                  </button>
-                                  {["Good", "Okay", "Struggling"].map((r) => (
-                                    <button
-                                      key={r}
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        const lid = lec.id;
-                                        const bidSnap = upBid;
-                                        const r0 = r;
-                                        const atSnap = rowLogActivityFor(lid, bidSnap);
-                                        setTimeout(() => {
-                                          markRowDone(lid, bidSnap, { rating: r0, activityType: atSnap });
-                                        }, 0);
-                                      }}
-                                      style={{
-                                        padding: "5px 10px",
-                                        borderRadius: 6,
-                                        border: `1px solid ${t.border1}`,
-                                        background: "transparent",
-                                        color: t.text1,
-                                        cursor: "pointer",
-                                        fontSize: 12,
-                                        fontFamily: MONO,
-                                      }}
-                                    >
-                                      {r}
-                                    </button>
-                                  ))}
-                                </div>
                                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                                   <button
                                     type="button"
@@ -8467,6 +8649,92 @@ export default function Tracker({
                       })}
                     </div>
                   )}
+
+                  {(() => {
+                    const T = t;
+                    const _rk = refreshKey; // used to force refresh after marking notes done
+                    void _rk;
+                    let quickNotes = [];
+                    try {
+                      quickNotes = JSON.parse(localStorage.getItem("rxt-quick-notes") || "[]").filter((n) => n && !n.resolved);
+                    } catch {
+                      quickNotes = [];
+                    }
+                    if (!quickNotes.length) return null;
+                    return (
+                      <div style={{ marginTop: 24 }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            color: T.textSecondary || T.text3,
+                            letterSpacing: "0.08em",
+                            marginBottom: 8,
+                            fontFamily: MONO,
+                          }}
+                        >
+                          📋 NOTES TO REVIEW ({quickNotes.length})
+                        </div>
+                        {quickNotes.map((note) => (
+                          <div
+                            key={note.id}
+                            style={{
+                              padding: "10px 14px",
+                              borderRadius: 8,
+                              border: `1px solid ${T.border || T.border1 || T.border2}`,
+                              background: T.surface || T.cardBg,
+                              marginBottom: 6,
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "flex-start",
+                              gap: 8,
+                            }}
+                          >
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 10, color: T.accent, marginBottom: 3, fontFamily: MONO }}>
+                                {note.tag === "lookup"
+                                  ? "🔍 Look up"
+                                  : note.tag === "confused"
+                                    ? "❓ Confused"
+                                    : note.tag === "important"
+                                      ? "⭐ Important"
+                                      : "🔗 Connection"}
+                                {note.lectureName && (
+                                  <span style={{ color: T.textSecondary || T.text3 }}>
+                                    {" · "}
+                                    {String(note.lectureName).slice(0, 30)}
+                                  </span>
+                                )}
+                              </div>
+                              <div style={{ fontSize: 13, color: T.text || T.text1, lineHeight: 1.5 }}>{note.text}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const notes = JSON.parse(localStorage.getItem("rxt-quick-notes") || "[]");
+                                const updated = (notes || []).map((n) => (n.id === note.id ? { ...n, resolved: true } : n));
+                                localStorage.setItem("rxt-quick-notes", JSON.stringify(updated));
+                                setRefreshKey((k) => k + 1);
+                              }}
+                              style={{
+                                padding: "3px 10px",
+                                borderRadius: 6,
+                                border: `1px solid ${T.border || T.border1 || T.border2}`,
+                                background: "transparent",
+                                color: T.textSecondary || T.text3,
+                                cursor: "pointer",
+                                fontSize: 11,
+                                flexShrink: 0,
+                                fontFamily: MONO,
+                              }}
+                            >
+                              ✓ Done
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })()}

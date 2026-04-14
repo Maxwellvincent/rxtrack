@@ -56,3 +56,60 @@ export function excerptPlainText(ex) {
   if (ex.source === "chunk") return String(ex.markdown ?? ex.text ?? "").trim();
   return String(ex.text ?? "").trim();
 }
+
+/**
+ * MCQ "From your lecture" — stricter chunk pick: skip short/metadata chunks and require
+ * multiple keyword hits from the objective (avoids PDF cover / headers).
+ * @returns {null | { markdown?: string, text?: string }}
+ */
+export function findRelevantMcqLectureChunk(lec, currentObj) {
+  if (!lec?.chunks?.length) return null;
+  const objLine = String(currentObj?.text || currentObj?.objective || "").trim();
+  const keywords = objLine
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w.length > 5);
+  if (keywords.length < 1) return null;
+
+  const hit = lec.chunks.find((c) => {
+    const text = (c.markdown || c.text || "").trim();
+    if (text.length < 100) return false;
+
+    const lower = text.toLowerCase();
+    const isMetadata =
+      text.includes("St. George") ||
+      text.includes("Basic Principles of Medicine") ||
+      text.includes("Module:") ||
+      lower.includes("lecture 0") ||
+      (lower.includes("learning objectives") && text.length < 300);
+    if (isMetadata) return false;
+
+    const tLower = text.toLowerCase();
+    const matchCount = keywords.filter((kw) => tLower.includes(kw)).length;
+    return matchCount >= 2;
+  });
+  return hit || null;
+}
+
+/**
+ * Build display text for MCQ lecture verify; returns null if not useful enough to show.
+ * @returns {string | null}
+ */
+export function mcqLectureSnippetPreview(chunk) {
+  if (!chunk) return null;
+  const raw = String(chunk.markdown || chunk.text || "");
+  const chunkText = raw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(
+      (t) =>
+        t.length > 30 &&
+        !t.includes("St. George") &&
+        !t.includes("Module:")
+    )
+    .join(" ")
+    .slice(0, 200)
+    .trim();
+  if (!chunkText || chunkText.length <= 50) return null;
+  return chunkText;
+}

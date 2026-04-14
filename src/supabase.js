@@ -65,12 +65,30 @@ export async function pushAllLocalDataToSupabase(userId) {
   if (!userId) return [];
   console.log("Starting full data push for user:", userId);
   const errors = [];
+  let networkDown = false;
 
   const upsert = async (table, data) => {
-    const { error } = await supabase.from(table).upsert(data, { onConflict: "user_id" });
-    if (error) {
-      console.error(`${table} push failed:`, error);
-      errors.push({ table, error });
+    // Abort remaining calls once we know the network is down
+    if (networkDown) {
+      errors.push({ table, error: { message: "Skipped — network unavailable", code: "NETWORK_ERROR" } });
+      return;
+    }
+    try {
+      const { error } = await supabase.from(table).upsert(data, { onConflict: "user_id" });
+      if (error) {
+        if (!error.code || error.message?.includes("Failed to fetch")) {
+          networkDown = true;
+          console.warn(`Supabase unreachable (detected on ${table}). Aborting remaining push operations.`);
+        } else {
+          console.error(`${table} push failed:`, error);
+        }
+        errors.push({ table, error });
+      }
+    } catch (e) {
+      networkDown = true;
+      const err = { message: e?.message || String(e), code: "NETWORK_ERROR" };
+      console.warn(`${table} push failed (network exception):`, err.message);
+      errors.push({ table, error: err });
     }
   };
 
@@ -84,42 +102,62 @@ export async function pushAllLocalDataToSupabase(userId) {
   }
 
   const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
-  if (lecs.length > 0) {
-    const { error } = await supabase.from("lectures").upsert(
-      lecs.map((l) => {
-        const { chunks, ...lecWithoutChunks } = l;
-        return {
-          user_id: userId,
-          lecture_id: l.id,
-          block_id: l.blockId,
-          term_id: l.termId,
-          data: lecWithoutChunks,
-          chunks: chunks || [],
-          updated_at: new Date().toISOString(),
-        };
-      }),
-      { onConflict: "user_id,lecture_id" }
-    );
-    if (error) {
-      console.error("lectures push failed:", error);
-      errors.push({ table: "lectures", error });
+  if (lecs.length > 0 && !networkDown) {
+    try {
+      const { error } = await supabase.from("lectures").upsert(
+        lecs.map((l) => {
+          const { chunks, ...lecWithoutChunks } = l;
+          return {
+            user_id: userId,
+            lecture_id: l.id,
+            block_id: l.blockId,
+            term_id: l.termId,
+            data: lecWithoutChunks,
+            chunks: chunks || [],
+            updated_at: new Date().toISOString(),
+          };
+        }),
+        { onConflict: "user_id,lecture_id" }
+      );
+      if (error) {
+        if (!error.code || error.message?.includes("Failed to fetch")) networkDown = true;
+        console.error("lectures push failed:", error);
+        errors.push({ table: "lectures", error });
+      }
+    } catch (e) {
+      networkDown = true;
+      const err = { message: e?.message || String(e), code: "NETWORK_ERROR" };
+      console.warn("lectures push failed (network exception):", err.message);
+      errors.push({ table: "lectures", error: err });
     }
   }
 
   const objStored = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
   for (const [blockId, data] of Object.entries(objStored)) {
-    const { error } = await supabase.from("objectives").upsert(
-      {
-        user_id: userId,
-        block_id: blockId,
-        data,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,block_id" }
-    );
-    if (error) {
-      console.error("objectives push failed:", error);
-      errors.push({ table: "objectives", error });
+    if (networkDown) {
+      errors.push({ table: `objectives:${blockId}`, error: { message: "Skipped — network unavailable", code: "NETWORK_ERROR" } });
+      continue;
+    }
+    try {
+      const { error } = await supabase.from("objectives").upsert(
+        {
+          user_id: userId,
+          block_id: blockId,
+          data,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id,block_id" }
+      );
+      if (error) {
+        if (!error.code || error.message?.includes("Failed to fetch")) networkDown = true;
+        console.error(`objectives:${blockId} push failed:`, error);
+        errors.push({ table: `objectives:${blockId}`, error });
+      }
+    } catch (e) {
+      networkDown = true;
+      const err = { message: e?.message || String(e), code: "NETWORK_ERROR" };
+      console.warn(`objectives:${blockId} push failed (network exception):`, err.message);
+      errors.push({ table: `objectives:${blockId}`, error: err });
     }
   }
 
@@ -160,7 +198,15 @@ export async function pushAllLocalDataToSupabase(userId) {
   }
 
   if (errors.length > 0) {
-    console.warn(`Push completed with ${errors.length} errors:`, errors);
+    if (networkDown) {
+      const realErrors = errors.filter((e) => e.error?.code !== "NETWORK_ERROR");
+      console.warn(
+        `Push failed — Supabase appears unreachable. ` +
+        `${realErrors.length} API error(s), ${errors.length - realErrors.length} skipped due to network.`
+      );
+    } else {
+      console.warn(`Push completed with ${errors.length} error(s):`, errors);
+    }
   } else {
     console.log("Full push successful");
   }

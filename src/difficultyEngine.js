@@ -97,21 +97,21 @@ export function computeDifficultyTier(perf, sessionStreak = 0) {
   let baseTierIndex;
 
   if (sessionCount === 0 || lastScore === null) {
-    // First session ever — always start foundational regardless of anything
-    baseTierIndex = 0;
-  } else if (sessionCount <= 1 || lastScore < 50) {
-    // Second session or struggling (<50%) — still foundational, reinforce basics
-    baseTierIndex = 0;
-  } else if (sessionCount <= 2 || lastScore < 65) {
-    // Session 2 with passing score, or session 3 — developing
-    baseTierIndex = 1;
-  } else if (sessionCount <= 3 || lastScore < 80) {
-    // Session 3 scoring well, or session 4 — advanced
-    baseTierIndex = 2;
+    baseTierIndex = 0; // first session — always foundational
+  } else if (lastScore < 60) {
+    baseTierIndex = 0; // scoring under 60% — stay foundational regardless of sessions
+  } else if (lastScore < 75) {
+    baseTierIndex = 1; // 60-74% → developing
+  } else if (lastScore < 88) {
+    baseTierIndex = 2; // 75-87% → advanced
   } else {
-    // Session 4+ scoring 80%+ — exam ready
-    baseTierIndex = 3;
+    baseTierIndex = 3; // 88%+ → exam-ready
   }
+
+  // Session guardrail: cannot skip more than 1 tier per session
+  // (prevents jumping to exam-ready on session 1 even if somehow score is high)
+  const maxBySession = Math.min(3, Math.max(0, sessionCount - 1));
+  baseTierIndex = Math.min(baseTierIndex, maxBySession);
 
   // ── Streak bonus: hot streak bumps one tier, cold streak drops one ───────
   const streakBonus = sessionStreak >= 5 ? 2 : sessionStreak >= 3 ? 1 : sessionStreak <= -3 ? -1 : 0;
