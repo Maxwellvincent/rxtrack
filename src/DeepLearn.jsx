@@ -13,10 +13,58 @@ import {
   deepLearnPhaseNumber,
   migrateSavedDeepLearnSessionsMap,
 } from "./deepLearnPhaseUtils";
+import {
+  dedupeMcqQuestionChoices,
+  mcqResultCountsTowardCorrectScore,
+  MCQ_DISTINCT_OPTIONS_RULE,
+  MCQ_LAB_NORMAL_RANGES_RULE,
+  MCQ_OPTION_UNIQUENESS_CRITICAL,
+} from "./mcqUtils";
+import { renderAnnotatableStemNodes } from "./stemAnnotationUtils";
+import {
+  computeDifficultyTier,
+  computeDifficultyLabel,
+  buildDifficultyInstruction,
+  updateSessionStreak,
+} from "./difficultyEngine";
 
 const MONO = "'DM Mono', 'Courier New', monospace";
 const SERIF = "'Playfair Display', Georgia, serif";
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+
+function objectivePlainText(o) {
+  return String(o?.objective || o?.text || "").trim();
+}
+
+function appendStudentNoteToLine(line, o) {
+  const notes = o?.personalNotes != null ? String(o.personalNotes).trim() : "";
+  if (!notes) return line;
+  return `${line}\n  [Student note: ${notes}]`;
+}
+
+function formatObjectiveLinesBullet(objectives) {
+  const lines = [];
+  for (const o of objectives || []) {
+    const text = objectivePlainText(o);
+    if (!text) continue;
+    lines.push(appendStudentNoteToLine(`- ${text}`, o));
+  }
+  return lines.join("\n");
+}
+
+function formatObjectiveLinesNumbered(objectives, max) {
+  const lines = [];
+  let n = 0;
+  const cap = max != null ? max : 999;
+  for (const o of objectives || []) {
+    if (lines.length >= cap) break;
+    const text = objectivePlainText(o);
+    if (!text) continue;
+    n++;
+    lines.push(appendStudentNoteToLine(`${n}. ${text}`, o));
+  }
+  return lines.join("\n");
+}
 
 // Completion activity logger (rxt-completion) for deep learn sessions
 function dlGetNextSaturday(fromDate) {
@@ -208,6 +256,9 @@ function buildSessionContext(lec, blockId, blockObjs) {
 
     const lecObjs = (blockObjs || []).filter((o) => o?.linkedLecId === lec?.id);
 
+    // Starred objectives — professor-designated mastery requirements (highest priority)
+    const starredObjs = lecObjs.filter((o) => o?.starred === true);
+
     // Weak objectives — struggling or inprogress, sorted worst first
     const weakObjs = lecObjs
       .filter((o) => o?.status === "struggling" || o?.status === "inprogress")
@@ -220,13 +271,7 @@ function buildSessionContext(lec, blockId, blockObjs) {
     // Untested objectives — never seen
     const untestedObjs = lecObjs.filter((o) => !o?.status || o?.status === "untested").slice(0, 5);
 
-    // Bloom distribution
-    const bloomCounts = {};
-    lecObjs.forEach((o) => {
-      const l = o?.bloom_level || 1;
-      bloomCounts[l] = (bloomCounts[l] || 0) + 1;
-    });
-
+    // High bloom objectives
     const highBloom = lecObjs
       .filter((o) => (o?.bloom_level || 1) >= 4)
       .map((o) => o?.objective || o?.text || "")
@@ -256,13 +301,25 @@ function buildSessionContext(lec, blockId, blockObjs) {
       lines.push(`SESSION HISTORY: First session — no prior performance data`);
     }
 
+    // ── STARRED (mastery-required) objectives — always surface these first ───
+    if (starredObjs.length > 0) {
+      lines.push(`\n⭐ MASTERY-REQUIRED OBJECTIVES (professor-designated — MUST be tested every session):`);
+      lines.push(`These are the highest-priority objectives for this lecture. Always include at least one`);
+      lines.push(`question directly testing a starred objective, regardless of difficulty tier.`);
+      starredObjs.slice(0, 10).forEach((o) => {
+        const text = o?.objective || o?.text || "";
+        const status = o?.status ? ` [${o.status.toUpperCase()}]` : "";
+        if (text) lines.push(appendStudentNoteToLine(`- ⭐${status} ${text}`, o));
+      });
+    }
+
     // Weak objectives
     if (weakObjs.length > 0) {
       lines.push(`\nWEAK OBJECTIVES (prioritize these):`);
       weakObjs.forEach((o) => {
         const status = o?.status === "struggling" ? "STRUGGLING" : "IN PROGRESS";
         const text = o?.objective || o?.text || "";
-        if (text) lines.push(`- [${status}] ${text}`);
+        if (text) lines.push(appendStudentNoteToLine(`- [${status}] ${text}`, o));
       });
     }
 
@@ -271,7 +328,7 @@ function buildSessionContext(lec, blockId, blockObjs) {
       lines.push(`\nKEY UNTESTED OBJECTIVES (ensure coverage):`);
       untestedObjs.forEach((o) => {
         const text = o?.objective || o?.text || "";
-        if (text) lines.push(`- ${text}`);
+        if (text) lines.push(appendStudentNoteToLine(`- ${text}`, o));
       });
     }
 
@@ -283,19 +340,11 @@ function buildSessionContext(lec, blockId, blockObjs) {
       });
     }
 
-    // Instruction addendum based on performance
-    if (perf && perf.score < 50) {
-      lines.push(`\nINSTRUCTION: Student is struggling. Use simpler scaffolding,`);
-      lines.push(`more clinical anchors, and focus heavily on the weak objectives above.`);
-      lines.push(`Do not jump to complex application questions until foundations are clear.`);
-    } else if (perf && perf.score >= 70) {
-      lines.push(`\nINSTRUCTION: Student is performing well. Push toward higher-order`);
-      lines.push(`thinking — analysis, evaluation, clinical reasoning. Make questions`);
-      lines.push(`harder than last session. Test edge cases and exceptions.`);
-    } else if (!perf || perf.sessions === 0) {
-      lines.push(`\nINSTRUCTION: First session. Build foundational understanding,`);
-      lines.push(`use clear explanations, and ensure all key objectives are introduced.`);
-    }
+    // Adaptive difficulty tier — injected so all AI phases share the same calibration
+    const tierInfo = computeDifficultyTier(perf);
+    lines.push(`\nADAPTIVE DIFFICULTY TIER: ${tierInfo.label.toUpperCase()}`);
+    lines.push(`Bloom's target: ${tierInfo.bloomMix}`);
+    lines.push(`Question style: ${tierInfo.questionStyle}`);
 
     return lines.join("\n");
   } catch (e) {
@@ -522,7 +571,8 @@ function buildCrossLectureSystemPrompt(crossCtx) {
     .map((o) => {
       const lec = crossCtx.lecs.find((l) => l.id === o.linkedLecId);
       const lecLabel = lec ? `${lec.lectureType || "LEC"}${lec.lectureNumber ?? ""}` : "?";
-      return `- [${(o.status || "UNTESTED").toUpperCase()}][${lecLabel}] ${o.objective || o.text || ""}`;
+      const base = `- [${(o.status || "UNTESTED").toUpperCase()}][${lecLabel}] ${o.objective || o.text || ""}`;
+      return appendStudentNoteToLine(base, o);
     })
     .join("\n");
   const perfSummary = crossCtx.perfContext
@@ -646,7 +696,7 @@ function finalizeCrossSession(crossCtx, sessionResults, blockId, makeTopicKey, m
   if (!crossCtx?.lecs?.length || !blockId) return;
   const perfKey = "rxt-performance";
   const storedPerf = JSON.parse(localStorage.getItem(perfKey) || "{}");
-  const correct = (mcqResults || []).filter((r) => r.correct).length;
+  const correct = (mcqResults || []).filter((r) => mcqResultCountsTowardCorrectScore(r)).length;
   const total = (mcqResults || []).length;
   const score =
     sessionResults?.score != null
@@ -667,7 +717,7 @@ function finalizeCrossSession(crossCtx, sessionResults, blockId, makeTopicKey, m
       startedAt: now,
       completedAt: now,
       questionCount: total,
-      difficulty: "medium",
+      difficulty: computeDifficultyLabel(storedPerf[topicKey] || null),
       sessionType: "cross_lecture",
       lectureId: lec.id,
       blockId,
@@ -1340,8 +1390,12 @@ async function generateSAQs(lectureContent, blockObjectives, lectureTitle, patie
   try {
     const lecObjs = (blockObjectives || [])
       .slice(0, 5)
-      .map((o) => `- ${(o.objective || o.text || "").slice(0, 60)}`)
-      .filter((s) => s.length > 3)
+      .map((o) => {
+        const t = (o.objective || o.text || "").slice(0, 60);
+        if (t.length < 3) return null;
+        return appendStudentNoteToLine(`- ${t}`, o);
+      })
+      .filter(Boolean)
       .join("\n");
     const sessionContext = buildSessionContext(lec, blockId, blockObjectives);
     const crossPre = crossAugment?.systemPrefix ? crossAugment.systemPrefix + "\n\n" : "";
@@ -1374,7 +1428,7 @@ ${lecObjs || "Key concepts from the lecture."}
 Instruction:
 Generate questions weighted toward the weak and struggling objectives in the student context.
 If any weak/struggling objectives exist, at least 2 of the 3 questions must directly address a weak or struggling objective.
-If the student's last score was >= 70%, increase question difficulty — target Bloom's level 4-5 for at least one question.` +
+Calibrate difficulty to the ADAPTIVE DIFFICULTY TIER shown in STUDENT CONTEXT — match the Bloom's distribution and question style specified there exactly.` +
       (crossAugment?.userSuffix ? "\n\n" + crossAugment.userSuffix : "");
 
     const jsonFallback = { q: [] };
@@ -1528,16 +1582,29 @@ async function generatePatientCase(lectureContent, objectives, lectureTitle, lec
       `\n\n---\nSTUDENT CONTEXT:\n${sessionContext}\n---`;
     const user =
       `Lecture topic: ${lectureTitle || "Medical Lecture"}
-Key objectives: ${(objectives || []).slice(0, 3).map((o) => o.objective).join("; ")}
+Key objectives: ${(objectives || [])
+        .slice(0, 3)
+        .map((o) => {
+          const t = o.objective || o.text || "";
+          if (!t) return "";
+          return appendStudentNoteToLine(t, o).replace(/\n/g, " ");
+        })
+        .filter(Boolean)
+        .join("; ")}
 Lecture content excerpt: ${(lectureContent || "").slice(0, 1500)}
 
-Write a 3-4 sentence patient case that:
-- Features a SPECIFIC patient (age, sex, chief complaint)
-- Has symptoms/signs DIRECTLY related to the anatomy or pathology in this lecture
-- Gives enough clinical detail to be interesting
-- Is NOT generic — must be specific to ${lectureTitle || "this topic"}
+Write a patient case scaled to the ADAPTIVE DIFFICULTY TIER in STUDENT CONTEXT:
+- FOUNDATIONAL tier: 2-3 sentences, straightforward presentation, one clear finding
+- DEVELOPING tier: 3-4 sentences, one mechanism to connect, mild complexity
+- ADVANCED tier: 4-5 sentences, include vitals + one lab value, requires two-step reasoning
+- EXAM tier: 5-6 sentences, vitals + labs + exam findings, third-order reasoning required
 
-Design the patient case to specifically test the weak objectives listed above. If the student has struggled with this material before (score < 70%), make the case anchor directly on those struggling objectives. Use the case to build a clinical mental model around the weak areas.
+All tiers:
+- Feature a SPECIFIC patient (age, sex, chief complaint)
+- Symptoms/signs DIRECTLY tied to the anatomy or pathology in this lecture
+- NOT generic — specific to ${lectureTitle || "this topic"}
+
+Design the case to anchor the weak objectives listed in STUDENT CONTEXT. Use the vignette to build a clinical mental model around those struggling areas.
 
 Return ONLY: {"case": "specific patient case here", "focus": "specific thing to look for"}` +
       (crossAugment?.userSuffix ? "\n\n" + crossAugment.userSuffix : "");
@@ -1742,9 +1809,7 @@ function FirstPassWalkthroughInner({
 
     const sectionObjs = currentChunk.type === "objectives" ? currentChunk.items || [] : [];
     const objList =
-      sectionObjs.length > 0
-        ? sectionObjs.map((o) => `- ${o.objective || o.text || ""}`).join("\n")
-        : "Key concepts from the lecture content below.";
+      sectionObjs.length > 0 ? formatObjectiveLinesBullet(sectionObjs) : "Key concepts from the lecture content below.";
     const totalSections = totalSteps;
     const sectionIndex = step;
     const len = (lectureContent || "").length;
@@ -2103,6 +2168,7 @@ function DeepLearnSession({
   blockId,
   blockObjectives,
   getBlockObjectives,
+  onAppendObjectiveNote,
   lec,
   lectureContent,
   performanceHistory,
@@ -2202,6 +2268,7 @@ function DeepLearnSession({
   const [saqEvaluatingIdx, setSaqEvaluatingIdx] = useState(null);
   const [saqQuestions, setSaqQuestions] = useState(initialSaqQuestions ?? []);
   const [questionsError, setQuestionsError] = useState(null);
+  const [mcqGenerationError, setMcqGenerationError] = useState(null);
   const [structureQuestionsError, setStructureQuestionsError] = useState(null);
   const [structureSaqQuestions, setStructureSaqQuestions] = useState(initialStructureSaqQuestions ?? []);
   const [structureSaqAnswers, setStructureSaqAnswers] = useState(initialStructureSaqAnswers ?? {});
@@ -2222,7 +2289,12 @@ function DeepLearnSession({
   const [mcqSelected, setMcqSelected] = useState(null);
   const [mcqFeedback, setMcqFeedback] = useState(null);
   const [mcqResults, setMcqResults] = useState(initialMcqResults ?? []);
+  const [sessionStreak, setSessionStreak] = useState(0);
   const [confidenceLevel, setConfidenceLevel] = useState(null);
+  const [dlStemAnnotation, setDlStemAnnotation] = useState(null);
+  const [dlStemToast, setDlStemToast] = useState(null);
+  const dlStemContainerRef = useRef(null);
+  const dlMcqStemContextRef = useRef("");
 
   const [manualObjectives, setManualObjectives] = useState([]);
   const [manualInput, setManualInput] = useState("");
@@ -2246,6 +2318,18 @@ function DeepLearnSession({
     }
     return [];
   }, [objectives, manualObjectives, lec?.id, lec?.mergedFrom, lec?.lectureNumber, lec?.lectureType, activityStrLec, blockObjectives]);
+
+  const resolveMcqObjectiveIdForNotes = useMemo(() => {
+    const q = mcqQuestions[currentMCQ];
+    const candidates = [q?.objectiveId, deeplinkObjectiveId, resolvedObjectives?.[0]?.id].filter(Boolean);
+    const objs = getBlockObjectives?.(blockId) || [];
+    const ids = new Set(objs.map((o) => o.id));
+    for (const c of candidates) {
+      if (ids.has(c)) return c;
+    }
+    return null;
+  }, [mcqQuestions, currentMCQ, deeplinkObjectiveId, resolvedObjectives, getBlockObjectives, blockId]);
+
   const walkthroughObjectives = useMemo(() => {
     const list = resolvedObjectives || [];
     if (!lec?.id) return list;
@@ -2476,10 +2560,7 @@ function DeepLearnSession({
     }
   };
 
-  const objList = (resolvedObjectives || [])
-    .slice(0, 15)
-    .map((o, i) => `${i + 1}. ${o.objective}`)
-    .join("\n");
+  const objList = formatObjectiveLinesNumbered(resolvedObjectives || [], 15);
 
   const isAnatomyContent = useMemo(() => {
     const subject = (resolvedObjectives || []).map((o) => o.objective || o.text || "").join(" ").toLowerCase();
@@ -3152,8 +3233,18 @@ function DeepLearnSession({
 
   const advanceToMCQ = async () => {
     setLoading(true);
+    setMcqGenerationError(null);
     try {
       const sessionContext = buildSessionContext(lec, blockId, resolvedObjectives || []);
+
+      // Compute adaptive difficulty tier from performance history + current streak
+      const storedPerfRaw = (() => {
+        try { return JSON.parse(localStorage.getItem("rxt-performance") || "{}"); } catch { return {}; }
+      })();
+      const perfKey = lec?.id && blockId ? `${lec.id}__${blockId}` : null;
+      const perfEntry = perfKey ? (storedPerfRaw[perfKey] || null) : null;
+      const tierInfo = computeDifficultyTier(perfEntry, sessionStreak);
+      const difficultyBlock = buildDifficultyInstruction(tierInfo);
       let styleSection = "";
       if (buildQuestionContext && blockId) {
         const ctx = buildQuestionContext(blockId, topic?.lecId ?? null, questionBanksByFile || {}, "deeplearn");
@@ -3191,15 +3282,16 @@ function DeepLearnSession({
           `Patient case context: ${patientCase?.case || ""}\n\n` +
           `Learning objectives:\n${objList}\n\n` +
           styleSection +
+          `${MCQ_DISTINCT_OPTIONS_RULE}\n\n` +
+          `${MCQ_OPTION_UNIQUENESS_CRITICAL}\n\n` +
+          `${MCQ_LAB_NORMAL_RANGES_RULE}\n\n` +
           `Rules:\n` +
           `- Each question must start from the PATIENT (vignette-first)\n` +
           `- Ask "what is the underlying mechanism" not "what is the drug"\n` +
           `- Make wrong answers clinically plausible\n` +
           `- Reference the patient case where possible\n` +
-          `- Calibrate question difficulty based on session history from STUDENT CONTEXT:\n` +
-          `  - If last score < 50%: 60% foundational (Bloom 1-2), 40% application (Bloom 3-4)\n` +
-          `  - If last score 50-69%: 40% foundational, 60% application\n` +
-          `  - If last score >= 70%: 20% foundational, 80% application + analysis (Bloom 4-6)\n` +
+          `${difficultyBlock}\n\n` +
+          `- ⭐ STARRED OBJECTIVES (mastery-required, from STUDENT CONTEXT): At least 2 of 5 questions MUST directly test a ⭐ starred objective. These are professor-designated high-yield topics — they appear on every exam. Never skip them regardless of difficulty tier.\n` +
           `- If weak objectives exist in STUDENT CONTEXT, at least half the questions must test those specific objectives.\n` +
           `  Use the struggling objectives as the basis for distractor construction — make wrong answers reflect common misconceptions about those weak areas.\n` +
           `- Every stem MUST end with a question ending in "?"\n` +
@@ -3210,57 +3302,193 @@ function DeepLearnSession({
         4000
       );
 
-      const qs = (parsed?.questions || []).map((q, i) => ({
-        ...q,
-        id: `dl_${Date.now()}_${i}`,
-        num: i + 1,
-        difficulty: "medium",
-      }));
+      const rawQs = parsed?.questions || [];
+      const qs = [];
+      for (let i = 0; i < rawQs.length; i++) {
+        const q = rawQs[i];
+        const { valid, q: fixed } = dedupeMcqQuestionChoices(q);
+        if (!valid) continue;
+        qs.push({
+          ...fixed,
+          id: `dl_${Date.now()}_${i}`,
+          num: qs.length + 1,
+          difficulty: tierInfo.tier,
+        });
+      }
       setMcqQuestions(qs);
       setCurrentMCQ(0);
       setMcqSelected(null);
       setMcqFeedback(null);
+      if (qs.length === 0) {
+        setMcqGenerationError(
+          "Generated MCQs had duplicate or invalid answer choices (need 4 distinct options). Try again."
+        );
+        return;
+      }
       advancePhase("apply");
     } finally {
       setLoading(false);
     }
   };
 
+  const handleMcqConfidence = useCallback((questionId, flag) => {
+    if (!questionId) return;
+    setMcqResults((prev) => {
+      const idx = prev.findIndex((r) => r.questionId === questionId);
+      if (idx < 0) return prev;
+      const next = [...prev];
+      next[idx] = {
+        ...next[idx],
+        confidenceFlag: flag === "guessed" ? "guessed" : "knew",
+      };
+      return next;
+    });
+    setMcqFeedback((f) => (f && f.questionId === questionId ? { ...f, confidenceChosen: flag } : f));
+  }, []);
+
   const submitMCQ = () => {
     if (!mcqSelected) return;
     const q = mcqQuestions[currentMCQ];
     const correct = mcqSelected === q.correct;
+    const questionId = q.id;
     const result = {
       correct,
       score: correct ? 100 : 0,
       objectiveId: q.objectiveId,
       topic: q.topic,
+      questionId,
+      stem: q.stem,
+      correctText: q.choices?.[q.correct] ?? "",
     };
     setMcqFeedback({
       correct,
       explanation: q.explanation,
       correctAnswer: q.correct,
       correctText: q.choices?.[q.correct],
+      questionId,
     });
     setMcqResults((prev) => [...prev, result]);
+    // Update within-session streak for adaptive difficulty
+    setSessionStreak((prev) => updateSessionStreak(prev, correct));
   };
 
   const nextMCQ = () => {
+    const fb = mcqFeedback;
+    let mergedResults = mcqResults;
+    if (fb?.correct && fb.questionId && !fb.confidenceChosen) {
+      const idx = mcqResults.findIndex((r) => r.questionId === fb.questionId);
+      if (idx >= 0) {
+        mergedResults = [...mcqResults];
+        mergedResults[idx] = { ...mergedResults[idx], confidenceFlag: "knew" };
+        setMcqResults(mergedResults);
+      }
+    }
     if (currentMCQ < mcqQuestions.length - 1) {
       setCurrentMCQ((prev) => prev + 1);
       setMcqSelected(null);
       setMcqFeedback(null);
     } else {
+      const total = mergedResults.length;
       const score =
-        mcqResults.length > 0
+        total > 0
           ? Math.round(
-              (mcqResults.filter((r) => r.correct).length / mcqResults.length) * 100
+              (mergedResults.filter((r) => mcqResultCountsTowardCorrectScore(r)).length / total) * 100
             )
           : 0;
       setPostMCQScore(score);
       advancePhase("summary");
     }
   };
+
+  useEffect(() => {
+    dlMcqStemContextRef.current = String(mcqQuestions[currentMCQ]?.stem || "");
+  }, [mcqQuestions, currentMCQ]);
+
+  useEffect(() => {
+    setDlStemAnnotation(null);
+  }, [currentMCQ, mcqQuestions]);
+
+  const fetchDlStemAnnotation = useCallback(async (selectedText) => {
+    const questionContext = dlMcqStemContextRef.current || "";
+    const fallback = {
+      normalRange: null,
+      direction: null,
+      significance: "No information found.",
+      clinicalImplication: null,
+    };
+    try {
+      const result = await callAIJSON(
+        `You are a clinical medicine tutor helping a medical student think through a question stem. When given a selected term or lab value, return a JSON object with:
+{
+  "normalRange": "string or null — only for lab values/vitals",
+  "direction": "HIGH or LOW or null — if it's a lab value, is this value abnormal and in which direction",
+  "significance": "1-2 sentences: what does this finding mean clinically in plain language",
+  "clinicalImplication": "1 sentence: what diagnosis or mechanism does this point toward"
+}
+Be concise. Medical student level. No preamble.`,
+        `Question context: "${questionContext.slice(0, 400)}"
+Student selected: "${selectedText}"
+
+What is the clinical significance of this finding?`,
+        fallback,
+        1000
+      );
+      const merged = {
+        normalRange: result?.normalRange ?? null,
+        direction: result?.direction ?? null,
+        significance:
+          result?.significance != null && String(result.significance).trim()
+            ? String(result.significance).trim()
+            : fallback.significance,
+        clinicalImplication: result?.clinicalImplication ?? null,
+      };
+      setDlStemAnnotation((prev) => (prev ? { ...prev, loading: false, result: merged } : null));
+    } catch {
+      setDlStemAnnotation((prev) =>
+        prev
+          ? { ...prev, loading: false, result: { significance: "Could not load — check AI connection." } }
+          : null
+      );
+    }
+  }, []);
+
+  const handleDlStemSelection = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const container = dlStemContainerRef.current;
+    const selection = window.getSelection();
+    const selectedText = selection?.toString().trim();
+    if (!selectedText || selectedText.length < 2) return;
+    if (!container || !selection?.anchorNode || !selection?.focusNode) return;
+    if (!container.contains(selection.anchorNode) || !container.contains(selection.focusNode)) return;
+    let range;
+    try {
+      range = selection.getRangeAt(0);
+    } catch {
+      return;
+    }
+    const rect = range.getBoundingClientRect();
+    setDlStemAnnotation({
+      text: selectedText,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      loading: true,
+      result: null,
+    });
+    fetchDlStemAnnotation(selectedText);
+  }, [fetchDlStemAnnotation]);
+
+  const handleAddDlStemAnnotationToNotes = useCallback(
+    (annotation) => {
+      const oid = resolveMcqObjectiveIdForNotes;
+      if (!blockId || !oid || !onAppendObjectiveNote) return;
+      const line = `\n[${annotation.text}]: ${annotation.result?.significance || ""}`;
+      onAppendObjectiveNote(blockId, oid, line);
+      setDlStemAnnotation(null);
+      setDlStemToast("📝 Added to objective notes");
+      window.setTimeout(() => setDlStemToast(null), 2000);
+    },
+    [blockId, onAppendObjectiveNote, resolveMcqObjectiveIdForNotes]
+  );
 
   if (loading && phase === "prime")
     return (
@@ -3531,7 +3759,7 @@ function DeepLearnSession({
       s == null ? { txt: "—", fg: T.text3 } : s >= 70 ? { txt: s + "%", fg: "#639922" } : s >= 50 ? { txt: s + "%", fg: "#BA7517" } : { txt: s + "%", fg: "#E24B4A" };
 
     return (
-      <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto", width: "100%" }}>
+      <div style={{ padding: "20px 24px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
         <div style={{ width: "100%", padding: "20px 0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
             <div style={{ fontSize: 18, fontWeight: 500, color: T.text1, fontFamily: SERIF }}>
@@ -3928,7 +4156,7 @@ function DeepLearnSession({
     ) : null;
 
   return (
-    <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto" }}>
+    <div style={{ padding: "20px 24px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box" }}>
       <PhaseBar />
       <CrossLectureStrip />
 
@@ -5044,6 +5272,45 @@ function DeepLearnSession({
       {/* Phase 6: Fix Your Gaps (structure + anatomy walkthrough) */}
       {phase === "gaps" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {mcqGenerationError && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: 10,
+                border: "1px solid " + (T.statusWarn || "#f59e0b"),
+                background: T.statusWarnBg || "#fffbeb",
+                fontFamily: MONO,
+                fontSize: 13,
+                color: T.text2,
+                lineHeight: 1.5,
+              }}
+            >
+              {mcqGenerationError}
+              <div style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMcqGenerationError(null);
+                    void advanceToMCQ();
+                  }}
+                  disabled={loading}
+                  style={{
+                    padding: "8px 16px",
+                    borderRadius: 8,
+                    border: "none",
+                    background: loading ? T.border1 : tc,
+                    color: "#fff",
+                    cursor: loading ? "default" : "pointer",
+                    fontFamily: MONO,
+                    fontSize: 12,
+                    fontWeight: 700,
+                  }}
+                >
+                  {loading ? "Generating…" : "↺ Regenerate MCQs"}
+                </button>
+              </div>
+            </div>
+          )}
           {isFirstPass && isAnatomyContent && walkthroughObjectives.length === 0 && (
             <div
               style={{
@@ -6031,8 +6298,35 @@ function DeepLearnSession({
                 ← Previous Phase
               </button>
             )}
-            <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
-              {DEEP_LEARN_PHASES.find((p) => p.id === "apply")?.subtitle || "CLINICAL MCQ"} ({currentMCQ + 1}/{mcqQuestions.length})
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontFamily: MONO, color: tc, fontSize: 10, letterSpacing: 1.5 }}>
+                {DEEP_LEARN_PHASES.find((p) => p.id === "apply")?.subtitle || "CLINICAL MCQ"} ({currentMCQ + 1}/{mcqQuestions.length})
+              </div>
+              {(() => {
+                const tier = mcqQuestions[0]?.difficulty;
+                if (!tier) return null;
+                const tierMeta = {
+                  foundational: { label: "Foundational", color: "#22c55e" },
+                  developing:   { label: "Developing",   color: "#f59e0b" },
+                  advanced:     { label: "Advanced",     color: "#f97316" },
+                  exam:         { label: "Exam-Ready",   color: "#ef4444" },
+                };
+                const meta = tierMeta[tier] || { label: tier, color: tc };
+                return (
+                  <div style={{
+                    fontFamily: MONO,
+                    fontSize: 9,
+                    letterSpacing: 1,
+                    padding: "3px 8px",
+                    borderRadius: 4,
+                    border: `1px solid ${meta.color}`,
+                    color: meta.color,
+                    textTransform: "uppercase",
+                  }}>
+                    {meta.label}
+                  </div>
+                );
+              })()}
             </div>
             {PHASE_ORDER.indexOf(phase) === 0 && <div />}
           </div>
@@ -6064,26 +6358,47 @@ function DeepLearnSession({
 
           <div
             style={{
+              width: "100%",
+              maxWidth: 860,
+              margin: "0 auto",
+              boxSizing: "border-box",
               background: T.cardBg,
               border: "1px solid " + T.border1,
               borderRadius: 12,
-              padding: "18px 20px",
+              padding: "18px 24px",
             }}
           >
             <div
+              ref={dlStemContainerRef}
+              onMouseUp={handleDlStemSelection}
               style={{
                 fontFamily: SERIF,
                 color: T.text1,
                 fontSize: 16,
                 lineHeight: 1.75,
                 fontWeight: 600,
+                cursor: "text",
+                userSelect: "text",
+                position: "relative",
+                WebkitUserSelect: "text",
               }}
             >
-              {mcqQuestions[currentMCQ]?.stem}
+              {renderAnnotatableStemNodes(String(mcqQuestions[currentMCQ]?.stem || ""))}
             </div>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div
+            style={{
+              width: "100%",
+              maxWidth: 860,
+              margin: "0 auto",
+              padding: "0 24px",
+              boxSizing: "border-box",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+            }}
+          >
             {Object.entries(mcqQuestions[currentMCQ]?.choices || {}).map(
               ([key, val]) => {
                 let bg = T.inputBg;
@@ -6208,6 +6523,67 @@ function DeepLearnSession({
                     Correct: {mcqFeedback.correctAnswer}. {mcqFeedback.correctText}
                   </div>
                 )}
+                {mcqFeedback.correct && !mcqFeedback.confidenceChosen && (
+                  <div
+                    style={{
+                      marginTop: 12,
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "center",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <span style={{ fontSize: 12, color: T.text3, fontFamily: MONO }}>
+                      Did you actually know this?
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleMcqConfidence(mcqFeedback.questionId, "knew")}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 8,
+                        border: "1px solid " + T.border1,
+                        background: T.inputBg,
+                        color: T.text1,
+                        fontFamily: MONO,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ✓ Yes, knew it
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMcqConfidence(mcqFeedback.questionId, "guessed")}
+                      style={{
+                        padding: "6px 12px",
+                        borderRadius: 8,
+                        border: "1px solid " + T.border1,
+                        background: T.inputBg,
+                        color: T.text1,
+                        fontFamily: MONO,
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      ⚡ Got lucky
+                    </button>
+                  </div>
+                )}
+                {mcqFeedback.confidenceChosen === "guessed" && (
+                  <div
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: 12,
+                      color: T.statusWarn,
+                      marginTop: 8,
+                    }}
+                  >
+                    Flagged for review — this won&apos;t count toward mastery
+                  </div>
+                )}
               </div>
               <button
                 onClick={nextMCQ}
@@ -6228,6 +6604,175 @@ function DeepLearnSession({
                   : "See Results →"}
               </button>
             </>
+          )}
+          {dlStemAnnotation && (
+            <>
+              <div
+                role="presentation"
+                style={{ position: "fixed", inset: 0, zIndex: 9998 }}
+                onClick={() => setDlStemAnnotation(null)}
+              />
+              <div
+                role="dialog"
+                aria-label="Stem annotation"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: "fixed",
+                  left: Math.max(
+                    8,
+                    Math.min(
+                      dlStemAnnotation.x - 150,
+                      (typeof window !== "undefined" ? window.innerWidth : 800) - 308
+                    )
+                  ),
+                  top: Math.max(
+                    8,
+                    Math.min(
+                      dlStemAnnotation.y - 160,
+                      (typeof window !== "undefined" ? window.innerHeight : 600) - 280
+                    )
+                  ),
+                  width: 300,
+                  background: "white",
+                  borderRadius: 12,
+                  boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+                  border: "1px solid #e2e8f0",
+                  padding: 16,
+                  zIndex: 9999,
+                  fontFamily: MONO,
+                  fontSize: 12,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 10,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontWeight: 700,
+                      fontSize: 13,
+                      color: "#1e293b",
+                      wordBreak: "break-word",
+                      paddingRight: 8,
+                    }}
+                  >
+                    🔬 {dlStemAnnotation.text}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setDlStemAnnotation(null)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      fontSize: 16,
+                      color: "#94a3b8",
+                      flexShrink: 0,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+                {dlStemAnnotation.loading ? (
+                  <div style={{ color: "#64748b" }}>Looking up...</div>
+                ) : (
+                  <>
+                    {dlStemAnnotation.result?.normalRange && (
+                      <div
+                        style={{
+                          background: "#f0fdf4",
+                          border: "1px solid #86efac",
+                          borderRadius: 6,
+                          padding: "6px 10px",
+                          marginBottom: 8,
+                        }}
+                      >
+                        <span style={{ color: "#16a34a", fontWeight: 600 }}>Normal range:</span>{" "}
+                        <span style={{ color: "#15803d" }}>{dlStemAnnotation.result.normalRange}</span>
+                        {dlStemAnnotation.result.direction && (
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              color:
+                                String(dlStemAnnotation.result.direction).toUpperCase() === "HIGH"
+                                  ? "#dc2626"
+                                  : "#2563eb",
+                              fontWeight: 700,
+                            }}
+                          >
+                            {String(dlStemAnnotation.result.direction).toUpperCase() === "LOW" ? "↓ " : "↑ "}
+                            {String(dlStemAnnotation.result.direction).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div style={{ color: "#334155", lineHeight: 1.5, marginBottom: 8 }}>
+                      {dlStemAnnotation.result?.significance}
+                    </div>
+                    {dlStemAnnotation.result?.clinicalImplication && (
+                      <div
+                        style={{
+                          background: "#eff6ff",
+                          border: "1px solid #93c5fd",
+                          borderRadius: 6,
+                          padding: "6px 10px",
+                          color: "#1d4ed8",
+                          fontSize: 11,
+                        }}
+                      >
+                        💡 {dlStemAnnotation.result.clinicalImplication}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleAddDlStemAnnotationToNotes(dlStemAnnotation)}
+                      disabled={!resolveMcqObjectiveIdForNotes || !onAppendObjectiveNote}
+                      style={{
+                        marginTop: 10,
+                        width: "100%",
+                        padding: "6px 0",
+                        borderRadius: 6,
+                        border: "1px solid #e2e8f0",
+                        background:
+                          !resolveMcqObjectiveIdForNotes || !onAppendObjectiveNote ? T.border1 : "#f8fafc",
+                        color: "#475569",
+                        fontSize: 11,
+                        cursor:
+                          !resolveMcqObjectiveIdForNotes || !onAppendObjectiveNote ? "not-allowed" : "pointer",
+                        fontFamily: MONO,
+                        opacity: !resolveMcqObjectiveIdForNotes || !onAppendObjectiveNote ? 0.55 : 1,
+                      }}
+                    >
+                      📝 Save to objective notes
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+          {dlStemToast && (
+            <div
+              style={{
+                position: "fixed",
+                bottom: 24,
+                left: "50%",
+                transform: "translateX(-50%)",
+                zIndex: 10000,
+                padding: "8px 16px",
+                borderRadius: 8,
+                background: "#1e293b",
+                color: "#f8fafc",
+                fontFamily: MONO,
+                fontSize: 12,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+              }}
+            >
+              {dlStemToast}
+            </div>
           )}
         </div>
       )}
@@ -6500,7 +7045,10 @@ function DeepLearnSession({
                   postMCQScore != null
                     ? postMCQScore
                     : results?.length
-                      ? Math.round((results.filter((r) => r.correct).length / results.length) * 100)
+                      ? Math.round(
+                          (results.filter((r) => mcqResultCountsTowardCorrectScore(r)).length / results.length) *
+                            100
+                        )
                       : 0;
                 finalizeCrossSession(
                   crossCtx,
@@ -6523,7 +7071,15 @@ function DeepLearnSession({
                 topicKey: makeTopicKey
                   ? makeTopicKey(resolvedObjectives?.[0]?.linkedLecId ?? null, blockId)
                   : (blockId + "__" + (resolvedObjectives?.[0]?.linkedLecId || "block")),
-                difficulty: "medium",
+                difficulty: (() => {
+                  try {
+                    const p = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+                    const tk = makeTopicKey
+                      ? makeTopicKey(resolvedObjectives?.[0]?.linkedLecId ?? null, blockId)
+                      : (blockId + "__" + (resolvedObjectives?.[0]?.linkedLecId || "block"));
+                    return computeDifficultyLabel(p[tk] || null);
+                  } catch { return "foundational"; }
+                })(),
                 targetObjectives: resolvedObjectives,
                 preSAQScore,
                 postMCQScore,
@@ -6565,6 +7121,7 @@ export default function DeepLearn({
   blockObjectives = [],
   lecObjectives: lecObjectivesProp = [],
   getBlockObjectives,
+  onAppendObjectiveNote,
   questionBanksByFile = {},
   buildQuestionContext,
   detectStudyMode: detectStudyModeProp,
@@ -7051,7 +7608,7 @@ export default function DeepLearn({
 
       const struggledIds = rfStrugglingIds;
       return (
-        <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+        <div style={{ padding: "24px 32px 48px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box", fontFamily: MONO }}>
           <div style={{ maxWidth: 400, margin: "0 auto", padding: "0 0 20px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontSize: 18, fontWeight: 500, color: T.text1 }}>⚡ Rapid Fire complete</div>
@@ -7179,7 +7736,7 @@ export default function DeepLearn({
     // Empty queue
     if (!lec || totalCards === 0) {
       return (
-        <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+        <div style={{ padding: "24px 32px 48px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box", fontFamily: MONO }}>
           <div style={{ maxWidth: 420, margin: "0 auto", background: T.cardBg, borderRadius: 12, border: "1px solid " + T.border1, padding: 16 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text1 }}>⚡ Rapid Fire</div>
@@ -7224,7 +7781,7 @@ export default function DeepLearn({
     const timerStr = formatMMSS(rfElapsedSeconds);
 
     return (
-      <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+      <div style={{ padding: "24px 32px 48px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box", fontFamily: MONO }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", marginBottom: 12 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: T.text1 }}>⚡ Rapid Fire</div>
@@ -7471,7 +8028,7 @@ export default function DeepLearn({
   }
 
   return (
-    <div style={{ padding: "24px 32px 48px", maxWidth: 720, margin: "0 auto", fontFamily: MONO }}>
+    <div style={{ padding: "24px 32px 48px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box", fontFamily: MONO }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
         <button
           type="button"
@@ -7731,7 +8288,7 @@ export default function DeepLearn({
           return { nSess, pct, col, label: `${l.lectureType || "LEC"}${l.lectureNumber ?? ""}` };
         };
         return (
-          <div style={{ padding: "20px 24px", maxWidth: 720, margin: "0 auto", fontFamily: MONO_X }}>
+          <div style={{ padding: "20px 24px", maxWidth: 860, margin: "0 auto", width: "100%", boxSizing: "border-box", fontFamily: MONO_X }}>
             <div style={{ fontSize: 16, fontWeight: 500, color: T.text1, marginBottom: 8, fontFamily: SERIF_X }}>
               Cross-lecture session
             </div>
@@ -8046,6 +8603,7 @@ export default function DeepLearn({
           blockId={blockId}
           blockObjectives={blockObjectives}
           getBlockObjectives={getBlockObjectives}
+          onAppendObjectiveNote={onAppendObjectiveNote}
           lec={lectureForTopic}
           performanceHistory={performanceHistory}
           isFirstPass={isFirstPass}
