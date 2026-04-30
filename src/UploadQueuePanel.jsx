@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-const DEFAULT_MONO = "'DM Mono', 'Courier New', monospace";
+const DEFAULT_MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
 /**
  * Fixed upload queue UI (extracted from App for clarity).

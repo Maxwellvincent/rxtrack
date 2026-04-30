@@ -6,8 +6,13 @@ import {
   pushAllLocalDataToSupabase,
   pullAllDataFromSupabase,
   scheduleSyncToSupabase,
+  scheduleDebouncedCloudPush,
   checkCloudHasData,
   clearDebouncedCloudPush,
+  saveMcqBankEntry,
+  uploadQuestionImage,
+  fetchQuestionImages,
+  deleteQuestionImage,
 } from "./supabase";
 import Tracker, {
   getConfidenceTrend,
@@ -30,6 +35,8 @@ import {
 import { renderAnnotatableStemNodes } from "./stemAnnotationUtils";
 import { extractPDFWithMistralSafe, extractTextWithMistral, ocrPageToLectureChunk } from "./mistralOCR";
 import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
+import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from "./calibration";
+import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
 import {
   ThemeContext,
   useTheme,
@@ -557,7 +564,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
           border: "none",
           cursor: "pointer",
           padding: "4px 0",
-          fontFamily: MONO,
+          fontFamily: SANS,
           fontSize: 12,
           fontWeight: 700,
           color: T.text1,
@@ -587,7 +594,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                 padding: "6px 12px",
                 borderRadius: 8,
                 cursor: "pointer",
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 11,
               }}
             >
@@ -604,7 +611,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                 padding: "6px 12px",
                 borderRadius: 8,
                 cursor: imgBusy ? "wait" : "pointer",
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 11,
                 opacity: imgBusy ? 0.7 : 1,
               }}
@@ -629,7 +636,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                 marginBottom: 10,
               }}
             >
-              <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 6 }}>Video URL</div>
+              <div style={{ fontFamily: SANS, fontSize: 10, color: T.text3, marginBottom: 6 }}>Video URL</div>
               <input
                 value={ytUrl}
                 onChange={(e) => setYtUrl(e.target.value)}
@@ -640,14 +647,14 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                   background: T.cardBg,
                   border: "1px solid " + T.border1,
                   color: T.text1,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 11,
                   padding: "8px 10px",
                   borderRadius: 6,
                   marginBottom: 8,
                 }}
               />
-              <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 6 }}>Title (optional)</div>
+              <div style={{ fontFamily: SANS, fontSize: 10, color: T.text3, marginBottom: 6 }}>Title (optional)</div>
               <input
                 value={ytTitleDraft}
                 onChange={(e) => setYtTitleDraft(e.target.value)}
@@ -658,7 +665,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                   background: T.cardBg,
                   border: "1px solid " + T.border1,
                   color: T.text1,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 11,
                   padding: "8px 10px",
                   borderRadius: 6,
@@ -676,7 +683,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                   padding: "8px 14px",
                   borderRadius: 6,
                   cursor: ytBusy ? "wait" : "pointer",
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 11,
                   fontWeight: 700,
                 }}
@@ -684,7 +691,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                 {ytBusy ? "Fetching…" : "Fetch transcript"}
               </button>
               {ytError && (
-                <div style={{ fontFamily: MONO, fontSize: 10, color: T.statusBad, marginTop: 8, lineHeight: 1.4 }}>
+                <div style={{ fontFamily: SANS, fontSize: 10, color: T.statusBad, marginTop: 8, lineHeight: 1.4 }}>
                   {ytError}
                   <div style={{ color: T.text3, marginTop: 4 }}>
                     YouTube → ⋮ → Show transcript → select all → copy, then paste below.
@@ -693,7 +700,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
               )}
               {manualOpen && (
                 <div style={{ marginTop: 10 }}>
-                  <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, marginBottom: 4 }}>Paste transcript</div>
+                  <div style={{ fontFamily: SANS, fontSize: 10, color: T.text3, marginBottom: 4 }}>Paste transcript</div>
                   <textarea
                     value={manualTranscript}
                     onChange={(e) => setManualTranscript(e.target.value)}
@@ -704,7 +711,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                       background: T.cardBg,
                       border: "1px solid " + T.border1,
                       color: T.text1,
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                       fontSize: 11,
                       padding: 8,
                       borderRadius: 6,
@@ -722,7 +729,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                       padding: "6px 12px",
                       borderRadius: 6,
                       cursor: "pointer",
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                       fontSize: 11,
                     }}
                   >
@@ -752,7 +759,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
                   background: T.inputBg,
                   border: "1px solid " + T.border1,
                   borderRadius: 8,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 11,
                 }}
               >
@@ -785,7 +792,7 @@ function LectureResourcesPanel({ lec, T, tc, MONO, onUpdateLec }) {
               </div>
             ))}
             {supplemental.length === 0 && (
-              <div style={{ fontFamily: MONO, fontSize: 10, color: T.text3, padding: "4px 0" }}>
+              <div style={{ fontFamily: SANS, fontSize: 10, color: T.text3, padding: "4px 0" }}>
                 No supplemental resources yet.
               </div>
             )}
@@ -1062,7 +1069,7 @@ function renderNoteWithLinks(text) {
           borderRadius: 3,
           padding: "0 4px",
           fontSize: 11,
-          fontFamily: "'DM Mono','Courier New',monospace",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         }}
       >
         {part}
@@ -1149,15 +1156,128 @@ function dedupeObjectivesById(updatedObjs) {
 }
 
 const ORDER_LABELS = {
-  1: "1st order",
-  2: "2nd order",
-  3: "3rd order",
+  1: "Foundational",
+  2: "Applied",
+  3: "Step 1 Level",
 };
 
+// ── Confidence calibration ───────────────────────────────────────────
+// Reads the rolling rxt-calibration log and returns: per-bucket accuracy,
+// overall calibration gap (how far reported confidence is from actual accuracy),
+// trend over the last 2 weeks, and totals.
+function computeCalibration(entries, opts = {}) {
+  const { blockId = null } = opts;
+  const arr = Array.isArray(entries) ? entries.filter((e) => e && e.confidence) : [];
+  const filtered = blockId ? arr.filter((e) => e.blockId === blockId) : arr;
+  const buckets = { High: [], Medium: [], Low: [] };
+  filtered.forEach((e) => {
+    const k = e.confidence;
+    if (buckets[k]) buckets[k].push(!!e.correct);
+  });
+  const expected = { High: 90, Medium: 65, Low: 35 };
+  const summarise = (label) => {
+    const xs = buckets[label] || [];
+    const n = xs.length;
+    const correct = xs.filter(Boolean).length;
+    const accuracy = n > 0 ? Math.round((correct / n) * 100) : null;
+    const gap = accuracy != null ? accuracy - expected[label] : null;
+    return { label, n, correct, accuracy, expected: expected[label], gap };
+  };
+  const high = summarise("High");
+  const medium = summarise("Medium");
+  const low = summarise("Low");
+  const total = filtered.length;
+  const totalCorrect = filtered.filter((e) => e.correct).length;
+  const overall = total > 0 ? Math.round((totalCorrect / total) * 100) : null;
+  // Calibration "score" = 100 - mean absolute gap across buckets that have data.
+  const usedGaps = [high, medium, low].filter((b) => b.accuracy != null).map((b) => Math.abs(b.gap));
+  const calibrationScore = usedGaps.length
+    ? Math.max(0, Math.round(100 - usedGaps.reduce((s, x) => s + x, 0) / usedGaps.length))
+    : null;
+  // 2-week rolling trend: compare last week's calibration to the week before.
+  const now = Date.now();
+  const day = 86400000;
+  const lastWeek = filtered.filter((e) => now - new Date(e.date).getTime() <= 7 * day);
+  const priorWeek = filtered.filter((e) => {
+    const dt = now - new Date(e.date).getTime();
+    return dt > 7 * day && dt <= 14 * day;
+  });
+  const calc = (xs) => {
+    if (!xs.length) return null;
+    const acc = (xs.filter((x) => x.correct).length / xs.length) * 100;
+    const gaps = ["High", "Medium", "Low"].map((lbl) => {
+      const ys = xs.filter((x) => x.confidence === lbl);
+      if (!ys.length) return null;
+      const a = (ys.filter((y) => y.correct).length / ys.length) * 100;
+      return Math.abs(a - expected[lbl]);
+    }).filter((g) => g != null);
+    if (!gaps.length) return { acc: Math.round(acc), score: null };
+    return { acc: Math.round(acc), score: Math.max(0, Math.round(100 - gaps.reduce((s, x) => s + x, 0) / gaps.length)) };
+  };
+  const lastWeekStats = calc(lastWeek);
+  const priorWeekStats = calc(priorWeek);
+
+  // Streak: count consecutive days (ending today or yesterday) where calibration was ≥80
+  // for that day's entries. Days with no calibration data break the chain.
+  const byDay = new Map();
+  filtered.forEach((e) => {
+    const d = (e.date || "").slice(0, 10);
+    if (!d) return;
+    if (!byDay.has(d)) byDay.set(d, []);
+    byDay.get(d).push(e);
+  });
+  const dayScore = (xs) => {
+    const gaps = ["High", "Medium", "Low"]
+      .map((lbl) => {
+        const ys = xs.filter((y) => y.confidence === lbl);
+        if (!ys.length) return null;
+        const a = (ys.filter((y) => y.correct).length / ys.length) * 100;
+        return Math.abs(a - expected[lbl]);
+      })
+      .filter((g) => g != null);
+    if (!gaps.length) return null;
+    return Math.max(0, Math.round(100 - gaps.reduce((s, x) => s + x, 0) / gaps.length));
+  };
+  let streak = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  // Allow today OR yesterday as the streak head (don't break the chain mid-day if
+  // user hasn't practiced yet today).
+  const startCursor = byDay.has(fmt(today))
+    ? new Date(today)
+    : (() => { const y = new Date(today); y.setDate(y.getDate() - 1); return byDay.has(fmt(y)) ? y : null; })();
+  if (startCursor) {
+    const cursor = new Date(startCursor);
+    while (true) {
+      const k = fmt(cursor);
+      const xs = byDay.get(k);
+      if (!xs) break;
+      const ds = dayScore(xs);
+      if (ds == null || ds < 80) break;
+      streak += 1;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+  }
+
+  return {
+    total,
+    overall,
+    calibrationScore,
+    streak,
+    buckets: { high, medium, low },
+    trend: { lastWeek: lastWeekStats, priorWeek: priorWeekStats },
+    flagged: {
+      overconfidentHigh: high.accuracy != null && high.gap < -15,
+      underconfidentLow: low.accuracy != null && low.gap > 25,
+    },
+  };
+}
+
 const orderDescriptions = {
-  1: "1st order — Score 80%+ to unlock applied questions",
-  2: "2nd order — Score 80%+ again to unlock Step 1 questions",
-  3: "3rd order — Step 1 level · USMLE reasoning",
+  1: "Foundational recall · Score 80%+ once or 70%+ across 3 sessions to unlock Applied",
+  2: "Applied clinical · Score 80%+ again, or 75%+ across 5 sessions, to unlock Step 1",
+  3: "Step 1 level · USMLE-style reasoning",
 };
 
 function getLecQuestionLevel(lec, blockId) {
@@ -1178,8 +1298,13 @@ function getLecQuestionLevel(lec, blockId) {
 
     const effectiveScore = Math.max(bestScore, lastScore);
 
+    // Primary path: 80%+ on a session unlocks Applied; 80%+ twice or 90%+ once → Step 1.
+    // Persistence path: 3+ sessions at 70%+ also advances to Applied, and 5+ sessions
+    // at 75%+ → Step 1. Keeps the user moving even when scores plateau just below 80%.
     if ((effectiveScore >= 80 && sessionCount >= 2) || effectiveScore >= 90) return 3;
     if (effectiveScore >= 80 && sessionCount >= 1) return 2;
+    if (effectiveScore >= 75 && sessionCount >= 5) return 3;
+    if (effectiveScore >= 70 && sessionCount >= 3) return 2;
     return 1;
   } catch {
     return 1;
@@ -1325,7 +1450,7 @@ function getStudyCoachSteps(lec, blockId) {
             ? [
                 `Focus only on: ${strugglingObjs
                   .slice(0, 3)
-                  .map((o) => objText(o).slice(0, 40))
+                  .map((o) => objText(o).slice(0, 80))
                   .join(", ")}`,
                 "Open Deep Learn → Learn phase for those objectives only",
                 "Or watch the part of the video covering that topic",
@@ -1528,7 +1653,35 @@ function saveMSKObjectives(blockId, updatedObjs) {
       try {
         const stored = JSON.parse(localStorage.getItem(key) || "{}");
         const writeKey = blockObjectivesStorageKey(stored, blockId);
-        stored[writeKey] = dedupeObjectivesById(updatedObjs);
+        const deduped = dedupeObjectivesById(updatedObjs);
+        const existing = stored[writeKey];
+
+        // Preserve the existing storage shape. The codebase migrated from a flat
+        // legacy array to {imported, extracted}; writing an array on top of an
+        // object silently destroys the bucket structure (and forces every read
+        // path through the legacy fallback). Keep items in whichever bucket
+        // they came from; route brand-new items to `extracted` by default.
+        if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+          const importedIds = new Set(
+            (Array.isArray(existing.imported) ? existing.imported : [])
+              .map((o) => o?.id)
+              .filter(Boolean)
+          );
+          const nextImported = [];
+          const nextExtracted = [];
+          for (const o of deduped) {
+            if (o?.id && importedIds.has(o.id)) nextImported.push(o);
+            else nextExtracted.push(o);
+          }
+          stored[writeKey] = {
+            ...existing,
+            imported: nextImported,
+            extracted: nextExtracted,
+          };
+        } else {
+          stored[writeKey] = deduped;
+        }
+
         safeSetItem(key, stored);
         window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
       } catch (e) {
@@ -1889,6 +2042,9 @@ function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
     stored.lifetime = lifetimeConcepts;
     localStorage.setItem("rxt-weak-concepts", JSON.stringify(stored));
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user?.id) scheduleDebouncedCloudPush(data.user.id);
+    }).catch(() => {});
   } catch (e) {
     console.error("saveWeakConcepts failed:", e);
   }
@@ -1923,7 +2079,7 @@ function syncStrugglingToWeakConcepts(blockId) {
 
       const words = objText.split(/\s+/);
       const conceptName = words
-        .slice(0, 6)
+        .slice(0, 12)
         .join(" ")
         .replace(/[.,;:!?]$/, "");
 
@@ -2027,6 +2183,7 @@ async function recordWrongAnswer({
   linkedLecId,
   lectureLabel,
   source = "drill",
+  objectiveId = null,
 }) {
   try {
     if (!blockId) return;
@@ -2064,6 +2221,7 @@ async function recordWrongAnswer({
       correctAnswer: String(correctAnswer || "").slice(0, 200),
       date: now,
       source,
+      objectiveId: objectiveId || null,
     };
 
     const existingBlockIdx = blockConcepts.findIndex(
@@ -2090,6 +2248,7 @@ async function recordWrongAnswer({
         sourceQuestions: [sourceQ, ...(existing.sourceQuestions || [])].slice(0, 10),
         linkedLecIds: [...new Set([...(existing.linkedLecIds || []), linkedLecId].filter(Boolean))],
         lectureLabels: [...new Set([...(existing.lectureLabels || []), lectureLabel].filter(Boolean))],
+        objectiveIds: [...new Set([...(existing.objectiveIds || []), objectiveId].filter(Boolean))],
       };
     } else {
       const id =
@@ -2106,6 +2265,7 @@ async function recordWrongAnswer({
         blockName: blockName || "",
         linkedLecIds: [linkedLecId].filter(Boolean),
         lectureLabels: [lectureLabel].filter(Boolean),
+        objectiveIds: [objectiveId].filter(Boolean),
         missCount: 1,
         lastMissed: now,
         lastCorrect: null,
@@ -2352,7 +2512,8 @@ function computeDrillProgressAfterAnswer(obj, wasCorrect) {
   } else if (newConsecutive >= 2) {
     newStatus = "inprogress";
   } else {
-    newStatus = o.status || "untested";
+    // First correct answer — always move out of untested into inprogress
+    newStatus = (o.status === "untested" || !o.status) ? "inprogress" : o.status;
   }
   return {
     newConsecutive,
@@ -2544,8 +2705,12 @@ Student has missed this ${conceptFocus.missCount || 0} times.`;
 
 ${MCQ_OPTION_UNIQUENESS_CRITICAL}
 
+CRITICAL: The "q" field MUST end with an explicit question sentence ending in "?".
+A vignette alone (e.g. "...consistent with respiratory distress syndrome.") is NEVER acceptable.
+Always append a clear lead-in like "Which of the following is most likely?" or "What is the underlying mechanism?".
+
 Return JSON only. No markdown.
-{"q":"question","o":[{"t":"option","c":bool,"e":"explanation"},...],"ex":"explanation","conceptTested":"2-5 word concept name","angle":"anatomy|physiology|clinical|pathology"}
+{"q":"question (must end with '?')","o":[{"t":"option","c":bool,"e":"explanation"},...],"ex":"explanation","conceptTested":"2-5 word concept name","angle":"anatomy|physiology|clinical|pathology"}
 4 options. 1 correct.`;
 
   const userPrompt = `${LECTURE_MARKDOWN_CONTEXT_FOR_AI}
@@ -2946,10 +3111,14 @@ function compressObjectiveStore() {
 }
 function deduplicateLectures(lecs) {
   const seen = new Map();
-  // Sort newest first so we keep the latest upload
-  const sorted = [...(lecs || [])].sort((a, b) => 
-    new Date(b.uploadDate || b.uploadedAt || 0) - new Date(a.uploadDate || a.uploadedAt || 0)
-  );
+  const isStub = (l) => !l.fullText && !l.chunks?.length && !l.teachingMap && (l.filename === "" || !l.filename);
+  // Real lectures first, then newest first — so real lectures always win over stubs
+  const sorted = [...(lecs || [])].sort((a, b) => {
+    const aStub = isStub(a) ? 1 : 0;
+    const bStub = isStub(b) ? 1 : 0;
+    if (aStub !== bStub) return aStub - bStub; // real first
+    return new Date(b.uploadDate || b.uploadedAt || 0) - new Date(a.uploadDate || a.uploadedAt || 0);
+  });
   sorted.forEach(lec => {
     // Only deduplicate if we have a valid type and number, otherwise use ID so we don't merge unrelated lectures
     const hasNum = lec.lectureNumber != null && String(lec.lectureNumber).trim() !== "";
@@ -3306,13 +3475,90 @@ async function loadLectures() {
     const fullText = (await sGet("rxt-lec-" + m.id)) || "";
     out.push({ ...m, fullText });
   }
-  
+
   const deduped = deduplicateLectures(out);
   if (deduped.length < out.length) {
     console.log(`Removed ${out.length - deduped.length} duplicate lectures`);
-    await saveLectures(deduped);
   }
-  
+
+  // Remap objectives whose linkedLecId was dropped by deduplication to the surviving real lecture
+  // Build a map from dropped-stub-id → surviving-real-id using blockId+type+number matching
+  try {
+    const allObjs = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+    const dedupedIds = new Set(deduped.map(l => l.id));
+    // Map: blockId+type+number → surviving lecture id
+    const keyToId = new Map();
+    deduped.forEach(l => {
+      const hasNum = l.lectureNumber != null && String(l.lectureNumber).trim() !== "";
+      if (l.lectureType && hasNum) {
+        const k = `${l.blockId}__${l.lectureType.trim()}__${String(l.lectureNumber).trim()}`;
+        if (!keyToId.has(k)) keyToId.set(k, l.id);
+      }
+    });
+    // For each dropped stub in objectives, remap to surviving lecture
+    const droppedStubs = new Set();
+    out.forEach(l => { if (!dedupedIds.has(l.id)) droppedStubs.add(l.id); });
+
+    let remappedCount = 0;
+    let anyChanged = false;
+    const updatedObjs = { ...allObjs };
+    Object.entries(updatedObjs).forEach(([wk, data]) => {
+      if (!data || !Array.isArray(data.imported)) return;
+      const blockId = data.blockId || wk.split("__")[0];
+      let changed = false;
+      const remapped = data.imported.map(o => {
+        if (!o.linkedLecId || !droppedStubs.has(o.linkedLecId)) return o;
+        // Try to find surviving lecture by type+number
+        const rawNum = o.lectureNumber;
+        const hasNum = rawNum != null && rawNum !== 0 && String(rawNum).trim() !== "";
+        const rawType = o.lectureType === "Lecture" ? "LEC" : (o.lectureType || "LEC");
+        const k = hasNum ? `${blockId}__${rawType}__${String(rawNum).trim()}` : null;
+        const newId = k ? keyToId.get(k) : null;
+        if (newId) { remappedCount++; changed = true; return { ...o, linkedLecId: newId, sourceFile: newId }; }
+        return o;
+      });
+      if (changed) { updatedObjs[wk] = { ...data, imported: remapped }; anyChanged = true; }
+    });
+    if (anyChanged) {
+      localStorage.setItem("rxt-block-objectives", JSON.stringify(updatedObjs));
+      console.log(`Remapped ${remappedCount} orphaned objective linkedLecIds to surviving lectures`);
+    }
+
+    // Add stubs for any remaining unmatched linkedLecIds
+    const existingIds = new Set(deduped.map(l => l.id));
+    const recoveredStubs = [];
+    let seqCounter = 900;
+    Object.entries(updatedObjs).forEach(([wk, data]) => {
+      const blockId = (data && data.blockId) || wk.split("__")[0];
+      if (!blockId) return;
+      const imported = (data && data.imported) || [];
+      const byLecId = {};
+      imported.forEach(o => { if (o.linkedLecId && !byLecId[o.linkedLecId]) byLecId[o.linkedLecId] = o; });
+      Object.entries(byLecId).forEach(([lecId, rep]) => {
+        if (existingIds.has(lecId)) return;
+        const rawNum = rep.lectureNumber;
+        const hasNum = rawNum != null && rawNum !== 0 && String(rawNum).trim() !== "";
+        recoveredStubs.push({
+          id: lecId, blockId,
+          lectureTitle: rep.lectureTitle || "",
+          lectureNumber: hasNum ? rawNum : (seqCounter++),
+          lectureType: rep.lectureType === "Lecture" ? "LEC" : (rep.lectureType || "LEC"),
+          subject: rep.discipline || rep.subject || "",
+          filename: "", fullText: "",
+          uploadedAt: new Date().toISOString(),
+        });
+        existingIds.add(lecId);
+      });
+    });
+    const final = recoveredStubs.length > 0 ? [...deduped, ...recoveredStubs] : deduped;
+    if (recoveredStubs.length > 0) console.log(`Recovered ${recoveredStubs.length} unmatched lecture stubs (total: ${final.length})`);
+    await saveLectures(final);
+    return final;
+  } catch (e) {
+    console.warn("Lecture stub recovery in loadLectures failed:", e);
+  }
+
+  await saveLectures(deduped);
   return deduped;
 }
 
@@ -3667,10 +3913,11 @@ function matchSlideImageForMcq(imagePrompt, imagePage, slideImages) {
   return null;
 }
 
-/** Remove [IMAGE: ...] from stem so it is not shown twice when imagePrompt / placeholder exists. */
+/** Remove [IMAGE: ...] and 📋 ... image hints from stem so they don't appear as text. */
 function stripImageTagFromStem(stem) {
   return String(stem || "")
     .replace(/\[IMAGE:[^\]]*\]/gi, "")
+    .replace(/(?:^|\n)\s*📋[^\n]*/g, "")  // strip 📋 emoji image description lines
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -3680,7 +3927,7 @@ function renderMarkdown(text) {
   return String(text).replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
 }
 
-/** Use question.imagePrompt or parse [IMAGE: ...] from stem/question text. */
+/** Use question.imagePrompt or parse [IMAGE: ...] / 📋 ... from stem/question text. */
 function resolveMcqImagePrompt(questionLike) {
   let direct =
     questionLike?.imagePrompt != null && String(questionLike.imagePrompt).trim() !== ""
@@ -3693,8 +3940,13 @@ function resolveMcqImagePrompt(questionLike) {
     return direct || null;
   }
   const stem = String(questionLike?.stem || questionLike?.question || "");
+  // [IMAGE: ...] bracket format
   const m = stem.match(/\[IMAGE:\s*([^\]]+)\]/i);
-  return m?.[1]?.trim() || null;
+  if (m?.[1]?.trim()) return m[1].trim();
+  // 📋 emoji prefix on its own line (AI sometimes uses this instead of [IMAGE:...])
+  const emojiM = stem.match(/(?:^|\n)\s*📋\s*(.+?)(?:\n|$)/);
+  if (emojiM?.[1]?.trim()) return emojiM[1].trim();
+  return null;
 }
 
 /** Page match, then keyword match on caption/filename, then legacy first-token match. */
@@ -3727,44 +3979,148 @@ function matchSlideImageForMcqEnhanced(imagePrompt, imagePage, slideImages) {
 }
 
 /**
- * WikimediaImagePanel — auto-fetches a relevant image from Wikimedia Commons
- * when a question has an imagePrompt but no matching lecture slide.
- * Falls back gracefully to the text placeholder on failure.
+ * renderMedText(text)
+ * Renders text with inline LaTeX-style math ($...$) converted to proper
+ * sub/superscript HTML. Handles medical chemistry notation:
+ *   $PO_2$  → PO₂   $PCO_2$ → PCO₂   $K^+$ → K⁺   $Ca^{2+}$ → Ca²⁺
  */
-function WikimediaImagePanel({ query, fallbackLabel }) {
-  const [imgUrl, setImgUrl] = React.useState(null);
-  const [imgTitle, setImgTitle] = React.useState(null);
-  const [status, setStatus] = React.useState("loading"); // loading | found | notfound | error
+function renderMedText(text) {
+  if (!text) return null;
+  const str = String(text);
+  const segments = str.split(/(\$[^$]+\$)/g);
+  if (segments.length === 1) return str; // no math markers — fast path
+  return segments.map((seg, si) => {
+    if (!seg.startsWith("$") || !seg.endsWith("$")) return seg;
+    const inner = seg.slice(1, -1);
+    const nodes = [];
+    let i = 0;
+    while (i < inner.length) {
+      const ch = inner[i];
+      if (ch === "_" || ch === "^") {
+        const Tag = ch === "_" ? "sub" : "sup";
+        i++;
+        if (i < inner.length && inner[i] === "{") {
+          const close = inner.indexOf("}", i);
+          if (close !== -1) {
+            nodes.push(<Tag key={`${si}-${i}`}>{inner.slice(i + 1, close)}</Tag>);
+            i = close + 1;
+            continue;
+          }
+        }
+        if (i < inner.length) {
+          nodes.push(<Tag key={`${si}-${i}`}>{inner[i]}</Tag>);
+          i++;
+        }
+      } else {
+        if (nodes.length > 0 && typeof nodes[nodes.length - 1] === "string") {
+          nodes[nodes.length - 1] += ch;
+        } else {
+          nodes.push(ch);
+        }
+        i++;
+      }
+    }
+    return <span key={si}>{nodes}</span>;
+  });
+}
 
-  React.useEffect(() => {
+/**
+ * WikimediaImagePanel
+ * Auto-fetches a relevant image from Wikimedia Commons.
+ *
+ * occluded=true (default while answering): image shown blurred with a reveal button.
+ * occluded=false (after answer confirmed): image shown clearly.
+ */
+function AddLinkRow({ onAdd }) {
+  const [url, setUrl] = useState("");
+  const [label, setLabel] = useState("");
+  return (
+    <div style={{ display: "flex", gap: 5, marginTop: 4 }}>
+      <input
+        type="url"
+        value={url}
+        onChange={(e) => setUrl(e.target.value)}
+        placeholder="https://..."
+        style={{ flex: 2, fontSize: 11, padding: "4px 7px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 5, background: "var(--color-background-secondary)", color: "var(--color-text-primary)" }}
+        onKeyDown={(e) => { if (e.key === "Enter" && url.trim()) { onAdd(url.trim(), label.trim()); setUrl(""); setLabel(""); } }}
+      />
+      <input
+        type="text"
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="Label (optional)"
+        style={{ flex: 1, fontSize: 11, padding: "4px 7px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 5, background: "var(--color-background-secondary)", color: "var(--color-text-primary)" }}
+        onKeyDown={(e) => { if (e.key === "Enter" && url.trim()) { onAdd(url.trim(), label.trim()); setUrl(""); setLabel(""); } }}
+      />
+      <button type="button" onClick={() => { if (url.trim()) { onAdd(url.trim(), label.trim()); setUrl(""); setLabel(""); } }}
+        style={{ fontSize: 11, padding: "4px 9px", border: "0.5px solid var(--color-border-secondary)", borderRadius: 5, background: "var(--color-background-secondary)", cursor: "pointer", color: "var(--color-text-secondary)" }}>
+        + Add
+      </button>
+    </div>
+  );
+}
+
+function WikimediaImagePanel({ query, fallbackLabel, occluded = true, onDismiss }) {
+  const [imgUrl, setImgUrl] = useState(null);
+  const [imgTitle, setImgTitle] = useState(null);
+  const [status, setStatus] = useState("loading"); // loading | found | notfound | error
+  const [revealed, setRevealed] = useState(false);
+
+  // When answer is confirmed (occluded flips to false), auto-reveal
+  useEffect(() => {
+    if (!occluded) setRevealed(true);
+  }, [occluded]);
+
+  // Reset reveal state when query changes (new question)
+  useEffect(() => {
+    setRevealed(false);
+  }, [query]);
+
+  useEffect(() => {
     if (!query) return;
     setStatus("loading");
     setImgUrl(null);
     setImgTitle(null);
 
-    // Append "histology" or "anatomy" only if the query doesn't already contain a visual term
-    const visualTerms = ["histolog", "anatom", "microscop", "stain", "slide", "patholog", "diagram", "x-ray", "ecg", "mri", "ct scan"];
-    const q = visualTerms.some((t) => query.toLowerCase().includes(t))
-      ? query
-      : query + " histology";
+    // Shorten long prompts to key anatomical terms for better Wikimedia search
+    const stopWords = new Set(["a","an","the","of","in","on","at","to","for","with","and","or","is","are","was","were","be","been","by","from","as","into","through","between","showing","highlighting","labeled","diagram","view","image","sagittal","coronal","axial","cross","section","schematic","depicting","illustrating","indicating"]);
+    const shortenQuery = (q) => {
+      if (q.length <= 60) return q;
+      const words = q.replace(/[(),]/g, "").split(/\s+/).filter(w => w.length > 2 && !stopWords.has(w.toLowerCase()));
+      return words.slice(0, 5).join(" ");
+    };
+    const visualTerms = [
+      "histolog", "anatom", "microscop", "stain", "slide", "patholog",
+      "diagram", "x-ray", "ecg", "ekg", "mri", "ct scan", "loop", "graph",
+      "curve", "waveform", "spirometry", "ultrasound", "biopsy",
+    ];
+    const shortened = shortenQuery(query);
+    const q = visualTerms.some((t) => shortened.toLowerCase().includes(t))
+      ? shortened
+      : shortened + " anatomy";
 
-    fetch(
-      `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
-      `&gsrsearch=${encodeURIComponent(q)}&gsrnamespace=6` +
-      `&prop=imageinfo&iiprop=url|mime&iiurlwidth=900` +
-      `&gsrlimit=8&gsrsort=relevance&format=json&origin=*`
-    )
-      .then((r) => r.json())
-      .then((data) => {
+    const fetchWikimedia = (searchQ) =>
+      fetch(
+        `https://commons.wikimedia.org/w/api.php?action=query&generator=search` +
+        `&gsrsearch=${encodeURIComponent(searchQ)}&gsrnamespace=6` +
+        `&prop=imageinfo&iiprop=url|mime&iiurlwidth=900` +
+        `&gsrlimit=12&gsrsort=relevance&format=json&origin=*`
+      ).then((r) => r.json()).then((data) => {
         const pages = Object.values(data?.query?.pages || {});
         const allowed = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-        const imgs = pages
+        return pages
           .filter((p) => allowed.includes(p.imageinfo?.[0]?.mime))
-          .map((p) => ({
-            url: p.imageinfo?.[0]?.url,
-            title: (p.title || "").replace(/^File:/, "").replace(/\.[^.]+$/, ""),
-          }))
+          .map((p) => ({ url: p.imageinfo?.[0]?.url, title: (p.title || "").replace(/^File:/, "").replace(/\.[^.]+$/, "") }))
           .filter((p) => p.url);
+      });
+
+    fetchWikimedia(q)
+      .then(async (imgs) => {
+        // If no results, try with just first 2-3 key words
+        if (imgs.length === 0) {
+          const fallbackQ = q.split(" ").slice(0, 3).join(" ");
+          if (fallbackQ !== q) imgs = await fetchWikimedia(fallbackQ);
+        }
         if (imgs.length > 0) {
           setImgUrl(imgs[0].url);
           setImgTitle(imgs[0].title);
@@ -3777,29 +4133,29 @@ function WikimediaImagePanel({ query, fallbackLabel }) {
   }, [query]);
 
   const label = fallbackLabel || query;
+  const isBlurred = occluded && !revealed;
 
   if (status === "loading") {
     return (
-      <div
-        style={{
-          padding: "14px 18px",
-          background: "var(--color-background-secondary)",
-          borderRadius: 10,
-          color: "var(--color-text-tertiary)",
-          fontSize: 13,
-          margin: "12px 0",
-          border: "1px dashed var(--color-border-tertiary)",
-          textAlign: "center",
-        }}
-      >
-        🔍 Finding image…
+      <div style={{
+        padding: "14px 18px",
+        background: "var(--color-background-secondary)",
+        borderRadius: 10,
+        color: "var(--color-text-tertiary)",
+        fontSize: 13,
+        margin: "12px 0",
+        border: "1px dashed var(--color-border-tertiary)",
+        textAlign: "center",
+      }}>
+        🔍 Finding diagram…
       </div>
     );
   }
 
   if (status === "found" && imgUrl) {
     return (
-      <div style={{ margin: "12px 0" }}>
+      <div style={{ margin: "12px 0", position: "relative" }}>
+        {/* Image — blurred when occluded and not yet revealed */}
         <img
           src={imgUrl}
           alt={label}
@@ -3811,18 +4167,76 @@ function WikimediaImagePanel({ query, fallbackLabel }) {
             border: "1px solid var(--color-border-tertiary)",
             display: "block",
             background: "#f5f5f5",
+            filter: isBlurred ? "blur(10px)" : "none",
+            transition: "filter 0.3s ease",
+            userSelect: "none",
           }}
           onError={() => setStatus("notfound")}
         />
-        <div
-          style={{
-            fontSize: 10,
-            color: "var(--color-text-tertiary)",
-            marginTop: 4,
-            textAlign: "right",
-            fontStyle: "italic",
-          }}
-        >
+
+        {/* Overlay shown while blurred */}
+        {isBlurred && (
+          <div style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 10,
+            background: "rgba(0,0,0,0.18)",
+            gap: 10,
+          }}>
+            <div style={{ fontSize: 13, color: "#fff", fontWeight: 600, textShadow: "0 1px 4px rgba(0,0,0,0.5)" }}>
+              📊 Diagram available
+            </div>
+            <button
+              type="button"
+              onClick={() => setRevealed(true)}
+              style={{
+                padding: "7px 18px",
+                fontSize: 12,
+                fontWeight: 700,
+                background: "rgba(255,255,255,0.92)",
+                color: "#333",
+                border: "none",
+                borderRadius: 20,
+                cursor: "pointer",
+                letterSpacing: 0.3,
+              }}
+            >
+              🔍 Reveal to assist
+            </button>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", textShadow: "0 1px 3px rgba(0,0,0,0.4)" }}>
+              Auto-reveals after you answer
+            </div>
+          </div>
+        )}
+
+        {/* Dismiss button */}
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            style={{
+              position: "absolute", top: 6, left: 6,
+              background: "rgba(0,0,0,0.5)", color: "#fff",
+              border: "none", borderRadius: 4,
+              padding: "2px 7px", fontSize: 11, cursor: "pointer",
+              opacity: 0.75,
+            }}
+            title="Remove this auto-fetched image"
+          >✕ Remove</button>
+        )}
+
+        {/* Source credit */}
+        <div style={{
+          fontSize: 10,
+          color: "var(--color-text-tertiary)",
+          marginTop: 4,
+          textAlign: "right",
+          fontStyle: "italic",
+        }}>
           📷 {imgTitle} · Wikimedia Commons
         </div>
       </div>
@@ -3831,18 +4245,16 @@ function WikimediaImagePanel({ query, fallbackLabel }) {
 
   // notfound / error — text placeholder
   return (
-    <div
-      style={{
-        padding: "14px 18px",
-        background: "var(--color-background-secondary)",
-        borderRadius: 10,
-        color: "var(--color-text-secondary)",
-        fontStyle: "italic",
-        fontSize: 13,
-        margin: "12px 0",
-        border: "1px dashed var(--color-border-tertiary)",
-      }}
-    >
+    <div style={{
+      padding: "14px 18px",
+      background: "var(--color-background-secondary)",
+      borderRadius: 10,
+      color: "var(--color-text-secondary)",
+      fontStyle: "italic",
+      fontSize: 13,
+      margin: "12px 0",
+      border: "1px dashed var(--color-border-tertiary)",
+    }}>
       🖼 {label}
     </div>
   );
@@ -3997,6 +4409,7 @@ function normalizeDrillMcqFromParsed(parsed, lecObjs, currentObjId) {
     const drillObjectiveIdsForProgress = [
       ...new Set(objectiveIndices.map((i) => lecObjs[i - 1]?.id).filter(Boolean)),
     ];
+    const visualSearchQuery = root.visualSearchQuery != null ? String(root.visualSearchQuery).trim() || null : null;
     return {
       question,
       options,
@@ -4004,6 +4417,7 @@ function normalizeDrillMcqFromParsed(parsed, lecObjs, currentObjId) {
       teachingPoint: teachingPoint || null,
       imagePrompt: imagePrompt || null,
       imagePage,
+      visualSearchQuery,
       objectiveIndices,
       drillObjectiveIdsForProgress,
       conceptTested: root.conceptTested,
@@ -4734,6 +5148,71 @@ async function genTopicVignettesWithContext(cfg, deps) {
     ? "\n\n" + LECTURE_MARKDOWN_CONTEXT_FOR_AI + "\n\nLECTURE CONTENT TO BASE QUESTIONS ON:\n" + lectureContent
     : "";
 
+  // High-yield details from NotebookLM pipeline — small/bolded/nuanced facts the student flags or slides emphasize.
+  let highYieldSection = "";
+  try {
+    const hy = Array.isArray(lec?.highYieldDetails) ? lec.highYieldDetails : [];
+    if (hy.length > 0) {
+      const formatted = hy
+        .slice(0, 20)
+        .map((d) => {
+          if (typeof d === "string") return `- ${d}`;
+          const why = d.why_tested ? ` (why tested: ${d.why_tested})` : "";
+          return `- ${d.term || d.name}: ${d.fact || d.detail || ""}${why}`;
+        })
+        .join("\n");
+      highYieldSection =
+        "\n\nHIGH-YIELD DETAILS (must test — these are small/bolded facts the lecture emphasized; ensure at least one question directly tests each relevant detail):\n" +
+        formatted;
+    }
+  } catch {}
+
+  // Weak concepts for this block — target ≥30% of questions here with plausible distractors.
+  let weakConceptsSection = "";
+  try {
+    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    const arr = Array.isArray(stored[blockId]) ? stored[blockId] : [];
+    const ranked = [...arr]
+      .filter((c) => c && (c.masteryLevel === "struggling" || (c.missCount || 0) >= 1))
+      .sort((a, b) => {
+        const missDiff = (b.missCount || 0) - (a.missCount || 0);
+        if (missDiff !== 0) return missDiff;
+        return String(b.lastMissed || "").localeCompare(String(a.lastMissed || ""));
+      })
+      .slice(0, 10);
+    if (ranked.length > 0) {
+      const formatted = ranked
+        .map((c) => {
+          const missCount = c.missCount ? ` (missed ${c.missCount}×)` : "";
+          const angle = c.angle && c.angle !== "general" ? ` [${c.angle}]` : "";
+          return `- ${c.concept}${angle}${missCount}${c.description ? ` — ${c.description}` : ""}`;
+        })
+        .join("\n");
+      weakConceptsSection =
+        "\n\nWEAK CONCEPTS (target ≥30% of questions at these, prefer the indicated angle; use as challenging distractor sources):\n" +
+        formatted;
+    }
+  } catch {}
+
+  // Recent user-flagged lookups/clarifications for this block.
+  let userNotesSection = "";
+  try {
+    const notes = JSON.parse(localStorage.getItem("rxt-quick-notes") || "[]");
+    if (Array.isArray(notes) && notes.length > 0) {
+      const recent = notes
+        .filter((n) => !blockId || !n.blockId || n.blockId === blockId)
+        .filter((n) => ["lookup", "clarification", "question"].includes(n.tag))
+        .slice(0, 10)
+        .map((n) => n.text || n.note || "")
+        .filter(Boolean);
+      if (recent.length > 0) {
+        userNotesSection =
+          "\n\nUSER-FLAGGED LOOKUPS / CLARIFICATIONS (ensure coverage):\n" +
+          recent.map((t) => `- ${t}`).join("\n");
+      }
+    }
+  } catch {}
+
   const styleGuide =
     questionExamples.length > 0
       ? `\nQUESTION STYLE REQUIREMENTS (match your school's style exactly):
@@ -4769,6 +5248,9 @@ async function genTopicVignettesWithContext(cfg, deps) {
     objectivesSection +
     examplesSection +
     contentSection +
+    highYieldSection +
+    weakConceptsSection +
+    userNotesSection +
     `\n\nCRITICAL RULES:
 - Each question must be UNIQUE — no repetition of stems, scenarios, or patient details
 - Vary the question format: some mechanism, some clinical presentation, some pharmacology, some lab values
@@ -5160,8 +5642,59 @@ const PALETTE = ["#60a5fa","#f472b6","#34d399","#a78bfa","#fb923c","#38bdf8","#4
 // ─────────────────────────────────────────────
 // SMALL UI PIECES
 // ─────────────────────────────────────────────
-const MONO = "'DM Mono', 'Courier New', monospace";
+const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+const SANS = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display', Georgia, serif";
+
+// ── Semantic button system (use these instead of ad-hoc inline button styles)
+// Pass the theme object `t` — returns a complete style object.
+const btnStyles = {
+  primary: (t, { disabled } = {}) => ({
+    fontSize: 13,
+    padding: '7px 14px',
+    background: '#3C3489',
+    color: '#fff',
+    border: '1px solid #3C3489',
+    borderRadius: 8,
+    cursor: disabled ? 'default' : 'pointer',
+    fontFamily: SANS,
+    fontWeight: 600,
+    opacity: disabled ? 0.6 : 1,
+    minHeight: 32,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+  }),
+  secondary: (t, { disabled } = {}) => ({
+    fontSize: 13,
+    padding: '7px 14px',
+    background: 'transparent',
+    color: t.text1,
+    border: '1px solid ' + t.border1,
+    borderRadius: 8,
+    cursor: disabled ? 'default' : 'pointer',
+    fontFamily: SANS,
+    fontWeight: 500,
+    opacity: disabled ? 0.6 : 1,
+    minHeight: 32,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+  }),
+  danger: (t, { disabled } = {}) => ({
+    fontSize: 12,
+    padding: '4px 8px',
+    background: 'transparent',
+    color: '#A32D2D',
+    border: 'none',
+    borderRadius: 0,
+    cursor: disabled ? 'default' : 'pointer',
+    fontFamily: SANS,
+    fontWeight: 500,
+    textDecoration: 'underline',
+    opacity: disabled ? 0.5 : 1,
+  }),
+};
 
 const LEC_TYPE_STYLES = {
   LEC:  { bg: "#ef444418", color: "#ef4444", border: "#ef444440" },
@@ -5178,7 +5711,7 @@ function lecTypeBadge(type) {
   const s = LEC_TYPE_STYLES[key] || LEC_TYPE_STYLES.LEC;
   return (
     <span style={{
-      fontFamily: MONO,
+      fontFamily: SANS,
       fontSize: 10,
       fontWeight: 700,
       padding: "2px 7px",
@@ -5197,7 +5730,7 @@ function Spinner({ msg }) {
   return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:18, padding:"70px 40px" }}>
       <div style={{ width:44, height:44, border:"3px solid " + T.border1, borderTopColor:T.statusBad, borderRadius:"50%", animation:"rxt-spin 0.85s linear infinite" }} />
-      {msg && <p style={{ fontFamily:MONO, color:T.text3, fontSize:12, textAlign:"center", maxWidth:320, lineHeight:1.7 }}>{msg}</p>}
+      {msg && <p style={{ fontFamily:SANS, color:T.text3, fontSize:12, textAlign:"center", maxWidth:320, lineHeight:1.7 }}>{msg}</p>}
     </div>
   );
 }
@@ -5240,7 +5773,7 @@ function Btn({ children, onClick, color, disabled, style }) {
         background: disabled ? T.border1 : color,
         border: "none", color: disabled ? T.text4 : T.text1,
         padding: "10px 22px", borderRadius: 8, cursor: disabled ? "not-allowed" : "pointer",
-        fontFamily: MONO, fontSize: 15, fontWeight: 600,
+        fontFamily: SANS, fontSize: 15, fontWeight: 600,
         opacity: disabled ? 0.6 : 1, ...style,
       }}>
       {children}
@@ -5273,7 +5806,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
     cfg.mode === "block" ? "block" : cfg.subtopic === "__full__" ? "full" : "subtopic"
   );
   const tc = termColor || T.red;
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const diffOptions = [
@@ -5297,14 +5830,14 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
       <div>
         <button
           onClick={onBack}
-          style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontFamily: MONO, fontSize: 13, marginBottom: 16, padding: 0 }}
+          style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontFamily: SANS, fontSize: 13, marginBottom: 16, padding: 0 }}
         >
           ← Back
         </button>
         <h1 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 900, letterSpacing: -0.5, marginBottom: 6, color: T.text1 }}>
           {cfg.mode === "block" ? "Block Exam" : (cfg.subtopic === "__full__" ? "Full Lecture Quiz" : cfg.subtopic)}
         </h1>
-        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>
+        <p style={{ fontFamily: SANS, color: T.text3, fontSize: 14 }}>
           {cfg.mode === "block"
             ? "Comprehensive review across all lectures in this block"
             : (cfg.subject || "") + " · " + (cfg.lecture?.lectureTitle || "")}
@@ -5312,7 +5845,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
       </div>
 
       <div style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 14, padding: "20px 24px" }}>
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>QUIZ SCOPE</div>
+        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>QUIZ SCOPE</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {scopeOptions.map((o) => (
             <div
@@ -5332,10 +5865,10 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
             >
               <span style={{ fontSize: 22 }}>{o.label.split(" ")[0]}</span>
               <div>
-                <div style={{ fontFamily: MONO, color: scope === o.value ? T.text1 : T.text2, fontSize: 14, fontWeight: 600 }}>
+                <div style={{ fontFamily: SANS, color: scope === o.value ? T.text1 : T.text2, fontSize: 14, fontWeight: 600 }}>
                   {o.label.split(" ").slice(1).join(" ")}
                 </div>
-                <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginTop: 2 }}>{o.desc}</div>
+                <div style={{ fontFamily: SANS, color: T.text3, fontSize: 12, marginTop: 2 }}>{o.desc}</div>
               </div>
               {scope === o.value && <div style={{ marginLeft: "auto", color: tc, fontSize: 16 }}>✓</div>}
             </div>
@@ -5344,7 +5877,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
       </div>
 
       <div style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 14, padding: "20px 24px" }}>
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 16 }}>NUMBER OF QUESTIONS</div>
+        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 16 }}>NUMBER OF QUESTIONS</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 20 }}>
           <button
             onClick={() => setQCount((q) => Math.max(1, q - 1))}
@@ -5361,7 +5894,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
           </button>
           <div style={{ textAlign: "center", minWidth: 80 }}>
             <div style={{ fontFamily: SERIF, color: tc, fontSize: 52, fontWeight: 900, lineHeight: 1 }}>{qCount}</div>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginTop: 4 }}>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 12, marginTop: 4 }}>
               {qCount === 1 ? "question" : "questions"} · {qCount <= 5 ? "Quick drill" : qCount <= 10 ? "Standard" : qCount <= 20 ? "Deep dive" : "Full block"}
             </div>
           </div>
@@ -5391,7 +5924,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
                 padding: "4px 12px",
                 borderRadius: 6,
                 cursor: "pointer",
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 13,
                 transition: "all 0.15s",
               }}
@@ -5403,23 +5936,23 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
       </div>
 
       <div style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 14, padding: "20px 24px" }}>
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>DIFFICULTY</div>
+        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>DIFFICULTY</div>
         {storedPerf?.sessions?.length > 0 && (
           <div style={{ marginBottom: 12, padding: "10px 14px", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 3 }}>YOUR CURRENT LEVEL</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 3 }}>YOUR CURRENT LEVEL</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 14, color: storedDiff === "expert" ? "#a78bfa" : storedDiff === "hard" ? T.statusBad : storedDiff === "medium" ? T.statusWarn : T.statusGood }}>
+                <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 14, color: storedDiff === "expert" ? "#a78bfa" : storedDiff === "hard" ? T.statusBad : storedDiff === "medium" ? T.statusWarn : T.statusGood }}>
                   {storedDiff.toUpperCase()}
                 </span>
                 {storedPerf.streak >= 1 && (
-                  <span style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 12 }}>🔥 {storedPerf.streak} streak</span>
+                  <span style={{ fontFamily: SANS, color: T.statusWarn, fontSize: 12 }}>🔥 {storedPerf.streak} streak</span>
                 )}
                 {storedPerf.trend === "improving" && (
-                  <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 12 }}>↑ improving</span>
+                  <span style={{ fontFamily: SANS, color: T.statusGood, fontSize: 12 }}>↑ improving</span>
                 )}
                 {storedPerf.trend === "declining" && (
-                  <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 12 }}>↓ needs work</span>
+                  <span style={{ fontFamily: SANS, color: T.statusBad, fontSize: 12 }}>↓ needs work</span>
                 )}
               </div>
             </div>
@@ -5456,15 +5989,15 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
                 transition: "all 0.15s",
               }}
             >
-              <div style={{ fontFamily: MONO, color: difficulty === d.value ? d.color : T.text2, fontSize: 14, fontWeight: 600, marginBottom: 3 }}>{d.label}</div>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>{d.desc}</div>
+              <div style={{ fontFamily: SANS, color: difficulty === d.value ? d.color : T.text2, fontSize: 14, fontWeight: 600, marginBottom: 3 }}>{d.label}</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 12 }}>{d.desc}</div>
             </div>
           ))}
         </div>
       </div>
 
       <div style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 14, padding: "20px 24px" }}>
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>QUESTION TYPE</div>
+        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 2, marginBottom: 14 }}>QUESTION TYPE</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           {questionTypes.map((t) => (
             <div
@@ -5484,8 +6017,8 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
             >
               <span style={{ fontSize: 18 }}>{t.icon}</span>
               <div>
-                <div style={{ fontFamily: MONO, color: questionType === t.value ? T.text1 : T.text2, fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{t.label}</div>
-                <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>{t.desc}</div>
+                <div style={{ fontFamily: SANS, color: questionType === t.value ? T.text1 : T.text2, fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{t.label}</div>
+                <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>{t.desc}</div>
               </div>
             </div>
           ))}
@@ -5559,7 +6092,7 @@ function renderStemWithHighlightsStatic(stem, highlightList) {
 function ReviewSession({ questions, originalAnswers, highlights, onClose, termColor, renderStemWithHighlightsStatic }) {
   const { T } = useTheme();
   const [idx, setIdx] = useState(0);
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
   const tc = termColor || T.red;
   const q = questions[idx];
@@ -5573,7 +6106,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
           <h2 style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 900, marginBottom: 4, color: T.text1 }}>
             📋 Review Missed Questions
           </h2>
-          <p style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>
+          <p style={{ fontFamily: SANS, color: T.text3, fontSize: 13 }}>
             Question {idx + 1} of {questions.length} missed
           </p>
         </div>
@@ -5586,7 +6119,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
             padding: "8px 16px",
             borderRadius: 8,
             cursor: "pointer",
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 13,
           }}
         >
@@ -5610,7 +6143,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           <span
             style={{
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 12,
               background: T.statusBadBg,
               color: T.statusBad,
@@ -5623,7 +6156,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
           </span>
           <span
             style={{
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 12,
               background: T.statusGoodBg,
               color: T.statusGood,
@@ -5638,7 +6171,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
 
         <div
           style={{
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 16,
             color: T.text1,
             lineHeight: 1.8,
@@ -5673,7 +6206,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
               >
                 <span
                   style={{
-                    fontFamily: MONO,
+                    fontFamily: SANS,
                     fontWeight: 700,
                     fontSize: 15,
                     flexShrink: 0,
@@ -5685,7 +6218,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
                 </span>
                 <span
                   style={{
-                    fontFamily: MONO,
+                    fontFamily: SANS,
                     fontSize: 15,
                     color: isCorrect ? T.statusGood : isYours ? T.statusBad : T.text2,
                     lineHeight: 1.6,
@@ -5700,10 +6233,10 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
 
         {q.explanation && (
           <div style={{ background: T.cardBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "16px 18px", opacity: 1, filter: "none" }}>
-            <div style={{ fontFamily: MONO, color: T.statusGood, fontSize: 11, letterSpacing: 2, marginBottom: 10 }}>
+            <div style={{ fontFamily: SANS, color: T.statusGood, fontSize: 11, letterSpacing: 2, marginBottom: 10 }}>
               EXPLANATION
             </div>
-            <p style={{ fontFamily: MONO, fontSize: 14, color: T.text1, lineHeight: 1.8, margin: 0 }}>{q.explanation}</p>
+            <p style={{ fontFamily: SANS, fontSize: 14, color: T.text1, lineHeight: 1.8, margin: 0 }}>{q.explanation}</p>
           </div>
         )}
       </div>
@@ -5719,7 +6252,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
             padding: "10px 24px",
             borderRadius: 10,
             cursor: idx === 0 ? "not-allowed" : "pointer",
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 14,
             transition: "all 0.15s",
           }}
@@ -5727,7 +6260,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
           ← Previous
         </button>
 
-        <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>
+        <span style={{ fontFamily: SANS, color: T.text3, fontSize: 13 }}>
           {idx + 1} / {questions.length}
         </span>
 
@@ -5741,7 +6274,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
               padding: "10px 24px",
               borderRadius: 10,
               cursor: "pointer",
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 14,
             }}
           >
@@ -5757,7 +6290,7 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
               padding: "10px 24px",
               borderRadius: 10,
               cursor: "pointer",
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 14,
             }}
           >
@@ -5970,11 +6503,56 @@ function WeakConceptsTabPanel({
   const [expanded, setExpanded] = useState({});
   const [expandedConcept, setExpandedConcept] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [showMastered, setShowMastered] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [calibrationTick, setCalibrationTick] = useState(0);
+  useEffect(() => {
+    const h = () => setCalibrationTick((t) => t + 1);
+    window.addEventListener("rxt-calibration-updated", h);
+    return () => window.removeEventListener("rxt-calibration-updated", h);
+  }, []);
 
-  const { block: blockConcepts, lifetime: lifetimeConcepts } = useMemo(
+  const calibrationBlockStats = useMemo(
+    () => getCalibrationStats({ blockId: blockId || null }),
+    [blockId, calibrationTick, refreshKey]
+  );
+  const calibrationHeadline = useMemo(
+    () => getCalibrationHeadline({ blockId: blockId || null }),
+    [blockId, calibrationTick, refreshKey]
+  );
+
+  const { block: rawBlockConcepts, lifetime: rawLifetimeConcepts } = useMemo(
     () => getWeakConcepts(blockId || ""),
     [blockId, refreshKey, scope]
   );
+
+  const passesSourceFilter = useCallback(
+    (c) => {
+      if (sourceFilter === "all") return true;
+      const sources = (c?.sourceQuestions || []).map((sq) => sq?.source || "");
+      return sources.includes(sourceFilter);
+    },
+    [sourceFilter]
+  );
+
+  const blockConcepts = useMemo(
+    () => filterAvailableWeakConcepts(rawBlockConcepts, lectures).filter(passesSourceFilter),
+    [rawBlockConcepts, passesSourceFilter, lectures]
+  );
+  const lifetimeConcepts = useMemo(
+    () => filterAvailableWeakConcepts(rawLifetimeConcepts, lectures).filter(passesSourceFilter),
+    [rawLifetimeConcepts, passesSourceFilter, lectures]
+  );
+
+  const availableSources = useMemo(() => {
+    const set = new Set();
+    [...rawBlockConcepts, ...rawLifetimeConcepts].forEach((c) => {
+      (c?.sourceQuestions || []).forEach((sq) => {
+        if (sq?.source) set.add(sq.source);
+      });
+    });
+    return Array.from(set).sort();
+  }, [rawBlockConcepts, rawLifetimeConcepts]);
 
   useEffect(() => {
     if (!blockId) return;
@@ -6053,127 +6631,284 @@ function WeakConceptsTabPanel({
   }, [lifetimeConcepts]);
 
   return (
-    <div style={{ fontFamily: MONO, color: T.text1 }}>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        <button
-          type="button"
-          onClick={() => setScope("block")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "1px solid " + (scope === "block" ? T.border1 : T.border2),
-            background: scope === "block" ? T.inputBg : "transparent",
-            cursor: "pointer",
-            fontSize: 12,
-          }}
-        >
-          Current block: {blockName || "—"}
-        </button>
-        <button
-          type="button"
-          onClick={() => setScope("lifetime")}
-          style={{
-            padding: "6px 12px",
-            borderRadius: 8,
-            border: "1px solid " + (scope === "lifetime" ? T.border1 : T.border2),
-            background: scope === "lifetime" ? T.inputBg : "transparent",
-            cursor: "pointer",
-            fontSize: 12,
-          }}
-        >
-          All blocks (lifetime)
-        </button>
+    <div style={{ fontFamily: SANS, color: T.text1 }}>
+      <div style={{ display: "flex", gap: 0, marginBottom: 12, alignItems: "center", border: "1px solid " + T.border1, borderRadius: 8, padding: 2, width: "fit-content", background: T.cardBg }}>
+        {[
+          ["block", `Current: ${blockName || "—"}`],
+          ["lifetime", "All blocks"],
+        ].map(([v, l]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => setScope(v)}
+            style={{
+              padding: "6px 14px",
+              borderRadius: 6,
+              border: "none",
+              background: scope === v ? T.inputBg : "transparent",
+              color: scope === v ? T.text1 : T.text3,
+              cursor: "pointer",
+              fontSize: 12,
+              fontWeight: scope === v ? 700 : 500,
+            }}
+          >
+            {l}
+          </button>
+        ))}
       </div>
 
       {(scope === "block" || scope === "lifetime") && blockId && (
         <>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "10px 14px",
-              background: "var(--color-background-secondary)",
-              borderRadius: 8,
-              marginBottom: 12,
-            }}
-          >
-            <div>
-              <span
+          {(() => {
+            const total = strugglingN + developingN + masteredN;
+            const pctStruggling = total ? (strugglingN / total) * 100 : 0;
+            const pctDeveloping = total ? (developingN / total) * 100 : 0;
+            const pctMastered = total ? (masteredN / total) * 100 : 0;
+            const overallScore = total ? Math.round((masteredN * 100 + developingN * 50) / total) : 0;
+            const scoreColor = overallScore >= 75 ? "#639922" : overallScore >= 50 ? "#BA7517" : "#E24B4A";
+            return (
+              <div
                 style={{
-                  fontSize: 22,
-                  fontWeight: 600,
-                  fontFamily: "var(--font-mono)",
-                  color: "#E24B4A",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 14,
+                  padding: "16px 18px",
+                  background: "var(--color-background-secondary)",
+                  border: "0.5px solid var(--color-border-tertiary)",
+                  borderRadius: 12,
+                  marginBottom: 16,
                 }}
               >
-                {blockConcepts.filter((c) => c.masteryLevel === "struggling").length}
-              </span>
-              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginLeft: 4 }}>struggling</span>
-            </div>
-            <div style={{ width: "0.5px", height: 24, background: "var(--color-border-tertiary)" }} />
-            <div>
-              <span
-                style={{
-                  fontSize: 22,
-                  fontWeight: 600,
-                  fontFamily: "var(--font-mono)",
-                  color: "#BA7517",
-                }}
-              >
-                {blockConcepts.filter((c) => c.masteryLevel === "developing").length}
-              </span>
-              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginLeft: 4 }}>developing</span>
-            </div>
-            <div style={{ width: "0.5px", height: 24, background: "var(--color-border-tertiary)" }} />
-            <div>
-              <span
-                style={{
-                  fontSize: 22,
-                  fontWeight: 600,
-                  fontFamily: "var(--font-mono)",
-                  color: "#639922",
-                }}
-              >
-                {blockConcepts.filter((c) => c.masteryLevel === "mastered").length}
-              </span>
-              <span style={{ fontSize: 11, color: "var(--color-text-tertiary)", marginLeft: 4 }}>mastered</span>
-            </div>
-            <div style={{ flex: 1 }} />
-            <button
-              type="button"
-              onClick={() => {
-                syncStrugglingToWeakConcepts(blockId);
-                onRefresh?.();
-              }}
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 110 }}>
+                    <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700 }}>
+                      Mastery
+                    </div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                      <span style={{ fontSize: 34, fontWeight: 700, fontFamily: "var(--font-mono)", color: scoreColor, lineHeight: 1 }}>
+                        {overallScore}
+                      </span>
+                      <span style={{ fontSize: 14, color: "var(--color-text-tertiary)", fontWeight: 600 }}>%</span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--color-text-tertiary)" }}>
+                      {total} concept{total === 1 ? "" : "s"} tracked
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", height: 18, borderRadius: 6, overflow: "hidden", background: "var(--color-background-tertiary)", boxShadow: "inset 0 1px 2px rgba(0,0,0,0.05)" }}>
+                      {pctStruggling > 0 && (
+                        <div title={`${strugglingN} struggling`} style={{ width: `${pctStruggling}%`, background: "#E24B4A", transition: "width 0.3s ease" }} />
+                      )}
+                      {pctDeveloping > 0 && (
+                        <div title={`${developingN} developing`} style={{ width: `${pctDeveloping}%`, background: "#E89B3C", transition: "width 0.3s ease" }} />
+                      )}
+                      {pctMastered > 0 && (
+                        <div title={`${masteredN} mastered`} style={{ width: `${pctMastered}%`, background: "#7DB845", transition: "width 0.3s ease" }} />
+                      )}
+                    </div>
+                    <div style={{ display: "flex", gap: 18, fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#A32D2D", fontWeight: 700 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: "#E24B4A" }} /> {strugglingN} struggling
+                      </span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#633806", fontWeight: 700 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: "#E89B3C" }} /> {developingN} developing
+                      </span>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#27500A", fontWeight: 700 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: "#7DB845" }} /> {masteredN} mastered
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <button
+                    type="button"
+                    onClick={onComprehensiveReview}
+                    disabled={strugglingN + developingN === 0}
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 700,
+                      padding: "9px 18px",
+                      border: "none",
+                      borderRadius: 8,
+                      background: strugglingN + developingN === 0 ? "var(--color-background-tertiary)" : "#3C3489",
+                      color: strugglingN + developingN === 0 ? "var(--color-text-tertiary)" : "#fff",
+                      cursor: strugglingN + developingN === 0 ? "not-allowed" : "pointer",
+                      boxShadow: strugglingN + developingN === 0 ? "none" : "0 1px 3px rgba(60,52,137,0.3)",
+                    }}
+                  >
+                    ⚡ Start comprehensive review
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMastered((p) => !p)}
+                    style={{
+                      fontSize: 11,
+                      padding: "7px 12px",
+                      border: "0.5px solid var(--color-border-secondary)",
+                      borderRadius: 8,
+                      background: showMastered ? "var(--color-background-primary)" : "transparent",
+                      color: "var(--color-text-secondary)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {showMastered ? "✓ Mastered shown" : `Show ${masteredN} mastered`}
+                  </button>
+                  {availableSources.length > 0 && (
+                    <select
+                      value={sourceFilter}
+                      onChange={(e) => setSourceFilter(e.target.value)}
+                      title="Filter by question source"
+                      style={{
+                        fontSize: 11,
+                        padding: "7px 10px",
+                        border: "0.5px solid var(--color-border-secondary)",
+                        borderRadius: 8,
+                        background: sourceFilter === "all" ? "transparent" : "var(--color-background-primary)",
+                        color: "var(--color-text-secondary)",
+                        fontFamily: "var(--font-sans)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="all">All sources</option>
+                      {availableSources.map((s) => (
+                        <option key={s} value={s}>
+                          {s.charAt(0).toUpperCase() + s.slice(1).replace("-", " ")}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <div style={{ flex: 1 }} />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const objs = getMSKObjectives(blockId);
+                      const { scanned, updated } = backfillObjectiveLinks(objs);
+                      onRefresh?.();
+                      try {
+                        window.dispatchEvent(
+                          new CustomEvent("rxt-toast", {
+                            detail: { message: `Backfill: ${updated} of ${scanned} weak concepts linked to objectives` },
+                          })
+                        );
+                      } catch {}
+                    }}
+                    title="Backfill objective links"
+                    aria-label="Backfill objective links"
+                    style={{
+                      fontSize: 11,
+                      padding: "7px 10px",
+                      border: "0.5px solid var(--color-border-secondary)",
+                      borderRadius: 8,
+                      background: "transparent",
+                      color: "var(--color-text-secondary)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    🔗 Backfill
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      syncStrugglingToWeakConcepts(blockId);
+                      onRefresh?.();
+                    }}
+                    title="Sync from objectives"
+                    aria-label="Sync from objectives"
+                    style={{
+                      fontSize: 13,
+                      width: 32,
+                      height: 32,
+                      padding: 0,
+                      border: "0.5px solid var(--color-border-secondary)",
+                      borderRadius: 8,
+                      background: "transparent",
+                      color: "var(--color-text-tertiary)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    ↻
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {calibrationBlockStats.total > 0 && (
+            <div
               style={{
-                fontSize: 11,
-                padding: "4px 10px",
+                marginBottom: 12,
+                padding: "10px 12px",
                 border: "0.5px solid var(--color-border-secondary)",
-                borderRadius: 6,
-                background: "transparent",
-                color: "var(--color-text-tertiary)",
-                cursor: "pointer",
+                borderRadius: 8,
+                background: "var(--color-background-secondary)",
+                display: "flex",
+                alignItems: "center",
+                gap: 16,
+                flexWrap: "wrap",
               }}
             >
-              ↻ Sync from objectives
-            </button>
-            <button
-              type="button"
-              onClick={onComprehensiveReview}
-              style={{
-                fontSize: 11,
-                padding: "4px 10px",
-                border: "none",
-                borderRadius: 6,
-                background: "#3C3489",
-                color: "#fff",
-                cursor: "pointer",
-              }}
-            >
-              Start comprehensive review
-            </button>
-          </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "var(--color-text-tertiary)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                  Calibration
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--color-text-primary)" }}>
+                  {calibrationHeadline}
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 10, flex: 1, justifyContent: "flex-end", flexWrap: "wrap" }}>
+                {CALIBRATION_BUCKETS.map((bucket) => {
+                  const s = calibrationBlockStats[bucket];
+                  const overconfident = s.gap != null && s.gap < -5;
+                  const wellCal = s.gap != null && Math.abs(s.gap) <= 5;
+                  return (
+                    <div
+                      key={bucket}
+                      title={s.n === 0 ? "No data yet" : `${s.n} answer${s.n === 1 ? "" : "s"} predicted at ${bucket}%`}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        padding: "4px 10px",
+                        borderRadius: 6,
+                        minWidth: 56,
+                        background: s.n === 0
+                          ? "transparent"
+                          : overconfident
+                            ? "#FCEBEB"
+                            : wellCal
+                              ? "#E8F5E9"
+                              : "#FAEEDA",
+                      }}
+                    >
+                      <span style={{ fontSize: 10, color: "var(--color-text-tertiary)" }}>{bucket}%</span>
+                      <span
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: s.n === 0
+                            ? "var(--color-text-tertiary)"
+                            : overconfident
+                              ? "#A32D2D"
+                              : wellCal
+                                ? "#2E7D32"
+                                : "#633806",
+                        }}
+                      >
+                        {s.accuracy == null ? "—" : `${s.accuracy}%`}
+                      </span>
+                      <span style={{ fontSize: 9, color: "var(--color-text-tertiary)" }}>
+                        n={s.n}
+                        {s.gap != null && s.n > 0 ? ` · ${s.gap > 0 ? "+" : ""}${s.gap}` : ""}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {scope === "block" &&
             groupedConcepts.map((group) => (
@@ -6241,6 +6976,7 @@ function WeakConceptsTabPanel({
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 10 }}>
                 {group.concepts
+                  .filter((c) => showMastered || c.masteryLevel !== "mastered")
                   .sort((a, b) => {
                     if (a.masteryLevel !== b.masteryLevel) {
                       const order = { struggling: 0, developing: 1, mastered: 2 };
@@ -6261,11 +6997,12 @@ function WeakConceptsTabPanel({
                       }}
                       onClick={() => setExpandedConcept(expandedConcept === c.id ? null : c.id)}
                       style={{
-                        padding: "4px 10px",
+                        padding: "6px 12px",
                         borderRadius: 20,
-                        fontSize: 11,
+                        fontSize: 12,
                         cursor: "pointer",
                         border: "0.5px solid",
+                        transition: "transform 0.1s ease, box-shadow 0.1s ease",
                         background:
                           c.masteryLevel === "struggling"
                             ? "#FCEBEB"
@@ -6284,10 +7021,13 @@ function WeakConceptsTabPanel({
                             : c.masteryLevel === "developing"
                               ? "#EF9F27"
                               : "#97C459",
+                        fontWeight: c.masteryLevel === "struggling" ? 600 : 500,
                         display: "flex",
                         alignItems: "center",
                         gap: 5,
                       }}
+                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.12)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
                     >
                       <span>{c.masteryLevel === "struggling" ? "⚠" : c.masteryLevel === "developing" ? "△" : "✓"}</span>
                       <span>{c.concept}</span>
@@ -6429,6 +7169,7 @@ function WeakConceptsTabPanel({
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, paddingLeft: 10 }}>
                         {group.concepts
+                          .filter((c) => showMastered || c.masteryLevel !== "mastered")
                           .sort((a, b) => {
                             if (a.masteryLevel !== b.masteryLevel) {
                               const order = { struggling: 0, developing: 1, mastered: 2 };
@@ -6449,11 +7190,12 @@ function WeakConceptsTabPanel({
                               }}
                               onClick={() => setExpandedConcept(expandedConcept === c.id ? null : c.id)}
                               style={{
-                                padding: "4px 10px",
+                                padding: "6px 12px",
                                 borderRadius: 20,
-                                fontSize: 11,
+                                fontSize: 12,
                                 cursor: "pointer",
                                 border: "0.5px solid",
+                                transition: "box-shadow 0.1s ease",
                                 background:
                                   c.masteryLevel === "struggling"
                                     ? "#FCEBEB"
@@ -6472,10 +7214,13 @@ function WeakConceptsTabPanel({
                                     : c.masteryLevel === "developing"
                                       ? "#EF9F27"
                                       : "#97C459",
+                                fontWeight: c.masteryLevel === "struggling" ? 600 : 500,
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 5,
                               }}
+                              onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 1px 3px rgba(0,0,0,0.12)"; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
                             >
                               <span>{c.masteryLevel === "struggling" ? "⚠" : c.masteryLevel === "developing" ? "△" : "✓"}</span>
                               <span>{c.concept}</span>
@@ -6582,9 +7327,9 @@ function WeakConceptCard({ c, bid, T, MONO, lecTypeBadge, expanded, onToggle, on
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ fontSize: 15, fontWeight: 500, flex: 1, minWidth: 0 }}>{c.concept}</div>
         <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 20, background: pill.bg, color: pill.fg }}>{pill.t}</span>
-        <span style={{ fontSize: 11, color: "#A32D2D", fontFamily: MONO }}>✗ {c.missCount || 0}</span>
+        <span style={{ fontSize: 11, color: "#A32D2D", fontFamily: SANS }}>✗ {c.missCount || 0}</span>
         {(c.consecutiveCorrect || 0) > 0 && (
-          <span style={{ fontSize: 11, color: "#27500A", fontFamily: MONO }}>✓ {c.consecutiveCorrect} in a row</span>
+          <span style={{ fontSize: 11, color: "#27500A", fontFamily: SANS }}>✓ {c.consecutiveCorrect} in a row</span>
         )}
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 4 }}>
@@ -6725,7 +7470,7 @@ function DrillSessionSummaryPanel({
               textAlign: "center",
             }}
           >
-            <div style={{ fontFamily: MONO, fontSize: 22, fontWeight: 500, color: cell.color }}>{cell.val}</div>
+            <div style={{ fontFamily: SANS, fontSize: 22, fontWeight: 500, color: cell.color }}>{cell.val}</div>
             <div style={{ fontSize: 11, color: "var(--color-text-tertiary, " + T.text3 + ")", marginTop: 4 }}>
               {cell.label}
             </div>
@@ -6743,7 +7488,7 @@ function DrillSessionSummaryPanel({
               <div style={{ width: `${rest}%`, background: T.border2 || "#ccc", flexShrink: 0 }} />
             )}
           </div>
-          <div style={{ fontFamily: MONO, fontSize: 12, color: scoreCol, marginTop: 6 }}>
+          <div style={{ fontFamily: SANS, fontSize: 12, color: scoreCol, marginTop: 6 }}>
             {summary.totalCorrect != null && summary.totalAnswered != null
               ? `${summary.totalCorrect}/${summary.totalAnswered} (${summary.score}%)`
               : `${summary.score}%`}{" "}
@@ -6858,7 +7603,7 @@ function DrillSessionSummaryPanel({
                             color: "#185FA5",
                             cursor: "pointer",
                             textDecoration: "underline",
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         >
                           Go to Objectives → Unlinked tab →
@@ -6904,7 +7649,7 @@ function DrillSessionSummaryPanel({
                           color: T.text2,
                           cursor: "pointer",
                           padding: 0,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         {isExp ? "▾" : "▸"} Show {n} struggling objective{n !== 1 ? "s" : ""}
@@ -7010,7 +7755,7 @@ function DrillSessionSummaryPanel({
               padding: "8px 16px",
               borderRadius: "var(--border-radius-md, 8px)",
               cursor: "pointer",
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 12,
             }}
           >
@@ -7023,7 +7768,7 @@ function DrillSessionSummaryPanel({
           style={{
             padding: "8px 16px",
             fontSize: 12,
-            fontFamily: MONO,
+            fontFamily: SANS,
             border: "1px solid " + T.border1,
             background: T.cardBg,
             color: T.text1,
@@ -7067,7 +7812,77 @@ function Session({
   const [eliminated, setEliminated] = useState({}); // { [questionId]: ["A","C"] }
   const [reviewMode, setReviewMode] = useState(false);
   const [quizInlineAdded, setQuizInlineAdded] = useState(false);
+  const [confidence, setConfidence] = useState(null); // "High"|"Medium"|"Low" for current q
+  const [flaggedIds, setFlaggedIds] = useState({}); // { [questionId]: true }
+  const [confidences, setConfidences] = useState({}); // { [questionId]: "High"|"Medium"|"Low" }
+  // Selected-term lookup popup (ported from drill): { text, x, y, loading, result }
+  const [termLookup, setTermLookup] = useState(null);
+  const [termLookupToast, setTermLookupToast] = useState(null);
   const tc = cfg.termColor || "#ef4444";
+
+  const fetchTermLookup = async (selectedText, questionStem) => {
+    const fallback = { significance: "No information found.", clinicalImplication: null, normalRange: null, direction: null };
+    try {
+      const result = await callAIJSON(
+        `You are a clinical medicine tutor helping a medical student think through a question stem. When given a selected term or lab value, return a JSON object with:
+{
+  "normalRange": "string or null — only for lab values/vitals",
+  "direction": "HIGH or LOW or null — if it's a lab value, is this value abnormal and in which direction",
+  "significance": "1-2 sentences: what does this finding mean clinically in plain language",
+  "clinicalImplication": "1 sentence: what diagnosis or mechanism does this point toward"
+}
+Be concise. Medical student level. No preamble.`,
+        `Question context: "${(questionStem || "").slice(0, 400)}"
+Student selected: "${selectedText}"
+
+What is the clinical significance of this finding?`,
+        fallback,
+        1000
+      );
+      setTermLookup((prev) => (prev ? { ...prev, loading: false, result: {
+        normalRange: result?.normalRange ?? null,
+        direction: result?.direction ?? null,
+        significance: result?.significance?.toString().trim() || fallback.significance,
+        clinicalImplication: result?.clinicalImplication ?? null,
+      } } : null));
+    } catch {
+      setTermLookup((prev) => prev ? { ...prev, loading: false, result: { significance: "Lookup failed — check AI connection." } } : null);
+    }
+  };
+
+  const addTermLookupToNotes = (annotation) => {
+    if (!annotation?.text) return;
+    try {
+      const notes = JSON.parse(localStorage.getItem("rxt-quick-notes") || "[]");
+      const note = {
+        id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `qn-${Date.now()}`,
+        tag: "lookup",
+        text: annotation.text,
+        note: annotation.result?.significance || "",
+        clinicalImplication: annotation.result?.clinicalImplication || null,
+        blockId: cfg.objectiveBlockId ?? cfg.blockId ?? null,
+        lectureId: cfg.lectureId ?? null,
+        createdAt: new Date().toISOString(),
+      };
+      const next = [note, ...(Array.isArray(notes) ? notes : [])].slice(0, 500);
+      localStorage.setItem("rxt-quick-notes", JSON.stringify(next));
+      setTermLookupToast("📝 Added to lecture notes");
+      window.setTimeout(() => setTermLookupToast(null), 2000);
+      setTermLookup(null);
+    } catch (e) {
+      console.error("addTermLookupToNotes failed:", e);
+      setTermLookupToast("⚠ Save failed");
+      window.setTimeout(() => setTermLookupToast(null), 2000);
+    }
+  };
+
+  function toggleFlag(qid) {
+    setFlaggedIds((prev) => {
+      const next = { ...prev };
+      if (next[qid]) delete next[qid]; else next[qid] = true;
+      return next;
+    });
+  }
 
   function toggleEliminate(questionId, choice) {
     if (vigs[idx]?.id === questionId && sel === choice) return;
@@ -7090,6 +7905,19 @@ function Session({
     const container = document.getElementById("stem-" + questionId);
     if (!container || !container.contains(range.startContainer)) return;
 
+    // Term lookup popup positioned over the selection (ported from drill).
+    const rect = range.getBoundingClientRect();
+    const stemText = vigs[idx]?.stem || "";
+    setTermLookup({
+      text: selectedText,
+      x: rect.left + rect.width / 2,
+      y: rect.top - 8,
+      loading: true,
+      result: null,
+    });
+    void fetchTermLookup(selectedText, stemText);
+
+    // Also keep highlight behavior so you can mark up the stem.
     setHighlights((prev) => ({
       ...prev,
       [questionId]: [
@@ -7216,6 +8044,45 @@ function Session({
   const next = () => {
     const ok = sel === vigs[idx].correct;
     const curVig = vigs[idx];
+    const conf = confidence; // null | "High" | "Medium" | "Low"
+    // Feed quiz misses AND low-confidence corrects into the weak-concept list.
+    const shouldRecordWeak = !ok || conf === "Low";
+    if (shouldRecordWeak) {
+      const bidForWeak = cfg.objectiveBlockId ?? cfg.blockId ?? null;
+      if (bidForWeak) {
+        const wrongChoice = curVig.choices?.[sel] ?? sel ?? "";
+        const correctChoice = curVig.choices?.[curVig.correct] ?? curVig.correct ?? "";
+        const lecRef = cfg.lectureId ?? curVig.lectureRef ?? null;
+        recordWrongAnswer({
+          blockId: bidForWeak,
+          blockName: cfg.blockName || "",
+          question: curVig.stem || "",
+          wrongAnswer: ok ? `(correct but low confidence) ${correctChoice}` : wrongChoice,
+          correctAnswer: correctChoice,
+          linkedLecId: lecRef,
+          lectureLabel: cfg.subject || curVig.topic || "",
+          source: ok ? "quiz-lowconf" : "quiz",
+          objectiveId: curVig.objectiveId || null,
+        }).catch(() => {});
+      }
+    }
+    if (conf) {
+      setConfidences((prev) => ({ ...prev, [curVig.id]: conf }));
+    }
+    // Strengthen weak-concept mastery when user gets it right (parity with drill).
+    if (ok && conf !== "Low") {
+      const bidForOk = cfg.objectiveBlockId ?? cfg.blockId ?? null;
+      const lecRef = cfg.lectureId ?? curVig.lectureRef ?? null;
+      if (bidForOk && lecRef) {
+        try {
+          const { block } = getWeakConcepts(bidForOk);
+          const match = block.find(
+            (c) => (c.linkedLecIds || []).includes(lecRef) && c.masteryLevel !== "mastered"
+          );
+          if (match) recordConceptCorrect(bidForOk, match.id);
+        } catch {}
+      }
+    }
     if (cfg.mode === "objectives" && cfg.perObjectiveDrillQuiz && (cfg.objectiveBlockId || cfg.blockId)) {
       const bidInner = cfg.objectiveBlockId ?? cfg.blockId;
       const sessionObjectives = cfg.quizSessionObjectives;
@@ -7236,6 +8103,12 @@ function Session({
       const correctCount = nr.filter((r) => r.ok).length;
       const resultsWithObjectives = nr.map((r) => {
         const vig = vigs.find((v) => v.id === r.questionId);
+        // Capture per-question confidence so the Analytics calibration panel can compute
+        // accuracy at each confidence level (High/Medium/Low) over time.
+        const qConfidence =
+          (conf && r.questionId === curVig.id ? conf : null) ||
+          confidences[r.questionId] ||
+          null;
         return {
           questionId: vig?.id ?? r.questionId,
           objectiveId: vig?.objectiveId ?? null,
@@ -7244,6 +8117,7 @@ function Session({
           topic: vig?.topic ?? r.topic ?? null,
           correct: r.ok,
           score: r.ok ? 100 : 0,
+          confidence: qConfidence,
         };
       });
       onDone({
@@ -7263,18 +8137,100 @@ function Session({
           perObjectiveDrillQuiz: !!cfg.perObjectiveDrillQuiz,
           quizDifficultyTier: cfg.quizDifficultyTier ?? 1,
           quizTierLabel: cfg.quizTierLabel ?? null,
+          confidences: { ...confidences, ...(conf ? { [curVig.id]: conf } : {}) },
+          flaggedQuestionIds: Object.keys(flaggedIds),
         },
       });
       setResults(nr);
       setDone(true);
     } else {
-      setResults(nr); setIdx(i => i + 1); setSel(null); setShown(false);
+      setResults(nr); setIdx(i => i + 1); setSel(null); setShown(false); setConfidence(null);
     }
   };
 
+  // Keyboard shortcuts — match Drill: A-D / 1-4 pick, Enter reveal/advance, 1/2/3 set confidence after reveal, F flag.
+  useEffect(() => {
+    if (done || loading || error) return;
+    const onKey = (e) => {
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const curVig = vigs[idx];
+      if (!curVig) return;
+
+      if ((e.key === "f" || e.key === "F") && !e.shiftKey) {
+        e.preventDefault();
+        toggleFlag(curVig.id);
+        return;
+      }
+
+      if (!shown) {
+        const digit = e.code?.match(/^Digit([1-4])$/);
+        const letter = e.key?.length === 1 ? e.key.toUpperCase() : "";
+        let pickedLetter = null;
+        if (digit) pickedLetter = ["A", "B", "C", "D"][parseInt(digit[1], 10) - 1];
+        else if (letter === "A" || letter === "B" || letter === "C" || letter === "D") pickedLetter = letter;
+        if (pickedLetter) {
+          e.preventDefault();
+          setSel((prev) => (prev === pickedLetter ? null : pickedLetter));
+          return;
+        }
+        // h/m/l set pre-reveal confidence (digits 1-4 are reserved for picking A-D).
+        if (e.key === "h" || e.key === "H") { e.preventDefault(); setConfidence("High"); return; }
+        if (e.key === "m" || e.key === "M") { e.preventDefault(); setConfidence("Medium"); return; }
+        if (e.key === "l" || e.key === "L") { e.preventDefault(); setConfidence("Low"); return; }
+        if (e.key === "Enter" && sel && confidence) {
+          e.preventDefault();
+          setShown(true);
+        }
+        return;
+      }
+
+      // After reveal: h/m/l still re-rate (no-op once stored), Enter → advance.
+      if (e.key === "h" || e.key === "H") { e.preventDefault(); setConfidence("High"); return; }
+      if (e.key === "m" || e.key === "M") { e.preventDefault(); setConfidence("Medium"); return; }
+      if (e.key === "l" || e.key === "L") { e.preventDefault(); setConfidence("Low"); return; }
+      if (e.key === "Enter") { e.preventDefault(); next(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [done, loading, error, idx, sel, shown, vigs, confidence]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Persist flagged questions when session ends.
+  useEffect(() => {
+    if (!done) return;
+    const flaggedList = Object.keys(flaggedIds);
+    if (flaggedList.length === 0) return;
+    try {
+      const existing = JSON.parse(localStorage.getItem("rxt-flagged-questions") || "[]");
+      const byId = new Map(existing.map((q) => [q.id, q]));
+      for (const qid of flaggedList) {
+        const v = vigs.find((x) => x.id === qid);
+        if (!v) continue;
+        byId.set(qid, {
+          id: qid,
+          stem: v.stem || "",
+          choices: v.choices || [],
+          correct: v.correct,
+          topic: v.topic || cfg.subtopic || "",
+          blockId: cfg.objectiveBlockId ?? cfg.blockId ?? null,
+          lectureRef: v.lectureRef || cfg.lectureId || null,
+          confidence: confidences[qid] || null,
+          flaggedAt: new Date().toISOString(),
+        });
+      }
+      localStorage.setItem(
+        "rxt-flagged-questions",
+        JSON.stringify([...byId.values()].slice(-500))
+      );
+    } catch (e) {
+      console.warn("Flag persist failed", e);
+    }
+  }, [done]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!vigs?.length && !loading) {
     return (
-      <div style={{ padding: 40, textAlign: "center", fontFamily: MONO, color: T.text3 }}>
+      <div style={{ padding: 40, textAlign: "center", fontFamily: SANS, color: T.text3 }}>
         No questions available. Go back and try again.
       </div>
     );
@@ -7289,7 +8245,7 @@ function Session({
 
   if (error) return (
     <div style={{ background: T.appBg, minHeight: "100%", maxWidth: 640, margin: "0 auto", padding: 40 }}>
-      <div style={{ fontFamily: MONO, color: T.statusBad, fontSize: 15, marginBottom: 16, fontWeight: 600 }}>
+      <div style={{ fontFamily: SANS, color: T.statusBad, fontSize: 15, marginBottom: 16, fontWeight: 600 }}>
         ⚠ Session error
       </div>
       <pre
@@ -7338,11 +8294,84 @@ function Session({
       );
     }
 
+    // Per-session calibration nudge — pick the worst-gap bucket and surface it as
+    // a single actionable line. Computes only this session's confidences vs results.
+    const sessionCalib = (() => {
+      const expected = { High: 90, Medium: 65, Low: 35 };
+      const bucket = { High: { n: 0, c: 0 }, Medium: { n: 0, c: 0 }, Low: { n: 0, c: 0 } };
+      results.forEach((r) => {
+        const conf = confidences[r.questionId];
+        if (!bucket[conf]) return;
+        bucket[conf].n += 1;
+        if (r.ok) bucket[conf].c += 1;
+      });
+      const stats = ["High", "Medium", "Low"]
+        .map((lbl) => {
+          const b = bucket[lbl];
+          if (!b.n) return null;
+          const acc = Math.round((b.c / b.n) * 100);
+          return { lbl, n: b.n, c: b.c, acc, gap: acc - expected[lbl] };
+        })
+        .filter(Boolean);
+      if (!stats.length) return null;
+      const worst = [...stats].sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))[0];
+      let message = null;
+      let tone = "info";
+      if (worst.lbl === "High" && worst.gap < -10) {
+        tone = "warn";
+        message = `High picks were ${worst.acc}% (target ~90). The "feels familiar" trap — recognition isn't recall. Slow down on confident picks.`;
+      } else if (worst.lbl === "Low" && worst.gap > 20) {
+        tone = "good";
+        message = `Low picks were ${worst.acc}% (target ~35). You know more than you think — trust your gut more on guesses.`;
+      } else if (worst.lbl === "Medium" && Math.abs(worst.gap) > 20) {
+        tone = "warn";
+        message = `Medium picks were ${worst.acc}% (target ~65). Push the borderline ones harder — eliminate one more wrong choice before committing.`;
+      } else if (Math.abs(worst.gap) <= 10) {
+        tone = "good";
+        message = `Calibration solid this session — confidence tracked accuracy within 10 points across all buckets.`;
+      } else {
+        tone = "info";
+        message = `${worst.lbl} picks: ${worst.acc}% (target ~${expected[worst.lbl]}). ${worst.gap > 0 ? "Underrating yourself." : "Overrating yourself."}`;
+      }
+      return { stats, worst, message, tone };
+    })();
+    const calibTone = sessionCalib?.tone;
+    const calibColors = {
+      good: { bg: "#16a34a18", border: "#16a34a", color: "#15803d" },
+      warn: { bg: "#dc262618", border: "#dc2626", color: "#b91c1c" },
+      info: { bg: T.inputBg, border: T.border1, color: T.text2 },
+    }[calibTone || "info"] || { bg: T.inputBg, border: T.border1, color: T.text2 };
+
     return (
       <div style={{ background: T.appBg, minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: 24, padding: "70px 40px" }}>
         <div style={{ fontFamily: SERIF, fontSize: 24, color: T.text3 }}>Session Complete</div>
         <Ring score={score} size={130} tint={tc} />
-        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 14 }}>{results.filter(r => r.ok).length} / {results.length} correct</p>
+        <p style={{ fontFamily: SANS, color: T.text3, fontSize: 14 }}>{results.filter(r => r.ok).length} / {results.length} correct</p>
+        {sessionCalib && (
+          <div
+            style={{
+              maxWidth: 540,
+              width: "100%",
+              padding: "12px 16px",
+              background: calibColors.bg,
+              border: "1px solid " + calibColors.border,
+              borderRadius: 10,
+              boxSizing: "border-box",
+              fontFamily: SANS,
+              fontSize: 13,
+              color: calibColors.color,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 4, fontSize: 12, letterSpacing: 0.5 }}>
+              🎯 CALIBRATION CHECK
+            </div>
+            <div>{sessionCalib.message}</div>
+            <div style={{ fontSize: 11, opacity: 0.8, marginTop: 6 }}>
+              {sessionCalib.stats.map((s) => `${s.lbl}: ${s.c}/${s.n}`).join(" · ")}
+            </div>
+          </div>
+        )}
         {quizSavedState?.tierAdvancement && (
           <div
             style={{
@@ -7423,7 +8452,7 @@ function Session({
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
               <span
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 12,
                   fontWeight: 700,
                   padding: "5px 9px",
@@ -7459,7 +8488,7 @@ function Session({
                   color: T.text2,
                   borderRadius: 8,
                   padding: "6px 12px",
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 12,
                   cursor: "pointer",
                 }}
@@ -7551,14 +8580,16 @@ function Session({
     <div style={{ background: T.appBg, minHeight: "100%", maxWidth: 860, margin: "0 auto", padding: "0 24px 24px", display: "flex", flexDirection: "column", gap: 20, width: "100%", boxSizing: "border-box" }}>
       {/* Progress bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontFamily: MONO, fontSize: 13 }}>← Exit</button>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: T.text3, cursor: "pointer", fontFamily: SANS, fontSize: 13 }}>← Exit</button>
         <div style={{ flex: 1, height: 10, background: T.border1, borderRadius: 2, overflow: "hidden" }}>
           <div style={{ height: "100%", width: (idx / vigs.length * 100) + "%", background: tc, borderRadius: 2, transition: "width 0.4s" }} />
         </div>
-        <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>{idx + 1}/{vigs.length}</span>
+        <span style={{ fontFamily: SANS, color: T.text3, fontSize: 13 }}>{idx + 1}/{vigs.length}</span>
       </div>
 
-      {cfg?.mode === "objectives" && cfg?.quizDifficultyTier != null && (
+      {/* Suppressed when the larger quizLevelSnap progress card is also shown — they
+          duplicate the same tier info under different names (Foundational vs 1st order). */}
+      {cfg?.mode === "objectives" && cfg?.quizDifficultyTier != null && !cfg?.quizLevelSnap && (
         <div
           style={{
             display: "flex",
@@ -7647,7 +8678,7 @@ function Session({
 
       {/* Difficulty + topic */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ fontFamily: MONO, background: dc + "18", color: dc, fontSize: 13, padding: "3px 10px", borderRadius: 20, letterSpacing: 1.5, border: "1px solid " + dc + "30" }}>
+        <span style={{ fontFamily: SANS, background: dc + "18", color: dc, fontSize: 13, padding: "3px 10px", borderRadius: 20, letterSpacing: 1.5, border: "1px solid " + dc + "30" }}>
           {(difficulty || "medium").toUpperCase()}
         </span>
         {(() => {
@@ -7669,18 +8700,18 @@ function Session({
             </span>
           );
         })()}
-        {v.topic && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 13 }}>{v.topic}</span>}
+        {v.topic && <span style={{ fontFamily: SANS, color: T.text3, fontSize: 13 }}>{v.topic}</span>}
       </div>
 
       {/* Generated With — style indicator */}
       {vigs.some((q) => q.usedUploadedStyle) && (
-        <div style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ fontFamily: SANS, color: T.statusGood, fontSize: 10, display: "flex", alignItems: "center", gap: 5 }}>
           <span>✓</span>
           <span>Questions styled from your uploaded {cfg.blockName || "block"} exams</span>
         </div>
       )}
       {!vigs.some((q) => q.usedUploadedStyle) && (
-        <div style={{ fontFamily: MONO, color: T.statusWarn, fontSize: 10, display: "flex", alignItems: "center", gap: 5 }}>
+        <div style={{ fontFamily: SANS, color: T.statusWarn, fontSize: 10, display: "flex", alignItems: "center", gap: 5 }}>
           <span>⚠</span>
           <span>No uploaded exams matched — using USMLE standard style. Upload {cfg.blockName || "block"} exams to improve.</span>
         </div>
@@ -7710,12 +8741,12 @@ function Session({
                 />
               </div>
             )}
-            <p style={{ fontFamily:MONO, color:T.text3, fontSize:11, margin:0 }}>
+            <p style={{ fontFamily:SANS, color:T.text3, fontSize:11, margin:0 }}>
               🔬 Identify the structures or select the correct answer based on the histological slide above.
             </p>
             {shown && v.answerPageImage && (
               <div>
-                <div style={{ fontFamily:MONO, color:T.statusGood, fontSize:11, marginBottom:8, letterSpacing:1 }}>
+                <div style={{ fontFamily:SANS, color:T.statusGood, fontSize:11, marginBottom:8, letterSpacing:1 }}>
                   ✓ ANSWER — ANNOTATED SLIDE
                 </div>
                 <div style={{ background: T.cardBg, borderRadius: 12, overflow: "hidden", border: "1px solid " + T.statusGoodBorder }}>
@@ -7769,7 +8800,7 @@ function Session({
               );
             })()}
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10 }}>
-              <span style={{ fontFamily:MONO, color:T.text3, fontSize:10 }}>Highlight:</span>
+              <span style={{ fontFamily:SANS, color:T.text3, fontSize:10 }}>Highlight:</span>
               {["#fde047","#86efac","#93c5fd","#f9a8d4","#fca5a5"].map(c => (
                 <div
                   key={c}
@@ -7786,7 +8817,7 @@ function Session({
                   }}
                 />
               ))}
-              <span style={{ fontFamily:MONO, color:T.text4, fontSize:10, marginLeft:4 }}>
+              <span style={{ fontFamily:SANS, color:T.text4, fontSize:10, marginLeft:4 }}>
                 Select text to highlight · Click highlight to remove
               </span>
             </div>
@@ -7833,7 +8864,10 @@ function Session({
           }
 
           return (
-            <div key={letter} style={{ opacity: isEliminated ? 0.4 : 1 }}>
+            // Dim eliminated choices only while the question is still active.
+            // Once the answer is revealed, restore full opacity so the correct
+            // choice + its explanation stay readable for review.
+            <div key={letter} style={{ opacity: isEliminated && !shown ? 0.4 : 1 }}>
               <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
                 {!shown && (
                   <button
@@ -7864,16 +8898,16 @@ function Session({
                       display: "flex",
                       gap: 13,
                       color,
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                       fontSize: 15,
                       lineHeight: 1.65,
                       transition: "background 0.1s, border-color 0.1s",
-                      textDecoration: isEliminated ? "line-through" : "none",
+                      textDecoration: isEliminated && !shown ? "line-through" : "none",
                       marginBottom: hasExpBelow ? 0 : 12,
                     }}
                   >
-                    <span style={{ fontWeight: 700, minWidth: 22, color: isEliminated ? T.text4 : (shown || isSelected ? color : T.text3) }}>{letter}.</span>
-                    <span style={{ flex: 1, color: isEliminated ? T.text4 : color }}>{v.choices[letter]}</span>
+                    <span style={{ fontWeight: 700, minWidth: 22, color: isEliminated && !shown ? T.text4 : (shown || isSelected ? color : T.text3) }}>{letter}.</span>
+                    <span style={{ flex: 1, color: isEliminated && !shown ? T.text4 : color }}>{renderMedText(v.choices[letter])}</span>
                     {shown && letter === v.correct && <span style={{ color: T.statusGood }}>✓</span>}
                     {shown && letter === sel && letter !== v.correct && <span style={{ color: T.statusBad }}>✗</span>}
                   </div>
@@ -7895,10 +8929,10 @@ function Session({
                       }}
                     >
                       <div>
-                        <div style={{ fontWeight: 700, color: T.statusGood, marginBottom: 6, fontFamily: MONO }}>
+                        <div style={{ fontWeight: 700, color: T.statusGood, marginBottom: 6, fontFamily: SANS }}>
                           ✓ Correct
                         </div>
-                        <div style={{ color: T.text1, lineHeight: 1.7 }}>{v.explanation}</div>
+                        <div style={{ color: T.text1, lineHeight: 1.7 }}>{renderMedText(v.explanation)}</div>
                         {v.teachingPoint && (
                           <div
                             style={{
@@ -7907,11 +8941,11 @@ function Session({
                               background: T.inputBg,
                               borderRadius: 6,
                               borderLeft: `3px solid ${tc}`,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             <span style={{ fontWeight: 600 }}>💡 Teaching point: </span>
-                            {v.teachingPoint}
+                            {renderMedText(v.teachingPoint)}
                           </div>
                         )}
                         {v.step1Connection && cfg?.quizDifficultyTier === 3 && (
@@ -7922,7 +8956,7 @@ function Session({
                               background: "#ede9fe",
                               borderRadius: 8,
                               borderLeft: "3px solid #7c3aed",
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             <div
@@ -7953,14 +8987,14 @@ function Session({
                         borderTop: "none",
                         fontSize: 13,
                         lineHeight: 1.6,
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                         color: T.text1,
                       }}
                     >
                       <span style={{ fontWeight: 700, color: isSelected ? T.statusBad : T.text3 }}>
                         {letter} — Why this is wrong:
                       </span>
-                      <span style={{ color: T.text2, marginLeft: 8 }}>{whyWrong}</span>
+                      <span style={{ color: T.text2, marginLeft: 8 }}>{renderMedText(whyWrong)}</span>
                     </div>
                   )}
                 </div>
@@ -7970,17 +9004,267 @@ function Session({
         })}
       </div>
       {!shown && (
-        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginTop: 8 }}>
+        <p style={{ fontFamily: SANS, color: T.text3, fontSize: 12, marginTop: 8 }}>
           ✕ Click the X button next to a choice to eliminate it · Click ↩ to restore
         </p>
       )}
 
-      <div style={{ display:"flex", justifyContent:"flex-end", gap:10 }}>
+      {/* Pre-reveal confidence prompt — appears once a choice is selected, before reveal.
+          This trains the prediction muscle: rate before you see the answer, not after. */}
+      {sel && !shown && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: "10px 12px",
+            marginBottom: 10,
+            background: T.inputBg,
+            border: "1px solid " + (confidence ? T.border1 : tc),
+            borderRadius: 10,
+          }}
+        >
+          <span style={{ fontFamily: SANS, fontSize: 12, color: T.text2, fontWeight: 700 }}>
+            Before you reveal — how sure are you?
+          </span>
+          {[
+            { v: "High", color: T.statusGood, hint: "I'd bet on it" },
+            { v: "Medium", color: "#d97706", hint: "Probably right" },
+            { v: "Low", color: T.statusBad, hint: "Best guess" },
+          ].map((opt) => {
+            const active = confidence === opt.v;
+            return (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setConfidence(opt.v)}
+                title={opt.hint}
+                style={{
+                  padding: "6px 14px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  fontFamily: SANS,
+                  border: "1px solid " + (active ? opt.color : T.border1),
+                  background: active ? opt.color + "22" : "transparent",
+                  color: active ? opt.color : T.text2,
+                  borderRadius: 999,
+                  cursor: "pointer",
+                }}
+              >
+                {opt.v}
+              </button>
+            );
+          })}
+          <span style={{ fontFamily: SANS, fontSize: 11, color: T.text3, marginLeft: "auto" }}>
+            H / M / L
+          </span>
+        </div>
+      )}
+
+      {/* Post-reveal: read-only display of the prediction so the user sees it landed. */}
+      {shown && confidence && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            flexWrap: "wrap",
+            padding: "10px 12px",
+            marginBottom: 10,
+            background: T.inputBg,
+            border: "0.5px solid " + T.border1,
+            borderRadius: 10,
+          }}
+        >
+          <span style={{ fontFamily: SANS, fontSize: 12, color: T.text3, fontWeight: 600 }}>
+            Your prediction:
+          </span>
+          {(() => {
+            const map = { High: T.statusGood, Medium: "#d97706", Low: T.statusBad };
+            const c = map[confidence] || T.text2;
+            const wasCorrect = vigs[idx]?.correct === sel;
+            const matched =
+              (confidence === "High" && wasCorrect) ||
+              (confidence === "Low" && !wasCorrect) ||
+              (confidence === "Medium");
+            return (
+              <>
+                <span style={{ padding: "4px 10px", borderRadius: 999, background: c + "22", color: c, fontWeight: 700, fontFamily: SANS, fontSize: 12 }}>
+                  {confidence}
+                </span>
+                <span style={{ fontFamily: SANS, fontSize: 12, color: t => T.text3 }}>
+                  · Actual: <b style={{ color: wasCorrect ? T.statusGood : T.statusBad }}>{wasCorrect ? "correct" : "wrong"}</b>
+                </span>
+                {!matched && confidence === "High" && !wasCorrect && (
+                  <span style={{ fontFamily: SANS, fontSize: 11, color: T.statusBad, marginLeft: "auto" }}>
+                    ⚠ overconfident — recheck on Step day
+                  </span>
+                )}
+                {!matched && confidence === "Low" && wasCorrect && (
+                  <span style={{ fontFamily: SANS, fontSize: 11, color: T.statusGood, marginLeft: "auto" }}>
+                    ↑ trust your gut next time
+                  </span>
+                )}
+              </>
+            );
+          })()}
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          type="button"
+          onClick={() => toggleFlag(vigs[idx].id)}
+          title={flaggedIds[vigs[idx].id] ? "Unflag this question" : "Flag for later review"}
+          style={{
+            padding: "8px 12px",
+            fontSize: 13,
+            fontFamily: SANS,
+            border: "1px solid " + (flaggedIds[vigs[idx].id] ? "#d97706" : T.border1),
+            background: flaggedIds[vigs[idx].id] ? "#fef3c7" : "transparent",
+            color: flaggedIds[vigs[idx].id] ? "#92400e" : T.text2,
+            borderRadius: 8,
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          {flaggedIds[vigs[idx].id] ? "🚩 Flagged" : "🏳 Flag"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (idx === 0) return;
+            const prev = idx - 1;
+            const prevVig = vigs[prev];
+            const prevResult = (results || []).find((r) => r.questionId === prevVig?.id);
+            // Drop tail of results so user can re-answer prior questions.
+            setResults((rs) => (rs || []).slice(0, prev));
+            setIdx(prev);
+            setSel(prevResult?.chosenAnswer ?? null);
+            setShown(false);
+            setConfidence(confidences[prevVig?.id] || null);
+          }}
+          disabled={idx === 0}
+          style={{
+            padding: "8px 12px",
+            fontSize: 13,
+            fontFamily: SANS,
+            border: "1px solid " + T.border1,
+            background: "transparent",
+            color: idx === 0 ? T.text3 : T.text1,
+            borderRadius: 8,
+            cursor: idx === 0 ? "not-allowed" : "pointer",
+            fontWeight: 600,
+            opacity: idx === 0 ? 0.5 : 1,
+          }}
+        >
+          ← Previous
+        </button>
+        <div style={{ flex: 1 }} />
         {!shown
-          ? <Btn onClick={() => setShown(true)} color={tc} disabled={!sel}>Reveal Answer</Btn>
+          ? (
+            <Btn
+              onClick={() => setShown(true)}
+              color={tc}
+              disabled={!sel || !confidence}
+              title={!sel ? "Pick an answer first" : !confidence ? "Rate your confidence first (1/2/3)" : ""}
+            >
+              {!sel ? "Pick an answer" : !confidence ? "Rate confidence to reveal" : "Reveal Answer"}
+            </Btn>
+          )
           : <Btn onClick={next} color={T.statusGood}>{idx+1>=vigs.length ? "Finish ✓" : "Next →"}</Btn>
         }
       </div>
+
+      {termLookup && (
+        <>
+          <div
+            role="presentation"
+            onClick={() => setTermLookup(null)}
+            style={{ position: "fixed", inset: 0, zIndex: 1500 }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              left: Math.max(12, Math.min(typeof window !== "undefined" ? window.innerWidth - 320 : termLookup.x - 150, termLookup.x - 150)),
+              top: Math.max(60, termLookup.y - 180),
+              width: 300,
+              background: T.cardBg,
+              border: "1px solid " + T.border1,
+              borderRadius: 10,
+              padding: "12px 14px",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+              zIndex: 1501,
+              fontFamily: SANS,
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 700, color: T.text1, marginBottom: 6 }}>
+              🔬 {termLookup.text}
+            </div>
+            {termLookup.loading ? (
+              <div style={{ fontSize: 12, color: T.text3 }}>Looking up…</div>
+            ) : (
+              <>
+                {termLookup.result?.normalRange && (
+                  <div style={{ fontSize: 11, color: T.text3, marginBottom: 4 }}>
+                    Normal: {termLookup.result.normalRange}
+                    {termLookup.result.direction && (
+                      <span style={{ marginLeft: 6, color: termLookup.result.direction === "HIGH" ? "#dc2626" : "#2563eb", fontWeight: 700 }}>
+                        ({termLookup.result.direction})
+                      </span>
+                    )}
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: T.text1, lineHeight: 1.45, marginBottom: 6 }}>
+                  {termLookup.result?.significance}
+                </div>
+                {termLookup.result?.clinicalImplication && (
+                  <div style={{ fontSize: 11, color: T.text2, fontStyle: "italic", marginBottom: 8 }}>
+                    → {termLookup.result.clinicalImplication}
+                  </div>
+                )}
+                <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => setTermLookup(null)}
+                    style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid " + T.border1, background: "transparent", color: T.text2, fontSize: 11, cursor: "pointer", fontFamily: SANS }}
+                  >
+                    Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => addTermLookupToNotes(termLookup)}
+                    style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: tc, color: "#fff", fontSize: 11, cursor: "pointer", fontFamily: SANS, fontWeight: 700 }}
+                  >
+                    📝 Add to lecture notes
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+      {termLookupToast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: T.text1,
+            color: T.cardBg,
+            padding: "8px 14px",
+            borderRadius: 8,
+            fontSize: 12,
+            fontFamily: SANS,
+            zIndex: 1600,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+          }}
+        >
+          {termLookupToast}
+        </div>
+      )}
     </div>
   );
 }
@@ -8010,7 +9294,7 @@ function EditableText({ value, onChange, style, placeholder }) {
         background: T.inputBg,
         border: "1px solid " + T.blue,
         color: T.text1,
-        fontFamily: "'DM Mono','Courier New',monospace",
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         fontSize: 15,
         padding: "2px 8px",
         borderRadius: 5,
@@ -8039,7 +9323,7 @@ function EditableText({ value, onChange, style, placeholder }) {
 function EditableLecNumber({ value, type, onChange, tc, T }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? "");
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
   const commit = () => {
     setEditing(false);
@@ -8059,7 +9343,7 @@ function EditableLecNumber({ value, type, onChange, tc, T }) {
         onClick={e => e.stopPropagation()}
         style={{
           width: 44,
-          fontFamily: MONO,
+          fontFamily: SANS,
           fontSize: 13,
           fontWeight: 700,
           color: tc,
@@ -8081,7 +9365,7 @@ function EditableLecNumber({ value, type, onChange, tc, T }) {
       onClick={e => { e.stopPropagation(); setDraft(value ?? ""); setEditing(true); }}
       title={noValue ? "Click to set lecture number" : "Click to edit lecture number"}
       style={{
-        fontFamily: MONO,
+        fontFamily: SANS,
         color: noValue ? T.amber : tc,
         fontSize: 13,
         fontWeight: 700,
@@ -8099,7 +9383,7 @@ function EditableLecNumber({ value, type, onChange, tc, T }) {
 
 function LecTypeBadge({ value, onChange, tc, T }) {
   const TYPES = ["LEC", "DLA", "SG", "TBL", "LAB", "CLIN"];
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const cycle = (e) => {
     e.stopPropagation();
     const v = (value || "LEC").toUpperCase();
@@ -8117,7 +9401,7 @@ function LecTypeBadge({ value, onChange, tc, T }) {
       onClick={cycle}
       title="Click to change type"
       style={{
-        fontFamily: MONO,
+        fontFamily: SANS,
         color: s.color,
         background: s.bg,
         border: "1px solid " + s.border,
@@ -8157,7 +9441,7 @@ function WeekGroup({
   setExpandedLec,
   ...lecRowProps
 }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
   const { T, tc } = lecRowProps;
   const [open, setOpen] = useState(defaultOpen);
@@ -8195,7 +9479,7 @@ function WeekGroup({
       >
         <span
           style={{
-            fontFamily: MONO,
+            fontFamily: SANS,
             color: T.text3,
             fontSize: 11,
             transform: open ? "rotate(90deg)" : "rotate(0deg)",
@@ -8214,7 +9498,7 @@ function WeekGroup({
             {isCurrentWeek && (
               <span
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 9,
                   color: tc,
                   background: tc + "18",
@@ -8229,7 +9513,7 @@ function WeekGroup({
             {hasStruggling && (
               <span
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 9,
                   color: T.statusBad,
                   background: T.statusBadBg,
@@ -8241,7 +9525,7 @@ function WeekGroup({
               </span>
             )}
           </div>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 1 }}>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, marginTop: 1 }}>
             {lecs.length} lecture{lecs.length !== 1 ? "s" : ""} ·{" "}
             {total > 0 ? `${mastered}/${total} obj` : "no objectives"}{" "}
             {sessionCount > 0 ? `· ${sessionCount} sessions` : ""}{" "}
@@ -8264,7 +9548,7 @@ function WeekGroup({
               </div>
               <span
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 11,
                   fontWeight: 700,
                   color: pct === 100 ? T.statusGood : headerColor,
@@ -8304,7 +9588,7 @@ function WeekGroup({
                   <div style={{ height: 1, width: 12, background: isToday ? tc : T.border1 }} />
                   <span
                     style={{
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                       color: isToday ? tc : T.text3,
                       fontSize: isToday ? 11 : 10,
                       fontWeight: isToday ? 700 : 400,
@@ -8316,7 +9600,7 @@ function WeekGroup({
                   {isToday && (
                     <span
                       style={{
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                         fontSize: 8,
                         color: "#fff",
                         background: tc,
@@ -8329,7 +9613,7 @@ function WeekGroup({
                     </span>
                   )}
                   <div style={{ flex: 1, height: 1, background: isToday ? tc + "40" : T.border2 }} />
-                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9 }}>
+                  <span style={{ fontFamily: SANS, color: T.text3, fontSize: 9 }}>
                     {byDay[day].length} lecture{byDay[day].length !== 1 ? "s" : ""}
                   </span>
                 </div>
@@ -8361,7 +9645,7 @@ function WeekGroup({
                 }}
               >
                 <div style={{ flex: 1, height: 1, background: T.border2 }} />
-                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1 }}>
+                <span style={{ fontFamily: SANS, color: T.text3, fontSize: 9, letterSpacing: 1 }}>
                   UNSCHEDULED
                 </span>
                 <div style={{ flex: 1, height: 1, background: T.border2 }} />
@@ -8498,11 +9782,11 @@ function ObjectiveQuizSettingsModal({
             </button>
           </div>
         )}
-        <div style={{ fontFamily: "'DM Mono','Courier New',monospace", fontSize: 11, color: T.text3, marginBottom: 10 }}>
+        <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3, marginBottom: 10 }}>
           Up to {maxObjectives} objective{maxObjectives !== 1 ? "s" : ""} available
         </div>
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: "'DM Mono','Courier New',monospace", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
+          <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
             QUESTIONS
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -8516,7 +9800,7 @@ function ObjectiveQuizSettingsModal({
                 disabled={disabled}
                 onClick={() => !disabled && setQuizSettings((s) => ({ ...(s || {}), count: p.val }))}
                 style={{
-                  fontFamily: "'DM Mono','Courier New',monospace",
+                  fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                   fontSize: 12,
                   fontWeight: 700,
                   padding: "8px 14px",
@@ -8536,7 +9820,7 @@ function ObjectiveQuizSettingsModal({
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: "'DM Mono','Courier New',monospace", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
+          <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
             STYLE
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -8552,7 +9836,7 @@ function ObjectiveQuizSettingsModal({
                   type="button"
                   onClick={() => setQuizSettings((q) => ({ ...(q || {}), style: s.id }))}
                   style={{
-                    fontFamily: "'DM Mono','Courier New',monospace",
+                    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                     fontSize: 12,
                     fontWeight: 700,
                     padding: "8px 14px",
@@ -8572,7 +9856,7 @@ function ObjectiveQuizSettingsModal({
 
         {quizSettings?.style === "rapid" && (
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <span style={{ fontFamily: "'DM Mono','Courier New',monospace", fontSize: 11, color: T.text3 }}>
+            <span style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3 }}>
               Time limit:
             </span>
             {[15, 30, 60].map((m) => {
@@ -8583,7 +9867,7 @@ function ObjectiveQuizSettingsModal({
                   type="button"
                   onClick={() => setQuizSettings((s) => ({ ...(s || {}), timed: true, timeMins: m }))}
                   style={{
-                    fontFamily: "'DM Mono','Courier New',monospace",
+                    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                     fontSize: 12,
                     fontWeight: 700,
                     padding: "6px 12px",
@@ -8602,7 +9886,7 @@ function ObjectiveQuizSettingsModal({
               type="button"
               onClick={() => setQuizSettings((s) => ({ ...(s || {}), timed: false }))}
               style={{
-                fontFamily: "'DM Mono','Courier New',monospace",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                 fontSize: 12,
                 fontWeight: 700,
                 padding: "6px 12px",
@@ -8634,7 +9918,7 @@ function ObjectiveQuizSettingsModal({
             fontWeight: 700,
             fontSize: 14,
             transition: "all 0.2s",
-            fontFamily: "'DM Mono','Courier New',monospace",
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             opacity: quizGenerating ? 0.9 : 1,
           }}
         >
@@ -8675,7 +9959,7 @@ function StudyModeButtons({ lec, blockId, objectives, T, tc, MONO, onDeepLearn, 
     display: "flex",
     alignItems: "center",
     gap: isIconOnly ? 0 : 6,
-    fontFamily: MONO,
+    fontFamily: SANS,
     lineHeight: 1,
   };
 
@@ -8702,24 +9986,13 @@ function StudyModeButtons({ lec, blockId, objectives, T, tc, MONO, onDeepLearn, 
         type="button"
         onClick={(e) => {
           stop(e);
+          // Unified Practice entry — routes through the MCQ drill pipeline with lecture-scoped objectives.
           onDrill?.({ objectives, blockId, lectureId: lec?.id, lec });
         }}
-        title={isIconOnly ? STUDY_MODES.DRILL.label : undefined}
+        title={isIconOnly ? "Practice" : undefined}
         style={{ ...baseBtn, border: `1px solid ${drillCol}`, color: drillCol }}
       >
-        {isIconOnly ? STUDY_MODES.DRILL.icon : `${STUDY_MODES.DRILL.icon} ${STUDY_MODES.DRILL.label}`}
-      </button>
-
-      <button
-        type="button"
-        onClick={(e) => {
-          stop(e);
-          onQuiz?.({ lec, objectives, blockId });
-        }}
-        title={isIconOnly ? STUDY_MODES.QUIZ.label : undefined}
-        style={{ ...baseBtn, border: `1px solid ${quizCol}`, color: quizCol }}
-      >
-        {isIconOnly ? STUDY_MODES.QUIZ.icon : `${STUDY_MODES.QUIZ.icon} ${STUDY_MODES.QUIZ.label}`}
+        {isIconOnly ? "📝" : "📝 Practice"}
       </button>
 
       {onAnki && (
@@ -8810,12 +10083,15 @@ function LecListRow({
   openBackdateModalForLec = null,
   saveBackdateForLecture = null,
 }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
   const [quizLoading, setQuizLoading] = useState(false);
   const [coachExpanded, setCoachExpanded] = useState(false);
   const [showAllSteps, setShowAllSteps] = useState({});
   const [showWhyItWorks, setShowWhyItWorks] = useState(null);
+  const [showStudyNotes, setShowStudyNotes] = useState(false);
+  const [showNlmPrompts, setShowNlmPrompts] = useState(false);
+  const [studyNotesDraft, setStudyNotesDraft] = useState(lec.notebooklmNotes || "");
   const [openNoteObjId, setOpenNoteObjId] = useState(null);
   const [pendingObjectiveNotes, setPendingObjectiveNotes] = useState({});
   const noteDebounceRef = useRef(null);
@@ -8931,7 +10207,7 @@ function LecListRow({
           <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 4, flexShrink: 0, background: typePillStyle.bg, color: typePillStyle.color }}>
             {compactTypeKey}
           </span>
-          <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3, minWidth: 20, textAlign: "right", flexShrink: 0 }}>
+          <span style={{ fontFamily: SANS, fontSize: 11, color: T.text3, minWidth: 20, textAlign: "right", flexShrink: 0 }}>
             {lec.lectureNumber ?? "—"}
           </span>
           <div
@@ -8968,7 +10244,7 @@ function LecListRow({
                 style={{
                   fontSize: 14,
                   fontWeight: 500,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   padding: "2px 6px",
                   border: "1.5px solid #2563eb",
                   borderRadius: 4,
@@ -8984,7 +10260,7 @@ function LecListRow({
                 style={{
                   fontSize: 13,
                   fontWeight: 500,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   overflow: "hidden",
                   textOverflow: "ellipsis",
                   whiteSpace: "nowrap",
@@ -9039,7 +10315,7 @@ function LecListRow({
                 color: "#185FA5",
                 border: "0.5px solid #93C5FD",
                 flexShrink: 0,
-                fontFamily: MONO,
+                fontFamily: SANS,
               }}
             >
               Parts A+B
@@ -9051,7 +10327,7 @@ function LecListRow({
                 value={lec.weekNumber ?? ""}
                 onChange={(e) => { e.stopPropagation(); onUpdateLec(lec.id, { weekNumber: e.target.value ? parseInt(e.target.value, 10) : null }); }}
                 onClick={(e) => e.stopPropagation()}
-                style={{ width: 72, fontSize: 11, fontFamily: MONO, padding: "2px 6px", border: "1px solid " + T.border1, borderRadius: 6, background: T.inputBg, color: T.text1, cursor: "pointer", flexShrink: 0 }}
+                style={{ width: 72, fontSize: 11, fontFamily: SANS, padding: "2px 6px", border: "1px solid " + T.border1, borderRadius: 6, background: T.inputBg, color: T.text1, cursor: "pointer", flexShrink: 0 }}
               >
                 <option value="">Unscheduled</option>
                 {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => <option key={w} value={w}>Week {w}</option>)}
@@ -9060,7 +10336,7 @@ function LecListRow({
                 value={lec.dayOfWeek || ""}
                 onChange={(e) => { e.stopPropagation(); onUpdateLec(lec.id, { dayOfWeek: e.target.value || null }); }}
                 onClick={(e) => e.stopPropagation()}
-                style={{ width: 72, fontSize: 11, fontFamily: MONO, padding: "2px 6px", border: "1px solid " + T.border1, borderRadius: 6, background: T.inputBg, color: T.text1, cursor: "pointer", flexShrink: 0 }}
+                style={{ width: 72, fontSize: 11, fontFamily: SANS, padding: "2px 6px", border: "1px solid " + T.border1, borderRadius: 6, background: T.inputBg, color: T.text1, cursor: "pointer", flexShrink: 0 }}
               >
                 <option value="">Day</option>
                 {DOW_ORDER.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -9117,7 +10393,7 @@ function LecListRow({
               </>
             );
           })()}
-          <span style={{ fontFamily: MONO, fontSize: 11, minWidth: 32, textAlign: "right", flexShrink: 0, color: compactScore != null && compactScore > 0 ? compactScoreColor : T.text3 }}>
+          <span style={{ fontFamily: SANS, fontSize: 11, minWidth: 32, textAlign: "right", flexShrink: 0, color: compactScore != null && compactScore > 0 ? compactScoreColor : T.text3 }}>
             {compactScore != null && compactScore > 0 ? compactScore + "%" : "—"}
           </span>
           <span style={{ fontSize: 10, color: compactSessCount === 0 ? T.text3 : compactSessCount >= 2 ? T.text1 : T.text2, minWidth: 24, textAlign: "right", flexShrink: 0 }}>
@@ -9132,7 +10408,7 @@ function LecListRow({
                 if (onExpandToggle) onExpandToggle();
                 else onOpen?.();
               }}
-              style={{ fontSize: 10, padding: "2px 8px", border: "0.5px solid " + (T.border2 || T.border1), borderRadius: 4, color: T.text3, background: "transparent", fontFamily: MONO, cursor: "pointer", flexShrink: 0 }}
+              style={{ fontSize: 10, padding: "2px 8px", border: "0.5px solid " + (T.border2 || T.border1), borderRadius: 4, color: T.text3, background: "transparent", fontFamily: SANS, cursor: "pointer", flexShrink: 0 }}
             >
               ⋯ more
             </button>
@@ -9288,7 +10564,7 @@ function LecListRow({
             borderRadius: 6,
             padding: "3px 8px",
             color: lec.weekNumber ? tc : T.text3,
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 10,
             cursor: "pointer",
             flexShrink: 0,
@@ -9313,7 +10589,7 @@ function LecListRow({
               borderRadius: 6,
               padding: "3px 8px",
               color: lec.dayOfWeek ? tc : T.text3,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 10,
               cursor: "pointer",
               flexShrink: 0,
@@ -9338,7 +10614,7 @@ function LecListRow({
               color: "#fff",
               padding: "3px 10px",
               borderRadius: 6,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 10,
               fontWeight: 700,
               cursor: "pointer",
@@ -9387,8 +10663,8 @@ function LecListRow({
                 padding: "2px 6px",
                 border: "1.5px solid #2563eb",
                 borderRadius: 4,
-                background: "var(--color-background-primary)",
-                color: "var(--color-text-primary)",
+                background: T.inputBg,
+                color: T.text1,
                 width: "100%",
                 maxWidth: 400,
                 outline: "none",
@@ -9430,19 +10706,23 @@ function LecListRow({
                 setEditingTitle(lineTitleForRow);
               }}
               style={{
-                opacity: hoveredLectureRowId === lec.id ? 1 : 0,
+                opacity: 1,
                 fontSize: 11,
-                padding: "2px 6px",
+                padding: "3px 8px",
                 background: "transparent",
-                border: "0.5px solid var(--color-border-tertiary)",
+                border: `1px solid ${T.border1}`,
                 borderRadius: 4,
                 cursor: "pointer",
-                color: "var(--color-text-tertiary)",
+                color: T.text2,
                 flexShrink: 0,
+                fontFamily: SANS,
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
               }}
               title="Rename lecture"
             >
-              ✎
+              ✎ Edit title
             </button>
           )}
         </div>
@@ -9456,37 +10736,40 @@ function LecListRow({
               color: "#185FA5",
               border: "0.5px solid #93C5FD",
               flexShrink: 0,
-              fontFamily: MONO,
+              fontFamily: SANS,
             }}
           >
             Parts A+B
           </span>
         )}
         {lec.isMerged && (
-          <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: MONO, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5, flexShrink: 0 }}>MERGED</span>
+          <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: SANS, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5, flexShrink: 0 }}>MERGED</span>
         )}
         {lec.extractionMethod === "mistral-ocr" && (
-          <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
+          <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: SANS, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
+        )}
+        {lec.notebooklmNotes?.trim() && (
+          <span title="Study notes added — used as AI context for drill questions" style={{ fontFamily: SANS, fontSize: 9, color: "#0369a1", background: "#e0f2fe", padding: "1px 5px", borderRadius: 3, border: "1px solid #7dd3fc", flexShrink: 0 }}>📓 notes</span>
         )}
         {(getLecText(lec).length > 0 && !lec.teachingMap && reanalyzeLecture) && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); reanalyzeLecture(lec); }}
-            style={{ fontFamily: MONO, fontSize: 10, color: tc, background: tc + "15", border: "1px solid " + tc + "40", padding: "2px 8px", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
+            style={{ fontFamily: SANS, fontSize: 10, color: tc, background: tc + "15", border: "1px solid " + tc + "40", padding: "2px 8px", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}
           >
             🔍 Analyze with AI
           </button>
         )}
         {lec.teachingMap?.sections?.length > 0 && (
-          <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusProgress ?? tc, flexShrink: 0 }}>
+          <span style={{ fontFamily: SANS, fontSize: 11, color: T.statusProgress ?? tc, flexShrink: 0 }}>
             ✓ {lec.teachingMap.sections?.length} sections mapped
           </span>
         )}
         {lec.subject && lec.subject !== lec.discipline && (
-          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10, flexShrink: 0 }}>{lec.subject}</span>
+          <span style={{ fontFamily: SANS, color: T.text3, fontSize: 10, flexShrink: 0 }}>{lec.subject}</span>
         )}
         {sessionCount > 0 && (
-          <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, flexShrink: 0 }}>
+          <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, flexShrink: 0 }}>
             {sessionCount} session{sessionCount !== 1 ? "s" : ""}
           </span>
         )}
@@ -9498,14 +10781,14 @@ function LecListRow({
               <div style={{ width: 60, height: 4, background: T.border1, borderRadius: 2 }}>
                 <div style={{ height: "100%", borderRadius: 2, background: color, width: pct + "%", transition: "width 0.4s" }} />
               </div>
-              <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 700, color, minWidth: 32 }}>
+              <span style={{ fontFamily: SANS, fontSize: 11, fontWeight: 700, color, minWidth: 32 }}>
                 {pct}%
               </span>
             </div>
           );
         })()}
         {strugglingObjs > 0 && (
-          <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusBad, flexShrink: 0 }}>⚠{strugglingObjs}</span>
+          <span style={{ fontFamily: SANS, fontSize: 11, color: T.statusBad, flexShrink: 0 }}>⚠{strugglingObjs}</span>
         )}
         <span style={{ color: T.text3, fontSize: 13, flexShrink: 0, transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.18s" }}>
           ▾
@@ -9515,7 +10798,7 @@ function LecListRow({
       {isExpanded && (
         <div style={{ padding: "0 16px 16px", borderTop: "1px solid " + T.border1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>Week:</span>
+            <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>Week:</span>
             <select
               value={lec.weekNumber ?? ""}
               onClick={(e) => e.stopPropagation()}
@@ -9529,7 +10812,7 @@ function LecListRow({
                 borderRadius: 6,
                 padding: "4px 10px",
                 color: T.text1,
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 11,
                 cursor: "pointer",
               }}
@@ -9567,11 +10850,11 @@ function LecListRow({
               >
                 <span style={{ fontSize: 18 }}>{studyMode.icon}</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: MONO, color: studyMode.color, fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
+                  <div style={{ fontFamily: SANS, color: studyMode.color, fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
                     {studyMode.label}
                     {" — " + (studyMode.recommended || []).map((r) => recLabels[r] || r).join(" · ")}
                   </div>
-                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, lineHeight: 1.5 }}>{studyMode.reason}</div>
+                  <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, lineHeight: 1.5 }}>{studyMode.reason}</div>
                 </div>
               </div>
             );
@@ -9695,7 +10978,7 @@ function LecListRow({
                               color: TtextSec,
                               letterSpacing: "0.06em",
                               marginBottom: 8,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             OBJECTIVES FOR THIS LECTURE
@@ -9703,7 +10986,7 @@ function LecListRow({
                           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                             {lecObjs.map((obj) => (
                               <div key={obj.id}>
-                                <div style={{ fontSize: 12, fontFamily: MONO, color: TtextMain, lineHeight: 1.5 }}>
+                                <div style={{ fontSize: 12, fontFamily: SANS, color: TtextMain, lineHeight: 1.5 }}>
                                   {getObjectiveDisplayText(obj)}
                                 </div>
                                 {obj.personalNotes && String(obj.personalNotes).trim() && (
@@ -9711,7 +10994,7 @@ function LecListRow({
                                     style={{
                                       fontSize: 11,
                                       color: "#64748b",
-                                      fontFamily: MONO,
+                                      fontFamily: SANS,
                                       marginTop: 3,
                                       paddingLeft: 12,
                                       borderLeft: "2px solid #0891b2",
@@ -9997,7 +11280,7 @@ function LecListRow({
               );
             })()}
           <div style={{ padding: "12px 0 10px" }}>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SUBTOPICS</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SUBTOPICS</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
               {(() => {
                 const getSubtopicCompletion = (lec, si, subName, blockId) => {
@@ -10134,7 +11417,7 @@ function LecListRow({
                         >
                           <span
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 8,
                               fontWeight: 700,
                               color: isDone ? T.statusGood : weakness ? ringColor : pct > 0 ? tc : T.text3,
@@ -10156,7 +11439,7 @@ function LecListRow({
                         >
                           <span
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               color: isDone ? T.statusGood : T.text1,
                               fontSize: 12,
                               fontWeight: isDone ? 700 : 400,
@@ -10170,7 +11453,7 @@ function LecListRow({
                           {weakness && (
                             <span
                               style={{
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 9,
                                 fontWeight: 700,
                                 padding: "2px 7px",
@@ -10205,7 +11488,7 @@ function LecListRow({
                             </span>
                           )}
                         </div>
-                        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, marginTop: 1 }}>
+                        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, marginTop: 1 }}>
                           {`${mastered}/${total} obj`}
                           {sessions > 0 && ` · ${sessions} session${sessions !== 1 ? "s" : ""}`}
                           {lastScore != null && (
@@ -10245,7 +11528,7 @@ function LecListRow({
                           cursor: "pointer",
                           fontSize: 12,
                           fontWeight: 600,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           flexShrink: 0,
                         }}
                       >
@@ -10280,10 +11563,10 @@ function LecListRow({
           </div>
           {lec.keyTerms?.length > 0 && (
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                 {lec.keyTerms.slice(0, 6).map((t, i) => (
-                  <span key={i} style={{ fontFamily: MONO, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{t}</span>
+                  <span key={i} style={{ fontFamily: SANS, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{t}</span>
                 ))}
               </div>
             </div>
@@ -10303,13 +11586,13 @@ function LecListRow({
   return (
               <div id="objectives-section" style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid " + T.border2 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>
+                  <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>
                     LEARNING OBJECTIVES ({expandedObjs.length})
                   </span>
                   <div style={{ display: "flex", gap: 8 }}>
-                    {mastered > 0 && <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 11 }}>✓ {mastered}</span>}
-                    {struggling > 0 && <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 11 }}>⚠ {struggling}</span>}
-                    {untested > 0 && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>○ {untested}</span>}
+                    {mastered > 0 && <span style={{ fontFamily: SANS, color: T.statusGood, fontSize: 11 }}>✓ {mastered}</span>}
+                    {struggling > 0 && <span style={{ fontFamily: SANS, color: T.statusBad, fontSize: 11 }}>⚠ {struggling}</span>}
+                    {untested > 0 && <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>○ {untested}</span>}
                   </div>
                 </div>
                 {getLecQuizLevel && currentBlock?.id && (() => {
@@ -10409,7 +11692,7 @@ function LecListRow({
                               <span
                                 title={"Drill level (from consecutive correct)"}
                                 style={{
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontSize: 9,
                                   fontWeight: 700,
                                   padding: "2px 7px",
@@ -10426,11 +11709,11 @@ function LecListRow({
                             );
                           })()}
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontFamily: MONO, color: T.text1, fontSize: 12, lineHeight: 1.6 }}>
+                            <div style={{ fontFamily: SANS, color: T.text1, fontSize: 12, lineHeight: 1.6 }}>
                               {getObjectiveDisplayText(obj)}
                             </div>
                             {guidance && (
-                              <div style={{ fontFamily: MONO, color: bloomColor, fontSize: 10, marginTop: 4, fontStyle: "italic", lineHeight: 1.5 }}>💡 {guidance}</div>
+                              <div style={{ fontFamily: SANS, color: bloomColor, fontSize: 10, marginTop: 4, fontStyle: "italic", lineHeight: 1.5 }}>💡 {guidance}</div>
                             )}
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, flexShrink: 0 }}>
@@ -10442,7 +11725,7 @@ function LecListRow({
                                 setOpenNoteObjId((id) => (id === obj.id ? null : obj.id));
                               }}
                               style={{
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 9,
                                 fontWeight: 700,
                                 padding: "2px 8px",
@@ -10458,7 +11741,7 @@ function LecListRow({
                             </button>
                             <span
                               style={{
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 9,
                                 fontWeight: 700,
                                 padding: "2px 7px",
@@ -10472,7 +11755,7 @@ function LecListRow({
                               L{bloomLevel} {bloomName}
                             </span>
                             {obj.bloom_verb && obj.bloom_verb !== "unknown" && (
-                              <span style={{ fontFamily: MONO, fontSize: 8, color: T.text3, fontStyle: "italic" }}>verb: {obj.bloom_verb}</span>
+                              <span style={{ fontFamily: SANS, fontSize: 8, color: T.text3, fontStyle: "italic" }}>verb: {obj.bloom_verb}</span>
                             )}
                           </div>
                         </div>
@@ -10490,7 +11773,7 @@ function LecListRow({
                               borderRadius: 6,
                               border: "1px solid #e2e8f0",
                               fontSize: 13,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               resize: "vertical",
                               background: "#fafafa",
                             }}
@@ -10554,7 +11837,7 @@ function LecListRow({
                         cursor: "pointer",
                         fontSize: 12,
                         marginTop: 8,
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                       }}
                     >
                       + Log past session
@@ -10571,7 +11854,7 @@ function LecListRow({
                         marginTop: 8,
                       }}
                     >
-                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, fontFamily: MONO, color: T.text1 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, fontFamily: SANS, color: T.text1 }}>
                         Log a past session
                       </div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
@@ -10599,7 +11882,7 @@ function LecListRow({
                               cursor: "pointer",
                               fontSize: 11,
                               fontWeight: backdateActivity === type.id ? 600 : 400,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             {type.icon} {type.label}
@@ -10619,7 +11902,7 @@ function LecListRow({
                             background: T.cardBg || T.inputBg,
                             color: T.text1,
                             fontSize: 12,
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         />
                         <select
@@ -10633,7 +11916,7 @@ function LecListRow({
                             color: T.text1,
                             fontSize: 12,
                             cursor: "pointer",
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         >
                           <option value="good">✓ Good</option>
@@ -10654,7 +11937,7 @@ function LecListRow({
                             cursor: "pointer",
                             fontSize: 13,
                             fontWeight: 600,
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         >
                           Save session
@@ -10670,7 +11953,7 @@ function LecListRow({
                             color: T.textSecondary || T.text3,
                             cursor: "pointer",
                             fontSize: 13,
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         >
                           Cancel
@@ -10690,7 +11973,7 @@ function LecListRow({
                         padding: "8px 14px",
                         borderRadius: 8,
                         cursor: "pointer",
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                         fontSize: 13,
                         fontWeight: 600,
                       }}
@@ -10702,6 +11985,168 @@ function LecListRow({
               </div>
             );
           })()}
+          {/* Study Notes — paste NotebookLM output here */}
+          {onUpdateLec && (
+            <div style={{ marginTop: 12, borderTop: `1px solid ${T.border2}`, paddingTop: 10 }}>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setShowStudyNotes(v => !v); }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "2px 0",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: lec.notebooklmNotes ? (T.accent || tc || "#2563eb") : (T.text3 || T.textSecondary),
+                  fontFamily: SANS,
+                  letterSpacing: "0.05em",
+                }}
+              >
+                <span>📓</span>
+                <span>STUDY NOTES {lec.notebooklmNotes ? "✓" : ""}</span>
+                <span style={{ fontSize: 10, color: T.text3 }}>{showStudyNotes ? "▲" : "▼"}</span>
+              </button>
+              {showStudyNotes && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontSize: 11, color: T.text3 || T.textSecondary, lineHeight: 1.5, flex: 1 }}>
+                      Paste NotebookLM output below. Saved notes are injected as context when generating drill questions.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setShowNlmPrompts(v => !v); }}
+                      style={{
+                        padding: "3px 10px",
+                        borderRadius: 6,
+                        border: `1px solid ${T.border1 || T.border2}`,
+                        background: showNlmPrompts ? (T.accent || tc || "#2563eb") + "15" : "transparent",
+                        color: showNlmPrompts ? (T.accent || tc || "#2563eb") : (T.text3 || T.textSecondary),
+                        cursor: "pointer",
+                        fontSize: 11,
+                        fontFamily: SANS,
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}
+                    >
+                      📋 {showNlmPrompts ? "Hide prompts" : "View prompts"}
+                    </button>
+                  </div>
+                  {showNlmPrompts && (() => {
+                    const NLM_PROMPTS = [
+                      { num: 1, title: "Big Picture Breakdown", prompt: "Give me a high-level overview of the entire document, broken into key themes and concepts, as if you're introducing it to someone seeing it for the first time." },
+                      { num: 2, title: "Teach Me Like a Student", prompt: "Teach the content of this document step by step, starting from the basics and gradually increasing difficulty. Assume I'm learning this subject for the first time." },
+                      { num: 3, title: "Chapter-by-Chapter Lessons", prompt: "Turn each section or chapter of this document into a short lesson with a clear explanation, examples, and a quick summary at the end." },
+                      { num: 4, title: "Simplify Hard Sections", prompt: "Identify the most complex or confusing parts of this document and explain them in simple language using analogies or real-world examples." },
+                      { num: 5, title: "Key Concepts & Definitions", prompt: "Extract all important concepts, terms, and definitions from this document and explain each one clearly, as if I need to remember them for an exam." },
+                      { num: 6, title: "Active Recall Questions", prompt: "Create practice questions from this document that test my understanding. Ask me questions first, then explain the correct answers after." },
+                      { num: 7, title: "Visual Thinking Mode", prompt: "Turn the main ideas of this document into structured outlines or mental models that help me see how everything connects." },
+                      { num: 8, title: "Personalized Notes Generator", prompt: "Rewrite this document into concise study notes optimized for quick revision, highlighting only what actually matters." },
+                      { num: 9, title: "Teach-Back Test", prompt: "Pretend I just studied this document. Ask me questions and check my answers. If I'm wrong or unclear, correct me and explain what I missed." },
+                    ];
+                    return (
+                      <div style={{ marginBottom: 10, borderRadius: 8, border: `1px solid ${T.border1 || T.border2}`, overflow: "hidden" }}>
+                        <div style={{ padding: "8px 12px", background: T.surfaceAlt || T.inputBg || "#f8fafc", borderBottom: `1px solid ${T.border1 || T.border2}`, fontSize: 10, fontWeight: 700, color: T.text3 || T.textSecondary, fontFamily: SANS, letterSpacing: "0.07em" }}>
+                          NOTEBOOKLM STUDY PROMPTS — copy into NotebookLM chat
+                        </div>
+                        {NLM_PROMPTS.map((p) => (
+                          <div key={p.num} style={{ padding: "8px 12px", borderBottom: p.num < 9 ? `1px solid ${T.border2}` : "none", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: T.accent || tc || "#2563eb", fontFamily: SANS, flexShrink: 0, minWidth: 16 }}>{p.num}.</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.text1 || T.textMain, marginBottom: 2 }}>{p.title}</div>
+                              <div style={{ fontSize: 11, color: T.text3 || T.textSecondary, lineHeight: 1.5 }}>{p.prompt}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); navigator.clipboard?.writeText(p.prompt).catch(() => {}); }}
+                              style={{ padding: "2px 8px", borderRadius: 4, border: `1px solid ${T.border1 || T.border2}`, background: "transparent", color: T.text3 || T.textSecondary, cursor: "pointer", fontSize: 10, fontFamily: SANS, flexShrink: 0 }}
+                              title="Copy prompt"
+                            >
+                              copy
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <textarea
+                    value={studyNotesDraft}
+                    onChange={(e) => setStudyNotesDraft(e.target.value)}
+                    onBlur={() => {
+                      if (studyNotesDraft !== (lec.notebooklmNotes || "")) {
+                        onUpdateLec(lec.id, { notebooklmNotes: studyNotesDraft });
+                      }
+                    }}
+                    placeholder={"Paste NotebookLM study notes here…\n\nSuggested prompts:\n• Big Picture Breakdown\n• Key Concepts & Definitions\n• Active Recall Questions\n• Study Notes Generator"}
+                    style={{
+                      width: "100%",
+                      minHeight: 160,
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      border: `1px solid ${T.border1 || T.border2}`,
+                      background: T.inputBg || T.cardBg || "#fafafa",
+                      color: T.text1 || T.textMain,
+                      fontSize: 13,
+                      fontFamily: SANS,
+                      resize: "vertical",
+                      lineHeight: 1.6,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 6, alignItems: "center" }}>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdateLec(lec.id, { notebooklmNotes: studyNotesDraft });
+                      }}
+                      style={{
+                        padding: "6px 14px",
+                        borderRadius: 7,
+                        border: "none",
+                        background: T.accent || tc || "#2563eb",
+                        color: "#fff",
+                        cursor: "pointer",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        fontFamily: SANS,
+                      }}
+                    >
+                      Save notes
+                    </button>
+                    {lec.notebooklmNotes && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStudyNotesDraft("");
+                          onUpdateLec(lec.id, { notebooklmNotes: "" });
+                        }}
+                        style={{
+                          padding: "6px 12px",
+                          borderRadius: 7,
+                          border: `1px solid ${T.border1 || T.border2}`,
+                          background: "transparent",
+                          color: T.text3 || T.textSecondary,
+                          cursor: "pointer",
+                          fontSize: 12,
+                          fontFamily: SANS,
+                        }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                    <span style={{ fontSize: 11, color: T.text3 || T.textSecondary, marginLeft: "auto" }}>
+                      Auto-saves on blur
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {(lec.supplemental || []).length > 0 && (
             <LectureResourcesPanel lec={lec} T={T} tc={tc} MONO={MONO} onUpdateLec={onUpdateLec} />
           )}
@@ -10719,7 +12164,7 @@ function LecListRow({
             >
               {deleteConfirmId === lec.id ? (
                 <>
-                  <span style={{ fontSize: 12, color: "#A32D2D", fontFamily: MONO }}>Delete this lecture and all its objectives?</span>
+                  <span style={{ fontSize: 12, color: "#A32D2D", fontFamily: SANS }}>Delete this lecture and all its objectives?</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -10736,7 +12181,7 @@ function LecListRow({
                       border: "none",
                       borderRadius: 6,
                       cursor: "pointer",
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                     }}
                   >
                     Yes, delete
@@ -10755,7 +12200,7 @@ function LecListRow({
                       border: "0.5px solid var(--color-border-secondary, " + T.border1 + ")",
                       borderRadius: 6,
                       cursor: "pointer",
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                     }}
                   >
                     Cancel
@@ -10776,7 +12221,7 @@ function LecListRow({
                     border: "0.5px solid var(--color-border-tertiary, " + T.border2 + ")",
                     borderRadius: 6,
                     cursor: "pointer",
-                    fontFamily: MONO,
+                    fontFamily: SANS,
                   }}
                 >
                   🗑 Delete lecture
@@ -10822,7 +12267,7 @@ function BlockWeakObjectivesBreakdown({
 
   if (weakObjs.length === 0) {
     return (
-      <div style={{ fontFamily: MONO, color: T.statusGood, fontSize: 11, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ fontFamily: SANS, color: T.statusGood, fontSize: 11, marginTop: 8, display: "flex", alignItems: "center", gap: 6 }}>
         ✓ All objectives mastered — you're ready!
       </div>
     );
@@ -10910,15 +12355,15 @@ function BlockWeakObjectivesBreakdown({
           marginBottom: showWeak ? 12 : 0,
         }}
       >
-        <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 10, letterSpacing: 1.5, fontWeight: 700 }}>
+        <span style={{ fontFamily: SANS, color: T.statusBad, fontSize: 10, letterSpacing: 1.5, fontWeight: 700 }}>
           ⚠ {weakObjs.filter((o) => o.status === "struggling").length} STRUGGLING
         </span>
-        <span style={{ fontFamily: MONO, color: T.statusNeutral, fontSize: 10, letterSpacing: 1.5 }}>
+        <span style={{ fontFamily: SANS, color: T.statusNeutral, fontSize: 10, letterSpacing: 1.5 }}>
           ○ {weakObjs.filter((o) => o.status === "untested").length} UNTESTED
         </span>
         <span
           style={{
-            fontFamily: MONO,
+            fontFamily: SANS,
             color: T.text3,
             fontSize: 10,
             marginLeft: 4,
@@ -10960,7 +12405,7 @@ function BlockWeakObjectivesBreakdown({
                   {group.lec && lecTypeBadge && lecTypeBadge(group.lec.lectureType || "LEC")}
                   <span
                     style={{
-                      fontFamily: MONO,
+                      fontFamily: SANS,
                       color: T.text1,
                       fontSize: 12,
                       fontWeight: 700,
@@ -10987,7 +12432,7 @@ function BlockWeakObjectivesBreakdown({
                           color: level === 3 ? "#3C3489" : level === 2 ? "#633806" : "var(--color-text-tertiary)",
                           borderColor: level === 3 ? "#AFA9EC" : level === 2 ? "#EF9F27" : "var(--color-border-tertiary)",
                           flexShrink: 0,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         {ql.label}
@@ -10998,7 +12443,7 @@ function BlockWeakObjectivesBreakdown({
                     {struggling.length > 0 && (
                       <span
                         style={{
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontSize: 10,
                           color: T.statusBad,
                           fontWeight: 700,
@@ -11014,7 +12459,7 @@ function BlockWeakObjectivesBreakdown({
                     {untested.length > 0 && (
                       <span
                         style={{
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontSize: 10,
                           color: T.statusNeutral,
                           fontWeight: 700,
@@ -11045,7 +12490,7 @@ function BlockWeakObjectivesBreakdown({
                         padding: "3px 10px",
                         borderRadius: 5,
                         cursor: quizLoadingId === group.lec?.id ? "not-allowed" : "pointer",
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                         fontSize: 10,
                         fontWeight: 700,
                         pointerEvents: quizLoadingId === group.lec?.id ? "none" : "auto",
@@ -11089,7 +12534,7 @@ function BlockWeakObjectivesBreakdown({
                         return (
                           <span
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 9,
                               fontWeight: 700,
                               padding: "2px 7px",
@@ -11105,7 +12550,7 @@ function BlockWeakObjectivesBreakdown({
                           </span>
                         );
                       })()}
-                      <span style={{ fontFamily: MONO, color: T.text2, fontSize: 11, lineHeight: 1.5, flex: 1 }}>{o.objective}</span>
+                      <span style={{ fontFamily: SANS, color: T.text2, fontSize: 11, lineHeight: 1.5, flex: 1 }}>{o.objective}</span>
                       <button
                         onClick={() =>
                           updateObjective(blockId, o.id, {
@@ -11117,7 +12562,7 @@ function BlockWeakObjectivesBreakdown({
                           border: "none",
                           color: T.text3,
                           cursor: "pointer",
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontSize: 9,
                           flexShrink: 0,
                           padding: "2px 4px",
@@ -11151,7 +12596,7 @@ function BlockWeakObjectivesBreakdown({
                         return (
                           <span
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 9,
                               fontWeight: 700,
                               padding: "2px 7px",
@@ -11167,7 +12612,7 @@ function BlockWeakObjectivesBreakdown({
                           </span>
                         );
                       })()}
-                      <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, lineHeight: 1.5, flex: 1 }}>{o.objective}</span>
+                      <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, lineHeight: 1.5, flex: 1 }}>{o.objective}</span>
                       <button
                         onClick={() => updateObjective(blockId, o.id, { status: "inprogress" })}
                         style={{
@@ -11175,7 +12620,7 @@ function BlockWeakObjectivesBreakdown({
                           border: "none",
                           color: T.text3,
                           cursor: "pointer",
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontSize: 9,
                           flexShrink: 0,
                           padding: "2px 4px",
@@ -11249,7 +12694,7 @@ const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, onDeepLearn, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, showSubjectLabel = true, setAnkiLogTarget, getBlockObjectives, currentBlock, setBlockObjectives, startObjectiveQuiz, detectStudyMode, handleDeepLearnStart, getLectureSubtopicCompletion, getLecCompletion, getSubtopicCompletion, getLecPerf, reviewedLectures = {}, setReviewedLectures, markLectureReviewed, unmarkLectureReviewed, reanalyzeLecture }) {
   const { T } = useTheme();
   const tc = tint || accent || "#ef4444";
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const [confirming, setConfirming] = useState(false);
   const confirmTimeoutRef = useRef(null);
   const [addingTopic, setAddingTopic] = useState(false);
@@ -11354,8 +12799,8 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
         )}
         {confirming ? (
           <>
-            <button onClick={cancelConfirm} style={{ background:T.border1, border:"1px solid " + T.text5, color:T.text5, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>Cancel</button>
-            <button onClick={doDelete} style={{ background:T.statusBadBg, border:"1px solid "+T.statusBadBorder, color:T.statusBad, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>Delete</button>
+            <button onClick={cancelConfirm} style={{ background:T.border1, border:"1px solid " + T.text5, color:T.text5, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:SANS, fontSize:11 }}>Cancel</button>
+            <button onClick={doDelete} style={{ background:T.statusBadBg, border:"1px solid "+T.statusBadBorder, color:T.statusBad, padding:"4px 10px", borderRadius:6, cursor:"pointer", fontFamily:SANS, fontSize:11 }}>Delete</button>
           </>
         ) : (
           <button onClick={startConfirm} style={{ background:T.border1, border:"1px solid " + T.text5, color:T.text5, cursor:"pointer", fontSize:12, width:24, height:24, borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center" }} title="Delete lecture">✕</button>
@@ -11390,7 +12835,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               gap: 10,
             }}
           >
-            <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 11, flex: 1 }}>
+            <span style={{ fontFamily: SANS, color: T.statusBad, fontSize: 11, flex: 1 }}>
               ⚠ {mismatch.length} objectives from wrong lecture detected
             </span>
             <button
@@ -11409,7 +12854,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
                 });
               }}
               style={{
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 10,
                 padding: "4px 10px",
                 borderRadius: 5,
@@ -11442,32 +12887,32 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               onChange={type => onUpdateLec(lec.id, { lectureType: type })}
             />
             {lec.isMerged && (
-              <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: MONO, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5 }}>MERGED</span>
+              <span title={"Merged from: " + (lec.mergedFrom || []).map(m => m.title).join(", ")} style={{ fontFamily: SANS, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "1px 7px", borderRadius: 3, letterSpacing: 0.5 }}>MERGED</span>
             )}
             {lec.extractionMethod === "mistral-ocr" && (
-              <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30" }}>OCR✓</span>
+              <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: SANS, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30" }}>OCR✓</span>
             )}
             {(getLecText(lec).length > 0 && !lec.teachingMap && reanalyzeLecture) && (
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); reanalyzeLecture(lec); }}
-                style={{ fontFamily: MONO, fontSize: 10, color: tc, background: tc + "15", border: "1px solid " + tc + "40", padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}
+                style={{ fontFamily: SANS, fontSize: 10, color: tc, background: tc + "15", border: "1px solid " + tc + "40", padding: "2px 8px", borderRadius: 4, cursor: "pointer" }}
               >
                 🔍 Analyze with AI
               </button>
             )}
             {lec.teachingMap?.sections?.length > 0 && (
-              <span style={{ fontFamily: MONO, fontSize: 11, color: T.statusProgress ?? tc }}>
+              <span style={{ fontFamily: SANS, fontSize: 11, color: T.statusProgress ?? tc }}>
                 ✓ {lec.teachingMap.sections?.length} sections mapped
               </span>
             )}
           </div>
           {showSubjectLabel && (lec.subject || lec.discipline) && (
-            <div style={{ fontFamily: MONO, color: tc, fontSize: 10, fontWeight: 700, marginBottom: 4 }}>
+            <div style={{ fontFamily: SANS, color: tc, fontSize: 10, fontWeight: 700, marginBottom: 4 }}>
               <EditableText
                 value={lec.subject || lec.discipline || ""}
                 onChange={newSubject => onUpdateLec(lec.id, { subject: newSubject })}
-                style={{ fontFamily: MONO, color: tc, fontSize: 10, fontWeight: 700 }}
+                style={{ fontFamily: SANS, color: tc, fontSize: 10, fontWeight: 700 }}
                 placeholder="Subject"
               />
             </div>
@@ -11522,7 +12967,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               flexDirection: "column",
             }}
           >
-            <span style={{ fontFamily: MONO, fontSize: 11, fontWeight: 900, color: ringColor, lineHeight: 1 }}>
+            <span style={{ fontFamily: SANS, fontSize: 11, fontWeight: 900, color: ringColor, lineHeight: 1 }}>
               {lecPct != null ? lecPct + "%" : "—"}
             </span>
           </div>
@@ -11544,7 +12989,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             }}
             title="Unmark as reviewed"
             style={{
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 9,
               color: T.statusProgress,
               background: "none",
@@ -11571,7 +13016,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             borderRadius: 6,
             padding: "3px 8px",
             color: lec.weekNumber ? tc : T.text3,
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 10,
             cursor: "pointer",
           }}
@@ -11592,7 +13037,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               borderRadius: 6,
               padding: "3px 8px",
               color: lec.dayOfWeek ? tc : T.text3,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 10,
               cursor: "pointer",
             }}
@@ -11616,7 +13061,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               color: "#fff",
               padding: "3px 10px",
               borderRadius: 6,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 10,
               fontWeight: 700,
               cursor: "pointer",
@@ -11638,7 +13083,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               <span
                 key={l}
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 9,
                   padding: "1px 6px",
                   borderRadius: 3,
@@ -11665,16 +13110,16 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 4 }}>
-            <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10 }}>✓ {mastered}</span>
+            <span style={{ fontFamily: SANS, color: T.statusGood, fontSize: 10 }}>✓ {mastered}</span>
             {inProgress > 0 && (
-              <span style={{ fontFamily: MONO, color: T.statusProgress, fontSize: 10 }}>◑ {inProgress}</span>
+              <span style={{ fontFamily: SANS, color: T.statusProgress, fontSize: 10 }}>◑ {inProgress}</span>
             )}
             {struggling > 0 && (
-              <span style={{ fontFamily: MONO, color: T.statusBad, fontSize: 10 }}>⚠ {struggling}</span>
+              <span style={{ fontFamily: SANS, color: T.statusBad, fontSize: 10 }}>⚠ {struggling}</span>
             )}
-            <span style={{ fontFamily: MONO, color: T.statusNeutral, fontSize: 10 }}>○ {total - mastered - inProgress - struggling}</span>
+            <span style={{ fontFamily: SANS, color: T.statusNeutral, fontSize: 10 }}>○ {total - mastered - inProgress - struggling}</span>
             {lastScore != null && (
-              <span style={{ fontFamily: MONO, marginLeft: "auto", fontSize: 11, fontWeight: 700, color: getScoreColor(T, lastScore) }}>
+              <span style={{ fontFamily: SANS, marginLeft: "auto", fontSize: 11, fontWeight: 700, color: getScoreColor(T, lastScore) }}>
                 {lastScore}%
               </span>
             )}
@@ -11683,14 +13128,14 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
       )}
 
       {sessionCount > 0 && (
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 4 }}>
+        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, marginTop: 4 }}>
           {sessionCount} session{sessionCount !== 1 ? "s" : ""}
         </div>
       )}
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
         {(lec.keyTerms || []).slice(0, 5).map(kt => (
-          <span key={kt} style={{ fontFamily: MONO, background: T.border1, color: T.text2, fontSize: 13, padding: "2px 8px", borderRadius: 20 }}>{kt}</span>
+          <span key={kt} style={{ fontFamily: SANS, background: T.border1, color: T.text2, fontSize: 13, padding: "2px 8px", borderRadius: 20 }}>{kt}</span>
         ))}
       </div>
 
@@ -11762,7 +13207,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
                     transform: "rotate(90deg)",
                   }}
                 >
-                  <span style={{ fontFamily: MONO, fontSize: 7, fontWeight: 700, color: subColor }}>
+                  <span style={{ fontFamily: SANS, fontSize: 7, fontWeight: 700, color: subColor }}>
                     {pct >= 100 ? "✓" : pct > 0 ? pct + "%" : "○"}
                   </span>
               </div>
@@ -11770,7 +13215,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
 
               <span
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   color: T.text1,
                   fontSize: 11,
                   flex: 1,
@@ -11783,7 +13228,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               </span>
 
               {weakness && (
-                <span style={{ fontFamily: MONO, fontSize: 8, color: subColor, fontWeight: 700, flexShrink: 0 }}>
+                <span style={{ fontFamily: SANS, fontSize: 8, color: subColor, fontWeight: 700, flexShrink: 0 }}>
                   {weakness === "critical" ? "⚠" : weakness === "weak" ? "△" : "↻"}
                 </span>
               )}
@@ -11851,13 +13296,13 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
                 }
                 if (e.key === "Escape") { setNewTopicDraft(""); setAddingTopic(false); }
               }}
-              style={{ flex:1, background:T.inputBg, border:"1px solid "+T.border1, color:T.text1, fontFamily:MONO, fontSize:12, padding:"6px 10px", borderRadius:6, outline:"none" }}
+              style={{ flex:1, background:T.inputBg, border:"1px solid "+T.border1, color:T.text1, fontFamily:SANS, fontSize:12, padding:"6px 10px", borderRadius:6, outline:"none" }}
               placeholder="Topic name…"
             />
-            <button type="button" onClick={() => { const t = newTopicDraft.trim(); if (t) { onUpdateLec(lec.id, { subtopics: [...(lec.subtopics || []), t] }); setNewTopicDraft(""); } setAddingTopic(false); }} style={{ background: tc, border: "none", color: T.text1, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontFamily: MONO, fontSize: 13 }}>Add</button>
+            <button type="button" onClick={() => { const t = newTopicDraft.trim(); if (t) { onUpdateLec(lec.id, { subtopics: [...(lec.subtopics || []), t] }); setNewTopicDraft(""); } setAddingTopic(false); }} style={{ background: tc, border: "none", color: T.text1, padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontFamily: SANS, fontSize: 13 }}>Add</button>
       </div>
         ) : (
-          <button type="button" onClick={() => setAddingTopic(true)} style={{ background:T.border1, border:"1px dashed "+T.text5, color:T.text5, padding:"6px 12px", borderRadius:8, cursor:"pointer", fontFamily:MONO, fontSize:11, textAlign:"left" }}>+ Add Topic</button>
+          <button type="button" onClick={() => setAddingTopic(true)} style={{ background:T.border1, border:"1px dashed "+T.text5, color:T.text5, padding:"6px 12px", borderRadius:8, cursor:"pointer", fontFamily:SANS, fontSize:11, textAlign:"left" }}>+ Add Topic</button>
         )}
       </div>
       {!lec.weekNumber && (
@@ -11874,7 +13319,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <span style={{ fontFamily: MONO, color: T.amber, fontSize: 10 }}>△ Assign to week:</span>
+          <span style={{ fontFamily: SANS, color: T.amber, fontSize: 10 }}>△ Assign to week:</span>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {[1, 2, 3, 4, 5, 6, 7, 8].map((w) => (
               <button
@@ -11889,7 +13334,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
                   border: "1px solid " + T.border1,
                   borderRadius: 5,
                   padding: "3px 9px",
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 10,
                   cursor: "pointer",
                   color: T.text2,
@@ -11924,7 +13369,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
           padding: "7px 0",
           borderRadius: 8,
           cursor: "pointer",
-          fontFamily: MONO,
+          fontFamily: SANS,
           fontSize: 13,
           transition: "all 0.15s",
         }}
@@ -11939,7 +13384,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             e.stopPropagation();
             setAnkiLogTarget?.(lec);
           }}
-          style={{ flex: 1, background: "#f59e0b18", border: "1px solid #f59e0b50", color: "#f59e0b", padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: MONO, fontSize: 11, fontWeight: 700 }}
+          style={{ flex: 1, background: "#f59e0b18", border: "1px solid #f59e0b50", color: "#f59e0b", padding: "8px 0", borderRadius: 7, cursor: "pointer", fontFamily: SANS, fontSize: 11, fontWeight: 700 }}
         >
           📇 Anki
         </button>
@@ -11956,7 +13401,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
             border: "1.5px solid " + tc,
             borderRadius: 8,
             color: tc,
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 11,
             fontWeight: 700,
             cursor: "pointer",
@@ -11984,7 +13429,7 @@ function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, 
               border: "1px solid " + T.border1,
               borderRadius: 6,
               color: T.text3,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 10,
               cursor: "pointer",
             }}
@@ -12015,7 +13460,7 @@ function Heatmap({
   if (!lectures.length)
     return (
       <div style={{ background: T.cardBg, border: "1px dashed " + T.border1, borderRadius: 14, padding: 50, textAlign: "center", boxShadow: T.shadowSm }}>
-        <p style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Upload lectures to see the heatmap.</p>
+        <p style={{ fontFamily: SANS, color: T.text3, fontSize: 12 }}>Upload lectures to see the heatmap.</p>
     </div>
   );
   return (
@@ -12037,16 +13482,16 @@ function Heatmap({
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 {lecTypeBadge && lecTypeBadge(lec.lectureType || "LEC")}
-                <span style={{ fontFamily: MONO, color: lecColor, fontSize: 13, fontWeight: 700 }}>
+                <span style={{ fontFamily: SANS, color: lecColor, fontSize: 13, fontWeight: 700 }}>
                   {lec.lectureTitle || lec.fileName}
                 </span>
-                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
+                <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>
                   {lec.subject || lec.discipline || ""}
                 </span>
               </div>
               <span
                 style={{
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontWeight: 900,
                   fontSize: 14,
                   color: lecColor,
@@ -12112,12 +13557,12 @@ function Heatmap({
                     onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 4 }}>
-                      <div style={{ fontFamily: MONO, color: T.text1, fontSize: 11, lineHeight: 1.4, flex: 1 }}>
+                      <div style={{ fontFamily: SANS, color: T.text1, fontSize: 11, lineHeight: 1.4, flex: 1 }}>
                         {sub}
                       </div>
                       <span
                         style={{
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontWeight: 900,
                           fontSize: 12,
                           flexShrink: 0,
@@ -12127,7 +13572,7 @@ function Heatmap({
                         {pct > 0 ? pct + "%" : "—"}
                       </span>
                     </div>
-                    <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, marginTop: 4 }}>
+                    <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, marginTop: 4 }}>
                       {mastered}/{total} obj
                     </div>
                     {total > 0 && (
@@ -12146,7 +13591,7 @@ function Heatmap({
                     {weakness && (
                       <div
                         style={{
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontSize: 8,
                           color: cellColor,
                           marginTop: 4,
@@ -12177,10 +13622,10 @@ function Heatmap({
                         padding: "10px 12px",
                       }}
                     >
-                      <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>
+                      <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>
                         {lecObjs.length} objectives
                       </div>
-                      <div style={{ fontFamily: MONO, color: lecColor, fontSize: 12, fontWeight: 700, marginTop: 2 }}>
+                      <div style={{ fontFamily: SANS, color: lecColor, fontSize: 12, fontWeight: 700, marginTop: 2 }}>
                         {lecPct}% complete
                       </div>
                     </div>
@@ -12211,13 +13656,13 @@ function AIContextBadge({ context, T, MONO }) {
         gap: 6,
       }}
     >
-      <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1.5 }}>
+      <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, letterSpacing: 1.5 }}>
         AI CONTEXT — WHAT WILL BE USED TO GENERATE YOUR QUESTIONS
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <span
           style={{
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 11,
             padding: "3px 10px",
             borderRadius: 5,
@@ -12232,7 +13677,7 @@ function AIContextBadge({ context, T, MONO }) {
         </span>
         <span
           style={{
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 11,
             padding: "3px 10px",
             borderRadius: 5,
@@ -12247,7 +13692,7 @@ function AIContextBadge({ context, T, MONO }) {
         </span>
         <span
           style={{
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 11,
             padding: "3px 10px",
             borderRadius: 5,
@@ -12262,7 +13707,7 @@ function AIContextBadge({ context, T, MONO }) {
         </span>
       </div>
       {context.styleAnalysis?.sourceFiles?.length > 0 && (
-        <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10 }}>
           Style learned from: {context.styleAnalysis.sourceFiles.join(", ")}
         </div>
       )}
@@ -12274,7 +13719,7 @@ function AIContextBadge({ context, T, MONO }) {
 // ANKI LOG MODAL — log external Anki sessions for a lecture
 // ─────────────────────────────────────────────
 function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const [cardCount, setCardCount] = useState("");
@@ -12337,13 +13782,13 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
         }}
       >
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: MONO, color: "#f59e0b", fontSize: 9, letterSpacing: 1.5, marginBottom: 4 }}>📇 LOG ANKI SESSION</div>
+          <div style={{ fontFamily: SANS, color: "#f59e0b", fontSize: 9, letterSpacing: 1.5, marginBottom: 4 }}>📇 LOG ANKI SESSION</div>
           <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 18, fontWeight: 900 }}>{lec.lectureTitle || lec.fileName}</div>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 2 }}>{lec.lectureType || "LEC"}{lec.lectureNumber}</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, marginTop: 2 }}>{lec.lectureType || "LEC"}{lec.lectureNumber}</div>
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 5 }}>STUDY DATE</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 5 }}>STUDY DATE</div>
           <input
             type="date"
             value={studyDate}
@@ -12355,7 +13800,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
               borderRadius: 8,
               padding: "9px 14px",
               color: T.text1,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 13,
               width: "100%",
               boxSizing: "border-box",
@@ -12364,7 +13809,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1, marginBottom: 4 }}>TOTAL CARDS</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, letterSpacing: 1, marginBottom: 4 }}>TOTAL CARDS</div>
           <input
             type="number"
             value={cardCount}
@@ -12376,7 +13821,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
               borderRadius: 7,
               padding: "8px 10px",
               color: T.text1,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 13,
               width: "100%",
               boxSizing: "border-box",
@@ -12392,7 +13837,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
             { label: "Min Spent", val: timeSpent, set: setTimeSpent },
           ].map((field) => (
             <div key={field.label} style={{ flex: 1 }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1, marginBottom: 4 }}>{field.label}</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, letterSpacing: 1, marginBottom: 4 }}>{field.label}</div>
               <input
                 type="number"
                 value={field.val}
@@ -12404,7 +13849,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
                   borderRadius: 7,
                   padding: "8px 10px",
                   color: T.text1,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 13,
                   width: "100%",
                   boxSizing: "border-box",
@@ -12415,7 +13860,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 6 }}>HOW DID IT FEEL?</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 6 }}>HOW DID IT FEEL?</div>
           <div style={{ display: "flex", gap: 8 }}>
             {[
               { val: "Low", label: "😰 Tough", color: T.statusBad },
@@ -12430,7 +13875,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
                   padding: "9px 0",
                   borderRadius: 8,
                   cursor: "pointer",
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 12,
                   fontWeight: confidence === c.val ? 700 : 400,
                   border: "1px solid " + (confidence === c.val ? c.color : T.border1),
@@ -12446,7 +13891,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
         </div>
 
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 5 }}>NOTES (optional)</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, letterSpacing: 1, marginBottom: 5 }}>NOTES (optional)</div>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -12458,7 +13903,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
               borderRadius: 8,
               padding: "10px 14px",
               color: T.text1,
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 12,
               width: "100%",
               boxSizing: "border-box",
@@ -12478,7 +13923,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
               padding: "12px 0",
               borderRadius: 9,
               cursor: "pointer",
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 13,
             }}
           >
@@ -12513,7 +13958,7 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
 // CONFIDENCE MODAL (post-session rating)
 // ─────────────────────────────────────────────
 function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const scoreColor = getScoreColor(T, score);
@@ -12525,18 +13970,18 @@ function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>🎯</div>
           <div style={{ fontFamily: SERIF, color: T.text1, fontSize: 20, fontWeight: 900, marginBottom: 4 }}>Session Complete</div>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginBottom: 12 }}>{lectureName}</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, marginBottom: 12 }}>{lectureName}</div>
           {score != null && (
             <div style={{ display: "inline-block", background: scoreColor + "15", border: "2px solid " + scoreColor, borderRadius: 12, padding: "10px 24px" }}>
-              <div style={{ fontFamily: MONO, color: scoreColor, fontSize: 32, fontWeight: 900 }}>{score}%</div>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+              <div style={{ fontFamily: SANS, color: scoreColor, fontSize: 32, fontWeight: 900 }}>{score}%</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10 }}>
                 {sessionType === "anki" ? "retention" : sessionType === "deepLearn" ? "post-MCQ" : "score"}
               </div>
             </div>
           )}
         </div>
         <div>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, letterSpacing: 1.5, textAlign: "center", marginBottom: 12 }}>HOW CONFIDENT DO YOU FEEL ABOUT THIS MATERIAL?</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, letterSpacing: 1.5, textAlign: "center", marginBottom: 12 }}>HOW CONFIDENT DO YOU FEEL ABOUT THIS MATERIAL?</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {[
               { val: "High", emoji: "💪", label: "Solid", sub: "I could explain this to someone else", color: T.statusGood, bg: T.statusGoodBg, border: T.statusGoodBorder },
@@ -12564,20 +14009,201 @@ function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
               >
                 <span style={{ fontSize: 24, flexShrink: 0 }}>{opt.emoji}</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: MONO, color: opt.color, fontSize: 13, fontWeight: 700 }}>
+                  <div style={{ fontFamily: SANS, color: opt.color, fontSize: 13, fontWeight: 700 }}>
                     {opt.label}
-                    {opt.val === suggestedConfidence && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9, fontWeight: 400, marginLeft: 8 }}>suggested</span>}
+                    {opt.val === suggestedConfidence && <span style={{ fontFamily: SANS, color: T.text3, fontSize: 9, fontWeight: 400, marginLeft: 8 }}>suggested</span>}
                   </div>
-                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 2 }}>{opt.sub}</div>
+                  <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, marginTop: 2 }}>{opt.sub}</div>
                 </div>
-                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 16, flexShrink: 0 }}>→</span>
+                <span style={{ fontFamily: SANS, color: T.text3, fontSize: 16, flexShrink: 0 }}>→</span>
               </button>
             ))}
           </div>
         </div>
-        <button onClick={() => onRate(suggestedConfidence)} style={{ background: "none", border: "none", color: T.text3, fontFamily: MONO, fontSize: 11, cursor: "pointer", textAlign: "center", padding: "4px" }}>
+        <button onClick={() => onRate(suggestedConfidence)} style={{ background: "none", border: "none", color: T.text3, fontFamily: SANS, fontSize: 11, cursor: "pointer", textAlign: "center", padding: "4px" }}>
           Skip — use suggested ({suggestedConfidence})
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
+// PRACTICE SETUP MODAL
+// ─────────────────────────────────────────────
+function PracticeSetupModal({ defaults, blockId, blockLecs, T, tc, onCancel, onStart }) {
+  const SERIF = "'Playfair Display',Georgia,serif";
+  const SANS = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const [scope, setScope] = useState(defaults?.scope || (defaults?.lecture ? "lecture" : "weak"));
+  const [lectureId, setLectureId] = useState(defaults?.lecture?.id || defaults?.lectureId || "");
+  const [count, setCount] = useState(defaults?.count || 10);
+
+  const lecture = useMemo(
+    () => (blockLecs || []).find((l) => l.id === lectureId) || null,
+    [blockLecs, lectureId]
+  );
+
+  const radio = (val, cur, setCur, label, sub) => (
+    <div
+      key={val}
+      role="button"
+      tabIndex={0}
+      onClick={() => setCur(val)}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setCur(val); } }}
+      style={{
+        padding: "10px 12px",
+        borderRadius: 8,
+        border: "1px solid " + (cur === val ? tc : T.border1),
+        background: cur === val ? tc + "22" : T.cardBg,
+        cursor: "pointer",
+        fontFamily: SANS,
+        fontSize: 13,
+        color: T.text1,
+        display: "flex",
+        flexDirection: "column",
+        gap: 2,
+      }}
+    >
+      <span style={{ fontWeight: 600 }}>{label}</span>
+      {sub && <span style={{ fontSize: 11, color: T.text3 }}>{sub}</span>}
+    </div>
+  );
+
+  const canStart = scope !== "lecture" || !!lecture;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "#000000bb",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 1500,
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: T.cardBg,
+          borderRadius: 18,
+          padding: "24px 26px",
+          maxWidth: 520,
+          width: "100%",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          border: "1px solid " + T.border1,
+        }}
+      >
+        <div style={{ fontFamily: SERIF, fontSize: 22, fontWeight: 900, color: T.text1, marginBottom: 4 }}>
+          Practice
+        </div>
+        <div style={{ fontFamily: SANS, fontSize: 12, color: T.text3, marginBottom: 18 }}>
+          MCQ vignettes — pick a scope and start.
+        </div>
+
+        <div style={{ fontFamily: SANS, fontSize: 11, color: T.text3, letterSpacing: 1.2, marginBottom: 6 }}>
+          SCOPE
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
+          {radio("weak", scope, setScope, "Weak spots", "Struggling objectives")}
+          {radio("flagged", scope, setScope, "Flagged", "Items you've flagged")}
+          {radio("lecture", scope, setScope, "Lecture", "Pick a lecture")}
+          {radio("all", scope, setScope, "All", "Whole block")}
+        </div>
+
+        {scope === "lecture" && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: SANS, fontSize: 11, color: T.text3, letterSpacing: 1.2, marginBottom: 6 }}>
+              LECTURE
+            </div>
+            <select
+              value={lectureId}
+              onChange={(e) => setLectureId(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                background: T.inputBg,
+                color: T.text1,
+                border: "1px solid " + T.border1,
+                borderRadius: 8,
+                fontFamily: SANS,
+                fontSize: 13,
+              }}
+            >
+              <option value="">Select a lecture…</option>
+              {(blockLecs || []).map((l) => (
+                <option key={l.id} value={l.id}>
+                  {(l.lectureType || "LEC") + " " + (l.lectureNumber ?? "") + " — " + (l.lectureTitle || l.fileName || "Untitled")}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div style={{ fontFamily: SANS, fontSize: 11, color: T.text3, letterSpacing: 1.2, marginBottom: 6 }}>
+          QUESTIONS
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 24, flexWrap: "wrap" }}>
+          {[5, 10, 15, 20, 30, 40].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setCount(n)}
+              style={{
+                flex: 1,
+                padding: "8px 0",
+                borderRadius: 8,
+                border: "1px solid " + (count === n ? tc : T.border1),
+                background: count === n ? tc + "22" : T.cardBg,
+                color: T.text1,
+                cursor: "pointer",
+                fontFamily: SANS,
+                fontSize: 13,
+              }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "1px solid " + T.border1,
+              background: T.cardBg,
+              color: T.text1,
+              cursor: "pointer",
+              fontFamily: SANS,
+              fontSize: 13,
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!canStart}
+            onClick={() => onStart({ scope, lecture, lectureId: lecture?.id, blockId, count })}
+            style={{
+              padding: "10px 18px",
+              borderRadius: 8,
+              border: "none",
+              background: canStart ? tc : T.border1,
+              color: "#fff",
+              cursor: canStart ? "pointer" : "not-allowed",
+              fontFamily: SERIF,
+              fontWeight: 700,
+              fontSize: 14,
+            }}
+          >
+            Start →
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -12587,7 +14213,7 @@ function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
 // EXAM CONFIG MODAL
 // ─────────────────────────────────────────────
 function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, performanceHistory, onStart, onCancel, T, tc, buildQuestionContext, stylePrefs = {}, updateStylePref }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
   const DIFFICULTY_LADDER = ["easy", "medium", "hard", "expert"];
 
@@ -12678,7 +14304,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
       <div style={{ background: T.cardBg, borderRadius: 18, width: "100%", maxWidth: 640, maxHeight: "90vh", overflowY: "auto", border: "1px solid " + T.border1, boxShadow: T.shadowMd }}>
         <div style={{ padding: "20px 24px", borderBottom: "1px solid " + T.border1, display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: MONO, color: tc, fontSize: 11, letterSpacing: 2, marginBottom: 4 }}>
+            <div style={{ fontFamily: SANS, color: tc, fontSize: 11, letterSpacing: 2, marginBottom: 4 }}>
               {mode === "objectives" ? "🎯 OBJECTIVES EXAM" : mode === "weak" ? "⚠ WEAK AREAS" : "📋 FULL REVIEW"}
             </div>
             <h2 style={{ fontFamily: SERIF, color: T.text1, fontSize: 22, fontWeight: 900, margin: 0 }}>Configure Your Session</h2>
@@ -12689,11 +14315,11 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
         <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 20 }}>
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>NUMBER OF QUESTIONS</span>
-              <span style={{ fontFamily: MONO, color: tc, fontSize: 22, fontWeight: 700 }}>{questionCount}</span>
+              <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>NUMBER OF QUESTIONS</span>
+              <span style={{ fontFamily: SANS, color: tc, fontSize: 22, fontWeight: 700 }}>{questionCount}</span>
             </div>
             <input type="range" min={5} max={50} step={5} value={questionCount} onChange={(e) => setQuestionCount(Number(e.target.value))} style={{ width: "100%", accentColor: tc }} />
-            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontFamily: SANS, color: T.text3, fontSize: 11, marginTop: 4 }}>
               <span>5 — quick check</span>
               <span>20 — standard</span>
               <span>50 — full block</span>
@@ -12701,7 +14327,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
           </div>
           {updateStylePref && (
             <div style={{ padding: 14, background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10 }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 10 }}>STYLE PREFERENCES</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 10 }}>STYLE PREFERENCES</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 20px" }}>
                 {[
                   { key: "longStems", label: "Long stems" },
@@ -12710,7 +14336,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                   { key: "firstAid", label: "First Aid references" },
                   { key: "explainWrong", label: "Explain wrong answers" },
                 ].map(({ key, label }) => (
-                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: MONO, fontSize: 12, color: T.text2, cursor: "pointer" }}>
+                  <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: SANS, fontSize: 12, color: T.text2, cursor: "pointer" }}>
                     <input type="checkbox" checked={!!stylePrefs[key]} onChange={(e) => updateStylePref(key, e.target.checked)} />
                     {label}
                   </label>
@@ -12720,7 +14346,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
           )}
 
           <div>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>QUESTION FOCUS</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>QUESTION FOCUS</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[
                 { val: "weak", label: "⚠ Weak & Untested", desc: weakObjs.length + " objectives" },
@@ -12741,8 +14367,8 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                     background: focusMode === opt.val ? tc + "18" : T.inputBg,
                   }}
                 >
-                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: focusMode === opt.val ? tc : T.text1 }}>{opt.label}</div>
-                  <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, marginTop: 2 }}>{opt.desc}</div>
+                  <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: focusMode === opt.val ? tc : T.text1 }}>{opt.label}</div>
+                  <div style={{ fontFamily: SANS, fontSize: 11, color: T.text3, marginTop: 2 }}>{opt.desc}</div>
                 </div>
               ))}
             </div>
@@ -12750,12 +14376,12 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
 
           <div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>SELECT LECTURES ({selectedLecIds.length}/{(blockLecs || []).length})</span>
+              <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5 }}>SELECT LECTURES ({selectedLecIds.length}/{(blockLecs || []).length})</span>
             </div>
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <button
                 onClick={() => setSelectedLecIds((blockLecs || []).map((l) => l.id))}
-                style={{ fontFamily: MONO, fontSize: 11, color: tc, background: tc + "12", border: "1px solid " + tc + "40", padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
+                style={{ fontFamily: SANS, fontSize: 11, color: tc, background: tc + "12", border: "1px solid " + tc + "40", padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
               >
                 Select All
               </button>
@@ -12764,7 +14390,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                   setSelectedLecIds([]);
                   setSelectedSubtopics([]);
                 }}
-                style={{ fontFamily: MONO, fontSize: 11, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
+                style={{ fontFamily: SANS, fontSize: 11, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
               >
                 Clear
               </button>
@@ -12824,13 +14450,13 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                             {lecTypeBadge(lec.lectureType || "LEC")}
                             {lec.extractionMethod === "mistral-ocr" && (
-                              <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: MONO, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
+                              <span title="Parsed with Mistral OCR — high quality extraction" style={{ fontFamily: SANS, fontSize: 8, color: "#7c3aed", background: "#7c3aed15", padding: "1px 5px", borderRadius: 3, border: "1px solid #7c3aed30", flexShrink: 0 }}>OCR✓</span>
                             )}
-                            <span style={{ fontFamily: MONO, color: T.text1, fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            <span style={{ fontFamily: SANS, color: T.text1, fontSize: 13, fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                               {lec.lectureTitle || lec.fileName}
                             </span>
                           </div>
-                          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 10, marginTop: 2 }}>
+                          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, marginTop: 2 }}>
                             {lec.lectureType || "LEC"}{lec.lectureNumber}
                             {subtopics.length > 0 && ` · ${subtopics.length} subtopics`}
                           </div>
@@ -12842,9 +14468,9 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                               (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
                           );
                           return lecObjs.length > 0 ? (
-                            <span style={{ fontFamily: MONO, color: T.statusGood, fontSize: 10, flexShrink: 0 }}>📖 {lecObjs.length} obj</span>
+                            <span style={{ fontFamily: SANS, color: T.statusGood, fontSize: 10, flexShrink: 0 }}>📖 {lecObjs.length} obj</span>
                           ) : (
-                            <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10, flexShrink: 0 }}>📭 no obj</span>
+                            <span style={{ fontFamily: SANS, color: T.text3, fontSize: 10, flexShrink: 0 }}>📭 no obj</span>
                           );
                         })()}
                       </div>
@@ -12901,10 +14527,10 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                                 >
                                   {subSel && <span style={{ color: "#fff", fontSize: 10 }}>✓</span>}
                                 </div>
-                                <span style={{ fontFamily: MONO, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                <span style={{ fontFamily: SANS, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   {sub}
                                 </span>
-                                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 9 }}>subtopic</span>
+                                <span style={{ fontFamily: SANS, color: T.text3, fontSize: 9 }}>subtopic</span>
                               </div>
                             );
                           })}
@@ -12920,7 +14546,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
           {aiContext && <AIContextBadge context={aiContext} T={T} MONO={MONO} />}
 
           <div style={{ background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "12px 16px" }}>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SESSION PREVIEW</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SESSION PREVIEW</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
               {[
                 { label: "Questions", val: questionCount },
@@ -12929,15 +14555,15 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                 { label: "Difficulty", val: avgDifficulty.toUpperCase(), color: diffColor },
               ].map((s) => (
                 <div key={s.label}>
-                  <div style={{ fontFamily: MONO, color: s.color || tc, fontSize: 18, fontWeight: 700 }}>{s.val}</div>
-                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>{s.label}</div>
+                  <div style={{ fontFamily: SANS, color: s.color || tc, fontSize: 18, fontWeight: 700 }}>{s.val}</div>
+                  <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>{s.label}</div>
                 </div>
               ))}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: hasUploadedLecs ? T.statusGood : T.text3, background: hasUploadedLecs ? T.statusGoodBg : T.pillBg, border: "1px solid " + (hasUploadedLecs ? T.statusGoodBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedLecs ? "📖 Using lecture slides" : "📭 No slides uploaded"}</span>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: hasUploadedQs ? T.statusGood : T.text3, background: hasUploadedQs ? T.statusGoodBg : T.pillBg, border: "1px solid " + (hasUploadedQs ? T.statusGoodBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedQs ? "📝 " + totalUploadedQs + " uploaded questions as style guide" : "📝 No uploaded questions"}</span>
-              <span style={{ fontFamily: MONO, fontSize: 11, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, padding: "2px 8px", borderRadius: 4 }}>🎯 {focusMode === "weak" ? weakObjs.length + " weak objectives targeted" : totalObjs.length + " objectives targeted"}</span>
+              <span style={{ fontFamily: SANS, fontSize: 11, color: hasUploadedLecs ? T.statusGood : T.text3, background: hasUploadedLecs ? T.statusGoodBg : T.pillBg, border: "1px solid " + (hasUploadedLecs ? T.statusGoodBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedLecs ? "📖 Using lecture slides" : "📭 No slides uploaded"}</span>
+              <span style={{ fontFamily: SANS, fontSize: 11, color: hasUploadedQs ? T.statusGood : T.text3, background: hasUploadedQs ? T.statusGoodBg : T.pillBg, border: "1px solid " + (hasUploadedQs ? T.statusGoodBorder : T.border1), padding: "2px 8px", borderRadius: 4 }}>{hasUploadedQs ? "📝 " + totalUploadedQs + " uploaded questions as style guide" : "📝 No uploaded questions"}</span>
+              <span style={{ fontFamily: SANS, fontSize: 11, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, padding: "2px 8px", borderRadius: 4 }}>🎯 {focusMode === "weak" ? weakObjs.length + " weak objectives targeted" : totalObjs.length + " objectives targeted"}</span>
             </div>
           </div>
 
@@ -12984,7 +14610,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
 // ─────────────────────────────────────────────
 function MergeModal({ config, onConfirm, onCancel, T, tc }) {
   const { lectures } = config;
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const primaryLec = lectures.length ? lectures.reduce((a, b) =>
@@ -13018,46 +14644,46 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
           <span style={{ fontSize: 24 }}>⊕</span>
           <div>
             <h3 style={{ fontFamily: SERIF, color: T.text1, fontSize: 18, fontWeight: 900, margin: 0 }}>Merge {lectures.length} Lectures</h3>
-            <p style={{ fontFamily: MONO, color: T.text3, fontSize: 12, margin: 0 }}>Combined content will be searchable and quizzable as one lecture</p>
+            <p style={{ fontFamily: SANS, color: T.text3, fontSize: 12, margin: 0 }}>Combined content will be searchable and quizzable as one lecture</p>
           </div>
           <button onClick={onCancel} style={{ marginLeft: "auto", background: "none", border: "none", color: T.text3, cursor: "pointer", fontSize: 18 }}>✕</button>
         </div>
 
         <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
           <div>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>MERGING (primary content first)</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>MERGING (primary content first)</div>
             {lectures.map((l, i) => (
               <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, marginBottom: 6, background: T.inputBg, border: "1px solid " + T.border1 }}>
-                <span style={{ fontFamily: MONO, color: T.amber, fontSize: 13, fontWeight: 700, minWidth: 16 }}>{i + 1}</span>
+                <span style={{ fontFamily: SANS, color: T.amber, fontSize: 13, fontWeight: 700, minWidth: 16 }}>{i + 1}</span>
                 <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: MONO, color: T.text1, fontSize: 13 }}>{l.lectureNumber ? (l.lectureType || "Lecture") + " " + l.lectureNumber + " — " : ""}{l.lectureTitle || l.filename}</div>
-                  <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, marginTop: 1 }}>{l.chunks?.length || 0} content chunks · {l.subtopics?.length || 0} subtopics</div>
+                  <div style={{ fontFamily: SANS, color: T.text1, fontSize: 13 }}>{l.lectureNumber ? (l.lectureType || "Lecture") + " " + l.lectureNumber + " — " : ""}{l.lectureTitle || l.filename}</div>
+                  <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, marginTop: 1 }}>{l.chunks?.length || 0} content chunks · {l.subtopics?.length || 0} subtopics</div>
                 </div>
-                {i === 0 && <span style={{ fontFamily: MONO, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "2px 6px", borderRadius: 3 }}>PRIMARY</span>}
+                {i === 0 && <span style={{ fontFamily: SANS, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "2px 6px", borderRadius: 3 }}>PRIMARY</span>}
               </div>
             ))}
           </div>
 
           <div>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>MERGED LECTURE TITLE</div>
-            <input value={title} onChange={e => setTitle(e.target.value)} style={{ width: "100%", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "9px 12px", fontFamily: MONO, color: T.text1, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>MERGED LECTURE TITLE</div>
+            <input value={title} onChange={e => setTitle(e.target.value)} style={{ width: "100%", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "9px 12px", fontFamily: SANS, color: T.text1, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
           </div>
 
           <div style={{ display: "flex", gap: 10 }}>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>LECTURE NUMBER</div>
-              <input value={lecNum} onChange={e => setLecNum(e.target.value)} placeholder="e.g. 50" style={{ width: "100%", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "9px 12px", fontFamily: MONO, color: T.text1, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>LECTURE NUMBER</div>
+              <input value={lecNum} onChange={e => setLecNum(e.target.value)} placeholder="e.g. 50" style={{ width: "100%", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "9px 12px", fontFamily: SANS, color: T.text1, fontSize: 14, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>TYPE</div>
-              <select value={lecType} onChange={e => setLecType(e.target.value)} style={{ width: "100%", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "9px 12px", fontFamily: MONO, color: T.text1, fontSize: 14, outline: "none", boxSizing: "border-box" }}>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>TYPE</div>
+              <select value={lecType} onChange={e => setLecType(e.target.value)} style={{ width: "100%", background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 8, padding: "9px 12px", fontFamily: SANS, color: T.text1, fontSize: 14, outline: "none", boxSizing: "border-box" }}>
                 {["Lecture", "DLA", "Lab", "Combined"].map(ty => <option key={ty} value={ty}>{ty}</option>)}
               </select>
             </div>
           </div>
 
           <div>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>CONTENT STRATEGY</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>CONTENT STRATEGY</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {[
                 { value: "append", label: "Append", desc: "Add supplementary lecture content after primary — best when one is simpler/shorter" },
@@ -13065,26 +14691,26 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
                 { value: "primary", label: "Primary Only", desc: "Keep primary lecture content, use secondary only for extra subtopics and key terms" },
               ].map(opt => (
                 <div key={opt.value} onClick={() => setStrategy(opt.value)} style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer", border: "1px solid " + (strategy === opt.value ? T.amber : T.border1), background: strategy === opt.value ? T.amberBg : T.inputBg, transition: "all 0.15s" }}>
-                  <div style={{ fontFamily: MONO, fontSize: 13, fontWeight: 600, color: strategy === opt.value ? T.amber : T.text1 }}>{opt.label}</div>
-                  <div style={{ fontFamily: MONO, fontSize: 12, color: T.text3, marginTop: 2 }}>{opt.desc}</div>
+                  <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: strategy === opt.value ? T.amber : T.text1 }}>{opt.label}</div>
+                  <div style={{ fontFamily: SANS, fontSize: 12, color: T.text3, marginTop: 2 }}>{opt.desc}</div>
                 </div>
               ))}
             </div>
           </div>
 
           <div style={{ background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>PREVIEW — MERGED SUBTOPICS ({allSubtopics.length})</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>PREVIEW — MERGED SUBTOPICS ({allSubtopics.length})</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
               {allSubtopics.map((s, i) => (
-                <span key={i} style={{ fontFamily: MONO, color: T.text2, background: T.pillBg, border: "1px solid " + T.border1, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{s}</span>
+                <span key={i} style={{ fontFamily: SANS, color: T.text2, background: T.pillBg, border: "1px solid " + T.border1, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{s}</span>
               ))}
             </div>
-            <div style={{ fontFamily: MONO, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS ({allKeyTerms.length})</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS ({allKeyTerms.length})</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {allKeyTerms.slice(0, 10).map((kt, i) => (
-                <span key={i} style={{ fontFamily: MONO, color: T.text3, background: T.pillBg, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{kt}</span>
+                <span key={i} style={{ fontFamily: SANS, color: T.text3, background: T.pillBg, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{kt}</span>
               ))}
-              {allKeyTerms.length > 10 && <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>+{allKeyTerms.length - 10} more</span>}
+              {allKeyTerms.length > 10 && <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>+{allKeyTerms.length - 10} more</span>}
             </div>
           </div>
 
@@ -13093,8 +14719,8 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
               {keepOriginals && <span style={{ color: T.text1, fontSize: 13 }}>✓</span>}
             </div>
             <div>
-              <div style={{ fontFamily: MONO, color: T.text1, fontSize: 13 }}>Keep original lectures</div>
-              <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>Originals stay in the list alongside the merged lecture</div>
+              <div style={{ fontFamily: SANS, color: T.text1, fontSize: 13 }}>Keep original lectures</div>
+              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 12 }}>Originals stay in the list alongside the merged lecture</div>
             </div>
           </div>
 
@@ -13127,7 +14753,7 @@ function ObjectivesImporter({
   const liveEndRef = useRef(null);
   const lastFileRef = useRef(null);
   const doneClearRef = useRef(null);
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
   const processing = importStatus === "processing";
 
@@ -13212,7 +14838,7 @@ function ObjectivesImporter({
       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
           {hasModuleImport ? (
-            <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3 }}>✓ Module PDF imported</span>
+            <span style={{ fontFamily: SANS, fontSize: 11, color: T.text3 }}>✓ Module PDF imported</span>
           ) : (
             <label
               style={{
@@ -13222,7 +14848,7 @@ function ObjectivesImporter({
                 padding: "4px 8px",
                 borderRadius: 6,
                 cursor: processing ? "not-allowed" : "pointer",
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 11,
                 fontWeight: 600,
                 opacity: processing ? 0.7 : 1,
@@ -13268,7 +14894,7 @@ function ObjectivesImporter({
               type="button"
               onClick={() => runImport(lastFileRef.current)}
               style={{
-                fontFamily: MONO,
+                fontFamily: SANS,
                 fontSize: 10,
                 padding: "3px 8px",
                 borderRadius: 6,
@@ -13282,10 +14908,10 @@ function ObjectivesImporter({
             </button>
           )}
           <details style={{ fontSize: 10 }}>
-            <summary style={{ fontFamily: MONO, color: T.text3, cursor: "pointer" }}>Import tools</summary>
+            <summary style={{ fontFamily: SANS, color: T.text3, cursor: "pointer" }}>Import tools</summary>
             <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
               {!hasModuleImport && (
-                <span style={{ fontFamily: MONO, color: T.text3, fontSize: 10 }}>
+                <span style={{ fontFamily: SANS, color: T.text3, fontSize: 10 }}>
                   Upload your module objectives summary PDF (lists all lecture objectives).
                 </span>
               )}
@@ -13303,7 +14929,7 @@ function ObjectivesImporter({
                   padding: "4px 8px",
                   borderRadius: 6,
                   cursor: "pointer",
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   fontSize: 11,
                   alignSelf: "flex-start",
                 }}
@@ -13314,7 +14940,7 @@ function ObjectivesImporter({
           </details>
         </div>
         {(importProgress || processing) && (
-          <div style={{ fontFamily: MONO, fontSize: 11, color: T.text3, maxWidth: 320, textAlign: "right", lineHeight: 1.35 }}>
+          <div style={{ fontFamily: SANS, fontSize: 11, color: T.text3, maxWidth: 320, textAlign: "right", lineHeight: 1.35 }}>
             {importProgress}
           </div>
         )}
@@ -13330,8 +14956,8 @@ function ObjectivesImporter({
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
         <span style={{ fontSize: 24 }}>🎯</span>
         <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: MONO, color: T.text2, fontSize: 13, fontWeight: 600 }}>Import Module Objectives Summary</div>
-          <div style={{ fontFamily: MONO, color: T.text3, fontSize: 12, marginTop: 2 }}>
+          <div style={{ fontFamily: SANS, color: T.text2, fontSize: 13, fontWeight: 600 }}>Import Module Objectives Summary</div>
+          <div style={{ fontFamily: SANS, color: T.text3, fontSize: 12, marginTop: 2 }}>
             {importStatus === "done" ? (
               <span style={{ color: "#27500A" }}>✓ Import complete</span>
             ) : importStatus === "error" ? (
@@ -13350,7 +14976,7 @@ function ObjectivesImporter({
             padding: "8px 18px",
             borderRadius: 8,
             cursor: processing ? "not-allowed" : "pointer",
-            fontFamily: MONO,
+            fontFamily: SANS,
             fontSize: 13,
             fontWeight: 700,
             flexShrink: 0,
@@ -13397,7 +15023,7 @@ function ObjectivesImporter({
               padding: "8px 14px",
               borderRadius: 8,
               cursor: "pointer",
-              fontFamily: MONO,
+              fontFamily: SANS,
               fontSize: 13,
             }}
           >
@@ -13411,14 +15037,14 @@ function ObjectivesImporter({
             setImportProgress("");
             setImportStatus(null);
           }}
-          style={{ background: "none", border: "1px solid " + T.border1, color: T.text3, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontFamily: MONO, fontSize: 13 }}
+          style={{ background: "none", border: "1px solid " + T.border1, color: T.text3, padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontFamily: SANS, fontSize: 13 }}
         >
           Replace
         </button>
       </div>
 
       {importStatus === "done" && importProgress && (
-        <div style={{ fontFamily: MONO, fontSize: 12, color: "#27500A", marginBottom: 10 }}>{importProgress}</div>
+        <div style={{ fontFamily: SANS, fontSize: 12, color: "#27500A", marginBottom: 10 }}>{importProgress}</div>
       )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
@@ -13430,14 +15056,14 @@ function ObjectivesImporter({
             padding: "2px 10px",
           }}
         >
-          <span style={{ fontFamily: MONO, fontWeight: 700, fontSize: 13, color: processing ? tc || T.red : T.green || "#10b981" }}>
+          <span style={{ fontFamily: SANS, fontWeight: 700, fontSize: 13, color: processing ? tc || T.red : T.green || "#10b981" }}>
             {liveObjectives.length} found
           </span>
         </div>
         <button
           type="button"
           onClick={() => setShowLive((v) => !v)}
-          style={{ background: "none", border: "1px solid " + T.border1, color: T.text3, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: MONO, fontSize: 11 }}
+          style={{ background: "none", border: "1px solid " + T.border1, color: T.text3, borderRadius: 5, padding: "2px 8px", cursor: "pointer", fontFamily: SANS, fontSize: 11 }}
         >
           {showLive ? "hide" : "show"}
         </button>
@@ -13467,10 +15093,10 @@ function ObjectivesImporter({
                     zIndex: 1,
                   }}
                 >
-                  <span style={{ fontFamily: MONO, color: tc || T.red, fontSize: 12, fontWeight: 700, minWidth: 44 }}>{group.activity}</span>
-                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, background: T.pillBg || T.inputBg, padding: "1px 6px", borderRadius: 3 }}>{group.discipline}</span>
-                  <span style={{ fontFamily: MONO, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.lectureTitle}</span>
-                  <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11 }}>{group.objectives.length} obj</span>
+                  <span style={{ fontFamily: SANS, color: tc || T.red, fontSize: 12, fontWeight: 700, minWidth: 44 }}>{group.activity}</span>
+                  <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, background: T.pillBg || T.inputBg, padding: "1px 6px", borderRadius: 3 }}>{group.discipline}</span>
+                  <span style={{ fontFamily: SANS, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{group.lectureTitle}</span>
+                  <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>{group.objectives.length} obj</span>
                 </div>
                 {group.objectives.map((obj, i) => (
                   <div
@@ -13485,11 +15111,11 @@ function ObjectivesImporter({
                     }}
                   >
                     <span style={{ color: T.green || "#10b981", fontSize: 12, flexShrink: 0, paddingTop: 1 }}>○</span>
-                    <span style={{ fontFamily: MONO, color: T.text2, fontSize: 12, lineHeight: 1.5, flex: 1 }}>
+                    <span style={{ fontFamily: SANS, color: T.text2, fontSize: 12, lineHeight: 1.5, flex: 1 }}>
                       {getObjectiveDisplayText(obj)}
                     </span>
                     {obj.code && (
-                      <span style={{ fontFamily: MONO, color: T.text3, fontSize: 11, flexShrink: 0, paddingTop: 2, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{obj.code}</span>
+                      <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11, flexShrink: 0, paddingTop: 2, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{obj.code}</span>
                     )}
                   </div>
                 ))}
@@ -13499,7 +15125,7 @@ function ObjectivesImporter({
           {processing && (
             <div style={{ padding: "10px 12px", display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 12, height: 12, borderRadius: "50%", border: "2px solid " + T.border1, borderTopColor: tc || T.red, animation: "rxtSpin 0.7s linear infinite", flexShrink: 0 }} />
-              <span style={{ fontFamily: MONO, color: T.text3, fontSize: 12 }}>{importProgress || "…"}</span>
+              <span style={{ fontFamily: SANS, color: T.text3, fontSize: 12 }}>{importProgress || "…"}</span>
             </div>
           )}
           <div ref={liveEndRef} />
@@ -13732,9 +15358,11 @@ const OBJECTIVE_VERBS = [
   "explain",
   "list",
   "compare",
+  "contrast",
   "define",
   "classify",
   "distinguish",
+  "differentiate",
   "evaluate",
   "analyze",
   "apply",
@@ -13745,6 +15373,29 @@ const OBJECTIVE_VERBS = [
   "state",
   "give",
   "name",
+  "recognize",
+  "predict",
+  "determine",
+  "illustrate",
+  "formulate",
+  "recall",
+  "review",
+  "assess",
+  "examine",
+  "draw",
+  "characterize",
+  "diagnose",
+  "select",
+  "solve",
+  "use",
+  "construct",
+  "develop",
+  "derive",
+  "match",
+  "label",
+  "locate",
+  "perform",
+  "understand",
 ];
 
 function isValidObjective(text) {
@@ -13760,8 +15411,14 @@ function isValidObjective(text) {
 function filterExtractedObjectivesQuality(objs, lec) {
   if (!Array.isArray(objs) || !objs.length) return [];
   const getText = (o) => (o.text || o.objective || "").trim();
-  const valid = objs.filter((o) => isValidObjective(getText(o)));
-  const rejected = objs.filter((o) => !isValidObjective(getText(o)));
+  // Trust SOM-coded objectives even if they don't open with a whitelisted verb —
+  // the authoritative code itself is evidence this is a real objective.
+  const hasCode = (o) => {
+    const c = (o?.code || o?.objectiveCode || "").trim();
+    return c.startsWith("SOM.");
+  };
+  const valid = objs.filter((o) => hasCode(o) || isValidObjective(getText(o)));
+  const rejected = objs.filter((o) => !hasCode(o) && !isValidObjective(getText(o)));
   const title = lec?.lectureTitle || lec?.id || "lecture";
   if (rejected.length > 0) {
     console.warn(
@@ -13780,6 +15437,34 @@ function filterExtractedObjectivesQuality(objs, lec) {
 function chunkHasTableFileReference(text) {
   if (!text || typeof text !== "string") return false;
   return text.includes("[tbl-") || text.includes(".md]");
+}
+
+// PDF text extraction (pdftotext / pdf.js) frequently inserts whitespace
+// between a SOM code's dotted prefix and its trailing 4-digit suffix, e.g.
+// "SOM.MK.I.BPM1.3.CPR.1.INTG. 0024" instead of "SOM.MK.I.BPM1.3.CPR.1.INTG.0024".
+// It also splits chained codes with semicolons/commas like "0018; 0024".
+// All downstream regexes assume the canonical compact form, so we normalize
+// once at every extraction entry point.
+function normalizeSomCodesInText(text) {
+  if (!text || typeof text !== "string") return text;
+  let out = text;
+  // Mistral OCR autolinks the SOM prefix into a markdown link, e.g.
+  // "[SOM.MK](http://SOM.MK).I.BPM1.3.CPR.1.INTG.0024" — unwrap it.
+  out = out.replace(/\[(SOM\.[A-Z0-9.]+)\]\(https?:\/\/[^)]+\)/gi, "$1");
+  // Collapse one or more whitespace chars sitting between the trailing dot
+  // and the 4-digit suffix. Repeat until stable to handle pathological cases.
+  for (let i = 0; i < 3; i++) {
+    const next = out.replace(/(SOM\.[A-Z0-9.]+\.)\s+(\d{4})\b/g, "$1$2");
+    if (next === out) break;
+    out = next;
+  }
+  // Convert "; NNNN" or ", NNNN" continuations directly after a SOM code into
+  // the "//NNNN" syntax that existing expansion logic understands.
+  out = out.replace(
+    /(SOM\.[A-Z0-9.]+\.\d{4})((?:\s*[;,]\s*\d{4})+)/g,
+    (_, head, tail) => head + tail.replace(/\s*[;,]\s*(\d{4})/g, "//$1")
+  );
+  return out;
 }
 
 function matchesObjectivesTablePattern(text) {
@@ -13860,7 +15545,7 @@ function buildObjEntry(code, objText, lec, blockId) {
 
 function extractFromTableText(text, lec, blockId) {
   if (!text) return [];
-  const src = text.toString();
+  const src = normalizeSomCodesInText(text.toString());
   const results = [];
   const seen = new Set();
 
@@ -13937,9 +15622,11 @@ function extractFromTableText(text, lec, blockId) {
 }
 
 function findAllSOMCodesForLecture(chunks, lec) {
-  const allText = (chunks || [])
-    .map((c) => getChunkBody(c) || c.markdown || c.text || "")
-    .join("\n");
+  const allText = normalizeSomCodesInText(
+    (chunks || [])
+      .map((c) => getChunkBody(c) || c.markdown || c.text || "")
+      .join("\n")
+  );
 
   // Strategy 1: Find fully qualified codes (most reliable)
   const fullCodes = [
@@ -14100,7 +15787,7 @@ function getInlineSOMCodeContext(code, allChunks) {
   const codeNum = String(code).split(".").pop()?.split("//")[0]?.trim() || "";
   if (!codeNum) return "";
 
-  const bodyOf = (c) => getChunkBody(c) || "";
+  const bodyOf = (c) => normalizeSomCodesInText(getChunkBody(c) || "");
 
   const dedicated = (allChunks || []).filter((c) => {
     const text = bodyOf(c);
@@ -14126,14 +15813,15 @@ async function extractInlineSOMCodes(chunks, lec, blockId, alreadyFound) {
 
   for (let idx = 0; idx < (chunks || []).length; idx++) {
     const chunk = chunks[idx];
-    const text = getChunkBody(chunk);
-    if (!text) continue;
+    const rawText = getChunkBody(chunk);
+    if (!rawText) continue;
 
-    if (chunkHasTableFileReference(text)) {
+    if (chunkHasTableFileReference(rawText)) {
       console.log(`Chunk ${idx}: table reference detected, skipping for extraction`);
       continue;
     }
 
+    const text = normalizeSomCodesInText(rawText);
     const somPattern = /SOM\.[A-Z0-9.]+(?:\/\/\d+)*/g;
     const matches = text.match(somPattern) || [];
     if (matches.length === 0) continue;
@@ -14269,7 +15957,8 @@ JSON array only:
   return filtered.length > 0 ? filtered : deduped;
 }
 
-async function extractObjectivesChunk(text, lec, blockId) {
+async function extractObjectivesChunk(rawTextInput, lec, blockId) {
+  const text = normalizeSomCodesInText(rawTextInput);
   const systemPrompt = `${LECTURE_MARKDOWN_SYSTEM_INSTRUCTION}
 
 Extract ALL learning objectives from this medical lecture text.
@@ -14803,7 +16492,7 @@ function ExamResultModal({
             boxSizing: "border-box",
             background: t.inputBg,
             color: t.text1,
-            fontFamily: "'DM Mono', 'Courier New', monospace",
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
           }}
         />
         <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
@@ -14824,7 +16513,7 @@ function ExamResultModal({
                 background: t.inputBg,
                 color: t.text1,
                 boxSizing: "border-box",
-                fontFamily: "'DM Mono', 'Courier New', monospace",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
               }}
             />
           </div>
@@ -14845,7 +16534,7 @@ function ExamResultModal({
                 background: t.inputBg,
                 color: t.text1,
                 boxSizing: "border-box",
-                fontFamily: "'DM Mono', 'Courier New', monospace",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
               }}
             />
           </div>
@@ -14869,7 +16558,7 @@ function ExamResultModal({
             color: t.text1,
             resize: "vertical",
             fontSize: 13,
-            fontFamily: "'DM Mono', 'Courier New', monospace",
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
           }}
         />
         <label
@@ -14900,7 +16589,7 @@ function ExamResultModal({
               background: "transparent",
               cursor: "pointer",
               color: t.text2,
-              fontFamily: "'DM Mono', 'Courier New', monospace",
+              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             }}
           >
             Cancel
@@ -14916,7 +16605,7 @@ function ExamResultModal({
               border: "none",
               cursor: "pointer",
               fontWeight: 600,
-              fontFamily: "'DM Mono', 'Courier New', monospace",
+              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             }}
           >
             Save
@@ -14993,7 +16682,7 @@ function CBSECompReviewDashboard({
         </h1>
         <p
           style={{
-            fontFamily: "'DM Mono', 'Courier New', monospace",
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             color: t.text3,
             fontSize: 12,
             marginTop: 6,
@@ -15029,7 +16718,7 @@ function CBSECompReviewDashboard({
           >
             <div style={{ fontSize: 28 }}>{card.icon}</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: card.color }}>{card.count}</div>
-            <div style={{ fontSize: 12, color: t.text3, fontFamily: "'DM Mono', 'Courier New', monospace" }}>
+            <div style={{ fontSize: 12, color: t.text3, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }}>
               {card.label}
             </div>
           </div>
@@ -15049,7 +16738,7 @@ function CBSECompReviewDashboard({
           style={{
             fontWeight: 600,
             marginBottom: 12,
-            fontFamily: "'DM Mono', 'Courier New', monospace",
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             fontSize: 12,
             color: t.text2,
           }}
@@ -15071,7 +16760,7 @@ function CBSECompReviewDashboard({
               color: cbseMode === mode ? "#fff" : t.text2,
               cursor: "pointer",
               fontSize: 13,
-              fontFamily: "'DM Mono', 'Courier New', monospace",
+              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
             }}
           >
             {mode === "adaptive"
@@ -15095,7 +16784,7 @@ function CBSECompReviewDashboard({
                 border: "1px solid " + t.border1,
                 background: t.inputBg,
                 color: t.text1,
-                fontFamily: "'DM Mono', 'Courier New', monospace",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
                 fontSize: 13,
               }}
             >
@@ -15128,7 +16817,7 @@ function CBSECompReviewDashboard({
                 border: "1px solid " + t.border1,
                 background: t.inputBg,
                 color: t.text1,
-                fontFamily: "'DM Mono', 'Courier New', monospace",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
               }}
             >
               {[30, 60, 90, 120].map((m) => (
@@ -15152,7 +16841,7 @@ function CBSECompReviewDashboard({
                 border: "1px solid " + t.border1,
                 background: t.inputBg,
                 color: t.text1,
-                fontFamily: "'DM Mono', 'Courier New', monospace",
+                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
               }}
             >
               {[10, 20, 40, 60, 80, "All"].map((n) => (
@@ -15221,7 +16910,7 @@ function CBSECompReviewDashboard({
             cursor: "pointer",
             fontSize: 13,
             width: "100%",
-            fontFamily: MONO,
+            fontFamily: SANS,
           }}
         >
           + Add exam result
@@ -15243,7 +16932,7 @@ function CBSECompReviewDashboard({
           fontWeight: 700,
           cursor: drillSetupLaunching ? "default" : "pointer",
           marginTop: 8,
-            fontFamily: "'DM Mono', 'Courier New', monospace",
+            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
           }}
         >
           {drillSetupLaunching ? "Starting…" : `🎯 Start CBSE Session → ${qLabel} questions`}
@@ -15261,20 +16950,56 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
   const [graphSort, setGraphSort] = useState("weakness");
   const [selectedLecId, setSelectedLecId] = useState(null);
   const [expand, setExpand] = useState({ struggling: true, inprogress: false, untested: false });
+  const [spotSearch, setSpotSearch] = useState("");
 
   useEffect(() => {
     setSelectedLecId(null);
   }, [blockId]);
 
   const rows = useMemo(() => {
-    const list = (blockLecs || []).map((lec) => ({
-      lec,
-      profile: getLecWeaknessProfile(lec, blockId, getLecPerf),
-    }));
+    const q = spotSearch.trim().toLowerCase();
+    const allObjs = getMSKObjectives(blockId) || [];
+
+    const list = (blockLecs || []).map((lec) => {
+      const objs = allObjs.filter((o) => o.linkedLecId === lec.id);
+      // If search active, filter by lecture title OR any objective text
+      if (q) {
+        const titleMatch = (lec.lectureTitle || lec.fileName || "").toLowerCase().includes(q);
+        const objMatch = objs.some((o) => (o.text || o.objective || "").toLowerCase().includes(q));
+        if (!titleMatch && !objMatch) return null;
+      }
+      return {
+        lec,
+        objs,
+        matchingObjs: q
+          ? objs.filter((o) => (o.text || o.objective || "").toLowerCase().includes(q))
+          : [],
+        profile: getLecWeaknessProfile(lec, blockId, getLecPerf),
+      };
+    }).filter(Boolean);
+
     const lecIndex = new Map((blockLecs || []).map((l, i) => [l.id, i]));
     const sorted = [...list];
     if (graphSort === "weakness") {
+      // Tiering: tested-with-real-weakness first (you have evidence to act on),
+      // then untested (unknown — not the same as weak), then everything else.
+      // Untested lectures show up as "weak" in the score formula, but until you've
+      // attempted them you don't actually know they're weak — they're just unstarted.
+      const tier = (r) => {
+        const p = r.profile;
+        if (p.total === 0) return 3; // no objectives
+        const hasEvidence =
+          p.struggling > 0 ||
+          p.inprogress > 0 ||
+          (p.avgScore != null && p.avgScore < 100);
+        if (hasEvidence) return 0; // tested + struggling
+        if (p.isUntested) return 2; // never started — surface below tested-weak
+        return 1; // tested + clean
+      };
       sorted.sort((a, b) => {
+        const ta = tier(a);
+        const tb = tier(b);
+        if (ta !== tb) return ta - tb;
         const sa = a.profile.score;
         const sb = b.profile.score;
         if (sa == null && sb == null) return lecIndex.get(a.lec.id) - lecIndex.get(b.lec.id);
@@ -15295,7 +17020,7 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
       });
     }
     return sorted;
-  }, [blockLecs, blockId, getLecPerf, graphSort]);
+  }, [blockLecs, blockId, getLecPerf, graphSort, spotSearch]);
 
   const summary = useMemo(() => {
     let needAttention = 0;
@@ -15373,6 +17098,53 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
 
   return (
     <div style={{ padding: "8px 0 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+
+      {/* ── Weak Spot Search ─────────────────────────────────────── */}
+      <div style={{ position: "relative" }}>
+        <span style={{
+          position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)",
+          fontSize: 14, color: t.text3, pointerEvents: "none", lineHeight: 1,
+        }}>🔍</span>
+        <input
+          type="text"
+          value={spotSearch}
+          onChange={(e) => setSpotSearch(e.target.value)}
+          placeholder="Search lectures or topics  (e.g. free radicals, G6PD, coagulation…)"
+          style={{
+            width: "100%",
+            padding: "10px 14px 10px 34px",
+            borderRadius: 10,
+            border: "1px solid " + (spotSearch ? tc : t.border2),
+            background: t.inputBg || t.cardBg,
+            color: t.text1,
+            fontSize: 13,
+            fontFamily: monoFont,
+            boxSizing: "border-box",
+            outline: "none",
+            transition: "border-color 0.15s",
+          }}
+        />
+        {spotSearch && (
+          <button
+            type="button"
+            onClick={() => setSpotSearch("")}
+            style={{
+              position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", cursor: "pointer",
+              color: t.text3, fontSize: 16, lineHeight: 1, padding: 2,
+            }}
+          >×</button>
+        )}
+      </div>
+      {spotSearch && (
+        <div style={{ fontSize: 11, color: t.text3, fontFamily: monoFont, marginTop: -8 }}>
+          {rows.length === 0
+            ? "No matching lectures or objectives"
+            : `${rows.length} lecture${rows.length !== 1 ? "s" : ""} match · ${rows.reduce((n, r) => n + r.matchingObjs.length, 0)} matching objectives`}
+        </div>
+      )}
+      {/* ──────────────────────────────────────────────────────────── */}
+
       <div style={{ fontFamily: monoFont, fontSize: 11, color: t.text3, letterSpacing: 0.5 }}>
         {summary.needAttention} lectures need attention · {summary.critical} critical · {summary.notStarted}{" "}
         not started
@@ -15406,7 +17178,7 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16, alignItems: "flex-start" }}>
         <div style={{ flex: "1 1 380px", minWidth: 0 }}>
-          {rows.map(({ lec, profile }) => {
+          {rows.map(({ lec, profile, matchingObjs }) => {
             const noObj = profile.total === 0;
             const barW = noObj || profile.score == null ? 0 : Math.min(100, profile.score);
             let fillColor = t.statusGood;
@@ -15422,8 +17194,8 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
                 : `${Math.round(profile.score)}% weak`;
 
             return (
+              <div key={lec.id} style={{ marginBottom: 6 }}>
               <div
-                key={lec.id}
                 role="button"
                 tabIndex={0}
                 onClick={() => setSelectedLecId((id) => (id === lec.id ? null : lec.id))}
@@ -15438,11 +17210,11 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
                   alignItems: "center",
                   gap: 10,
                   padding: "10px 14px",
-                  borderRadius: 8,
-                  marginBottom: 6,
+                  borderRadius: matchingObjs?.length > 0 ? "8px 8px 0 0" : 8,
                   cursor: "pointer",
                   background: selectedLecId === lec.id ? t.inputBg : t.cardBg,
                   border: "1px solid " + t.border2,
+                  borderBottom: matchingObjs?.length > 0 ? "none" : "1px solid " + t.border2,
                   flexWrap: "wrap",
                 }}
               >
@@ -15499,6 +17271,79 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
                   ) : null}
                 </div>
               </div>
+              {/* Matching objectives shown when searching */}
+              {matchingObjs?.length > 0 && (
+                <div style={{
+                  border: "1px solid " + t.border2,
+                  borderTop: "1px dashed " + t.border2,
+                  borderRadius: "0 0 8px 8px",
+                  background: t.inputBg || t.cardBg,
+                  padding: "6px 14px 8px",
+                }}>
+                  <div style={{ fontSize: 10, color: t.text3, fontFamily: monoFont, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                    {matchingObjs.length} matching objective{matchingObjs.length !== 1 ? "s" : ""}
+                  </div>
+                  {matchingObjs.map((o) => {
+                    const statusColor = o.status === "struggling" ? "#E24B4A" : o.status === "inprogress" ? "#BA7517" : o.status === "mastered" ? "#639922" : t.text3;
+                    const drillObjIds = [o.id];
+                    return (
+                      <div key={o.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "5px 0", borderTop: "0.5px solid " + t.border2 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor, flexShrink: 0, marginTop: 5 }} />
+                        <div style={{ flex: 1, fontSize: 12, color: t.text1, lineHeight: 1.4 }}>
+                          {o.text || o.objective}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            window.dispatchEvent(new CustomEvent("rxt-start-drill", {
+                              detail: { lecId: lec.id, blockId, mode: "mcq", filter: "all", objIds: drillObjIds },
+                            }));
+                          }}
+                          style={{
+                            flexShrink: 0,
+                            padding: "3px 10px",
+                            borderRadius: 6,
+                            border: "none",
+                            background: tc,
+                            color: "#fff",
+                            fontFamily: monoFont,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Drill →
+                        </button>
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      window.dispatchEvent(new CustomEvent("rxt-start-drill", {
+                        detail: { lecId: lec.id, blockId, mode: "mcq", filter: "all", objIds: matchingObjs.map((o) => o.id) },
+                      }));
+                    }}
+                    style={{
+                      marginTop: 8,
+                      padding: "6px 14px",
+                      borderRadius: 8,
+                      border: "none",
+                      background: tc,
+                      color: "#fff",
+                      fontFamily: monoFont,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Drill all {matchingObjs.length} matching →
+                  </button>
+                </div>
+              )}
+              </div>
             );
           })}
         </div>
@@ -15551,8 +17396,11 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
               <button
                 type="button"
-                disabled={weakDrillIds.length === 0}
-                title={weakDrillIds.length === 0 ? "No struggling or in-progress objectives" : undefined}
+                title={
+                  weakDrillIds.length
+                    ? "Practice the struggling/in-progress objectives in this lecture"
+                    : "Practice this lecture (no weak objectives — questions cover the whole lecture)"
+                }
                 onClick={() => {
                   window.dispatchEvent(
                     new CustomEvent("rxt-start-drill", {
@@ -15561,7 +17409,7 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
                         blockId,
                         mode: "mcq",
                         filter: "all",
-                        objIds: weakDrillIds,
+                        objIds: weakDrillIds.length ? weakDrillIds : undefined,
                       },
                     })
                   );
@@ -15570,15 +17418,15 @@ function BlockWeakSpotsView({ blockId, blockLecs, t, tc, monoFont, getLecPerf, h
                   padding: "8px 12px",
                   borderRadius: 8,
                   border: "none",
-                  background: weakDrillIds.length ? tc : t.border1,
+                  background: tc,
                   color: "#fff",
                   fontFamily: monoFont,
                   fontSize: 12,
                   fontWeight: 700,
-                  cursor: weakDrillIds.length ? "pointer" : "not-allowed",
+                  cursor: "pointer",
                 }}
               >
-                ⚡ Drill weak objectives →
+                {weakDrillIds.length ? "▶ Practice weak →" : "▶ Practice this lecture →"}
               </button>
               <button
                 type="button"
@@ -15818,12 +17666,28 @@ function buildDrillQueue(blockId, filter, lecFilter, objectiveIds) {
     } else if (nf === "srs_due") {
       const today = new Date().toISOString().split("T")[0];
       pool = pool.filter((o) => !o.srsNextReview || o.srsNextReview <= today);
+    } else if (nf === "all") {
+      // "All" mode: split into non-mastered (high priority) and mastered (low priority).
+      // Mastered = consecutiveCorrect >= 3. They appear at the END so you always
+      // drill weak/untested content first and only hit mastered objectives if you've
+      // already worked through everything else.
+      const notMastered = pool.filter((o) => (o.consecutiveCorrect || 0) < 3);
+      const mastered = pool.filter((o) => (o.consecutiveCorrect || 0) >= 3);
+      // If everything is mastered, include them all so the session isn't empty
+      pool = notMastered.length > 0 ? [...notMastered, ...mastered] : mastered;
     }
   }
 
   // Starred (mastery-required) objectives always surface before non-starred at the same status level
+  // Mastered objectives (consecutiveCorrect >= 3) always sort to the back
+  // Assign a random tiebreaker per item so within-tier order differs each session
+  const shuffleKeys = new Map(pool.map((o, i) => [o.id ?? i, Math.random()]));
   const order = { struggling: 0, inprogress: 1, untested: 2, mastered: 3 };
   pool.sort((a, b) => {
+    // Hard partition: fully mastered go last
+    const aMastered = (a.consecutiveCorrect || 0) >= 3 ? 1 : 0;
+    const bMastered = (b.consecutiveCorrect || 0) >= 3 ? 1 : 0;
+    if (aMastered !== bMastered) return aMastered - bMastered;
     const ca = a.consecutiveCorrect || 0;
     const cb = b.consecutiveCorrect || 0;
     if (ca !== cb) return ca - cb;
@@ -15834,7 +17698,10 @@ function buildDrillQueue(blockId, filter, lecFilter, objectiveIds) {
     const as = a.starred ? 0 : 1;
     const bs = b.starred ? 0 : 1;
     if (as !== bs) return as - bs;
-    return (b.bloom_level || 1) - (a.bloom_level || 1);
+    const bl = (b.bloom_level || 1) - (a.bloom_level || 1);
+    if (bl !== 0) return bl;
+    // Final tiebreaker: random shuffle within same tier so order varies each session
+    return (shuffleKeys.get(a.id ?? a) || 0) - (shuffleKeys.get(b.id ?? b) || 0);
   });
 
   return pool;
@@ -15930,7 +17797,7 @@ function LectureAssignDropdown({ blockLecs, currentLecId, objId, onAssign }) {
           padding: "6px 8px",
           borderRadius: 6,
           border: "0.5px solid var(--color-border-secondary)",
-          fontFamily: "'DM Mono', 'Courier New', monospace",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
           boxSizing: "border-box",
         }}
       >
@@ -15980,7 +17847,11 @@ function shouldWarnLectureTypeBadge(lectureType, fileName) {
   if (lectureType == null || lectureType === "other") return true;
   const base = (fileName || "").replace(/\.(pdf|txt|md)$/i, "");
   const hasTypeHint = /\b(DLA|LEC|LECTURE|SGL?|SG|TBL|LAB|CLIN)\b/i.test(base);
-  return lectureType === "LEC" && !hasTypeHint;
+  // Block-prefixed lectures like "CPR 53 - …" or "MSK 12 - …" are unambiguous
+  // even without a DLA/LEC/etc keyword. Accept any "<2-4 letter code> <number>"
+  // prefix at the start of the filename as a valid lecture hint.
+  const hasBlockPrefix = /^\s*[A-Z]{2,4}\s*\d+\b/i.test(base);
+  return lectureType === "LEC" && !hasTypeHint && !hasBlockPrefix;
 }
 
 const UPLOAD_CACHE_KEY = "rxt-upload-cache";
@@ -16611,6 +18482,10 @@ export default function App() {
   }, []);
 
   const [view,    setView]    = useState("block");
+  // Remember which view launched practice so we can restore it on session close.
+  // Set whenever setView("study") is invoked from a non-study view; consumed by
+  // Session's onBack/onDone handlers.
+  const studyReturnViewRef = useRef("block");
   const [termId, setTermId] = useState("term1");
   const [activeBlock, setActiveBlock] = useState(() => getActiveBlockFromTerms());
   const blockId = activeBlock?.id ?? null;
@@ -16692,7 +18567,18 @@ export default function App() {
     if (!bid) return [];
     return detectSplitLecturePairs(getBlockLecs(lectures, resolveBlockMeta(bid)));
   }, [lectures, blockId, resolveBlockMeta]);
-  const [tab,     setTab]     = useState("lectures");
+  const [tab, setTab] = useState(() => {
+    if (typeof window === "undefined") return "lectures";
+    try {
+      return localStorage.getItem("rxt-overview-tab") || "lectures";
+    } catch {
+      return "lectures";
+    }
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try { localStorage.setItem("rxt-overview-tab", tab); } catch {}
+  }, [tab]);
   const [drillMode, setDrillMode] = useState(false);
   /** While drilling: overlay lecture objectives without exiting drill { blockId, lecId, highlightObjectiveId? } */
   const [drillObjectivesPeek, setDrillObjectivesPeek] = useState(null);
@@ -16750,6 +18636,7 @@ export default function App() {
   const [drillTargetCount, setDrillTargetCount] = useState(20);
   const [showDrillSetup, setShowDrillSetup] = useState(false);
   const [pendingDrillConfig, setPendingDrillConfig] = useState(null);
+  const [blockSearch, setBlockSearch] = useState("");
   /** When set, progress UI uses this cap (Tracker setup); otherwise full queue length. */
   const [drillSessionQuestionTarget, setDrillSessionQuestionTarget] = useState(null);
   const [drillSetupLaunching, setDrillSetupLaunching] = useState(false);
@@ -16779,11 +18666,12 @@ export default function App() {
   const [reassignedConfirm, setReassignedConfirm] = useState(null);
   const [drillCardOpacity, setDrillCardOpacity] = useState(1);
   const [drillStyle, setDrillStyle] = useState(() => {
+    // Flashcard mode retired — MCQ is the default; exam_block is the only other option.
     try {
       const saved = localStorage.getItem("rxt-drill-style");
-      return saved === "mcq" ? "mcq" : saved === "exam_block" ? "exam_block" : "flashcard";
+      return saved === "exam_block" ? "exam_block" : "mcq";
     } catch {
-      return "flashcard";
+      return "mcq";
     }
   });
   useEffect(() => {
@@ -16800,6 +18688,9 @@ export default function App() {
   const [revealedCardKey, setRevealedCardKey] = useState(null);
   const [cardState, setCardState] = useState("front");
   const [cardBack, setCardBack] = useState(null);
+  const [questionNotesOpen, setQuestionNotesOpen] = useState(false);
+  const [questionNotesVer, setQuestionNotesVer] = useState(0);
+  const questionNotesCacheRef = useRef({}); // { [objId]: {note, links} }
   const [drillCardMode, setDrillCardMode] = useState("back");
   // Exam Block mode state
   const [examBlockAnswers, setExamBlockAnswers] = useState([]);
@@ -16811,6 +18702,13 @@ export default function App() {
   const [mcqData, setMcqData] = useState(null);
   const [mcqError, setMcqError] = useState(null);
   const [eliminatedOptions, setEliminatedOptions] = useState([]);
+  const [questionImagesVer, setQuestionImagesVer] = useState(0); // increment to re-render after attaching image
+  const questionImagesInputRef = useRef(null);
+  const dismissedWikimediaRef = useRef({}); // { [objId_rN]: true } — dismissed auto-fetched images
+  // Back navigation: history of answered questions
+  const drillHistoryRef = useRef([]); // [{obj, mcqData, selectedAnswer}]
+  const [drillHistoryLen, setDrillHistoryLen] = useState(0); // triggers re-render when history grows
+  const [drillReviewSnapshot, setDrillReviewSnapshot] = useState(null); // non-null when reviewing a past Q
   const [selectedOption, setSelectedOption] = useState(null); // tentative MCQ choice (drill)
   const [lockedAnswer, setLockedAnswer] = useState(null); // confirmed index — triggers handleDrillMCQAnswer
   const [selectedAnswer, setSelectedAnswer] = useState(null); // submitted index (snapshots / assess)
@@ -16848,6 +18746,59 @@ export default function App() {
   const activePrefetchesRef = useRef(0);
   const prefetchMCQRef = useRef(() => {});
   const MAX_CONCURRENT_PREFETCHES = 2;
+
+  // ── MCQ Question Bank (localStorage = fast cache; Supabase = source of truth) ──
+  // Read from the local cache — populated on sign-in via pullMcqBankFromSupabase
+  // and kept in sync by saveMcqBankEntry (which writes both layers).
+  const getMcqFromBank = (objId, round) => {
+    try {
+      const bank = JSON.parse(localStorage.getItem("rxt-mcq-bank") || "{}");
+      return bank[`${objId}_r${round ?? 0}`] || null;
+    } catch { return null; }
+  };
+
+  // ── Per-question study notes & links ─────────────────────────────────────
+  // Stored in rxt-question-notes: { [objId]: { note: string, links: [{url, label}] } }
+  const getQuestionNotes = (objId) => {
+    if (!objId) return { note: "", links: [] };
+    if (questionNotesCacheRef.current[objId] !== undefined) return questionNotesCacheRef.current[objId];
+    try {
+      const store = JSON.parse(localStorage.getItem("rxt-question-notes") || "{}");
+      return store[objId] || { note: "", links: [] };
+    } catch { return { note: "", links: [] }; }
+  };
+  const saveQuestionNotes = (objId, data) => {
+    if (!objId) return;
+    questionNotesCacheRef.current[objId] = data;
+    try {
+      const store = JSON.parse(localStorage.getItem("rxt-question-notes") || "{}");
+      store[objId] = data;
+      localStorage.setItem("rxt-question-notes", JSON.stringify(store));
+    } catch (e) { console.warn("saveQuestionNotes failed:", e?.message); }
+    // Debounce cloud sync
+    if (currentUser?.id) {
+      clearTimeout(saveQuestionNotes._t);
+      saveQuestionNotes._t = setTimeout(() => {
+        try {
+          const allNotes = JSON.parse(localStorage.getItem("rxt-question-notes") || "{}");
+          supabase.from("user_kv").upsert(
+            { user_id: currentUser.id, key: "rxt-question-notes", data: allNotes, updated_at: new Date().toISOString() },
+            { onConflict: "user_id,key" }
+          ).then(({ error }) => { if (error) console.warn("question-notes sync failed:", error.message); });
+        } catch {}
+      }, 2000);
+    }
+  };
+
+  // ── Per-question manual image attachments (Supabase Storage) ────────────
+  // Cache: { [objId_rN]: [{storagePath, filename, url, addedAt}] }
+  const questionImagesCacheRef = useRef({});
+  const getQuestionImagesCache = (objId, round) =>
+    questionImagesCacheRef.current[`${objId}_r${round ?? 0}`] || null; // null = not yet loaded
+  const setQuestionImagesCache = (objId, round, images) => {
+    questionImagesCacheRef.current[`${objId}_r${round ?? 0}`] = images;
+  };
+  // ─────────────────────────────────────────────────────────────────────────
   const [studyCfg, setStudyCfg] = useState(null);
   const [ankiLogTarget, setAnkiLogTarget] = useState(null);
   const [trackerKey, setTrackerKey] = useState(0);
@@ -16910,6 +18861,10 @@ export default function App() {
   const [currentSessionMeta, setCurrentSessionMeta] = useState(null);
   const [sessionSummary, setSessionSummary] = useState(null);
   const [pendingConfidence, setPendingConfidence] = useState(null);
+  const [practiceSetup, setPracticeSetup] = useState(null);
+  // Forward-ref to startPractice so listeners declared earlier in the file (rxt-start-drill,
+  // rxt-launch-quiz) can invoke it without TDZ issues. Bound after startPractice is defined.
+  const startPracticeRef = useRef(null);
   const [showBackdateModal, setShowBackdateModal] = useState(null);
   const [backdateActivity, setBackdateActivity] = useState("lecture");
   const [backdateDate, setBackdateDate] = useState(() => new Date().toISOString().split("T")[0]);
@@ -16953,6 +18908,9 @@ export default function App() {
   const [lectureDragActive, setLectureDragActive] = useState(false);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [qbankUploadStatus, setQbankUploadStatus] = useState("");
+  const [qbankUploading, setQbankUploading] = useState(false);
+  const [qbankWrongOnly, setQbankWrongOnly] = useState(false);
   /** Block objectives PDF import: null = idle, else { stage, count?, error? } */
   const [blockObjImportStatus, setBlockObjImportStatus] = useState(null);
   const [youtubeUrlInput, setYoutubeUrlInput] = useState("");
@@ -17020,6 +18978,9 @@ export default function App() {
   const [newBlockType, setNewBlockType] = useState("standard");
   const [showNewTerm,  setShowNewTerm]  = useState(false);
   const [showNewBlk,   setShowNewBlk]  = useState(null);
+  const [renamingBlockId, setRenamingBlockId] = useState(null);
+  const [renamingBlockVal, setRenamingBlockVal] = useState("");
+  const dragBlockRef = useRef(null); // { termId, blockId, index }
 
   const [lecView, setLecView] = useState(() =>
     typeof window !== "undefined" ? (localStorage.getItem("rxt-lec-view") || "list") : "list"
@@ -17106,7 +19067,48 @@ export default function App() {
     try {
       const raw = localStorage.getItem("rxt-block-objectives") || "{}";
       const stored = JSON.parse(raw);
-      return stored && typeof stored === "object" ? stored : {};
+      if (!stored || typeof stored !== "object") return {};
+
+      // One-time migration: any block stored as a flat legacy array is moved into
+      // `{imported, extracted: []}` shape so save reducers no longer silently drop
+      // items by spreading numeric array indices into the new object. Also strips
+      // markdown-autolinked SOM codes that Mistral OCR wrote in earlier sessions.
+      let migrated = false;
+      const cleanCode = (c) => {
+        if (!c || typeof c !== "string") return c;
+        // [SOM.MK](http://SOM.MK).I.…  →  SOM.MK.I.…
+        return c.replace(/\[(SOM\.[A-Z0-9.]+)\]\(https?:\/\/[^)]+\)/gi, "$1").trim();
+      };
+      const cleanObj = (o) => {
+        if (!o || typeof o !== "object") return o;
+        const code = cleanCode(o.code);
+        const objectiveCode = cleanCode(o.objectiveCode);
+        if (code === o.code && objectiveCode === o.objectiveCode) return o;
+        migrated = true;
+        return { ...o, code, objectiveCode };
+      };
+      const next = {};
+      for (const [k, v] of Object.entries(stored)) {
+        if (Array.isArray(v)) {
+          migrated = true;
+          next[k] = { imported: v.map(cleanObj), extracted: [] };
+        } else if (v && typeof v === "object") {
+          const imported = Array.isArray(v.imported) ? v.imported.map(cleanObj) : [];
+          const extracted = Array.isArray(v.extracted) ? v.extracted.map(cleanObj) : [];
+          next[k] = { ...v, imported, extracted };
+        } else {
+          next[k] = v;
+        }
+      }
+      if (migrated) {
+        try {
+          safeSetItem("rxt-block-objectives", next);
+          console.log("Migrated block-objectives storage shape (legacy array → {imported, extracted}) and cleaned bracketed SOM codes");
+        } catch (e) {
+          console.warn("block-objectives migration write failed:", e);
+        }
+      }
+      return next;
     } catch (e) {
       console.error("blockObjectives init error:", e);
       return {};
@@ -17120,6 +19122,59 @@ export default function App() {
     } catch (e) {
       console.error("refreshObjectivesFromStorage failed:", e);
     }
+  }, []);
+
+  // Migration runs on every mount (not just first init) so HMR-preserved state
+  // doesn't keep the legacy flat-array shape alive. Idempotent — only writes if
+  // it actually finds something to fix.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("rxt-block-objectives");
+      if (!raw) return;
+      const stored = JSON.parse(raw);
+      if (!stored || typeof stored !== "object") return;
+
+      let migrated = false;
+      const cleanCode = (c) => {
+        if (!c || typeof c !== "string") return c;
+        return c.replace(/\[(SOM\.[A-Z0-9.]+)\]\(https?:\/\/[^)]+\)/gi, "$1").trim();
+      };
+      const cleanObj = (o) => {
+        if (!o || typeof o !== "object") return o;
+        const code = cleanCode(o.code);
+        const objectiveCode = cleanCode(o.objectiveCode);
+        if (code === o.code && objectiveCode === o.objectiveCode) return o;
+        migrated = true;
+        return { ...o, code, objectiveCode };
+      };
+      const next = {};
+      for (const [k, v] of Object.entries(stored)) {
+        if (Array.isArray(v)) {
+          migrated = true;
+          next[k] = { imported: v.map(cleanObj), extracted: [] };
+        } else if (v && typeof v === "object") {
+          const imported = Array.isArray(v.imported) ? v.imported.map(cleanObj) : [];
+          const extracted = Array.isArray(v.extracted) ? v.extracted.map(cleanObj) : [];
+          next[k] = { ...v, imported, extracted };
+        } else {
+          next[k] = v;
+        }
+      }
+      if (migrated) {
+        try {
+          safeSetItem("rxt-block-objectives", next);
+          setBlockObjectives(next);
+          console.log(
+            "Migrated block-objectives storage shape (legacy array → {imported, extracted}) and cleaned bracketed SOM codes"
+          );
+        } catch (e) {
+          console.warn("block-objectives migration write failed:", e);
+        }
+      }
+    } catch (e) {
+      console.warn("block-objectives migration check failed:", e);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadBlockObjectives = useCallback((blockId) => {
@@ -17495,11 +19550,16 @@ export default function App() {
       const backfillKey = `rxt-backfill-done-${bid}`;
       if (localStorage.getItem(backfillKey)) return;
       let changed = false;
+      const attendanceTypes = new Set(["lecture", "video", "review", "anki"]);
       Object.entries(perf || {}).forEach(([key, entry]) => {
         if (!String(key || "").includes(bid)) return;
         const lecId = entry?.lectureId;
         const score = Number(entry?.score);
         if (!lecId || !Number.isFinite(score)) return;
+        // Skip if ALL sessions are attendance-only (no actual drill/quiz sessions)
+        const sessions = Array.isArray(entry?.sessions) ? entry.sessions : [];
+        const hasDrillSession = sessions.some(s => !attendanceTypes.has(s.sessionType));
+        if (!hasDrillSession && sessions.length > 0) return;
         all.forEach((obj, idx) => {
           if (obj?.linkedLecId !== lecId) return;
           if (obj?.status && obj.status !== "untested") return;
@@ -19901,6 +21961,8 @@ For each extracted objective, find if it duplicates or overlaps with any importe
   const drillKeyHandlersRef = useRef({});
   const drillAssessBusyRef = useRef(false);
   const advanceDrillRef = useRef(null);
+  /** Locked at session start — never grows when wrong-answer re-queues are inserted */
+  const drillOriginalQueueSizeRef = useRef(0);
 
   useEffect(() => {
     drillQueueRef.current = drillQueue;
@@ -19957,6 +22019,7 @@ For each extracted objective, find if it duplicates or overlaps with any importe
                 linkedLecId: currentObj?.linkedLecId,
                 lectureLabel,
                 source: "drill",
+                objectiveId: currentObj?.id || currentObj?.objectiveId || null,
               });
               setWeakConceptsRefreshKey((k) => k + 1);
             } else {
@@ -20104,16 +22167,68 @@ ${(() => {
         }`;
       })()}
 
+CRITICAL — STEM MUST CONTAIN A COMPLETE QUESTION:
+The stem MUST end with an explicit interrogative sentence ending in "?". Examples:
+- "Which of the following best explains the diagnosis?"
+- "What is the most likely underlying mechanism?"
+- "Which structure is most likely involved?"
+A clinical vignette alone is NOT acceptable — it must be followed by an actual question. Never end the stem mid-description (e.g., "...consistent with respiratory distress syndrome" with no question). Always append a clear lead-in question on its own final sentence ending in "?".
+
 Return JSON only. No markdown fences. One object (not an array) with exactly 4 options, exactly one isCorrect true.
 For EVERY wrong option include whyWrong (string). Correct option: whyWrong null.
 Include teachingPoint and which objective(s) via objectiveIndices (1-based indices into the list below).
-imagePrompt: null unless the question tests something visual (histology slide, anatomy structure, lab finding, ECG, X-ray). If visual, provide a plain-English description.
-visualSearchQuery: if imagePrompt is set, also provide a short Wikimedia Commons search query (e.g. "bone marrow sinusoid hematopoiesis H&E stain"). Otherwise null.`;
+imagePrompt: Set this whenever the question tests something that has a recognizable visual form. This includes:
+- Histology slides (H&E, special stains, microscopy)
+- Anatomy diagrams or cross-sections
+- Physiology graphs or loops (pressure-volume loop, Frank-Starling curve, action potential, spirometry)
+- ECG/EKG waveforms
+- Lab findings (peripheral blood smear, urinalysis, etc.)
+- X-ray, CT, MRI, ultrasound findings
+- Pharmacology dose-response curves
+- Biochemistry pathway diagrams
+If any of the above apply, set imagePrompt to a plain-English description of what the image should show. Otherwise null.
+IMPORTANT: Do NOT describe the image inside the stem field. The stem should only contain the clinical scenario and question. Put all image descriptions exclusively in the imagePrompt field.
+visualSearchQuery: if imagePrompt is set, provide a short precise Wikimedia Commons search query optimized for finding a labeled diagram or slide (e.g. "left ventricular pressure volume loop diagram", "bone marrow sinusoid H&E stain", "ECG normal sinus rhythm labeled"). Otherwise null.`;
 
       const starredNote = obj.starred
         ? `\n⭐ THIS IS A MASTERY-REQUIRED OBJECTIVE (professor-designated, exam-critical). ` +
           `Write a high-yield question that directly and unambiguously tests this objective. ` +
           `Distractors must represent common misconceptions — wrong answers should teach.\n`
+        : "";
+
+      // ── Style examples from uploaded block questions (Madcow style) ───────
+      const styleExamplesBlock = (() => {
+        try {
+          const banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+          const allQ = Object.values(banks).flat();
+          if (!allQ.length) return "";
+          // Pick up to 2 questions roughly matching the lecture topic
+          const lecWords = new Set(
+            (lecTitle + " " + objText).toLowerCase().split(/\W+/).filter((w) => w.length > 4)
+          );
+          const scored = allQ.map((q) => {
+            const stemWords = String(q.stem || "").toLowerCase().split(/\W+/);
+            const hits = stemWords.filter((w) => lecWords.has(w)).length;
+            return { q, hits };
+          });
+          scored.sort((a, b) => b.hits - a.hits);
+          const picks = scored.slice(0, 2).filter((s) => s.q.stem);
+          if (!picks.length) return "";
+          const ex = picks.map(({ q }, i) => {
+            const opts = q.choices
+              ? Object.entries(q.choices).map(([letter, text]) =>
+                  `  ${letter}. ${text}${letter === q.correct ? " ✓" : ""}`
+                ).join("\n")
+              : "";
+            return `Example ${i + 1}:\n${q.stem}\n${opts}`;
+          }).join("\n\n");
+          return `\nSTYLE REFERENCE — write questions in this clinical vignette style:\n${ex}\n`;
+        } catch { return ""; }
+      })();
+      // ─────────────────────────────────────────────────────────────────────
+
+      const notebooklmBlock = lec?.notebooklmNotes?.trim()
+        ? `\nSTUDY NOTES (from NotebookLM — high-yield summary, key concepts, active recall points):\n${lec.notebooklmNotes.trim().slice(0, 2000)}\n`
         : "";
 
       const userPrompt = `${LECTURE_MARKDOWN_CONTEXT_FOR_AI}
@@ -20123,7 +22238,7 @@ ${objectivesLines || `1. ${objText}`}
 
 LECTURE CONTENT:
 ${lecBody.slice(0, 5000)}
-${levelBlock}${starredNote}
+${notebooklmBlock}${levelBlock}${starredNote}${styleExamplesBlock}
 Write exactly ONE MCQ. Return JSON only:
 {"stem":"...","style":"vignette","objectiveIndices":[${currentIdx}],"options":[{"letter":"A","text":"...","isCorrect":false,"whyWrong":"..."},{"letter":"B","text":"...","isCorrect":true,"whyWrong":null},{"letter":"C","text":"...","isCorrect":false,"whyWrong":"..."},{"letter":"D","text":"...","isCorrect":false,"whyWrong":"..."}],"explanation":"...","teachingPoint":"...","imagePrompt":null,"imagePage":null,"visualSearchQuery":null,"objectiveId":"${obj.id || ""}"}`;
 
@@ -20146,6 +22261,14 @@ Write exactly ONE MCQ. Return JSON only:
       if (existing?.status === "loading") return;
       if (activePrefetchesRef.current >= MAX_CONCURRENT_PREFETCHES) return;
 
+      // ── Check persistent bank first ───────────────────────────────────────
+      const bankedQ = getMcqFromBank(objId, obj.questionRound ?? 0);
+      if (bankedQ && bankedQ.question && bankedQ.options?.length >= 4) {
+        prefetchCacheRef.current[cacheKey] = { status: "ready", data: bankedQ };
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       prefetchCacheRef.current[cacheKey] = { status: "loading", data: null };
       activePrefetchesRef.current += 1;
 
@@ -20162,14 +22285,30 @@ Write exactly ONE MCQ. Return JSON only:
         return hasRealText && correctCount === 1;
       };
 
+      // Stem must be a proper question: at least 20 chars, ends with "?" or contains
+      // a question word, and is not a bare fragment like "Within the bone marrow"
+      const hasValidStem = (question) => {
+        if (!question || typeof question !== "string") return false;
+        const q = question.trim();
+        if (q.length < 20) return false;
+        // Stem MUST end with an explicit question. Vignettes that trail off
+        // mid-description (e.g. "...consistent with respiratory distress syndrome")
+        // are rejected even if they contain a question word elsewhere.
+        if (!q.endsWith("?")) return false;
+        // The final sentence must contain an interrogative cue.
+        const lastSentence = q.split(/(?<=[.?!])\s+/).pop() || q;
+        const hasQuestionWord = /\b(what|which|why|how|where|when|who|identify|select|choose|describe|is|are|does|do|will|would|should|could|can|name)\b/i.test(lastSentence);
+        return hasQuestionWord;
+      };
+
       try {
         const { systemPrompt, userPrompt, objText, lecObjs } = buildMCQPrompts(obj, levelConfig);
         const raw = await callAI(systemPrompt, userPrompt, 2500);
         const parsed = tryParseJSON(raw);
         const normalized = normalizeDrillMcqFromParsed(parsed, lecObjs || [], obj.id);
 
-        if (!normalized || !normalized.question || !hasValidOptions(normalized.options)) {
-          throw new Error("Invalid prefetch result");
+        if (!normalized || !hasValidStem(normalized.question) || !hasValidOptions(normalized.options)) {
+          throw new Error("Invalid prefetch result — bad stem or options");
         }
 
         const finalizedOpts = finalizeDrillMcqOptionsAfterParse(normalized.options);
@@ -20181,22 +22320,23 @@ Write exactly ONE MCQ. Return JSON only:
         if (!drillObjectiveIdsForProgress.length) drillObjectiveIdsForProgress = [obj.id];
         else if (!drillObjectiveIdsForProgress.includes(obj.id)) drillObjectiveIdsForProgress = [obj.id, ...drillObjectiveIdsForProgress];
 
-        prefetchCacheRef.current[cacheKey] = {
-          status: "ready",
-          data: {
-            question: normalized.question,
-            options: finalizedOpts.options,
-            overallExplanation: normalized.overallExplanation,
-            teachingPoint: normalized.teachingPoint,
-            imagePrompt: normalized.imagePrompt,
-            imagePage: normalized.imagePage,
-            drillObjectiveIdsForProgress,
-            objectiveText: objText,
-            selectedIndex: null,
-            isFallback: false,
-            questionLevel,
-          },
+        const bankData = {
+          question: normalized.question,
+          options: finalizedOpts.options,
+          overallExplanation: normalized.overallExplanation,
+          teachingPoint: normalized.teachingPoint,
+          imagePrompt: normalized.imagePrompt,
+          imagePage: normalized.imagePage,
+          drillObjectiveIdsForProgress,
+          objectiveText: objText,
+          selectedIndex: null,
+          isFallback: false,
+          questionLevel,
         };
+        prefetchCacheRef.current[cacheKey] = { status: "ready", data: bankData };
+        // ── Persist to Supabase bank (also writes localStorage cache) ──────
+        saveMcqBankEntry(currentUser?.id || null, objId, obj.questionRound ?? 0, bankData);
+        // ──────────────────────────────────────────────────────────────────
       } catch (e) {
         prefetchCacheRef.current[cacheKey] = { status: "error", data: null };
       } finally {
@@ -20332,9 +22472,10 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
         setDrillSummaryData(null);
         drillSummaryBuiltRef.current = false;
         setDrillQueue(finalQueue);
+        drillOriginalQueueSizeRef.current = finalQueue.length;
         setDrillIndex(0);
         setDrillComplete(false);
-        setDrillStyle(mode === "flashcard" ? "flashcard" : "mcq");
+        setDrillStyle("mcq");
         setDrillMode(true);
         setDrillFilter(filterVal);
         setSelectedLectureIds(!lecFilter || lecFilter === "all" ? new Set() : new Set([lecFilter]));
@@ -20360,6 +22501,9 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
         setCardBack(null);
         setMcqError(null);
         mcqRetryRef.current = false;
+        drillHistoryRef.current = [];
+        setDrillHistoryLen(0);
+        setDrillReviewSnapshot(null);
         captureDrillLevelSnapshot(finalQueue, blockId);
         captureDrillWeakConceptSnapshot(blockId);
         scheduleMcqPrefetchForQueue(finalQueue);
@@ -20497,6 +22641,7 @@ ${text}`;
       setDrillSummaryData(null);
       drillSummaryBuiltRef.current = false;
       setDrillQueue(finalQueue);
+      drillOriginalQueueSizeRef.current = finalQueue.length;
       setDrillIndex(0);
       setDrillComplete(false);
       setDrillStyle("mcq");
@@ -20590,6 +22735,7 @@ ${text}`;
       setDrillSummaryData(null);
       drillSummaryBuiltRef.current = false;
       setDrillQueue(finalQueue);
+      drillOriginalQueueSizeRef.current = finalQueue.length;
       setDrillIndex(0);
       setDrillComplete(false);
       setDrillStyle("mcq");
@@ -20638,126 +22784,34 @@ ${text}`;
     function handleStartDrill(e) {
       setTimeout(() => {
         const detail = e?.detail || {};
-        const {
-          lecId: rawLecId,
-          mode,
-          filter: filterRaw,
-          lecTitle: detailLecTitle,
-          blockId: detailBlockIdRaw,
-          objIds,
-        } = detail;
-        const lecId =
-          rawLecId != null && rawLecId !== "" ? rawLecId : null;
+        const { lecId: rawLecId, blockId: detailBlockIdRaw, objIds } = detail;
+        const lecId = rawLecId != null && rawLecId !== "" ? rawLecId : null;
         const detailBlockId =
           detailBlockIdRaw != null && detailBlockIdRaw !== "" ? detailBlockIdRaw : null;
-
-        console.log("Setting up drill for:", lecId);
-
-        let metaLec = null;
-        try {
-          const allLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
-          metaLec = lecId ? allLecs.find((l) => l.id === lecId) : null;
-        } catch {}
-
-        const lecFromApp = lecId ? (lectures || []).find((l) => l.id === lecId) : null;
-        if (lecId && !metaLec && !lecFromApp) {
-          alert("Could not find that lecture.");
-          return;
+        const allLecsLs = (() => {
+          try { return JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]"); } catch { return []; }
+        })();
+        const lec =
+          (lectures || []).find((l) => l?.id === lecId) ||
+          (allLecsLs || []).find((l) => l?.id === lecId) ||
+          null;
+        const bid = detailBlockId || lec?.blockId || activeBlock?.id || blockId;
+        if (Array.isArray(objIds) && objIds.length) {
+          // Specific objective subset (e.g. flagged drill from Weak Spots) — skip the
+          // scope picker since scope is implied; still let the user adjust count via modal.
+          const blockObjs = (() => { try { return getBlockObjectives(bid) || []; } catch { return []; } })();
+          const objectives = blockObjs.filter((o) => objIds.includes(o.id));
+          setPracticeSetup({ open: true, blockId: bid, lecture: lec, lectureId: lec?.id, scope: "lecture", count: Math.min(20, objectives.length || 10), objectives });
+        } else if (lec) {
+          setPracticeSetup({ open: true, blockId: bid, lecture: lec, lectureId: lec.id, scope: "lecture", count: 10 });
+        } else {
+          setPracticeSetup({ open: true, blockId: bid, scope: "weak", count: 10 });
         }
-
-        const confirmedLecId = lecId ? metaLec?.id || lecFromApp?.id || lecId : null;
-
-        let drillBid =
-          detailBlockId ||
-          lecFromApp?.blockId ||
-          metaLec?.blockId ||
-          activeBlock?.id ||
-          blockId;
-
-        function syncTermAndBlockFor(bid) {
-          if (!bid) return;
-          const term = (terms || []).find((t) => t.blocks?.some((b) => b.id === bid));
-          if (term) {
-            setTermId(term.id);
-            setBlockId(bid);
-            try {
-              if (typeof window !== "undefined") localStorage.setItem("rxt-current-block", bid);
-            } catch {}
-          }
-        }
-
-        if (detailBlockId) {
-          setBlockId(detailBlockId);
-          drillBid = detailBlockId;
-        } else if (lecFromApp?.blockId) {
-          syncTermAndBlockFor(lecFromApp.blockId);
-          drillBid = lecFromApp.blockId;
-        } else if (metaLec?.blockId) {
-          syncTermAndBlockFor(metaLec.blockId);
-          drillBid = metaLec.blockId;
-        } else if (drillBid) {
-          syncTermAndBlockFor(drillBid);
-        }
-
-        if (!drillBid) {
-          alert("No block context for drill. Open a block in the app first.");
-          return;
-        }
-
-        const lecFilterForBuild = lecId ? confirmedLecId || lecId : "all";
-        const filterVal =
-          filterRaw != null && String(filterRaw).trim() !== ""
-            ? String(filterRaw).trim()
-            : lecId
-              ? "all"
-              : "struggling";
-
-        const queue = buildDrillQueue(drillBid, filterVal, lecFilterForBuild, objIds);
-        if (!queue?.length) {
-          alert(
-            Array.isArray(objIds) && objIds.length
-              ? "No objectives match the selected drill targets."
-              : lecId
-                ? "No objectives match this drill for this lecture."
-                : "No objectives match this drill."
-          );
-          return;
-        }
-
-        setView("block");
-        setTab("objectives");
-
-        const lecTitle =
-          detailLecTitle ||
-          lecFromApp?.lectureTitle ||
-          lecFromApp?.title ||
-          lecFromApp?.filename ||
-          metaLec?.lectureTitle ||
-          lecFromApp?.fileName ||
-          "";
-
-        console.log("rxt-start-drill Target lecture:", lecTitle);
-        console.log("rxt-start-drill Confirmed lecId:", confirmedLecId);
-
-        setSelectedLectureIds(
-          !lecFilterForBuild || lecFilterForBuild === "all" ? new Set() : new Set([lecFilterForBuild])
-        );
-        setPendingDrillConfig({
-          lecId,
-          confirmedLecId,
-          lecTitle,
-          mode: mode === "flashcard" ? "flashcard" : "mcq",
-          filterVal,
-          lecFilter: lecFilterForBuild,
-          blockId: drillBid,
-        });
-        setShowDrillSetup(true);
-        window.scrollTo({ top: 0, behavior: "smooth" });
       }, 0);
     }
     window.addEventListener("rxt-start-drill", handleStartDrill);
     return () => window.removeEventListener("rxt-start-drill", handleStartDrill);
-  }, [lectures, terms, activeBlock?.id, blockId, setBlockId, setTermId]);
+  }, [lectures, activeBlock?.id, blockId]);
 
   useEffect(() => {
     const handleDeepLearn = (e) => {
@@ -20807,7 +22861,6 @@ ${text}`;
       setTimeout(() => {
         const { lecId, blockId: bidFromDetail } = e?.detail || {};
         if (!lecId) return;
-
         const lecFromApp = (lectures || []).find((l) => l?.id === lecId) || null;
         let lecMeta = null;
         try {
@@ -20816,17 +22869,11 @@ ${text}`;
         } catch {}
         const lec = lecFromApp || lecMeta;
         if (!lec) return;
-
-        if (bidFromDetail) setBlockId(bidFromDetail);
-        else {
-          const implicitBid = lecFromApp?.blockId || lecMeta?.blockId;
-          if (implicitBid) setBlockId(implicitBid);
-        }
-
-        const effectiveBid =
+        const bid =
           bidFromDetail ?? lecFromApp?.blockId ?? lecMeta?.blockId ?? activeBlock?.id ?? blockId;
-
-        openQuizSettingsForLecture(lec, effectiveBid);
+        // Open the count/scope modal instead of immediately launching — user wants
+        // to pick how many questions and confirm scope before generation kicks off.
+        setPracticeSetup({ open: true, blockId: bid, lecture: lec, lectureId: lec.id, scope: "lecture", count: 10 });
       }, 0);
     };
 
@@ -20868,9 +22915,10 @@ ${text}`;
       const idx = Math.min(Math.max(0, saved.drillIndex ?? 0), Math.max(0, queue.length - 1));
       setDrillFilter(saved.drillFilter ?? "weak_untested");
       setSelectedLectureIds(lecForQueue);
-      setDrillStyle(saved.drillStyle === "mcq" ? "mcq" : "flashcard");
+      setDrillStyle(saved.drillStyle === "exam_block" ? "exam_block" : "mcq");
       setDrillIdAllowlist(al?.length ? al : null);
       setDrillQueue(queue);
+      drillOriginalQueueSizeRef.current = queue.length;
       setDrillIndex(idx);
       setDrillComplete(false);
       const restoredStats =
@@ -20920,6 +22968,7 @@ ${text}`;
       const cacheKey = `${obj.id}_${questionLevel}_r${obj.questionRound ?? 0}`;
       setCurrentQuestionLevel(questionLevel);
 
+      // ── Check in-session prefetch cache ──────────────────────────────────
       const cachedEntry = prefetchCacheRef.current[cacheKey];
       if (cachedEntry?.status === "ready" && cachedEntry.data) {
         const fromCacheFinal = finalizeDrillMcqOptionsAfterParse(cachedEntry.data.options || []);
@@ -20949,6 +22998,53 @@ ${text}`;
           return;
         }
       }
+      // ── Pre-loaded MCQ (from question bank drill / NotebookLM import) ───────
+      if (obj._preloadedMcq) {
+        const pre = obj._preloadedMcq;
+        setMcqData({ ...pre, selectedIndex: null, fromPreloaded: true });
+        setMcqError(null);
+        setCardState("mcq_ready");
+        setDrillCardMode("mcq_ready");
+        drillCardModeRef.current = "mcq_ready";
+        const q = drillQueueRef.current;
+        const i = drillIndexRef.current;
+        const nextObj = q[i + 1];
+        if (nextObj) prefetchMCQRef.current?.(nextObj);
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
+      // ── Check persistent question bank ────────────────────────────────────
+      const bankedEntry = getMcqFromBank(obj.id, obj.questionRound ?? 0);
+      if (bankedEntry && bankedEntry.question && hasValidOptions(bankedEntry.options)) {
+        const bankedFinal = finalizeDrillMcqOptionsAfterParse(bankedEntry.options || []);
+        if (bankedFinal && hasValidOptions(bankedFinal.options)) {
+          mcqRetryRef.current = false;
+          const ql = bankedEntry.questionLevel ?? questionLevel;
+          setCurrentQuestionLevel(ql);
+          setMcqData({
+            ...bankedEntry,
+            questionLevel: ql,
+            options: bankedFinal.options,
+            selectedIndex: null,
+            fromCache: true,
+            fromBank: true,
+            drillObjectiveIdsForProgress: bankedEntry.drillObjectiveIdsForProgress?.length > 0
+              ? bankedEntry.drillObjectiveIdsForProgress
+              : [obj.id],
+          });
+          setMcqError(null);
+          setCardState("mcq_ready");
+          setDrillCardMode("mcq_ready");
+          drillCardModeRef.current = "mcq_ready";
+          const q = drillQueueRef.current;
+          const i = drillIndexRef.current;
+          const nextObj = q[i + 1];
+          if (nextObj) prefetchMCQRef.current?.(nextObj);
+          return;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────────
 
       const myGen = ++mcqGenTokenRef.current;
 
@@ -20963,6 +23059,20 @@ ${text}`;
         );
         const correctCount = options.filter((o) => o.correct).length;
         return hasRealText && correctCount === 1;
+      }
+
+      function hasValidStem(question) {
+        if (!question || typeof question !== "string") return false;
+        const q = question.trim();
+        if (q.length < 20) return false;
+        // Stem MUST end with an explicit question. Vignettes that trail off
+        // mid-description (e.g. "...consistent with respiratory distress syndrome")
+        // are rejected even if they contain a question word elsewhere.
+        if (!q.endsWith("?")) return false;
+        // The final sentence must contain an interrogative cue.
+        const lastSentence = q.split(/(?<=[.?!])\s+/).pop() || q;
+        const hasQuestionWord = /\b(what|which|why|how|where|when|who|identify|select|choose|describe|is|are|does|do|will|would|should|could|can|name)\b/i.test(lastSentence);
+        return hasQuestionWord;
       }
 
       try {
@@ -20988,7 +23098,7 @@ ${text}`;
             conceptFocus: conceptFocusRef.current,
           });
           if (myGen !== mcqGenTokenRef.current) return;
-          if (adNorm && hasValidOptions(adNorm.options)) {
+          if (adNorm && hasValidStem(adNorm.question) && hasValidOptions(adNorm.options)) {
             const finAd = finalizeDrillMcqOptionsAfterParse(adNorm.options);
             if (finAd) {
               mcqRetryRef.current = false;
@@ -21029,10 +23139,10 @@ ${text}`;
 
         if (
           !normalized ||
-          !normalized.question ||
+          !hasValidStem(normalized.question) ||
           !hasValidOptions(normalized.options)
         ) {
-          console.warn("First MCQ attempt failed, retrying with minimal prompt");
+          console.warn("First MCQ attempt failed (bad stem or options), retrying with minimal prompt");
           await new Promise((r) => setTimeout(r, 1000));
           if (myGen !== mcqGenTokenRef.current) return;
 
@@ -21040,13 +23150,15 @@ ${text}`;
 
 ${MCQ_OPTION_UNIQUENESS_CRITICAL}
 
+CRITICAL: "question" MUST end with an explicit question sentence ending in "?". A vignette without a final question is rejected.
+
 Return only JSON. No markdown.
-{"question":"string","options":[{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"}],"overallExplanation":"string"}`;
+{"question":"string ending with '?'","options":[{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"},{"text":"string","correct":bool,"explanation":"string"}],"overallExplanation":"string"}`;
 
           const minimalUser = `${LECTURE_MARKDOWN_CONTEXT_FOR_AI}
 
 ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
-4 short options. 1 correct. Return JSON only.`;
+4 short options. 1 correct. The "question" field MUST end with "?". Return JSON only.`;
 
           raw = await callAI(minimalSystem, minimalUser, 2500);
           if (myGen !== mcqGenTokenRef.current) return;
@@ -21056,7 +23168,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
 
         if (
           normalized &&
-          normalized.question &&
+          hasValidStem(normalized.question) &&
           hasValidOptions(normalized.options)
         ) {
           if (myGen !== mcqGenTokenRef.current) return;
@@ -21068,7 +23180,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
             else if (!drillObjectiveIdsForProgress.includes(obj.id)) {
               drillObjectiveIdsForProgress = [obj.id, ...drillObjectiveIdsForProgress];
             }
-            setMcqData({
+            const liveMcqData = {
               question: normalized.question,
               options: finNorm.options,
               overallExplanation: normalized.overallExplanation,
@@ -21081,7 +23193,11 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
               isFallback: false,
               fromCache: false,
               questionLevel,
-            });
+            };
+            setMcqData(liveMcqData);
+            // ── Persist to Supabase bank (also writes localStorage cache) ───
+            saveMcqBankEntry(currentUser?.id || null, obj.id, obj.questionRound ?? 0, liveMcqData);
+            // ───────────────────────────────────────────────────────────────
             setCardState("mcq_ready");
             setDrillCardMode("mcq_ready");
             drillCardModeRef.current = "mcq_ready";
@@ -21099,9 +23215,9 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
           const fbParsed = await generateFallbackQuestion(obj, lecForFallback, minimal);
           if (myGen !== mcqGenTokenRef.current) return;
           fbNorm = normalizeDrillMcqFromParsed(fbParsed, lecObjs || [], obj.id);
-          if (fbNorm && fbNorm.question && hasValidOptions(fbNorm.options)) break;
+          if (fbNorm && hasValidStem(fbNorm.question) && hasValidOptions(fbNorm.options)) break;
         }
-        if (fbNorm && fbNorm.question && hasValidOptions(fbNorm.options)) {
+        if (fbNorm && hasValidStem(fbNorm.question) && hasValidOptions(fbNorm.options)) {
           const finFb = finalizeDrillMcqOptionsAfterParse(fbNorm.options);
           if (finFb) {
             let drillObjectiveIdsForProgress = fbNorm.drillObjectiveIdsForProgress || [];
@@ -21151,9 +23267,9 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
             const fbParsed = await generateFallbackQuestion(obj, lecForFallback, minimal);
             if (myGen !== mcqGenTokenRef.current) return;
             fbNormCatch = normalizeDrillMcqFromParsed(fbParsed, lecObjsCatch || [], obj.id);
-            if (fbNormCatch && fbNormCatch.question && hasValidOptions(fbNormCatch.options)) break;
+            if (fbNormCatch && hasValidStem(fbNormCatch.question) && hasValidOptions(fbNormCatch.options)) break;
           }
-          if (fbNormCatch && fbNormCatch.question && hasValidOptions(fbNormCatch.options)) {
+          if (fbNormCatch && hasValidStem(fbNormCatch.question) && hasValidOptions(fbNormCatch.options)) {
             const finCatch = finalizeDrillMcqOptionsAfterParse(fbNormCatch.options);
             if (finCatch) {
               let drillObjectiveIdsForProgress = fbNormCatch.drillObjectiveIdsForProgress || [];
@@ -21519,7 +23635,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     setSaveConfirmed(null);
     setDrillResumeSnapshot(null);
     setDrillMode(false);
-    setDrillStyle("flashcard");
+    setDrillStyle("mcq");
     setDrillQueue([]);
     setDrillIndex(0);
     setDrillComplete(false);
@@ -21623,7 +23739,11 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
     summary.totalAnswered = totalAnswered;
     summary.totalCorrect = totalCorrect;
     summary.score =
-      summary.total > 0 ? Math.round((summary.mastered / summary.total) * 100) : pct;
+      summary.totalAnswered > 0
+        ? Math.round((summary.totalCorrect / summary.totalAnswered) * 100)
+        : summary.total > 0
+          ? Math.round((summary.mastered / summary.total) * 100)
+          : pct;
     summary.levelDistribution = {
       advanced: results.levelAdvances || 0,
       maintained: 0,
@@ -21784,14 +23904,8 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
 
   const toggleDrillStyleAndReset = useCallback(() => {
     setDrillStyle((prev) => {
-      let next;
-      if (prev === "flashcard") next = "mcq";
-      else if (prev === "mcq") next = "exam_block";
-      else next = "flashcard";
-      if (next === "flashcard") {
-        prefetchCacheRef.current = {};
-        activePrefetchesRef.current = 0;
-      }
+      // Cycle MCQ ↔ Exam Block only (flashcard retired).
+      const next = prev === "exam_block" ? "mcq" : "exam_block";
       if (prev === "exam_block" || next === "exam_block") {
         // Clear exam block state on style change
         if (examBlockTimerRef.current) {
@@ -21839,10 +23953,32 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
         })
       );
     } catch {}
-  }, []);
+    // Checkpoint performance after every question so a crash/close doesn't lose session progress
+    const assessedSoFar = drillStatsRef.current?.assessedIndices || [];
+    if (assessedSoFar.length > 0) {
+      try {
+        syncDrillResultsToPerformance(
+          drillQueueRef.current,
+          assessedSoFar,
+          drillBlockIdRef.current
+        );
+      } catch {}
+    }
+  }, [syncDrillResultsToPerformance]);
 
   const advanceDrill = useCallback(() => {
     drillAssessBusyRef.current = false;
+    // Push current question to history before clearing (enables back navigation)
+    const histSnap = drillMcqSnapshotRef.current;
+    const histObj = drillQueueRef.current[drillIndexRef.current];
+    if (histSnap?.mcqData && histObj) {
+      drillHistoryRef.current = [
+        ...drillHistoryRef.current.slice(-29),
+        { obj: histObj, mcqData: histSnap.mcqData, selectedAnswer: histSnap.selectedAnswer }
+      ];
+      setDrillHistoryLen(drillHistoryRef.current.length);
+    }
+    setDrillReviewSnapshot(null); // exit review mode when advancing
     setShowReassignPanel(null);
     setReassignedConfirm(null);
     setSaveConfirmed(null);
@@ -22258,6 +24394,34 @@ What is the clinical significance of this finding?`,
       );
     }
   }, []);
+
+  // Paste-to-attach: capture clipboard images while drill is active
+  useEffect(() => {
+    const handlePaste = (e) => {
+      if (!currentUser?.id) return;
+      const obj = drillQueueRef.current[drillIndexRef.current];
+      if (!obj?.id) return;
+      const items = Array.from(e.clipboardData?.items || []);
+      const imageItems = items.filter((item) => item.type.startsWith("image/"));
+      if (!imageItems.length) return;
+      const objId = obj.id;
+      const round = obj.questionRound ?? 0;
+      Promise.all(
+        imageItems.map((item) => {
+          const file = item.getAsFile();
+          if (!file) return null;
+          const ext = file.type.split("/")[1] || "png";
+          const namedFile = new File([file], `paste_${Date.now()}.${ext}`, { type: file.type });
+          return uploadQuestionImage(currentUser.id, objId, round, namedFile);
+        }).filter(Boolean)
+      ).then(() => {
+        setQuestionImagesCache(objId, round, null);
+        setQuestionImagesVer(v => v + 1);
+      });
+    };
+    document.addEventListener("paste", handlePaste);
+    return () => document.removeEventListener("paste", handlePaste);
+  }, [currentUser?.id]);
 
   const handleDrillStemSelection = useCallback(() => {
     if (typeof window === "undefined") return;
@@ -22836,6 +25000,48 @@ What is the clinical significance of this finding?`,
   useEffect(() => {
     (async () => {
       try {
+        // Ensure all linkedLecIds in block-objectives have stubs in lec-meta
+        try {
+          const allObjs = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+          const metaArr = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+          const existingIds = new Set(metaArr.map(l => l.id));
+          const newStubs = [];
+          let seqCounter = 900;
+          Object.entries(allObjs).forEach(([wk, data]) => {
+            const blockId = (data?.blockId) || wk.split("__")[0];
+            if (!blockId) return;
+            const imported = data?.imported || [];
+            const byLecId = {};
+            imported.forEach(o => {
+              if (o.linkedLecId && !byLecId[o.linkedLecId]) byLecId[o.linkedLecId] = o;
+            });
+            Object.entries(byLecId).forEach(([lecId, rep]) => {
+              if (existingIds.has(lecId)) return;
+              const rawNum = rep.lectureNumber;
+              const hasNum = rawNum != null && rawNum !== 0 && String(rawNum).trim() !== "";
+              const rawType = rep.lectureType === "Lecture" ? "LEC" : (rep.lectureType || "LEC");
+              newStubs.push({
+                id: lecId,
+                blockId,
+                lectureTitle: rep.lectureTitle || "",
+                lectureNumber: hasNum ? rawNum : (seqCounter++),
+                lectureType: rawType,
+                subject: rep.discipline || rep.subject || "",
+                filename: "",
+                uploadedAt: new Date().toISOString(),
+              });
+              existingIds.add(lecId);
+            });
+          });
+          if (newStubs.length > 0) {
+            const merged = [...metaArr, ...newStubs];
+            localStorage.setItem("rxt-lec-meta", JSON.stringify(merged));
+            console.log(`Auto-recovered ${newStubs.length} lecture stubs from objectives`);
+          }
+        } catch (e) {
+          console.warn("Lecture stub recovery failed:", e);
+        }
+
         const t = await sGet("rxt-terms");
         const s = await sGet("rxt-sessions");
         const a = await sGet("rxt-analyses");
@@ -22945,15 +25151,8 @@ What is the clinical significance of this finding?`,
         return lec;
       });
       if (changed) {
-        const deduped = deduplicateLectures(next);
-        saveLectures(deduped);
-        return deduped;
-      }
-      
-      const dedupedPrev = deduplicateLectures(prev);
-      if (dedupedPrev.length < prev.length) {
-        saveLectures(dedupedPrev);
-        return dedupedPrev;
+        saveLectures(next);
+        return next;
       }
       return prev;
     });
@@ -22982,12 +25181,20 @@ What is the clinical significance of this finding?`,
     }
   }, [ready, terms, blockId]);
 
+  // Only auto-pick the "preferred" block on first load when no block is selected
+  // and nothing is saved. After that, respect the user's selection — never clobber it.
+  const didInitBlockRef = useRef(false);
   useEffect(() => {
     if (!ready || !terms?.length) return;
+    if (didInitBlockRef.current) return;
+    if (blockId) { didInitBlockRef.current = true; return; }
+    try {
+      const saved = localStorage.getItem("rxt-current-block");
+      if (saved) { didInitBlockRef.current = true; return; }
+    } catch {}
     const preferred = getActiveBlockFromTerms(terms);
     if (!preferred?.id) return;
-    if (preferred.id === blockId) return;
-    console.log("Syncing activeBlock from terms:", preferred.name);
+    didInitBlockRef.current = true;
     setBlockId(preferred.id);
     if (preferred.termId) setTermId(preferred.termId);
     try {
@@ -23175,6 +25382,30 @@ What is the clinical significance of this finding?`,
           b.id === bid ? { ...b, ...patch } : b
         ),
       }))
+    );
+    // Keep activeBlock snapshot in sync — otherwise inputs that read from
+    // `activeBlock?.foo` (e.g. Block start date) keep showing the old value
+    // even though terms state has updated.
+    setActiveBlock((prev) => (prev && prev.id === bid ? { ...prev, ...patch } : prev));
+  };
+
+  const renameBlock = (bid, name) => {
+    if (!name.trim()) return;
+    updateBlock(bid, { name: name.trim() });
+    setRenamingBlockId(null);
+    setRenamingBlockVal("");
+  };
+
+  const reorderBlock = (termId, fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return;
+    setTerms((p) =>
+      p.map((t) => {
+        if (t.id !== termId) return t;
+        const blocks = [...(t.blocks || [])];
+        const [moved] = blocks.splice(fromIndex, 1);
+        blocks.splice(toIndex, 0, moved);
+        return { ...t, blocks };
+      })
     );
   };
 
@@ -23964,7 +26195,9 @@ What is the clinical significance of this finding?`,
           setBlockObjectives((prev) => ({ ...prev, [bid]: mergedTeaching }));
         } else {
           setBlockObjectives((prev) => {
-            const data = prev[bid] || { imported: [], extracted: [] };
+            // Legacy shape: prev[bid] may be a flat array. Normalize first so we
+            // never lose existing items by spreading them as numeric keys.
+            const data = pickBlockObjectivesState(prev, bid);
             const normNoteKey = (t) =>
               String(t || "")
                 .slice(0, 55)
@@ -24000,7 +26233,7 @@ What is the clinical significance of this finding?`,
             const next = {
               ...prev,
               [bid]: {
-                ...data,
+                imported: data.imported,
                 extracted: [...existingExtracted, ...aiObjectives],
               },
             };
@@ -24108,7 +26341,9 @@ What is the clinical significance of this finding?`,
           const oldLecId = lectures.find((l) => l.blockId === bid && l.filename === file.name)?.id ?? null;
           const dropLecIds = new Set([oldLecId, replacedLectureOldId].filter(Boolean));
           setBlockObjectives((prev) => {
-            const blockData = prev[bid] || { imported: [], extracted: [] };
+            // Legacy shape: prev[bid] may be a flat array. Normalize first so we
+            // never lose existing items by spreading them as numeric keys.
+            const blockData = pickBlockObjectivesState(prev, bid);
             const blockLecs = [...lectures.filter((l) => l.blockId === bid), lectureToSave];
             const isOrphan = (obj) =>
               String(obj.lectureType) === String(lectureToSave.lectureType) &&
@@ -25087,6 +27322,343 @@ What is the clinical significance of this finding?`,
     }
   };
 
+  // Extract bolded/key terms from a lecture's slide text (Mistral-OCR preserves bold as markdown).
+  // These become `lec.highYieldDetails` which the MCQ generation prompt already injects
+  // as "must-test" items.
+  const [highYieldExtractStatus, setHighYieldExtractStatus] = useState({}); // { [lecId]: "running"|"done"|"error" }
+
+  const extractHighYieldDetails = useCallback(async (lec) => {
+    if (!lec?.id) return;
+    setHighYieldExtractStatus((s) => ({ ...s, [lec.id]: "running" }));
+    try {
+      const text = (getLecText(lec) || "").slice(0, 12000);
+      if (text.length < 200) {
+        setHighYieldExtractStatus((s) => ({ ...s, [lec.id]: "error" }));
+        return { error: "Not enough lecture text — re-upload the PDF first." };
+      }
+      const fallback = { details: [] };
+      const result = await callAIJSON(
+        `You are a USMLE Step 1 study assistant. Extract HIGH-YIELD DETAILS from a medical lecture's slides.
+Focus specifically on:
+- Bolded terms (often shown as **term** in markdown OCR) and their defining characteristic
+- Key differentiating features within a subtopic (e.g. "Foreign body giant cells: nuclei centrally grouped")
+- Eponyms / named structures / cell types and what makes them distinctive
+- Lab values, normal ranges, mechanisms, classic clinical associations
+Skip generic background / introductory wording. Each entry must be a specific testable fact, not a category header.
+
+Return ONLY valid JSON of this shape:
+{
+  "details": [
+    { "term": "Foreign body giant cells", "fact": "Nuclei centrally grouped; typical of non-immunological agents", "why_tested": "Differentiates from Langhans' giant cells (peripheral horseshoe nuclei)" }
+  ]
+}
+
+Return up to 30 details. Be precise. No fluff.`,
+        `Lecture: ${lec.lectureTitle || lec.fileName || "Untitled"}
+Type: ${lec.lectureType || "LEC"}
+
+LECTURE CONTENT (markdown OCR — bolded terms appear inside **double asterisks**):
+${text}`,
+        fallback,
+        4000
+      );
+      const details = Array.isArray(result?.details)
+        ? result.details
+            .filter((d) => d && (d.term || d.name) && (d.fact || d.detail))
+            .slice(0, 30)
+            .map((d) => ({
+              term: String(d.term || d.name).trim().slice(0, 120),
+              fact: String(d.fact || d.detail).trim().slice(0, 280),
+              why_tested: d.why_tested ? String(d.why_tested).trim().slice(0, 200) : null,
+            }))
+        : [];
+      if (!details.length) {
+        setHighYieldExtractStatus((s) => ({ ...s, [lec.id]: "error" }));
+        return { error: "No details extracted — model returned empty list." };
+      }
+      // Persist into both React state and localStorage rxt-lec-meta.
+      setLecs((prev) =>
+        (prev || []).map((l) => (l.id === lec.id ? { ...l, highYieldDetails: details } : l))
+      );
+      try {
+        const stored = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+        const next = (stored || []).map((l) =>
+          l && l.id === lec.id ? { ...l, highYieldDetails: details } : l
+        );
+        safeSetItem("rxt-lec-meta", next);
+      } catch (e) {
+        console.warn("persist highYieldDetails to lec-meta failed:", e);
+      }
+      setHighYieldExtractStatus((s) => ({ ...s, [lec.id]: "done" }));
+      return { details };
+    } catch (e) {
+      console.error("extractHighYieldDetails failed:", e);
+      setHighYieldExtractStatus((s) => ({ ...s, [lec.id]: "error" }));
+      return { error: e?.message || String(e) };
+    }
+  }, []);
+
+  // Auto-extract highYieldDetails for any lecture that has text but hasn't been processed yet.
+  // Runs serially with a small delay so we don't blast Gemini with 27 parallel calls on first
+  // load. Idempotent: marks an in-flight ref while running, so the effect won't re-trigger
+  // until the persisted highYieldDetails appears in `lectures`.
+  const highYieldAutoQueueRef = useRef({ inFlight: new Set(), failed: new Set() });
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      for (const lec of lectures || []) {
+        if (cancelled) return;
+        if (!lec?.id) continue;
+        if (Array.isArray(lec.highYieldDetails) && lec.highYieldDetails.length > 0) continue;
+        if (highYieldAutoQueueRef.current.inFlight.has(lec.id)) continue;
+        if (highYieldAutoQueueRef.current.failed.has(lec.id)) continue;
+        // Need real text content (post-OCR) to extract anything.
+        const textLen = (lec.fullText?.length || 0) +
+          (Array.isArray(lec.chunks) ? lec.chunks.reduce((n, c) => n + (getChunkBody(c)?.length || 0), 0) : 0);
+        if (textLen < 400) continue;
+        highYieldAutoQueueRef.current.inFlight.add(lec.id);
+        try {
+          const r = await extractHighYieldDetails(lec);
+          if (r?.error) highYieldAutoQueueRef.current.failed.add(lec.id);
+        } finally {
+          highYieldAutoQueueRef.current.inFlight.delete(lec.id);
+        }
+        // Pace requests so we don't melt the API on first load with many lectures.
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+    };
+    void run();
+    return () => { cancelled = true; };
+  }, [lectures, extractHighYieldDetails]);
+
+  // Pull testable facts out of an uploaded Q-bank in one batch call. Returns
+  // [{ term, fact, why_tested, conceptKey, lectureMatchHint }] for downstream layering
+  // into highYieldDetails + optional weak-concepts.
+  const extractTestableFromBankQuestions = async (qs, blockName) => {
+    if (!qs?.length) return [];
+    // Compact each question to just the fields the model needs.
+    const compact = qs.slice(0, 60).map((q, i) => ({
+      i: i + 1,
+      stem: String(q.stem || q.question || "").slice(0, 600),
+      correct: String(
+        q.correct ||
+          (q.choices && q.correct ? q.choices[q.correct] : null) ||
+          q.answer ||
+          ""
+      ).slice(0, 200),
+      explanation: String(q.explanation || q.rationale || "").slice(0, 400),
+      topic: String(q.topic || "").slice(0, 80),
+    }));
+    const fallback = { items: [] };
+    try {
+      const result = await callAIJSON(
+        `You convert exam questions into TESTABLE FACTS for a medical-student spaced-repetition system.
+For each question, extract the SPECIFIC factual content the student must know to answer it — NOT the question stem itself.
+Return JSON only:
+{ "items": [
+  { "i": 1, "term": "G6PD deficiency", "fact": "X-linked recessive; episodic hemolysis triggered by fava beans, sulfa drugs, infection; Heinz bodies on smear", "why_tested": "classic Step 1 trigger-symptom-pathology triad", "conceptKey": "G6PD deficiency", "lectureMatchHint": "Hemoglobinopathies" }
+] }
+Rules:
+- One item per input question (preserve "i").
+- "term" is the named entity / concept (eponym, lab value, disease, mechanism).
+- "fact" is the testable detail in 1 sentence — be specific (numbers, mechanisms, eponyms).
+- "why_tested" notes the clinical/exam relevance briefly.
+- "conceptKey" is a short normalized concept name for grouping (e.g. "G6PD deficiency" not "G6PD def").
+- "lectureMatchHint" is a 1–4 word topic the question fits (e.g. "Spirometry", "Pulmonary Circulation").
+Skip items where the question is too vague to extract.`,
+        `Block: ${blockName || "Medical block"}
+QUESTIONS:
+${compact.map((q) => `--- Q${q.i} ---
+TOPIC: ${q.topic}
+STEM: ${q.stem}
+CORRECT: ${q.correct}
+EXPLANATION: ${q.explanation}`).join("\n\n")}
+`,
+        fallback,
+        6000
+      );
+      const items = Array.isArray(result?.items) ? result.items : [];
+      return items
+        .map((it) => ({
+          i: Number(it.i) || null,
+          term: String(it.term || "").trim().slice(0, 120),
+          fact: String(it.fact || "").trim().slice(0, 280),
+          why_tested: it.why_tested ? String(it.why_tested).trim().slice(0, 200) : null,
+          conceptKey: String(it.conceptKey || it.term || "").trim().slice(0, 120),
+          lectureMatchHint: String(it.lectureMatchHint || "").trim().slice(0, 60),
+        }))
+        .filter((x) => x.term && x.fact);
+    } catch (e) {
+      console.warn("extractTestableFromBankQuestions failed:", e);
+      return [];
+    }
+  };
+
+  // Match a parsed question (or extracted item) to one of this block's lectures.
+  // Best-effort: substring on lecture title or NotebookLM topic hint.
+  const matchLectureForBank = (text, blockLecsArr) => {
+    const t = String(text || "").toLowerCase();
+    if (!t || !blockLecsArr?.length) return null;
+    return (
+      blockLecsArr.find((l) => {
+        const title = (l.lectureTitle || l.fileName || "").toLowerCase();
+        if (!title) return false;
+        return t.includes(title.slice(0, 18)) || title.includes(t.slice(0, 18));
+      }) || null
+    );
+  };
+
+  const handleQuestionBankUpload = async (files, bidParam, opts = {}) => {
+    if (!files?.length) return;
+    const wrongOnly = !!opts.wrongOnly;
+    const targetBid = bidParam ?? activeBlock?.id ?? blockId;
+    const blockNameForExtract = activeBlock?.name || targetBid || "";
+    const blockLecsArr = (lectures || []).filter((l) => l && l.blockId === targetBid);
+    setQbankUploading(true);
+    setQbankUploadStatus("");
+    let totalSaved = 0;
+    let totalFiles = 0;
+    let totalErrors = 0;
+    let totalHighYield = 0;
+    let totalWeakConcepts = 0;
+    try {
+      for (const file of Array.from(files)) {
+        totalFiles += 1;
+        try {
+          setQbankUploadStatus(`📄 ${file.name} — reading…`);
+          const result = await parseExamPDF(file, (msg) => setQbankUploadStatus(`${file.name} — ${msg}`));
+          const qs = (result?.questions || []).map((q) => ({
+            ...q,
+            id: q.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `qb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
+            blockId: targetBid,
+            sourceFile: file.name,
+            importedAt: new Date().toISOString(),
+            bankType: wrongOnly ? "wrong" : "neutral",
+          }));
+          if (!qs.length) {
+            setQbankUploadStatus(`⚠ ${file.name} — no questions detected`);
+            continue;
+          }
+          const banks = (() => {
+            try { return JSON.parse(localStorage.getItem("rxt-question-banks") || "{}"); } catch { return {}; }
+          })();
+          banks[file.name] = qs;
+          try {
+            safeSetItem("rxt-question-banks", banks);
+          } catch {
+            localStorage.setItem("rxt-question-banks", JSON.stringify(banks));
+          }
+          totalSaved += qs.length;
+          setQbankUploadStatus(`✓ ${file.name} — ${qs.length} questions saved · extracting key details…`);
+
+          // ── Layer 1: extract testable facts → lec.highYieldDetails ────────
+          const extracted = await extractTestableFromBankQuestions(qs, blockNameForExtract);
+          if (extracted.length) {
+            const detailsByLec = new Map(); // lecId -> [items]
+            extracted.forEach((it) => {
+              const sourceQ = qs[(it.i || 1) - 1];
+              const matchText = it.lectureMatchHint || sourceQ?.topic || "";
+              const lec = matchLectureForBank(matchText, blockLecsArr);
+              if (!lec) return;
+              if (!detailsByLec.has(lec.id)) detailsByLec.set(lec.id, []);
+              detailsByLec.get(lec.id).push({
+                term: it.term,
+                fact: it.fact,
+                why_tested: it.why_tested ||
+                  (wrongOnly ? "Tested on uploaded exam — student missed previously" : "Tested on uploaded exam"),
+                source: "qbank",
+                bankType: wrongOnly ? "wrong" : "neutral",
+              });
+            });
+            if (detailsByLec.size > 0) {
+              setLecs((prev) =>
+                (prev || []).map((l) => {
+                  const incoming = detailsByLec.get(l.id);
+                  if (!incoming?.length) return l;
+                  const existing = Array.isArray(l.highYieldDetails) ? l.highYieldDetails : [];
+                  const seenTerms = new Set(existing.map((d) => (d.term || "").toLowerCase().trim()));
+                  const merged = [...existing];
+                  incoming.forEach((d) => {
+                    const k = (d.term || "").toLowerCase().trim();
+                    if (k && !seenTerms.has(k)) {
+                      merged.push(d);
+                      seenTerms.add(k);
+                    }
+                  });
+                  return { ...l, highYieldDetails: merged.slice(0, 60) };
+                })
+              );
+              try {
+                const stored = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+                const next = (stored || []).map((l) => {
+                  const incoming = detailsByLec.get(l?.id);
+                  if (!incoming?.length) return l;
+                  const existing = Array.isArray(l.highYieldDetails) ? l.highYieldDetails : [];
+                  const seenTerms = new Set(existing.map((d) => (d.term || "").toLowerCase().trim()));
+                  const merged = [...existing];
+                  incoming.forEach((d) => {
+                    const k = (d.term || "").toLowerCase().trim();
+                    if (k && !seenTerms.has(k)) {
+                      merged.push(d);
+                      seenTerms.add(k);
+                    }
+                  });
+                  return { ...l, highYieldDetails: merged.slice(0, 60) };
+                });
+                safeSetItem("rxt-lec-meta", next);
+              } catch (e) {
+                console.warn("persist bank highYield to lec-meta failed:", e);
+              }
+              totalHighYield += [...detailsByLec.values()].reduce((s, x) => s + x.length, 0);
+            }
+
+            // ── Layer 3: wrong-only → push concepts to rxt-weak-concepts ─────
+            if (wrongOnly) {
+              for (const it of extracted) {
+                const sourceQ = qs[(it.i || 1) - 1];
+                if (!sourceQ) continue;
+                const matchText = it.lectureMatchHint || sourceQ.topic || "";
+                const lec = matchLectureForBank(matchText, blockLecsArr);
+                try {
+                  await recordWrongAnswer({
+                    blockId: targetBid,
+                    blockName: blockNameForExtract,
+                    question: String(sourceQ.stem || sourceQ.question || "").slice(0, 300),
+                    wrongAnswer: "Missed on uploaded external exam",
+                    correctAnswer: String(sourceQ.correct || sourceQ.answer || "").slice(0, 200),
+                    linkedLecId: lec?.id || null,
+                    lectureLabel: lec
+                      ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || ""}`.trim()
+                      : (it.lectureMatchHint || ""),
+                    source: "qbank-wrong-import",
+                    objectiveId: null,
+                  });
+                  totalWeakConcepts += 1;
+                } catch (e) {
+                  console.warn("Wrong-only concept push failed for one Q:", e);
+                }
+              }
+              window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
+            }
+          }
+        } catch (err) {
+          totalErrors += 1;
+          console.error("Question bank upload failed:", err);
+          setQbankUploadStatus(`✗ ${file.name} — ${err?.message || String(err)}`);
+        }
+      }
+      const tail =
+        (totalHighYield > 0 ? ` · ${totalHighYield} key details added` : "") +
+        (totalWeakConcepts > 0 ? ` · ${totalWeakConcepts} weak concepts logged` : "") +
+        (totalErrors > 0 ? ` · ${totalErrors} failed` : "");
+      const summary = `${totalSaved} question${totalSaved === 1 ? "" : "s"} added from ${totalFiles} file${totalFiles === 1 ? "" : "s"}${tail}`;
+      setQbankUploadStatus(summary);
+      window.dispatchEvent(new CustomEvent("rxt-question-banks-updated"));
+    } finally {
+      setQbankUploading(false);
+    }
+  };
+
   const handleLectureUpload = (files, bidParam, tidParam) => {
     if (!files?.length) return;
     const uploadBlockId = activeBlock?.id || getActiveBlockFromTerms()?.id || bidParam || "cpr1";
@@ -25536,6 +28108,7 @@ What is the clinical significance of this finding?`,
         termColor: tc,
         objectiveBlockId: bid,
       });
+    studyReturnViewRef.current = view !== "study" ? view : studyReturnViewRef.current;
     setView("study");
     } catch (e) {
       console.error("Block exam generation failed:", e);
@@ -25583,8 +28156,14 @@ What is the clinical significance of this finding?`,
     let takeN;
     if (rawQ === "all") takeN = maxLen;
     else if (rawQ == null) takeN = Math.min(10, maxLen);
-    else takeN = Math.min(maxLen, Math.max(1, Number(rawQ)));
-    const selected = sorted.slice(0, takeN);
+    else takeN = Math.max(1, Number(rawQ));
+    // `selected` is the UNIQUE objective pool (max maxLen). The total *question* count
+    // (takeN) is honored separately by the batch loop below — when takeN > maxLen we
+    // ask the LLM for additional questions on the weakest-first objectives with fresh
+    // angles, instead of putting duplicate entries in the prompt (which made it dedupe
+    // and return fewer questions than asked).
+    const selected = sorted.slice(0, Math.min(takeN, maxLen));
+    const targetQuestionCount = Math.max(takeN, selected.length);
     if (!selected.length) {
       setQuizGenerating(false);
       setQuizGeneratingMsg("");
@@ -25621,7 +28200,127 @@ What is the clinical significance of this finding?`,
     setBlockExamLoading(`Generating quiz for ${lectureTitle}...`);
     const lectureIdForContext = lecForQuiz?.id ?? null;
     const quizContext = buildQuestionContext(bid, lectureIdForContext, questionBanksByFile, "quiz", { objectivesOnlyQuiz: true });
-    const questionCount = selected.length;
+
+    // ── Layer 2: serve banked Qs verbatim, fill remainder with LLM ──────────
+    // Pull matching Q-bank entries for this lecture, prefer wrong-marked, cap at
+    // half of the requested count (or 5, whichever lower) so we still get fresh
+    // generated material on top.
+    const bankServeVignettes = (() => {
+      try {
+        const all = Object.values(questionBanksByFile || {}).flat();
+        const lecTitleLc = (lectureTitle || "").toLowerCase().slice(0, 25);
+        const matches = all.filter((q) => {
+          if (!q || !q.stem || !q.choices) return false;
+          if (q.blockId && bid && q.blockId !== bid) return false;
+          // Match by lecture title fragment OR explicit lectureRef.
+          const topicLc = String(q.topic || "").toLowerCase();
+          const titleHit = lecTitleLc && (topicLc.includes(lecTitleLc) || lecTitleLc.includes(topicLc.slice(0, 18)));
+          const lecRefHit = q.lectureRef && lecForQuiz?.id && q.lectureRef === lecForQuiz.id;
+          return titleHit || lecRefHit;
+        });
+        // Wrong-marked banks first, then neutral, dedupe by stem.
+        matches.sort((a, b) => {
+          const aw = a.bankType === "wrong" ? 0 : 1;
+          const bw = b.bankType === "wrong" ? 0 : 1;
+          if (aw !== bw) return aw - bw;
+          return Math.random() - 0.5;
+        });
+        const seen = new Set();
+        const cap = Math.min(Math.floor(targetQuestionCount / 2), 5, matches.length);
+        const picked = [];
+        for (const q of matches) {
+          if (picked.length >= cap) break;
+          const key = String(q.stem || "").slice(0, 80).toLowerCase();
+          if (seen.has(key)) continue;
+          seen.add(key);
+          // Normalise choices into A/B/C/D map regardless of source format.
+          let choicesMap = {};
+          if (q.choices && typeof q.choices === "object" && !Array.isArray(q.choices)) {
+            ["A", "B", "C", "D"].forEach((L) => {
+              if (q.choices[L] != null) choicesMap[L] = String(q.choices[L]);
+            });
+          } else if (Array.isArray(q.choices)) {
+            ["A", "B", "C", "D"].forEach((L, i) => {
+              if (q.choices[i] != null) choicesMap[L] = String(q.choices[i]);
+            });
+          }
+          const correctLetter = String(q.correct || q.correctAnswer || "")
+            .toUpperCase()
+            .replace(/[^A-D]/g, "")
+            .slice(0, 1);
+          if (!correctLetter || !choicesMap[correctLetter]) continue;
+          picked.push({
+            id: `bank_${q.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Date.now() + "_" + picked.length)}`,
+            stem: String(q.stem || q.question || "").trim(),
+            choices: choicesMap,
+            correct: correctLetter,
+            explanation: String(q.explanation || q.rationale || "").trim() || `Correct answer: ${correctLetter}`,
+            topic: q.topic || lectureTitle,
+            qLevel: q.qLevel || 2,
+            difficulty: q.difficulty || "medium",
+            quizDifficultyTier: tier,
+            objectiveId: null,
+            objectiveCovered: q.objectiveCovered || null,
+            lectureRef: lecForQuiz?.id || null,
+            usedUploadedStyle: true,
+            fromBank: true,
+            bankSource: q.sourceFile || null,
+            bankType: q.bankType || "neutral",
+          });
+        }
+        return picked;
+      } catch (e) {
+        console.warn("Layer 2 bank-pull failed:", e);
+        return [];
+      }
+    })();
+    const questionCount = Math.max(0, targetQuestionCount - bankServeVignettes.length);
+    if (bankServeVignettes.length > 0) {
+      setQuizGeneratingMsg(`Pulled ${bankServeVignettes.length} from your uploaded exams · generating ${questionCount} more…`);
+    }
+    if (questionCount === 0) {
+      // Edge case: bank fully covers requested count — skip LLM entirely.
+      const bankOnlyCfg = {
+        mode: "objectives",
+        vignettes: bankServeVignettes,
+        subject: lectureTitle,
+        subtopic: "Objectives",
+        blockId: bid,
+        lectureId: lectureIdForMeta,
+        blockName: activeBlock?.name || bid,
+        termColor: tc,
+        objectiveBlockId: bid,
+        quizLevelSnap,
+        perObjectiveDrillQuiz: true,
+        qCount: bankServeVignettes.length,
+        quizSessionObjectives: selected,
+        lectureSlideImages: lecForQuiz?.slideImages || [],
+        quizDifficultyTier: tier,
+        quizTierLabel: tierLabel,
+      };
+      setBlockExamLoading(null);
+      setQuizLoadingId(null);
+      setCurrentSessionMeta({
+        ...extraMeta,
+        blockId: bid,
+        topicKey: makeTopicKey(lectureIdForMeta, bid),
+        difficulty,
+        targetObjectives: selected,
+        lectureTitle,
+        lectureId: lectureIdForMeta,
+        sessionType: "quiz",
+        quizLevelSnap,
+        perObjectiveDrillQuiz: true,
+        quizDifficultyTier: tier,
+        quizTierLabel: tierLabel,
+      });
+      setStudyCfg(bankOnlyCfg);
+      studyReturnViewRef.current = view !== "study" ? view : studyReturnViewRef.current;
+      setView("study");
+      setQuizGenerating(false);
+      setQuizGeneratingMsg("");
+      return;
+    }
 
     const tierInstruction = QUIZ_TIER_INSTRUCTIONS[tier] || QUIZ_TIER_INSTRUCTIONS[1];
 
@@ -25657,11 +28356,22 @@ Current student level: ${tierLabel}`;
     try {
       const BATCH_SIZE = 5;
       const allRawItems = [];
-      for (let i = 0; i < selected.length; i += BATCH_SIZE) {
-        const batchObjs = selected.slice(i, i + BATCH_SIZE);
-        const batchCount = batchObjs.length;
+      // Drive the loop by total questions requested, not just objective count, so a
+      // 10-question request against 7 objectives produces 10 questions (cycling the
+      // unique objective list across batches with fresh angle hints).
+      for (let i = 0; i < questionCount; i += BATCH_SIZE) {
+        const batchCount = Math.min(BATCH_SIZE, questionCount - i);
+        const batchObjs = [];
+        for (let j = 0; j < batchCount; j++) batchObjs.push(selected[(i + j) % selected.length]);
+        const seenInBatch = new Set();
         const objectivesList = batchObjs
-          .map((o, ix) => `${ix + 1}. ${(o.text || o.objective || "").trim()}`)
+          .map((o, ix) => {
+            const key = o?.id || ix;
+            const isRepeat = seenInBatch.has(key);
+            seenInBatch.add(key);
+            const tag = isRepeat ? " (different angle from above)" : "";
+            return `${ix + 1}. ${(o.text || o.objective || "").trim()}${tag}`;
+          })
           .join("\n");
 
         const tier3Block =
@@ -25732,10 +28442,10 @@ Current student level: ${tierLabel}`;
     "step1Connection": ${step1ConnJson}
   }]`;
         setBlockExamLoading(
-          `Generating quiz for ${lectureTitle}… (${Math.min(i + BATCH_SIZE, selected.length)}/${selected.length})`
+          `Generating quiz for ${lectureTitle}… (${Math.min(i + BATCH_SIZE, questionCount)}/${questionCount})`
         );
         setQuizGeneratingMsg(
-          `Generating questions ${i + 1}–${Math.min(i + batchCount, selected.length)}...`
+          `Generating questions ${i + 1}–${Math.min(i + batchCount, questionCount)}...`
         );
         try {
           const batchResult = await callAIJSON(systemPrompt, batchUserPrompt, [], 6000, aiProvider);
@@ -25760,8 +28470,12 @@ Current student level: ${tierLabel}`;
         const stem = norm.stem.trim();
         const rawLvl = q.level != null ? Number(q.level) : NaN;
         const qLevel = [1, 2, 3].includes(rawLvl) ? rawLvl : inferQuestionLevel(stem);
-        const primaryIdx = (norm.objectiveIndices && norm.objectiveIndices[0]) || i + 1;
-        const primaryObj = selected[primaryIdx - 1] || selected[i] || null;
+        // Map question back to its target objective. The batch loop cycles through
+        // unique objectives via `selected[(batchStart + j) % selected.length]`, so for
+        // overall question index i the target objective is selected[i % selected.length].
+        const cycledObj = selected[i % selected.length] || null;
+        const primaryIdx = (norm.objectiveIndices && norm.objectiveIndices[0]) || null;
+        const primaryObj = primaryIdx != null ? (selected[(primaryIdx - 1) % selected.length] || cycledObj) : cycledObj;
         return {
           ...norm,
           stem,
@@ -25776,9 +28490,9 @@ Current student level: ${tierLabel}`;
           objectiveId:
             norm.objectiveId ||
             q.objectiveId ||
-            (q.objectiveIndex != null && selected[Number(q.objectiveIndex) - 1]?.id) ||
+            (q.objectiveIndex != null && selected[(Number(q.objectiveIndex) - 1) % selected.length]?.id) ||
             primaryObj?.id ||
-            selected[i]?.id ||
+            cycledObj?.id ||
             null,
         };
       });
@@ -25824,9 +28538,11 @@ Current student level: ${tierLabel}`;
         quizDifficultyTier: tier,
         quizTierLabel: tierLabel,
       });
+      // Layer 2: prepend the verbatim banked Qs (real exam stems first, generated after).
+      const finalVignettes = [...bankServeVignettes, ...validated];
       setStudyCfg({
         mode: "objectives",
-        vignettes: validated,
+        vignettes: finalVignettes,
         subject: lectureTitle,
         subtopic: "Objectives",
         blockId: bid,
@@ -25836,12 +28552,14 @@ Current student level: ${tierLabel}`;
         objectiveBlockId: bid,
         quizLevelSnap,
         perObjectiveDrillQuiz: true,
-        qCount: validated.length,
+        qCount: finalVignettes.length,
         quizSessionObjectives: selected,
         lectureSlideImages: lecForQuiz?.slideImages || [],
         quizDifficultyTier: tier,
         quizTierLabel: tierLabel,
+        bankServedCount: bankServeVignettes.length,
       });
+      studyReturnViewRef.current = view !== "study" ? view : studyReturnViewRef.current;
       setView("study");
     } catch (e) {
       setBlockExamLoading(null);
@@ -26202,16 +28920,22 @@ Current student level: ${tierLabel}`;
       if (targetLec) {
         const label = `${targetLec.lectureType || "LEC"} ${targetLec.lectureNumber ?? ""} — ${targetLec.lectureTitle || targetLec.fileName || ""}`;
         for (const r of results || []) {
-          if (r?.confidenceFlag !== "guessed") continue;
+          if (r?._weakLogged) continue; // already recorded per-question
+          const guessed = r?.confidenceFlag === "guessed";
+          const wrong = r?.correct === false || (Number.isFinite(r?.score) && r.score < 60);
+          if (!guessed && !wrong) continue;
           void recordWrongAnswer({
             blockId: bid,
             blockName: activeBlock?.name || "",
             question: r.stem || r.topic || "Deep Learn MCQ",
-            wrongAnswer: "Guessed / lucky (self-reported)",
-            correctAnswer: String(r.correctText || "").slice(0, 200),
+            wrongAnswer: guessed
+              ? "Guessed / lucky (self-reported)"
+              : String(r.userAnswerText || r.selectedText || r.chosen || "incorrect").slice(0, 200),
+            correctAnswer: String(r.correctText || r.correctAnswer || "").slice(0, 200),
             linkedLecId: targetLec.id,
             lectureLabel: label,
-            source: "deeplearn",
+            source: guessed ? "deeplearn-guessed" : "deeplearn",
+            objectiveId: r.objectiveId || null,
           });
         }
       }
@@ -26263,7 +28987,47 @@ Current student level: ${tierLabel}`;
     setLearningProfile(nextProfile);
     updateLearningProfile(nextProfile);
 
-    setSessionSummary({ correct, total, updates: syncStats?.updates ?? [] });
+    {
+      const updatesArr = syncStats?.updates ?? [];
+      const strugglingObjs = updatesArr
+        .filter((u) => u.newStatus === "struggling")
+        .map((u) => ({ id: u.id, objective: u.objective, linkedLecId: targetLecId }));
+      const weakByLec = {};
+      strugglingObjs.forEach((obj) => {
+        const lecId = targetLec?.id || "unknown";
+        if (!weakByLec[lecId]) {
+          weakByLec[lecId] = {
+            lec: targetLec || null,
+            lecLabel: targetLec
+              ? `${targetLec.lectureType || "LEC"} ${targetLec.lectureNumber ?? ""} — ${targetLec.lectureTitle || targetLec.fileName || ""}`.trim()
+              : "Unlinked",
+            lecId,
+            objectives: [],
+          };
+        }
+        weakByLec[lecId].objectives.push(obj);
+      });
+      const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+      setSessionSummary({
+        correct,
+        total,
+        updates: updatesArr,
+        sessionType: "quiz",
+        lec: targetLec || null,
+        bid,
+        sessionDate: now,
+        mastered: correct,
+        okay: 0,
+        struggling: Math.max(0, total - correct),
+        skipped: 0,
+        score,
+        totalCorrect: correct,
+        totalAnswered: total,
+        weakLectures: Object.values(weakByLec),
+        strugglingObjs,
+        levelDistribution: { advanced: 0, maintained: 0, regressed: 0 },
+      });
+    }
     setCurrentSessionMeta(null);
     setStudyCfg(null);
     const areas = computeWeakAreas(bid);
@@ -26346,6 +29110,48 @@ Current student level: ${tierLabel}`;
           }
           saveQuizSession(targetLec, bid, score, total);
           syncQuizToTracker(targetLec, bid, score);
+          // Bug fix: quiz/Practice path returns early from handleSessionComplete and never
+          // reaches finalizeSession, which means activity never landed in rxt-completion.
+          // Without this, the Today card stayed at "0 sessions" after a completed Practice.
+          // Log the activity here so the Today/Reviews/coach UI sees the session.
+          try {
+            const confMap =
+              score >= 80 ? "good" : score >= 50 ? "okay" : "struggling";
+            logActivityToCompletion(targetLec.id, bid, "questions", confMap, {
+              date: new Date().toISOString().slice(0, 10),
+              note: `Practice · ${score}% (${total} q)`,
+            });
+          } catch (e) {
+            console.warn("Practice completion log failed:", e);
+          }
+          // Persist per-question confidence + correctness for the Analytics calibration
+          // panel. We store a compact rolling log so it survives across sessions and
+          // stays cheap to query.
+          try {
+            const confs = sessionMeta?.confidences || {};
+            const calibEntries = (results || [])
+              .map((r) => ({
+                date: new Date().toISOString(),
+                blockId: bid,
+                lectureId: targetLec.id,
+                questionId: r.questionId,
+                confidence: r.confidence || confs[r.questionId] || null,
+                correct: !!r.correct,
+                score: Number.isFinite(r.score) ? Number(r.score) : (r.correct ? 100 : 0),
+                tier: sessionMeta?.quizDifficultyTier ?? null,
+              }))
+              .filter((e) => e.confidence != null);
+            if (calibEntries.length) {
+              const prev = (() => {
+                try { return JSON.parse(localStorage.getItem("rxt-calibration") || "[]"); } catch { return []; }
+              })();
+              const next = [...(Array.isArray(prev) ? prev : []), ...calibEntries].slice(-2000);
+              localStorage.setItem("rxt-calibration", JSON.stringify(next));
+              window.dispatchEvent(new CustomEvent("rxt-calibration-updated"));
+            }
+          } catch (e) {
+            console.warn("Calibration log failed:", e);
+          }
           let quizObjRollup = { levelAdvanced: false };
           if (perObjectiveDrillQuiz) {
             const prevSnap = sessionMeta.quizLevelSnap;
@@ -26362,10 +29168,9 @@ Current student level: ${tierLabel}`;
           if (score < 50) {
             addLectureToTodayReview(targetLec, bid);
           }
-          if (score < 70 && (results || []).length) {
+          if ((results || []).length) {
             const label = `${targetLec.lectureType || "LEC"} ${targetLec.lectureNumber ?? ""} — ${targetLec.lectureTitle || targetLec.title || targetLec.fileName || ""}`;
-            const wrongOnes = (results || []).filter((r) => !r.correct);
-            const toFlag = wrongOnes.length ? wrongOnes.slice(0, 8) : results.slice(0, 3);
+            const toFlag = (results || []).filter((r) => !r.correct);
             for (const r of toFlag) {
               void recordWrongAnswer({
                 blockId: bid,
@@ -26376,6 +29181,7 @@ Current student level: ${tierLabel}`;
                 linkedLecId: targetLec.id,
                 lectureLabel: label,
                 source: "quiz",
+                objectiveId: r.objectiveId || r.objectiveCoveredId || null,
               });
             }
           }
@@ -26462,6 +29268,75 @@ Current student level: ${tierLabel}`;
   };
 
   const onSessionDone = handleSessionComplete;
+
+  // Single unified entry point: every practice session is an MCQ vignette session
+  // routed through Session/handleSessionComplete. Scope determines the objective pool.
+  const startPractice = useCallback(
+    async (opts = {}) => {
+      const bid = opts.blockId ?? activeBlock?.id ?? blockId;
+      if (!bid) {
+        alert("No active block — open a block first.");
+        return;
+      }
+      const count = Math.max(1, Math.min(50, Number(opts.count) || 10));
+      const blockObjs = (() => {
+        try { return getBlockObjectives(bid) || []; } catch { return []; }
+      })();
+      const lec = opts.lecture || (opts.lectureId ? lectures.find((l) => l.id === opts.lectureId) : null);
+
+      let objectives = opts.objectives;
+      if (!objectives) {
+        if (opts.scope === "flagged") {
+          let flaggedQs = [];
+          try { flaggedQs = JSON.parse(localStorage.getItem("rxt-flagged-questions") || "[]"); } catch {}
+          const flaggedObjIds = new Set(
+            flaggedQs.filter((q) => q && q.blockId === bid && q.objectiveId).map((q) => q.objectiveId)
+          );
+          objectives = blockObjs.filter((o) => flaggedObjIds.has(o.id));
+          if (!objectives.length) {
+            const wc = (() => { try { return getWeakConcepts(bid).block || []; } catch { return []; } })();
+            const wcLecIds = new Set(
+              wc.filter((c) => c.masteryLevel === "struggling" || (c.missCount || 0) > 0).map((c) => c.linkedLecId).filter(Boolean)
+            );
+            objectives = blockObjs.filter((o) => wcLecIds.has(o.linkedLecId) && o.status === "struggling");
+          }
+        } else if (opts.scope === "weak") {
+          objectives = blockObjs.filter((o) => o.status === "struggling");
+          if (!objectives.length) {
+            objectives = blockObjs.filter((o) => o.status === "inprogress").slice(0, count);
+          }
+        } else if (opts.scope === "lecture" && lec) {
+          objectives = blockObjs.filter((o) => o.linkedLecId === lec.id);
+        } else if (opts.scope === "all") {
+          objectives = blockObjs.slice();
+        }
+      }
+
+      if (!objectives?.length) {
+        alert("No objectives found for this scope.");
+        return;
+      }
+      // Prioritize: struggling > inprogress > untested > mastered, then truncate.
+      const rank = (s) => (s === "struggling" ? 0 : s === "inprogress" ? 1 : !s || s === "untested" ? 2 : 3);
+      const ordered = [...objectives].sort((a, b) => rank(a.status) - rank(b.status));
+      const trimmed = ordered.slice(0, count);
+      const title =
+        lec?.lectureTitle ||
+        lec?.fileName ||
+        (opts.scope === "flagged"
+          ? "Flagged practice"
+          : opts.scope === "weak"
+            ? "Weak objectives"
+            : opts.scope === "all"
+              ? "Block practice"
+              : "Practice");
+      await startObjectiveQuiz(trimmed, title, bid, { questionCount: count, ...(opts.extraMeta || {}) });
+    },
+    [activeBlock?.id, blockId, lectures, startObjectiveQuiz]
+  );
+  useEffect(() => {
+    startPracticeRef.current = startPractice;
+  }, [startPractice]);
 
   useEffect(() => {
     setPerformanceHistory((prev) => {
@@ -26771,7 +29646,7 @@ Current student level: ${tierLabel}`;
     </ThemeContext.Provider>
   );
 
-  const INPUT = { background:t.inputBg, border:"1px solid "+t.border1, color:t.text1, padding:"12px 16px", borderRadius:10, fontFamily:MONO, fontSize:14, outline:"none", width:"100%" };
+  const INPUT = { background:t.inputBg, border:"1px solid "+t.border1, color:t.text1, padding:"12px 16px", borderRadius:10, fontFamily:SANS, fontSize:14, outline:"none", width:"100%" };
   const CARD  = { background:t.cardBg, border:"1px solid "+t.border1, borderRadius:14, padding:24, boxShadow:t.shadowSm };
 
   return (
@@ -26849,6 +29724,54 @@ Current student level: ${tierLabel}`;
       quizError={quizError}
       onClearQuizError={() => setQuizError(null)}
     />
+    {quizGenerating && (
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(0,0,0,0.55)",
+          zIndex: 2000,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: 16,
+        }}
+      >
+        <div
+          style={{
+            background: t.cardBg,
+            border: "1px solid " + t.border1,
+            borderRadius: 14,
+            padding: "22px 26px",
+            minWidth: 280,
+            maxWidth: 420,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 14,
+            boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+          }}
+        >
+          <div
+            style={{
+              width: 36,
+              height: 36,
+              border: "3px solid " + (t.border1 || "#444"),
+              borderTopColor: tc,
+              borderRadius: "50%",
+              animation: "rxt-spin 0.85s linear infinite",
+            }}
+          />
+          <div style={{ fontFamily: SERIF, fontSize: 17, fontWeight: 700, color: t.text1 }}>
+            Generating your practice…
+          </div>
+          <div style={{ fontFamily: SANS, fontSize: 12, color: t.text3, textAlign: "center" }}>
+            {quizGeneratingMsg || "Building MCQs from your weak objectives + uploaded question banks. Usually 5–15 seconds."}
+          </div>
+        </div>
+        <style>{`@keyframes rxt-spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    )}
     {showUploadModal && (
       <div
         style={{
@@ -26950,6 +29873,93 @@ Current student level: ${tierLabel}`;
             />
           </label>
 
+          {/* Question Bank PDF — instructor Q&A decks (slidedeck/standard auto-detected) */}
+          <div
+            style={{
+              padding: "16px 20px",
+              border: "2px solid " + t.border1,
+              borderRadius: 12,
+              marginBottom: 12,
+              opacity: qbankUploading ? 0.7 : 1,
+              transition: "border-color 0.15s",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <span style={{ fontSize: 28 }}>📋</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 15, color: t.text1 }}>Question Bank PDF</div>
+                <div style={{ fontSize: 13, color: t.text2 }}>
+                  Instructor Q&A decks. Each question's testable facts are auto-extracted and added to the matched lecture's "must-test" details. Future Practice rounds force coverage.
+                </div>
+              </div>
+            </div>
+            <label
+              style={{
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                marginTop: 12,
+                padding: "8px 10px",
+                borderRadius: 8,
+                background: qbankWrongOnly ? "#fef3c7" : t.inputBg,
+                border: "1px solid " + (qbankWrongOnly ? "#d97706" : t.border1),
+                cursor: qbankUploading ? "default" : "pointer",
+                fontFamily: SANS,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={qbankWrongOnly}
+                onChange={(e) => setQbankWrongOnly(e.target.checked)}
+                disabled={qbankUploading}
+                style={{ marginTop: 2, cursor: qbankUploading ? "default" : "pointer" }}
+              />
+              <span style={{ flex: 1, fontSize: 12, color: t.text2, lineHeight: 1.4 }}>
+                <span style={{ fontWeight: 700, color: qbankWrongOnly ? "#92400e" : t.text1 }}>
+                  These are questions I got wrong
+                </span>
+                <span style={{ display: "block", marginTop: 2, color: t.text3 }}>
+                  On import, each Q's concept is also pushed to your weak-concepts list. The next Practice rounds will weight ≥30% of generated MCQs at these.
+                </span>
+              </span>
+            </label>
+            <label
+              style={{
+                display: "block",
+                marginTop: 10,
+                padding: "10px 14px",
+                borderRadius: 8,
+                background: "#d97706",
+                color: "#fff",
+                fontFamily: SANS,
+                fontSize: 14,
+                fontWeight: 700,
+                cursor: qbankUploading ? "default" : "pointer",
+                textAlign: "center",
+                opacity: qbankUploading ? 0.7 : 1,
+              }}
+            >
+              {qbankUploading ? "Processing…" : "Choose PDF file(s)"}
+              <input
+                type="file"
+                accept=".pdf"
+                multiple
+                disabled={qbankUploading}
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const fl = e.target.files;
+                  if (fl?.length) void handleQuestionBankUpload(fl, blockId, { wrongOnly: qbankWrongOnly });
+                  e.target.value = "";
+                }}
+              />
+            </label>
+            {qbankUploadStatus && (
+              <div style={{ fontSize: 12, color: t.text3, marginTop: 8, fontFamily: SANS }}>
+                {qbankUploadStatus}
+              </div>
+            )}
+          </div>
+
           <div
             style={{
               padding: "16px 20px",
@@ -26981,7 +29991,7 @@ Current student level: ${tierLabel}`;
                   fontSize: 13,
                   background: t.inputBg,
                   color: t.text1,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                   boxSizing: "border-box",
                 }}
                 onKeyDown={(e) => {
@@ -27001,7 +30011,7 @@ Current student level: ${tierLabel}`;
                   cursor: youtubeUrlInput.trim() ? "pointer" : "default",
                   fontSize: 13,
                   fontWeight: 600,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                 }}
               >
                 Add
@@ -27013,7 +30023,7 @@ Current student level: ${tierLabel}`;
                   marginTop: 8,
                   fontSize: 12,
                   color: youtubeStatus.includes("✓") ? t.statusGood : t.text2,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                 }}
               >
                 {youtubeStatus}
@@ -27036,7 +30046,7 @@ Current student level: ${tierLabel}`;
                     color: t.text1,
                     resize: "vertical",
                     boxSizing: "border-box",
-                    fontFamily: MONO,
+                    fontFamily: SANS,
                   }}
                 />
                 <button
@@ -27067,7 +30077,7 @@ Current student level: ${tierLabel}`;
                     cursor: "pointer",
                     fontSize: 13,
                     fontWeight: 600,
-                    fontFamily: MONO,
+                    fontFamily: SANS,
                   }}
                 >
                   Save Transcript
@@ -27112,7 +30122,7 @@ Current student level: ${tierLabel}`;
             />
           </label>
           {imageUploadModalStatus && (
-            <div style={{ fontSize: 12, color: t.text2, marginTop: -6, marginBottom: 10, fontFamily: MONO }}>
+            <div style={{ fontSize: 12, color: t.text2, marginTop: -6, marginBottom: 10, fontFamily: SANS }}>
               {imageUploadModalStatus}
             </div>
           )}
@@ -27167,7 +30177,7 @@ Current student level: ${tierLabel}`;
                 padding: "10px 14px",
                 borderRadius: 8,
                 fontSize: 13,
-                fontFamily: MONO,
+                fontFamily: SANS,
                 background:
                   blockObjImportStatus.stage === "error"
                     ? "#fef2f2"
@@ -27200,42 +30210,219 @@ Current student level: ${tierLabel}`;
                 `❌ Error: ${blockObjImportStatus.error}`}
             </div>
           )}
+
+          {/* RxTrack JSON import */}
+          <label
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              padding: "16px 20px",
+              border: "2px solid " + t.border1,
+              borderRadius: 12,
+              marginTop: 12,
+              cursor: "pointer",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = t.blue; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = t.border1; }}
+          >
+            <span style={{ fontSize: 28 }}>📥</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 15, color: t.text1 }}>Import Block JSON</div>
+              <div style={{ fontSize: 13, color: t.text2 }}>
+                Import a pre-built block file (lectures + objectives + study notes) generated by the RxTrack workflow.
+              </div>
+            </div>
+            <input
+              type="file"
+              accept=".json"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  try {
+                    const data = JSON.parse(ev.target.result);
+
+                    // Write all keys to localStorage — MERGE array/object keys, don't overwrite
+                    Object.entries(data).forEach(([key, val]) => {
+                      try {
+                        const parsed = typeof val === "string" ? JSON.parse(val) : val;
+                        if (key === "rxt-lec-meta" && Array.isArray(parsed)) {
+                          // Merge: keep existing lectures, add new ones by id
+                          const existing = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+                          const existingIds = new Set(existing.map((l) => l.id));
+                          const merged = [...existing, ...parsed.filter((l) => !existingIds.has(l.id))];
+                          localStorage.setItem("rxt-lec-meta", JSON.stringify(merged));
+                        } else if (key === "rxt-block-objectives" && typeof parsed === "object" && !Array.isArray(parsed)) {
+                          // Merge: keep existing blocks, add/overwrite only imported block keys
+                          const existing = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+                          const merged = { ...existing, ...parsed };
+                          localStorage.setItem("rxt-block-objectives", JSON.stringify(merged));
+                        } else {
+                          localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+                        }
+                      } catch (_) {}
+                    });
+
+                    // Detect block name + id from rxt-lec-meta or rxt-block-objectives
+                    // and register it into rxt-terms so the app can find it
+                    try {
+                      const lecMeta = JSON.parse(typeof data["rxt-lec-meta"] === "string" ? data["rxt-lec-meta"] : JSON.stringify(data["rxt-lec-meta"] || "[]"));
+                      const blockObjs = JSON.parse(typeof data["rxt-block-objectives"] === "string" ? data["rxt-block-objectives"] : "{}");
+
+                      // Get block id from first lecture's blockId, or from block-objectives key
+                      const importedBlockId = lecMeta[0]?.blockId || Object.keys(blockObjs)[0];
+                      const importedBlockName = importedBlockId || "Imported Block";
+
+                      if (importedBlockId) {
+                        const existingTerms = JSON.parse(localStorage.getItem("rxt-terms") || "[]");
+                        // Check if block already exists by ID
+                        const alreadyExistsById = existingTerms.some((tr) =>
+                          (tr.blocks || []).some((b) => b.id === importedBlockId)
+                        );
+                        // Check if a same-named block exists (e.g. "CPR 2" vs "CPR2") — if so, remap its data
+                        const normalize = (s) => String(s).toLowerCase().replace(/\s+/g, "");
+                        let sameNameBlock = null;
+                        let sameNameTermIdx = -1;
+                        existingTerms.forEach((tr, ti) => {
+                          (tr.blocks || []).forEach((b) => {
+                            if (normalize(b.name) === normalize(importedBlockId) || normalize(b.name) === normalize(importedBlockName)) {
+                              sameNameBlock = b;
+                              sameNameTermIdx = ti;
+                            }
+                          });
+                        });
+
+                        let updatedTerms = existingTerms;
+                        let finalBlockId = importedBlockId;
+
+                        if (alreadyExistsById) {
+                          // Perfect match — just set active
+                          finalBlockId = importedBlockId;
+                        } else if (sameNameBlock) {
+                          // A block with same name exists but different id — remap the import data to use that block's id
+                          finalBlockId = sameNameBlock.id;
+                          // Re-write localStorage keys with the correct block id
+                          try {
+                            const remappedLecs = lecMeta.map((l) => ({ ...l, blockId: finalBlockId }));
+                            localStorage.setItem("rxt-lec-meta", (() => {
+                              const existing = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+                              const existingIds = new Set(existing.map((l) => l.id));
+                              const merged = [...existing, ...remappedLecs.filter((l) => !existingIds.has(l.id))];
+                              return JSON.stringify(merged);
+                            })());
+                            const remappedObjs = { [finalBlockId]: blockObjs[importedBlockId] };
+                            const existingObjs = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+                            existingObjs[finalBlockId] = remappedObjs[finalBlockId];
+                            localStorage.setItem("rxt-block-objectives", JSON.stringify(existingObjs));
+                          } catch (_) {}
+                        } else {
+                          // No match — add new block entry to first term
+                          if (existingTerms.length > 0) {
+                            updatedTerms = existingTerms.map((tr, i) =>
+                              i === 0
+                                ? {
+                                    ...tr,
+                                    blocks: [
+                                      ...(tr.blocks || []),
+                                      {
+                                        id: importedBlockId,
+                                        name: importedBlockName,
+                                        type: "standard",
+                                        status: "active",
+                                        createdAt: new Date().toISOString(),
+                                      },
+                                    ],
+                                  }
+                                : tr
+                            );
+                          } else {
+                            updatedTerms = [{
+                              id: "term-" + Date.now(),
+                              name: "Year 1",
+                              blocks: [{
+                                id: importedBlockId,
+                                name: importedBlockName,
+                                type: "standard",
+                                status: "active",
+                                createdAt: new Date().toISOString(),
+                              }],
+                            }];
+                          }
+                          localStorage.setItem("rxt-terms", JSON.stringify(updatedTerms));
+                        }
+                        localStorage.setItem("rxt-current-block", finalBlockId);
+                      }
+                    } catch (_) {}
+
+                    setShowUploadModal(false);
+                    setImageUploadModalStatus("");
+                    setBlockObjImportStatus(null);
+                    alert(`✅ Block imported successfully. Reloading now...`);
+                    window.location.reload();
+                  } catch (err) {
+                    alert("Invalid JSON file: " + err.message);
+                  }
+                  e.target.value = "";
+                };
+                reader.readAsText(file);
+              }}
+            />
+          </label>
         </div>
       </div>
     )}
-    {sessionSummary && (
+    {sessionSummary && sessionSummary.weakLectures && (
       <div
         style={{
           position: "fixed",
           inset: 0,
           background: "#000000bb",
           display: "flex",
-          alignItems: "center",
+          alignItems: "flex-start",
           justifyContent: "center",
           zIndex: 1000,
+          overflowY: "auto",
+          padding: "32px 16px",
         }}
       >
         <div
           style={{
             background: t.cardBg,
             borderRadius: 18,
-            padding: "28px 32px",
-            maxWidth: 480,
+            padding: "20px 16px 24px",
+            maxWidth: 760,
             width: "100%",
             border: "1px solid " + t.border1,
           }}
         >
-          <div style={{ fontFamily: SERIF, color: t.text1, fontSize: 24, fontWeight: 900, marginBottom: 4 }}>
-            Session Complete 🎯
-          </div>
-          <div style={{ fontFamily: MONO, color: t.text3, fontSize: 13, marginBottom: 20 }}>
-            {sessionSummary.correct}/{sessionSummary.total} correct
-            {sessionSummary.total > 0 ? " · " + Math.round((sessionSummary.correct / sessionSummary.total) * 100) + "%" : ""}
-          </div>
-
+          <DrillSessionSummaryPanel
+            summary={sessionSummary}
+            drillBid={sessionSummary.bid}
+            MONO={MONO}
+            T={t}
+            top2AutoCount={0}
+            levelDistribution={sessionSummary.levelDistribution}
+            addLectureToTodayReview={addLectureToTodayReview}
+            onNavigateToObjectivesUnlinked={() => {
+              setSessionSummary(null);
+              setView("block");
+              setTab("objectives");
+            }}
+            onDone={() => {
+              setSessionSummary(null);
+              setView("block");
+            }}
+            onDrillStrugglingOnly={() => {
+              setSessionSummary(null);
+              setView("block");
+            }}
+          />
           {sessionSummary.updates?.length > 0 && (
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontFamily: MONO, color: t.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>
+              <div style={{ fontFamily: SANS, color: t.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>
                 OBJECTIVES UPDATED
               </div>
               <div
@@ -27274,7 +30461,7 @@ Current student level: ${tierLabel}`;
                     </span>
                     <span
                       style={{
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                         color: t.text1,
                         fontSize: 12,
                         flex: 1,
@@ -27287,7 +30474,7 @@ Current student level: ${tierLabel}`;
                     </span>
                     <span
                       style={{
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                         fontSize: 11,
                         color:
                           u.newStatus === "mastered"
@@ -27306,34 +30493,27 @@ Current student level: ${tierLabel}`;
           )}
 
           {sessionSummary.updates?.length === 0 && (
-            <div style={{ fontFamily: MONO, color: t.text3, fontSize: 13, marginBottom: 20 }}>
+            <div style={{ fontFamily: SANS, color: t.text3, fontSize: 13, marginTop: 12 }}>
               No objective changes — questions weren't linked to specific objectives. Rate yourself manually in the
               Objectives tab.
             </div>
           )}
-
-          <button
-            onClick={() => {
-              setSessionSummary(null);
-              setView("block");
-            }}
-            style={{
-              width: "100%",
-              background: tc,
-              border: "none",
-              color: "#fff",
-              padding: "13px 0",
-              borderRadius: 10,
-              cursor: "pointer",
-              fontFamily: SERIF,
-              fontSize: 17,
-              fontWeight: 900,
-            }}
-          >
-            Back to Block →
-          </button>
         </div>
       </div>
+    )}
+    {practiceSetup?.open && (
+      <PracticeSetupModal
+        defaults={practiceSetup}
+        blockId={practiceSetup.blockId ?? activeBlock?.id ?? blockId}
+        blockLecs={getBlockLecs(lectures, resolveBlockMeta(practiceSetup.blockId ?? activeBlock?.id ?? blockId))}
+        T={t}
+        tc={tc}
+        onCancel={() => setPracticeSetup(null)}
+        onStart={(opts) => {
+          setPracticeSetup(null);
+          void startPractice(opts);
+        }}
+      />
     )}
     {examConfigModal?.open && (
       <ExamConfigModal
@@ -27400,7 +30580,7 @@ Current student level: ${tierLabel}`;
             Welcome to RxTrack
           </div>
 
-          <div style={{ fontSize: 14, color: "var(--color-text-secondary, " + t.text2 + ")", marginBottom: 24, lineHeight: 1.6, fontFamily: MONO }}>
+          <div style={{ fontSize: 14, color: "var(--color-text-secondary, " + t.text2 + ")", marginBottom: 24, lineHeight: 1.6, fontFamily: SANS }}>
             Signed in as {currentUser?.email}
           </div>
 
@@ -27414,7 +30594,7 @@ Current student level: ${tierLabel}`;
               fontSize: 13,
               color: "#185FA5",
               lineHeight: 1.6,
-              fontFamily: MONO,
+              fontFamily: SANS,
             }}
           >
             <strong>Migrating from local?</strong>
@@ -27430,7 +30610,7 @@ Current student level: ${tierLabel}`;
                 color: "var(--color-text-secondary, " + t.text2 + ")",
                 display: "block",
                 marginBottom: 6,
-                fontFamily: MONO,
+                fontFamily: SANS,
               }}
             >
               Paste exported JSON data
@@ -27443,7 +30623,7 @@ Current student level: ${tierLabel}`;
               style={{
                 width: "100%",
                 fontSize: 12,
-                fontFamily: MONO,
+                fontFamily: SANS,
                 padding: "10px 12px",
                 border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
                 borderRadius: 8,
@@ -27457,7 +30637,7 @@ Current student level: ${tierLabel}`;
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
             <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary, " + t.border2 + ")" }} />
-            <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", fontFamily: MONO }}>or</span>
+            <span style={{ fontSize: 11, color: "var(--color-text-tertiary, " + t.text3 + ")", fontFamily: SANS }}>or</span>
             <div style={{ flex: 1, height: "0.5px", background: "var(--color-border-tertiary, " + t.border2 + ")" }} />
           </div>
 
@@ -27472,7 +30652,7 @@ Current student level: ${tierLabel}`;
               borderRadius: 8,
               cursor: "pointer",
               marginBottom: 20,
-              fontFamily: MONO,
+              fontFamily: SANS,
             }}
           >
             📁 Upload rxtrack-backup.json
@@ -27502,7 +30682,7 @@ Current student level: ${tierLabel}`;
                 fontSize: 12,
                 color: importResult.success ? "#27500A" : "#A32D2D",
                 marginBottom: 16,
-                fontFamily: MONO,
+                fontFamily: SANS,
               }}
             >
               {importResult.message}
@@ -27551,7 +30731,7 @@ Current student level: ${tierLabel}`;
                 border: "none",
                 borderRadius: 10,
                 cursor: importJson.trim() && !importing ? "pointer" : "not-allowed",
-                fontFamily: MONO,
+                fontFamily: SANS,
               }}
             >
               {importing ? "Importing..." : "Import & sync to cloud"}
@@ -27577,7 +30757,7 @@ Current student level: ${tierLabel}`;
                 border: "0.5px solid var(--color-border-secondary, " + t.border1 + ")",
                 borderRadius: 10,
                 cursor: "pointer",
-                fontFamily: MONO,
+                fontFamily: SANS,
               }}
             >
               Start fresh
@@ -27591,7 +30771,7 @@ Current student level: ${tierLabel}`;
               color: "var(--color-text-tertiary, " + t.text3 + ")",
               textAlign: "center",
               lineHeight: 1.5,
-              fontFamily: MONO,
+              fontFamily: SANS,
             }}
           >
             Your data is encrypted and only visible to you.
@@ -27631,16 +30811,16 @@ Current student level: ${tierLabel}`;
         {(view==="block"||view==="study"||view==="config") && activeTerm && activeBlock && (
           <div style={{ display:"flex", alignItems:"center", gap:6, marginLeft:4, color:"inherit" }}>
             <span>›</span>
-            <button onClick={() => setView("overview")} style={{ background:"none", border:"none", color:"inherit", cursor:"pointer", fontFamily:MONO, fontSize:13 }}>{activeTerm.name}</button>
+            <button onClick={() => setView("overview")} style={{ background:"none", border:"none", color:"inherit", cursor:"pointer", fontFamily:SANS, fontSize:13 }}>{activeTerm.name}</button>
             <span>›</span>
-            <span style={{ fontFamily:MONO, color:tc, fontSize:13, fontWeight:600 }}>{activeBlock.name}</span>
-            {view==="config" && <><span>›</span><span style={{ fontFamily:MONO, fontSize:13 }}>Configure</span></>}
-            {view==="study" && <><span>›</span><span style={{ fontFamily:MONO, fontSize:13 }}>Session</span></>}
+            <span style={{ fontFamily:SANS, color:tc, fontSize:13, fontWeight:600 }}>{activeBlock.name}</span>
+            {view==="config" && <><span>›</span><span style={{ fontFamily:SANS, fontSize:13 }}>Configure</span></>}
+            {view==="study" && <><span>›</span><span style={{ fontFamily:SANS, fontSize:13 }}>Session</span></>}
           </div>
         )}
 
         {saveMsg && (
-          <span style={{ fontFamily:MONO, fontSize:11, color:saveMsg==="saved"?t.green:t.amber, marginLeft:8 }}>
+          <span style={{ fontFamily:SANS, fontSize:11, color:saveMsg==="saved"?t.green:t.amber, marginLeft:8 }}>
             {saveMsg==="saving" ? "⟳ Saving…" : "✓ Saved"}
           </span>
         )}
@@ -27660,7 +30840,7 @@ Current student level: ${tierLabel}`;
                     border: "1px solid " + t.border1,
                     fontSize: 11,
                     fontWeight: 600,
-                    fontFamily: MONO,
+                    fontFamily: SANS,
                     color: t.text2,
                   }}
                 >
@@ -27686,21 +30866,27 @@ Current student level: ${tierLabel}`;
               </div>
             );
           })()}
-          {[["overview","Overview"],["tracker","📋 Tracker"],["learn","🧠 Learn"],["deeplearn","🧬 Deep Learn"],["analytics","Analytics"]].map(([v,l]) => (
+          {[["overview","Overview"],["tracker","📋 Tracker"],["deeplearn","🧬 Deep Learn"],["analytics","Analytics"]].map(([v,l]) => (
             <button
               key={v}
               onClick={() => {
                 if (v === "deeplearn") setStudyCfg(null);
+                // "Overview" should drop you into your current block, not the blocks grid.
+                // Only show the grid when there's no active block at all.
+                if (v === "overview" && activeBlock) {
+                  setView("block");
+                  return;
+                }
                 setView(v);
               }}
               style={{
-                background: view===v ? t.border2 : "none",
+                background: (view===v || (v==="overview" && view==="block")) ? t.border2 : "none",
                 border:"none",
                 color:"inherit",
                 padding:"5px 14px",
                 borderRadius:7,
                 cursor:"pointer",
-                fontFamily:MONO,
+                fontFamily:SANS,
                 fontSize:13,
               }}>
               {l}
@@ -27714,7 +30900,7 @@ Current student level: ${tierLabel}`;
               borderRadius:999,
               padding:"4px 10px",
               cursor:"pointer",
-              fontFamily:MONO,
+              fontFamily:SANS,
               fontSize:11,
               color:"inherit",
             }}>
@@ -27771,7 +30957,7 @@ Current student level: ${tierLabel}`;
                             color: syncColors[syncStatus] || t.text3,
                             fontWeight: 600,
                             marginRight: 4,
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         >
                           {syncIcons[syncStatus] || "•"} {label}
@@ -27861,7 +31047,7 @@ Current student level: ${tierLabel}`;
                           cursor: "pointer",
                           textAlign: "left",
                           fontSize: 13,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         ✏️ Show quick capture
@@ -27874,7 +31060,7 @@ Current student level: ${tierLabel}`;
                           padding: "6px 12px",
                           fontSize: 11,
                           color: t.statusGood,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         ✓ Synced to cloud
@@ -27905,7 +31091,7 @@ Current student level: ${tierLabel}`;
                         border: "none",
                         cursor: "pointer",
                         color: "var(--color-text-secondary, " + t.text2 + ")",
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                       }}
                     >
                       ↑ Save to cloud
@@ -27955,7 +31141,7 @@ Current student level: ${tierLabel}`;
                         border: "none",
                         cursor: "pointer",
                         color: "var(--color-text-secondary, " + t.text2 + ")",
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                       }}
                     >
                       ↓ Load from cloud
@@ -27986,7 +31172,7 @@ Current student level: ${tierLabel}`;
                           border: "none",
                           cursor: "pointer",
                           color: "#BA7517",
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         ↻ Retry sync
@@ -28006,6 +31192,7 @@ Current student level: ${tierLabel}`;
                           "rxt-tracker-v2",
                           "rxt-sessions",
                           "rxt-missed-questions",
+                          "rxt-flagged-questions",
                           "rxt-question-banks",
                         ];
                         const exported = {};
@@ -28038,7 +31225,7 @@ Current student level: ${tierLabel}`;
                         border: "none",
                         cursor: "pointer",
                         color: "var(--color-text-secondary, " + t.text2 + ")",
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                       }}
                     >
                       💾 Export backup
@@ -28065,7 +31252,7 @@ Current student level: ${tierLabel}`;
                         border: "none",
                         cursor: "pointer",
                         color: "#A32D2D",
-                        fontFamily: MONO,
+                        fontFamily: SANS,
                       }}
                     >
                       Sign out
@@ -28106,7 +31293,7 @@ Current student level: ${tierLabel}`;
                   cursor: "pointer",
                   boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
                   marginLeft: 8,
-                  fontFamily: MONO,
+                  fontFamily: SANS,
                 }}
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden>
@@ -28143,7 +31330,7 @@ Current student level: ${tierLabel}`;
               return null;
             })()}
             <div style={{ padding:"13px 14px 9px", borderBottom:"1px solid " + t.border2 }}>
-              <div style={{ fontFamily:MONO, color:t.text4, fontSize:11, letterSpacing:2.5 }}>TERMS & BLOCKS</div>
+              <div style={{ fontFamily:SANS, color:t.text4, fontSize:11, letterSpacing:2.5 }}>TERMS & BLOCKS</div>
             </div>
 
             {terms.map(term => (
@@ -28151,7 +31338,7 @@ Current student level: ${tierLabel}`;
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 14px 5px" }}>
                   <div style={{ display:"flex", alignItems:"center", gap:7 }}>
                     <div style={{ width:7, height:7, borderRadius:"50%", background:term.color, flexShrink:0 }} />
-                    <span style={{ fontFamily:MONO, color:t.text2, fontSize:13, fontWeight:600 }}>{term.name}</span>
+                    <span style={{ fontFamily:SANS, color:t.text2, fontSize:13, fontWeight:600 }}>{term.name}</span>
                   </div>
                   <div style={{ display:"flex", gap:3 }}>
                     <button
@@ -28181,7 +31368,7 @@ Current student level: ${tierLabel}`;
                           color: t.text4,
                           marginBottom: 8,
                           letterSpacing: "0.05em",
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         BLOCK TYPE
@@ -28213,12 +31400,12 @@ Current student level: ${tierLabel}`;
                                 fontWeight: 600,
                                 fontSize: 12,
                                 color: newBlockType === bt.id ? t.statusProgress : t.text1,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               {bt.label}
                             </div>
-                            <div style={{ fontSize: 10, color: t.text4, marginTop: 2, fontFamily: MONO, lineHeight: 1.3 }}>
+                            <div style={{ fontSize: 10, color: t.text4, marginTop: 2, fontFamily: SANS, lineHeight: 1.3 }}>
                               {bt.desc}
                             </div>
                           </button>
@@ -28255,7 +31442,7 @@ Current student level: ${tierLabel}`;
                           padding: "6px 10px",
                           borderRadius: 7,
                           cursor: "pointer",
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontSize: 11,
                           fontWeight: 600,
                           flexShrink: 0,
@@ -28267,7 +31454,7 @@ Current student level: ${tierLabel}`;
                   </div>
                 )}
 
-                {term.blocks.map(block => {
+                {term.blocks.map((block, blockIdx) => {
                   const cov = getBlockCoverage(block.id);
                   const sidebarPct = cov != null ? cov.avgScore ?? cov.coverage : null;
                   const sidebarColor =
@@ -28283,26 +31470,64 @@ Current student level: ${tierLabel}`;
                   const isActive = blockId===block.id && view==="block";
                   const st = BLOCK_STATUS[block.status] || BLOCK_STATUS.upcoming;
                   const lc = lectures.filter(l => l.blockId===block.id).length;
+                  const isRenaming = renamingBlockId === block.id;
                   return (
                     <div key={block.id}
-                      onClick={() => selectBlock(block.id)}
+                      draggable
+                      onDragStart={(e) => {
+                        dragBlockRef.current = { termId: term.id, blockId: block.id, index: blockIdx };
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        e.currentTarget.style.borderTop = `2px solid ${term.color}`;
+                      }}
+                      onDragLeave={(e) => {
+                        e.currentTarget.style.borderTop = "";
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.currentTarget.style.borderTop = "";
+                        const from = dragBlockRef.current;
+                        if (!from || from.termId !== term.id || from.index === blockIdx) return;
+                        reorderBlock(term.id, from.index, blockIdx);
+                        dragBlockRef.current = null;
+                      }}
+                      onDragEnd={() => { dragBlockRef.current = null; }}
+                      onClick={() => { if (!isRenaming) selectBlock(block.id); }}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        setRenamingBlockId(block.id);
+                        setRenamingBlockVal(block.name);
+                      }}
                       onMouseEnter={e => { if (!isActive) e.currentTarget.style.background=t.border2; }}
                       onMouseLeave={e => { if (!isActive) e.currentTarget.style.background="transparent"; }}
-                      style={{ padding:"14px 16px 14px 22px", cursor:"pointer", background:isActive?(isDark?term.color+"18":term.color+"26"):"transparent", borderLeft:"2px solid "+(isActive?term.color:"transparent"), display:"flex", alignItems:"center", justifyContent:"space-between", transition:"background 0.1s", gap:6 }}>
+                      style={{ padding:"10px 16px 10px 22px", cursor:"grab", background:isActive?(isDark?term.color+"18":term.color+"26"):"transparent", borderLeft:"2px solid "+(isActive?term.color:"transparent"), display:"flex", alignItems:"center", justifyContent:"space-between", transition:"background 0.1s", gap:6 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:6, flex:1, minWidth:0 }}>
                         <span style={{ color:st.color, fontSize:11, flexShrink:0 }}>{st.icon}</span>
-                        <span style={{ fontFamily:MONO, color:isActive?t.text1:t.text4, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{block.name}</span>
-                        {lc>0 && <span style={{ fontFamily:MONO, color:t.text4, fontSize:11, flexShrink:0 }}>{lc}</span>}
+                        {isRenaming ? (
+                          <input
+                            autoFocus
+                            value={renamingBlockVal}
+                            onChange={(e) => setRenamingBlockVal(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") renameBlock(block.id, renamingBlockVal);
+                              if (e.key === "Escape") { setRenamingBlockId(null); setRenamingBlockVal(""); }
+                              e.stopPropagation();
+                            }}
+                            onBlur={() => renameBlock(block.id, renamingBlockVal || block.name)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ fontFamily: SANS, fontSize: 13, background: t.inputBg, border: "1px solid " + term.color, borderRadius: 5, padding: "2px 6px", color: t.text1, width: "100%", outline: "none" }}
+                          />
+                        ) : (
+                          <span title="Double-click to rename" style={{ fontFamily:SANS, color:isActive?t.text1:t.text4, fontSize:13, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{block.name}</span>
+                        )}
+                        {lc>0 && !isRenaming && <span style={{ fontFamily:SANS, color:t.text4, fontSize:11, flexShrink:0 }}>{lc}</span>}
                       </div>
                       <div style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
-                        {cov != null && (
-                          <span
-                            style={{
-                              fontSize: 12,
-                              fontWeight: 500,
-                              color: sidebarColor,
-                            }}
-                          >
+                        {cov != null && !isRenaming && (
+                          <span style={{ fontSize: 12, fontWeight: 500, color: sidebarColor }}>
                             {sidebarPct}%
                           </span>
                         )}
@@ -28320,20 +31545,20 @@ Current student level: ${tierLabel}`;
                   <input style={INPUT} placeholder="e.g. Term 2" value={newTermName} onChange={e=>setNewTermName(e.target.value)}
                     onKeyDown={e=>{ if(e.key==="Enter") addTerm(); if(e.key==="Escape"){ setShowNewTerm(false); setNewTermName(""); } }} autoFocus />
                   <div style={{ display:"flex", gap:6 }}>
-                    <button onClick={addTerm} style={{ background:t.blue, border:"none", color:t.cardBg, padding:"6px 14px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:11, fontWeight:600, flex:1 }}>Add</button>
-                    <button onClick={() => { setShowNewTerm(false); setNewTermName(""); }} style={{ background:t.border1, border:"none", color:t.text1, padding:"6px 12px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:11, fontWeight:600 }}>✕</button>
+                    <button onClick={addTerm} style={{ background:t.blue, border:"none", color:t.cardBg, padding:"6px 14px", borderRadius:7, cursor:"pointer", fontFamily:SANS, fontSize:11, fontWeight:600, flex:1 }}>Add</button>
+                    <button onClick={() => { setShowNewTerm(false); setNewTermName(""); }} style={{ background:t.border1, border:"none", color:t.text1, padding:"6px 12px", borderRadius:7, cursor:"pointer", fontFamily:SANS, fontSize:11, fontWeight:600 }}>✕</button>
                   </div>
                 </div>
               ) : (
-                <button onClick={() => setShowNewTerm(true)} style={{ background:"none", border:"1px dashed " + t.border1, color:t.text5, padding:"7px 12px", borderRadius:7, cursor:"pointer", fontFamily:MONO, fontSize:11, width:"100%" }}>+ Add Term</button>
+                <button onClick={() => setShowNewTerm(true)} style={{ background:"none", border:"1px dashed " + t.border1, color:t.text5, padding:"7px 12px", borderRadius:7, cursor:"pointer", fontFamily:SANS, fontSize:11, width:"100%" }}>+ Add Term</button>
               )}
             </div>
 
             <div style={{ padding:"10px 14px 16px", marginTop:"auto", borderTop:"1px solid " + t.border2 }}>
               {[["Questions answered",sessions.reduce((a,s)=>a+s.total,0)],["Sessions",sessions.length],["Lectures",lectures.length]].map(([l,v])=>(
                 <div key={l} style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
-                  <span style={{ fontFamily:MONO, color:t.text4, fontSize:11 }}>{l}</span>
-                  <span style={{ fontFamily:MONO, color:t.text4, fontSize:12, fontWeight:600 }}>{v}</span>
+                  <span style={{ fontFamily:SANS, color:t.text4, fontSize:11 }}>{l}</span>
+                  <span style={{ fontFamily:SANS, color:t.text4, fontSize:12, fontWeight:600 }}>{v}</span>
                 </div>
               ))}
             </div>
@@ -28361,6 +31586,7 @@ Current student level: ${tierLabel}`;
                     targetObjectives: finalCfg.targetObjectives || [],
                   });
                   setStudyCfg(finalCfg);
+                  studyReturnViewRef.current = view !== "study" ? view : studyReturnViewRef.current;
                   setView("study");
                 }}
               />
@@ -28374,7 +31600,10 @@ Current student level: ${tierLabel}`;
                 cfg={studyCfg}
                 onDone={onSessionDone}
                 onBack={() => {
-                  setView("block");
+                  // Return the user to whichever view launched this session
+                  // (Tracker, Block overview, etc.) instead of always going to "block".
+                  const returnTo = studyReturnViewRef.current || "block";
+                  setView(returnTo);
                   setStudyCfg(null);
                   setQuizSavedState(null);
                   setTrackerKey((k) => k + 1);
@@ -28622,7 +31851,7 @@ Current student level: ${tierLabel}`;
               })()}
               <div>
                 <h1 style={{ fontFamily:SERIF, fontSize:30, fontWeight:900, letterSpacing:-1 }}>Study <span style={{ color:t.red }}>Overview</span></h1>
-                <p style={{ fontFamily:MONO, color:t.text4, fontSize:11, marginTop:5, letterSpacing:2 }}>PRE-CLINICAL · M1/M2 · STEP 1</p>
+                <p style={{ fontFamily:SANS, color:t.text4, fontSize:11, marginTop:5, letterSpacing:2 }}>PRE-CLINICAL · M1/M2 · STEP 1</p>
               </div>
               {(() => {
                 const tq=sessions.reduce((a,s)=>a+s.total,0);
@@ -28637,7 +31866,7 @@ Current student level: ${tierLabel}`;
                       { l:"Questions Done", v:tq, c:t.purple },
                     ].map(({ l,v,c })=>(
                       <div key={l} style={CARD}>
-                        <div style={{ fontFamily:MONO, color:t.text4, fontSize:11, letterSpacing:1.5, marginBottom:6 }}>{l.toUpperCase()}</div>
+                        <div style={{ fontFamily:SANS, color:t.text4, fontSize:11, letterSpacing:1.5, marginBottom:6 }}>{l.toUpperCase()}</div>
                         <div style={{ fontFamily:SERIF, color:c, fontSize:26, fontWeight:900 }}>{v}</div>
                       </div>
                     ))}
@@ -28648,7 +31877,7 @@ Current student level: ${tierLabel}`;
               {terms.length===0 ? (
                 <div style={{ ...CARD, border:"1px dashed " + t.cardBorder, padding:80, textAlign:"center" }}>
                   <div style={{ fontSize:48, marginBottom:14 }}>🏥</div>
-                  <p style={{ fontFamily:MONO, color:t.text5, fontSize:13 }}>Use the sidebar to add terms and blocks.</p>
+                  <p style={{ fontFamily:SANS, color:t.text5, fontSize:13 }}>Use the sidebar to add terms and blocks.</p>
                 </div>
               ) : terms.map(term => (
                 <div key={term.id}>
@@ -28694,12 +31923,12 @@ Current student level: ${tierLabel}`;
                           onMouseEnter={e=>{ e.currentTarget.style.borderColor=term.color+"50"; e.currentTarget.style.transform="translateY(-2px)"; }}
                           onMouseLeave={e=>{ e.currentTarget.style.borderColor=isCur?term.color+"40":term.color+"15"; e.currentTarget.style.transform="none"; }}
                           style={{ ...CARD, border:"1px solid "+(isCur?term.color+"40":term.color+"15"), cursor:"pointer", transition:"all 0.15s", position:"relative", boxShadow:isCur?"0 0 24px "+term.color+(isDark?"14":"26"):"none" }}>
-                          {isCur && <div style={{ position:"absolute", top:-1, right:10, background:term.color, color:t.text1, fontFamily:MONO, fontSize:11, padding:"2px 8px", borderRadius:"0 0 6px 6px", letterSpacing:1 }}>CURRENT</div>}
-                          {isComplete && <div style={{ position:"absolute", top:-1, right:10, fontFamily:MONO, color:t.green, fontSize:10, letterSpacing:1.5, background:t.greenBg, padding:"2px 7px", borderRadius:"0 0 6px 6px", border:"1px solid "+t.greenBorder }}>✓ COMPLETE</div>}
+                          {isCur && <div style={{ position:"absolute", top:-1, right:10, background:term.color, color:t.text1, fontFamily:SANS, fontSize:11, padding:"2px 8px", borderRadius:"0 0 6px 6px", letterSpacing:1 }}>CURRENT</div>}
+                          {isComplete && <div style={{ position:"absolute", top:-1, right:10, fontFamily:SANS, color:t.green, fontSize:10, letterSpacing:1.5, background:t.greenBg, padding:"2px 7px", borderRadius:"0 0 6px 6px", border:"1px solid "+t.greenBorder }}>✓ COMPLETE</div>}
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:8 }}>
                             <div>
-                              <div style={{ fontFamily:MONO, color:t.text2, fontSize:13, fontWeight:600 }}>{block.name}</div>
-                              <div style={{ fontFamily:MONO, color:st.color, fontSize:11, marginTop:3 }}>{st.icon} {st.label.toUpperCase()}</div>
+                              <div style={{ fontFamily:SANS, color:t.text2, fontSize:13, fontWeight:600 }}>{block.name}</div>
+                              <div style={{ fontFamily:SANS, color:st.color, fontSize:11, marginTop:3 }}>{st.icon} {st.label.toUpperCase()}</div>
                             </div>
                             <Ring
                               score={coverageData == null ? null : displayPct}
@@ -28714,10 +31943,10 @@ Current student level: ${tierLabel}`;
                             </div>
                           )}
                           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                            <span style={{ fontFamily:MONO, color:t.text5, fontSize:12 }}>{lc} lecture{lc!==1?"s":""}</span>
+                            <span style={{ fontFamily:SANS, color:t.text5, fontSize:12 }}>{lc} lecture{lc!==1?"s":""}</span>
                             <div style={{ display:"flex", gap:3 }} onClick={e=>e.stopPropagation()}>
                               {Object.entries(BLOCK_STATUS).map(([s,cfg])=>(
-                                <button key={s} onClick={()=>setStatus(term.id,block.id,s)} style={{ background:block.status===s?cfg.color+"20":"none", border:"1px solid "+(block.status===s?cfg.color:t.border2), color:block.status===s?cfg.color:t.text4, padding:"2px 6px", borderRadius:4, cursor:"pointer", fontFamily:MONO, fontSize:11 }}>{cfg.icon}</button>
+                                <button key={s} onClick={()=>setStatus(term.id,block.id,s)} style={{ background:block.status===s?cfg.color+"20":"none", border:"1px solid "+(block.status===s?cfg.color:t.border2), color:block.status===s?cfg.color:t.text4, padding:"2px 6px", borderRadius:4, cursor:"pointer", fontFamily:SANS, fontSize:11 }}>{cfg.icon}</button>
                               ))}
                             </div>
                           </div>
@@ -28851,51 +32080,67 @@ Current student level: ${tierLabel}`;
                   });
                 };
 
+                // Hero stat: what should dominate the eye
+                const heroStat = (() => {
+                  if (overdue > 0) return { value: overdue, label: overdue === 1 ? 'lecture overdue' : 'lectures overdue', color: '#E24B4A' };
+                  if (notStarted > totalLecs * 0.5) return { value: notStarted, label: 'not yet started', color: '#BA7517' };
+                  if (coveragePct < 20) return { value: `${coveragePct}%`, label: 'coverage — get going', color: '#BA7517' };
+                  if (avgScore != null) return { value: `${avgScore}%`, label: 'average score', color: avgScore >= 80 ? '#639922' : avgScore >= 60 ? '#BA7517' : '#E24B4A' };
+                  return { value: `${coveragePct}%`, label: 'coverage', color: ringColor };
+                })();
+
                 return (
-                  <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', fontFamily: SANS }}>
+                    {/* ── Top row: identity + hero donut ─────────────────────── */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
                       <div style={{ flex: 1, minWidth: 260 }}>
-                        <div style={{ fontSize: 11, color: t.text3, marginBottom: 4 }}>
-                          <span style={{ fontFamily: MONO }}>{activeTerm.name}</span>
+                        <div style={{ fontSize: 11, color: t.text3, marginBottom: 4, fontFamily: SANS, letterSpacing: 0.3 }}>
+                          <span>{activeTerm.name}</span>
                           <span style={{ margin: '0 6px', color: t.text4 }}>·</span>
-                          <span style={{ fontFamily: MONO, color: (BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).color }}>
+                          <span style={{ color: (BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).color, fontWeight: 600 }}>
                             {(BLOCK_STATUS[activeBlock.status]||BLOCK_STATUS.upcoming).label.toUpperCase()}
                           </span>
                         </div>
-                        <div style={{ fontSize: 22, fontWeight: 500, color: t.text1 }}>{activeBlock.name}</div>
-                        {dateLine && <div style={{ fontSize: 13, color: t.text2, marginTop: 2 }}>{dateLine}</div>}
+                        <div style={{ fontSize: 28, fontWeight: 600, color: t.text1, fontFamily: SANS, lineHeight: 1.1 }}>{activeBlock.name}</div>
+                        {dateLine && <div style={{ fontSize: 13, color: t.text2, marginTop: 4, fontFamily: SANS }}>{dateLine}</div>}
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                        <svg width='52' height='52' viewBox='0 0 52 52'>
-                          <circle cx='26' cy='26' r={radius} fill='none' stroke={t.border2} strokeWidth='4' />
-                          <circle cx='26' cy='26' r={radius} fill='none' stroke={ringColor} strokeWidth='4' strokeLinecap='round' strokeDasharray={`${dash} ${circumference-dash}`} transform='rotate(-90 26 26)' />
-                          <text x='26' y='29' textAnchor='middle' style={{ fontFamily: MONO, fontSize: 12, fill: ringColor, fontWeight: 600 }}>{coveragePct}%</text>
+                      {/* Hero donut — enlarged 2x, semantic color tied to heroStat */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, minWidth: 120 }}>
+                        <svg width='108' height='108' viewBox='0 0 108 108'>
+                          <circle cx='54' cy='54' r='46' fill='none' stroke={t.border2} strokeWidth='7' />
+                          <circle cx='54' cy='54' r='46' fill='none' stroke={heroStat.color} strokeWidth='7' strokeLinecap='round'
+                            strokeDasharray={`${(coveragePct/100) * 2 * Math.PI * 46} ${2 * Math.PI * 46}`}
+                            transform='rotate(-90 54 54)' />
+                          <text x='54' y='60' textAnchor='middle' style={{ fontFamily: SANS, fontSize: 26, fill: heroStat.color, fontWeight: 700 }}>{heroStat.value}</text>
                         </svg>
-                        <div style={{ fontSize: 11, color: t.text3, fontFamily: MONO }}>coverage</div>
+                        <div style={{ fontSize: 11, color: t.text2, fontFamily: SANS, textAlign: 'center', maxWidth: 140, lineHeight: 1.3 }}>{heroStat.label}</div>
                       </div>
                     </div>
 
+                    {/* ── Compact stats strip ─────────────────────────────────── */}
                     {!(tab === "objectives" && drillMode) && (
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }}>
                       {[{label:'lectures',value:totalLecs},{label:'sessions',value:totalSessions},{label:'objectives',value:objectivesCount},{label:'avg score',value:avgScore==null?'—':`${avgScore}%`}].map(c => (
-                        <div key={c.label} style={{ background: t.inputBg, borderRadius: 10, padding: '5px 10px', fontSize: 12, color: t.text2, display: 'flex', gap: 6, alignItems: 'baseline' }}>
-                          <span style={{ fontFamily: MONO, fontWeight: 500, color: t.text1 }}>{c.value}</span>
+                        <div key={c.label} style={{ background: t.inputBg, borderRadius: 8, padding: '4px 10px', fontSize: 12, color: t.text3, display: 'flex', gap: 6, alignItems: 'baseline', fontFamily: SANS }}>
+                          <span style={{ fontFamily: SANS, fontWeight: 600, color: t.text1, fontSize: 13 }}>{c.value}</span>
                           <span>{c.label}</span>
                         </div>
                       ))}
                     </div>
                     )}
 
+                    {/* ── Status row + primary actions ────────────────────────── */}
                     {!(tab === "objectives" && drillMode) && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '8px 0', borderTop: '0.5px solid ' + t.border2, borderBottom: '0.5px solid ' + t.border2, marginTop: 8 }}>
-                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: t.text2 }}>{statusDot({background:'#639922'})} <span style={{ fontFamily: MONO, color: t.text1 }}>{onTrack}</span> on track</div>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: t.text2 }}>{statusDot({background:'#BA7517'})} <span style={{ fontFamily: MONO, color: t.text1 }}>{needWork}</span> need work</div>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: t.text2 }}>{statusDot({background:'transparent',border:'1px solid '+t.border1})} <span style={{ fontFamily: MONO, color: t.text1 }}>{notStarted}</span> not started</div>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12, color: overdue>0?t.statusBad:t.text3 }}>{statusDot({background:'#E24B4A'})} <span style={{ fontFamily: MONO, color: overdue>0?t.statusBad:t.text3 }}>{overdue}</span> overdue</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', padding: '12px 0', borderTop: '0.5px solid ' + t.border2, borderBottom: '0.5px solid ' + t.border2, marginTop: 12 }}>
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', fontFamily: SANS }}>
+                        {/* Emphasize whichever dot matches heroStat; de-emphasize zeros */}
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: onTrack > 0 ? t.text1 : t.text3 }}>{statusDot({background:'#639922'})} <span style={{ fontFamily: SANS, fontWeight: 600, color: onTrack > 0 ? t.text1 : t.text3 }}>{onTrack}</span> on track</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: needWork > 0 ? t.text1 : t.text3 }}>{statusDot({background:'#BA7517'})} <span style={{ fontFamily: SANS, fontWeight: 600, color: needWork > 0 ? t.text1 : t.text3 }}>{needWork}</span> need work</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: t.text1, fontWeight: notStarted === heroStat.value ? 600 : 400 }}>{statusDot({background:'transparent',border:'1px solid '+t.border1})} <span style={{ fontFamily: SANS, fontWeight: 600, color: t.text1 }}>{notStarted}</span> not started</div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, color: overdue>0?'#E24B4A':t.text3 }}>{statusDot({background: overdue > 0 ? '#E24B4A' : 'transparent', border: overdue > 0 ? 'none' : '1px solid ' + t.border1})} <span style={{ fontFamily: SANS, fontWeight: 600, color: overdue>0?'#E24B4A':t.text3 }}>{overdue}</span> overdue</div>
                       </div>
                       <div style={{ flex: 1 }} />
-                      <button type='button' onClick={objectivesExamOnClick} style={{ fontSize: 12, padding: '5px 12px', background: '#FCEBEB', color: '#A32D2D', border: '0.5px solid #F09595', borderRadius: 10, cursor: 'pointer', fontFamily: MONO, fontWeight: 700 }}>Objectives exam</button>
+                      {/* Action buttons — one primary, two secondary */}
                       <button
                         type='button'
                         disabled={uploading}
@@ -28907,22 +32152,7 @@ Current student level: ${tierLabel}`;
                           setImageUploadModalStatus("");
                           setShowUploadModal(true);
                         }}
-                        style={{
-                          fontSize: 12,
-                          padding: '5px 12px',
-                          background: '#EEEDFE',
-                          color: '#3C3489',
-                          border: '0.5px solid #AFA9EC',
-                          borderRadius: 10,
-                          cursor: uploading ? 'default' : 'pointer',
-                          fontFamily: MONO,
-                          fontWeight: 700,
-                          opacity: uploading ? 0.7 : 1,
-                          pointerEvents: uploading ? 'none' : 'auto',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 6,
-                        }}
+                        style={btnStyles.primary(t, { disabled: uploading })}
                       >
                         {uploading && (
                           <span
@@ -28930,61 +32160,75 @@ Current student level: ${tierLabel}`;
                               display: 'inline-block',
                               width: 10,
                               height: 10,
-                              border: '2px solid #AFA9EC',
-                              borderTopColor: '#3C3489',
+                              border: '2px solid rgba(255,255,255,0.35)',
+                              borderTopColor: '#fff',
                               borderRadius: '50%',
                               animation: 'rxtUploadSpin 0.7s linear infinite',
                             }}
                           />
                         )}
-                        {uploading ? 'Uploading…' : '＋ Upload'}
+                        {uploading ? 'Uploading…' : '+ Upload'}
                       </button>
-                      <button type='button' onClick={() => setEditPanelOpen(p => !p)} style={{ fontSize: 12, padding: '5px 12px', background: 'transparent', border: '0.5px solid ' + t.border1, color: t.text2, borderRadius: 10, cursor: 'pointer', fontFamily: MONO, fontWeight: 700 }}>⚙ Edit block</button>
+                      <button
+                        type='button'
+                        onClick={() => setPracticeSetup({ open: true, blockId, scope: 'weak', count: 10 })}
+                        style={{ ...btnStyles.primary(t), background: tc, border: '1px solid ' + tc }}
+                        title='Start an MCQ practice session (weak / flagged / lecture / all)'
+                      >
+                        ▶ Practice
+                      </button>
+                      <button type='button' onClick={objectivesExamOnClick} style={btnStyles.secondary(t)}>Objectives exam</button>
+                      <button type='button' onClick={() => setEditPanelOpen(p => !p)} style={btnStyles.secondary(t)}>⚙ Edit block</button>
                     </div>
                     )}
 
+                    {/* ── Edit panel: split into Config + Danger zone ──────────── */}
                     {editPanelOpen && (
-                      <div style={{ background: t.inputBg, border: '0.5px solid ' + t.border2, borderRadius: 10, padding: '12px 16px', display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end', marginTop: 10 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ fontSize: 11, color: t.text3 }}>Block start date</div>
-                          <input type='date' value={activeBlock?.startDate || ''} onChange={(e)=>updateBlock(activeBlock.id,{ startDate:e.target.value })} style={{ background: t.cardBg, border: '1px solid ' + t.border1, borderRadius: 7, padding: '6px 10px', color: t.text1, fontFamily: MONO, fontSize: 11 }} />
+                      <div style={{ background: t.inputBg, border: '0.5px solid ' + t.border2, borderRadius: 10, padding: '16px 20px', marginTop: 12, fontFamily: SANS }}>
+                        {/* Config: non-destructive */}
+                        <div style={{ fontSize: 11, color: t.text3, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Config</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-end' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <label style={{ fontSize: 12, color: t.text2, fontFamily: SANS }}>Block start date</label>
+                            <input type='date' value={activeBlock?.startDate || ''} onChange={(e)=>updateBlock(activeBlock.id,{ startDate:e.target.value })} style={{ background: t.cardBg, border: '1px solid ' + t.border1, borderRadius: 8, padding: '8px 12px', color: t.text1, fontFamily: SANS, fontSize: 13, minHeight: 36 }} />
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <label style={{ fontSize: 12, color: t.text2, fontFamily: SANS }}>Exam date</label>
+                            <input type='date' value={examDate} min={new Date().toISOString().slice(0,10)} onChange={(e)=>saveExamDate(blockId,e.target.value)} style={{ background: t.cardBg, border: '1px solid ' + t.border1, borderRadius: 8, padding: '8px 12px', color: t.text1, fontFamily: SANS, fontSize: 13, minHeight: 36 }} />
+                          </div>
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ fontSize: 11, color: t.text3 }}>Exam date</div>
-                          <input type='date' value={examDate} min={new Date().toISOString().slice(0,10)} onChange={(e)=>saveExamDate(blockId,e.target.value)} style={{ background: t.cardBg, border: '1px solid ' + t.border1, borderRadius: 7, padding: '6px 10px', color: t.text1, fontFamily: MONO, fontSize: 11 }} />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ fontSize: 11, color: t.text3 }}>Maintenance</div>
-                          <button type='button' onClick={clearOrphanedOnClick} style={{ fontFamily: MONO, fontSize: 11, padding: '6px 12px', borderRadius: 10, border: '1px solid ' + t.border1, background: t.cardBg, color: t.text2, cursor: 'pointer' }}>🗑 Clear Orphaned Sessions</button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ fontSize: 11, color: t.text3 }}>Lectures</div>
-                          <button type='button' onClick={clearBlockLectures} style={{ fontFamily: MONO, fontSize: 11, padding: '6px 12px', borderRadius: 10, border: '1px solid ' + t.border1, background: t.cardBg, color: t.text2, cursor: 'pointer' }}>Clear All</button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <div style={{ fontSize: 11, color: t.text3 }}>Upload cache</div>
-                          <button
-                            type='button'
-                            onClick={() => {
-                              try {
-                                localStorage.removeItem(UPLOAD_CACHE_KEY);
-                              } catch (_) {}
-                              alert("Upload cache cleared — files will be re-processed on next upload");
-                            }}
-                            style={{
-                              fontFamily: MONO,
-                              fontSize: 11,
-                              padding: '6px 12px',
-                              borderRadius: 10,
-                              border: 'none',
-                              background: 'transparent',
-                              color: '#A32D2D',
-                              cursor: 'pointer',
-                              textDecoration: 'underline',
-                            }}
-                          >
-                            Clear upload cache
-                          </button>
+
+                        {/* Danger zone: destructive, visually isolated */}
+                        <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px dashed #E24B4A55' }}>
+                          <div style={{ fontSize: 11, color: '#A32D2D', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>⚠ Danger zone</div>
+                          <div style={{ fontSize: 12, color: t.text3, marginBottom: 10 }}>These actions delete data and cannot be undone.</div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'center' }}>
+                            <button
+                              type='button'
+                              onClick={() => { if (window.confirm('Clear orphaned session data? This cannot be undone.')) clearOrphanedOnClick(); }}
+                              style={btnStyles.danger(t)}
+                            >
+                              Clear orphaned sessions
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => { if (window.confirm('Remove ALL lectures from this block? This cannot be undone.')) clearBlockLectures(); }}
+                              style={btnStyles.danger(t)}
+                            >
+                              Clear all lectures
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => {
+                                if (!window.confirm('Clear the upload cache? Files will be re-processed next time.')) return;
+                                try { localStorage.removeItem(UPLOAD_CACHE_KEY); } catch (_) {}
+                                alert('Upload cache cleared.');
+                              }}
+                              style={btnStyles.danger(t)}
+                            >
+                              Clear upload cache
+                            </button>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -29016,39 +32260,112 @@ Current student level: ${tierLabel}`;
                 />
               )}
 
-              {/* Tabs */}
-              <div style={{ display:"flex", borderBottom:"1px solid " + t.border2, background:t.panelBg }}>
-                {[["lectures","Lectures ("+blockLecs.length+")"],["heatmap","Heatmap"],["analysis","AI Analysis"],["objectives","🎯 Objectives"],["weakspots","Weak Spots"],["exams","Exams"]].map(([tKey,label])=>(
-                  <button
-                    key={tKey}
-                    onClick={()=>setTab(tKey)}
-                    style={{
-                      background:"none",
-                      border:"none",
-                      borderBottom:"2px solid "+(tab===tKey?tc:"transparent"),
-                      color: tab===tKey ? t.text1 : t.text3,
-                      padding:"9px 20px",
-                      cursor:"pointer",
-                      fontFamily:MONO,
-                      fontSize:12,
-                      marginBottom:-1,
-                      transition:"color 0.12s",
-                    }}>
-                    {label}
-                  </button>
-                ))}
+              {/* Tabs — 44px min touch target, SANS, clear active state */}
+              <div style={{ display:"flex", borderBottom:"1px solid " + t.border2, background:t.panelBg, overflowX: "auto" }}>
+                {[["lectures","Lectures ("+blockLecs.length+")"],["heatmap","Heatmap"],["analysis","AI Analysis"],["objectives","🎯 Objectives"],["weakspots","Weak Spots"],["exams","Exams"]].map(([tKey,label])=>{
+                  const active = tab === tKey;
+                  return (
+                    <button
+                      key={tKey}
+                      onClick={()=>setTab(tKey)}
+                      style={{
+                        background: active ? t.inputBg : "none",
+                        border:"none",
+                        borderBottom:"2px solid "+(active?tc:"transparent"),
+                        color: active ? t.text1 : t.text2,
+                        padding:"14px 22px",
+                        minHeight: 44,
+                        cursor:"pointer",
+                        fontFamily:SANS,
+                        fontSize:14,
+                        fontWeight: active ? 600 : 500,
+                        marginBottom:-1,
+                        transition:"color 0.12s, background 0.12s",
+                        whiteSpace: "nowrap",
+                        flexShrink: 0,
+                      }}>
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
 
               {tab === "weakspots" && (
-                <BlockWeakSpotsView
-                  blockId={blockId}
-                  blockLecs={blockLecs}
-                  t={t}
-                  tc={tc}
-                  monoFont={MONO}
-                  getLecPerf={getLecPerf}
-                  handleDeepLearnStart={handleDeepLearnStart}
-                />
+                <>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      padding: "12px 16px 0",
+                      maxWidth: 960,
+                      margin: "0 auto",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => void startPractice({ scope: "flagged", blockId, count: 10 })}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 8,
+                        border: "1px solid " + tc,
+                        background: tc + "22",
+                        color: t.text1,
+                        cursor: "pointer",
+                        fontFamily: SANS,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      🚩 Practice flagged
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void startPractice({ scope: "weak", blockId, count: 10 })}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 8,
+                        border: "1px solid " + t.border1,
+                        background: t.cardBg,
+                        color: t.text1,
+                        cursor: "pointer",
+                        fontFamily: SANS,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      🎯 Practice weak objectives
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setPracticeSetup({ open: true, blockId, scope: "weak", count: 10 })
+                      }
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 8,
+                        border: "1px solid " + t.border1,
+                        background: t.cardBg,
+                        color: t.text1,
+                        cursor: "pointer",
+                        fontFamily: SANS,
+                        fontSize: 12,
+                        fontWeight: 600,
+                      }}
+                    >
+                      ⚙ Customize…
+                    </button>
+                  </div>
+                  <BlockWeakSpotsView
+                    blockId={blockId}
+                    blockLecs={blockLecs}
+                    t={t}
+                    tc={tc}
+                    monoFont={MONO}
+                    getLecPerf={getLecPerf}
+                    handleDeepLearnStart={handleDeepLearnStart}
+                  />
+                </>
               )}
 
               {/* Lectures */}
@@ -29103,13 +32420,13 @@ Current student level: ${tierLabel}`;
                       background: "rgba(0,0,0,0.04)",
                     }}
                   >
-                    <span style={{ fontSize: 14, color: t.text3, fontFamily: MONO }}>Drop PDF files to upload</span>
+                    <span style={{ fontSize: 14, color: t.text3, fontFamily: SANS }}>Drop PDF files to upload</span>
                   </div>
                 )}
                 {blockLecs.length===0 ? (
                 <div style={{ ...CARD, border:"1px dashed " + t.border2, padding:70, textAlign:"center" }}>
-                  <p style={{ fontFamily:MONO, color:t.text3, fontSize:13 }}>No lectures uploaded yet.</p>
-                  <p style={{ fontFamily:MONO, color:t.text3, fontSize:12, marginTop:8 }}>Use the Upload button above to add lecture PDFs.</p>
+                  <p style={{ fontFamily:SANS, color:t.text3, fontSize:13 }}>No lectures uploaded yet.</p>
+                  <p style={{ fontFamily:SANS, color:t.text3, fontSize:12, marginTop:8 }}>Use the Upload button above to add lecture PDFs.</p>
                 </div>
               ) : (
                 <>
@@ -29117,8 +32434,8 @@ Current student level: ${tierLabel}`;
                     <div style={{ margin: "0 24px 12px", background: t.amberBg, border: "1px solid " + t.amberBorder, borderRadius: 10, padding: "12px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                       <span style={{ fontSize: 18 }}>⊕</span>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontFamily: MONO, color: t.amber, fontSize: 14, fontWeight: 600 }}>Merge Mode — select lectures to combine</div>
-                        <div style={{ fontFamily: MONO, color: t.text3, fontSize: 12, marginTop: 2 }}>
+                        <div style={{ fontFamily: SANS, color: t.amber, fontSize: 14, fontWeight: 600 }}>Merge Mode — select lectures to combine</div>
+                        <div style={{ fontFamily: SANS, color: t.text3, fontSize: 12, marginTop: 2 }}>
                           {mergeSelected.length < 2 ? "Select 2 or more lectures to merge · " + mergeSelected.length + " selected" : mergeSelected.length + " lectures selected — ready to merge"}
                         </div>
                       </div>
@@ -29126,7 +32443,7 @@ Current student level: ${tierLabel}`;
                         <button
                           type="button"
                           onClick={() => executeMerge(mergeSelected)}
-                          style={{ background: t.amber, border: "none", color: t.text1, padding: "8px 20px", borderRadius: 8, cursor: "pointer", fontFamily: MONO, fontSize: 14, fontWeight: 700 }}
+                          style={{ background: t.amber, border: "none", color: t.text1, padding: "8px 20px", borderRadius: 8, cursor: "pointer", fontFamily: SANS, fontSize: 14, fontWeight: 700 }}
                         >
                           Merge {mergeSelected.length} Lectures →
                         </button>
@@ -29151,7 +32468,7 @@ Current student level: ${tierLabel}`;
                           fontWeight: 500,
                           color: "#185FA5",
                           marginBottom: 6,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         ⊕ Split lectures detected
@@ -29171,7 +32488,7 @@ Current student level: ${tierLabel}`;
                               flex: 1,
                               color: "var(--color-text-secondary, " + t.text3 + ")",
                               fontSize: 11,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             {pair.partA.lectureTitle} + Part B
@@ -29191,7 +32508,7 @@ Current student level: ${tierLabel}`;
                               border: "none",
                               borderRadius: 5,
                               cursor: "pointer",
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             ⊕ Merge
@@ -29201,14 +32518,14 @@ Current student level: ${tierLabel}`;
                     </div>
                   )}
                   {(() => {
-                    const unassigned = blockLecs.filter((l) => !l.weekNumber);
+                    const unassigned = blockLecs.filter((l) => !l.weekNumber && (!blockSearch.trim() || (l.lectureTitle || l.fileName || "").toLowerCase().includes(blockSearch.trim().toLowerCase())));
                     if (unassigned.length === 0) return null;
                     return (
                       <div style={{ background: t.amberBg, border: "1px solid " + t.amberBorder, borderRadius: 12, padding: "14px 16px", marginBottom: 16, marginLeft: 24, marginRight: 24 }}>
-                        <div style={{ fontFamily: MONO, color: t.amber, fontSize: 10, letterSpacing: 1.5, marginBottom: 8 }}>
+                        <div style={{ fontFamily: SANS, color: t.amber, fontSize: 10, letterSpacing: 1.5, marginBottom: 8 }}>
                           △ {unassigned.length} LECTURES NOT YET ASSIGNED TO A WEEK
                         </div>
-                        <div style={{ fontFamily: MONO, color: t.text2, fontSize: 11, marginBottom: 12 }}>
+                        <div style={{ fontFamily: SANS, color: t.text2, fontSize: 11, marginBottom: 12 }}>
                           Assign each lecture to the week it was taught. Turn on <strong>✎ Edit schedule</strong> below, then use the Wk/Day dropdowns on each row, or bulk-assign below.
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
@@ -29220,7 +32537,7 @@ Current student level: ${tierLabel}`;
                               style={{
                                 padding: "6px 14px",
                                 borderRadius: 7,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 11,
                                 fontWeight: 700,
                                 cursor: "pointer",
@@ -29234,7 +32551,7 @@ Current student level: ${tierLabel}`;
                             </button>
                           ))}
                           {bulkWeekTarget != null && (
-                            <span style={{ fontFamily: MONO, color: tc, fontSize: 11, alignSelf: "center", marginLeft: 4 }}>
+                            <span style={{ fontFamily: SANS, color: tc, fontSize: 11, alignSelf: "center", marginLeft: 4 }}>
                               ← now click lectures to assign to Week {bulkWeekTarget}
                             </span>
                           )}
@@ -29244,9 +32561,20 @@ Current student level: ${tierLabel}`;
                   })()}
                   {(() => {
                     const bid = activeBlock?.id ?? blockId;
-                    function buildWeekGroups(blockLecs) {
+                    // ── Search filter (must be defined before weekGroups) ──
+                    const searchQ = blockSearch.trim().toLowerCase();
+                    const lectureMatchesSearch = (lec) => {
+                      if (!searchQ) return true;
+                      const titleMatch = (lec.lectureTitle || lec.fileName || "").toLowerCase().includes(searchQ);
+                      if (titleMatch) return true;
+                      const objs = getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id);
+                      return objs.some((o) => (o.text || o.objective || "").toLowerCase().includes(searchQ));
+                    };
+                    const filteredBlockLecs = blockLecs.filter(lectureMatchesSearch);
+                    // ──────────────────────────────────────────────────────
+                    function buildWeekGroups(lecs) {
                       const weeks = {};
-                      blockLecs.forEach((lec) => {
+                      lecs.forEach((lec) => {
                         const wk = lec.weekNumber ?? "unscheduled";
                         if (!weeks[wk]) weeks[wk] = {};
                         const day = lec.dayOfWeek ?? "unscheduled";
@@ -29255,7 +32583,7 @@ Current student level: ${tierLabel}`;
                       });
                       return weeks;
                     }
-                    const weekGroups = buildWeekGroups(blockLecs);
+                    const weekGroups = buildWeekGroups(filteredBlockLecs);
                     const DAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "unscheduled"];
                     const sortedWeekKeys = [
                       ...Object.keys(weekGroups).filter((k) => k !== "unscheduled").sort((a, b) => Number(a) - Number(b)),
@@ -29383,16 +32711,52 @@ Current student level: ${tierLabel}`;
                       sod.setHours(0, 0, 0, 0);
                       return nr < sod;
                     }
-                    const todayFocus = blockLecs
-                      .filter((lec) => isScheduledTodayLec(lec) || isLecOverdueForBlock(lec))
-                      .slice(0, 3);
-                    const needsAttention = blockLecs.filter((lec) => {
-                      const objs = getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id);
-                      const hasStruggling = objs.some((o) => o.status === "struggling");
+                    // ── Search filter ──────────────────────────────────────
+                    const _searchQ = blockSearch.trim().toLowerCase();
+                    const _lecMatches = (lec) => {
+                      if (!_searchQ) return true;
+                      if ((lec.lectureTitle || lec.fileName || "").toLowerCase().includes(_searchQ)) return true;
+                      return getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id)
+                        .some((o) => (o.text || o.objective || "").toLowerCase().includes(_searchQ));
+                    };
+                    const filteredLecs = blockLecs.filter(_lecMatches);
+                    // ───────────────────────────────────────────────────────
+
+                    // Drop lectures already studied today — even if they're scheduled or overdue,
+                    // a session today should clear them from focus until tomorrow.
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const studiedTodayLec = (lec) => {
+                      const perfKey = `${lec.id}__${bid}`;
+                      const lecComp = completionForLectures?.[perfKey];
+                      const lastAct = lecComp?.lastActivityDate
+                        ? String(lecComp.lastActivityDate).slice(0, 10)
+                        : null;
+                      if (lastAct === todayStr) return true;
                       const lecPerf = getLecPerf(lec, bid);
-                      const lowScore = lecPerf?.score != null && lecPerf.score < 70;
-                      return hasStruggling || lowScore;
-                    });
+                      const sessions = Array.isArray(lecPerf?.sessions) ? lecPerf.sessions : [];
+                      return sessions.some((s) => {
+                        const d = s?.date || s?.timestamp || s?.completedAt;
+                        return d && String(d).slice(0, 10) === todayStr;
+                      });
+                    };
+                    const todayFocus = filteredLecs
+                      .filter((lec) => (isScheduledTodayLec(lec) || isLecOverdueForBlock(lec)) && !studiedTodayLec(lec))
+                      .slice(0, 3);
+                    // Top 3 weakest only — sort by struggling-objective count desc, then score asc.
+                    const needsAttention = filteredLecs
+                      .map((lec) => {
+                        const objs = getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id);
+                        const strugglingCount = objs.filter((o) => o.status === "struggling").length;
+                        const lecPerf = getLecPerf(lec, bid);
+                        const score = lecPerf?.score ?? null;
+                        const lowScore = score != null && score < 70;
+                        const include = strugglingCount > 0 || lowScore;
+                        return include ? { lec, strugglingCount, score: score ?? 100 } : null;
+                      })
+                      .filter(Boolean)
+                      .sort((a, b) => (b.strugglingCount - a.strugglingCount) || (a.score - b.score))
+                      .slice(0, 3)
+                      .map((x) => x.lec);
                     const toggleWeekCollapsed = (weekNum) => {
                       setCollapsedWeeks((prev) => {
                         const next = new Set(prev);
@@ -29403,24 +32767,66 @@ Current student level: ${tierLabel}`;
                     };
                     return (
                       <>
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, padding: "0 24px" }}>
-                          <span style={{ fontSize: 11, color: t.text3 }}>{!scheduleEditMode ? "Tap a lecture to study it" : ""}</span>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, padding: "0 24px" }}>
+                          <span style={{ fontSize: 13, color: t.text2, fontFamily: SANS }}>
+                            {scheduleEditMode
+                              ? ""
+                              : (() => {
+                                  // Suggest the first not-yet-started lecture as the next action
+                                  const nextLec = (blockLecs || []).find((lec) => {
+                                    const p = getLecPerf(lec, bid);
+                                    const sess = Array.isArray(p?.sessions) ? p.sessions : [];
+                                    return sess.length === 0;
+                                  });
+                                  if (!nextLec) return (blockLecs || []).length === 0 ? 'Upload your first lecture to get started' : 'All lectures started — keep drilling ↓';
+                                  return (
+                                    <>
+                                      <span style={{ color: t.text3 }}>Next up: </span>
+                                      <span style={{ color: t.text1, fontWeight: 600 }}>{nextLec.lectureTitle || nextLec.fileName || 'Lecture'}</span>
+                                      <span style={{ color: t.text3 }}>  — tap to study ↓</span>
+                                    </>
+                                  );
+                                })()}
+                          </span>
                           <button
                             type="button"
                             onClick={() => setScheduleEditMode((p) => !p)}
-                            style={{
-                              fontSize: 12,
-                              padding: "5px 10px",
-                              border: "0.5px solid " + (scheduleEditMode ? (t.statusGood || "#639922") : t.border2),
-                              borderRadius: 8,
-                              background: scheduleEditMode ? (t.statusGoodBg || "#E6F1FB") : "transparent",
-                              color: scheduleEditMode ? (t.statusGood || "#0C447C") : t.text3,
-                              fontFamily: MONO,
-                              cursor: "pointer",
-                            }}
+                            style={scheduleEditMode
+                              ? { ...btnStyles.primary(t), background: '#639922', borderColor: '#639922' }
+                              : btnStyles.secondary(t)}
                           >
                             {scheduleEditMode ? "✓ Done editing" : "✎ Edit schedule"}
                           </button>
+                        </div>
+                        {/* ── Lecture / topic search ── */}
+                        <div style={{ padding: "0 24px", marginBottom: 12, position: "relative" }}>
+                          <span style={{ position: "absolute", left: 34, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: t.text3, pointerEvents: "none" }}>🔍</span>
+                          <input
+                            type="text"
+                            value={blockSearch}
+                            onChange={(e) => setBlockSearch(e.target.value)}
+                            placeholder="Search lectures or objectives to drill…"
+                            style={{
+                              width: "100%",
+                              padding: "9px 32px 9px 32px",
+                              borderRadius: 10,
+                              border: "1px solid " + (blockSearch ? tc : t.border2),
+                              background: t.inputBg || t.cardBg,
+                              color: t.text1,
+                              fontSize: 13,
+                              fontFamily: SANS,
+                              boxSizing: "border-box",
+                              outline: "none",
+                              transition: "border-color 0.15s",
+                            }}
+                          />
+                          {blockSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setBlockSearch("")}
+                              style={{ position: "absolute", right: 34, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: t.text3, fontSize: 16, lineHeight: 1, padding: 2 }}
+                            >×</button>
+                          )}
                         </div>
                         <div
                           key={lecturesRefreshKey}
@@ -29435,7 +32841,7 @@ Current student level: ${tierLabel}`;
                                   color: t.textSecondary || t.text3,
                                   letterSpacing: "0.08em",
                                   marginBottom: 10,
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                 }}
                               >
                                 🎯 TODAY&apos;S FOCUS
@@ -29500,7 +32906,7 @@ Current student level: ${tierLabel}`;
                                             borderRadius: 20,
                                             background: t.surfaceAlt || t.inputBg,
                                             color: t.textSecondary || t.text3,
-                                            fontFamily: MONO,
+                                            fontFamily: SANS,
                                           }}
                                         >
                                           {lec.lectureType} {lec.lectureNumber}
@@ -29513,7 +32919,7 @@ Current student level: ${tierLabel}`;
                                             borderRadius: 20,
                                             background: `${step.color}15`,
                                             color: step.color,
-                                            fontFamily: MONO,
+                                            fontFamily: SANS,
                                           }}
                                         >
                                           {step.icon} Step {step.number}
@@ -29534,7 +32940,7 @@ Current student level: ${tierLabel}`;
                                       >
                                         {lec.lectureTitle}
                                       </div>
-                                      <div style={{ fontSize: 11, color: t.textSecondary || t.text3, marginBottom: 10, fontFamily: MONO }}>
+                                      <div style={{ fontSize: 11, color: t.textSecondary || t.text3, marginBottom: 10, fontFamily: SANS }}>
                                         {score != null ? `${score}% · ` : "Not started · "}
                                         {sess}x
                                       </div>
@@ -29574,7 +32980,7 @@ Current student level: ${tierLabel}`;
                                           cursor: "pointer",
                                           fontSize: 12,
                                           fontWeight: 700,
-                                          fontFamily: MONO,
+                                          fontFamily: SANS,
                                         }}
                                       >
                                         {step.actionLabel} →
@@ -29595,78 +33001,22 @@ Current student level: ${tierLabel}`;
                                           type="button"
                                           onClick={(e) => {
                                             e.stopPropagation();
-                                            handleDeepLearnStart({
-                                              selectedTopics: [
-                                                {
-                                                  id: lec.id + "_full",
-                                                  label: lec.lectureTitle,
-                                                  lecId: lec.id,
-                                                  weak: false,
-                                                },
-                                              ],
-                                              blockId: bid,
-                                            });
+                                            setPracticeSetup({ open: true, blockId: bid, lecture: lec, lectureId: lec.id, scope: "lecture", count: 10 });
                                           }}
-                                          title="Deep Learn"
+                                          title="Practice — MCQ vignettes targeting weak/untested objectives, weighted by recent misses"
                                           style={{
                                             flex: 1,
-                                            padding: "5px 0",
+                                            padding: "7px 0",
                                             borderRadius: 6,
-                                            border: "1px solid #dc2626",
-                                            background: "transparent",
-                                            color: "#dc2626",
+                                            border: "1px solid " + tc,
+                                            background: tc,
+                                            color: "#fff",
                                             cursor: "pointer",
-                                            fontSize: 11,
-                                            fontWeight: 600,
+                                            fontSize: 12,
+                                            fontWeight: 700,
                                           }}
                                         >
-                                          🧠 Learn
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            window.dispatchEvent(
-                                              new CustomEvent("rxt-start-drill", {
-                                                detail: { lecId: lec.id, blockId: bid, mode: "mcq", filter: "all" },
-                                              })
-                                            );
-                                          }}
-                                          title="Drill"
-                                          style={{
-                                            flex: 1,
-                                            padding: "5px 0",
-                                            borderRadius: 6,
-                                            border: `1px solid ${t.accent || tc || "#2563eb"}`,
-                                            background: "transparent",
-                                            color: t.accent || tc || "#2563eb",
-                                            cursor: "pointer",
-                                            fontSize: 11,
-                                            fontWeight: 600,
-                                          }}
-                                        >
-                                          ⚡ Drill
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            openQuizSettingsForLecture(lec, bid);
-                                          }}
-                                          title="Quiz"
-                                          style={{
-                                            flex: 1,
-                                            padding: "5px 0",
-                                            borderRadius: 6,
-                                            border: "1px solid #d97706",
-                                            background: "transparent",
-                                            color: "#d97706",
-                                            cursor: "pointer",
-                                            fontSize: 11,
-                                            fontWeight: 600,
-                                          }}
-                                        >
-                                          📝 Quiz
+                                          ▶ Practice
                                         </button>
                                       </div>
                                     </div>
@@ -29685,7 +33035,7 @@ Current student level: ${tierLabel}`;
                                   color: t.statusBad,
                                   letterSpacing: "0.08em",
                                   marginBottom: 8,
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                 }}
                               >
                                 ⚠ NEEDS ATTENTION ({needsAttention.length})
@@ -29712,7 +33062,7 @@ Current student level: ${tierLabel}`;
                                         display: "flex",
                                         alignItems: "center",
                                         gap: 6,
-                                        fontFamily: MONO,
+                                        fontFamily: SANS,
                                       }}
                                     >
                                       <span style={{ fontSize: 10 }}>
@@ -29957,7 +33307,7 @@ Current student level: ${tierLabel}`;
                                         background: isUnsched ? "#FAEEDA" : t.surfaceAlt || t.inputBg,
                                         cursor: "pointer",
                                         marginBottom: 8,
-                                        fontFamily: MONO,
+                                        fontFamily: SANS,
                                       }}
                                     >
                                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -30014,9 +33364,34 @@ Current student level: ${tierLabel}`;
                                           const sessions = lecComp?.sessionCount || 0;
                                           const coach = getStudyCoachSteps(lec, bid);
                                           const step = coach.currentStep;
-                                          const objs = getMSKObjectives(bid).filter((o) => o.linkedLecId === lec.id);
+                                          // Match by id, but fall back to (lectureType + lectureNumber) so that
+                                          // objectives orphaned by a re-upload (new lecture UUID) still surface
+                                          // on the card. Mirrors lecObjsForLecture in Tracker.jsx.
+                                          const objs = getMSKObjectives(bid).filter((o) => {
+                                            if (o.linkedLecId === lec.id || o.sourceFile === lec.id) return true;
+                                            const sameType =
+                                              String(o.lectureType || "LEC").trim() ===
+                                              String(lec.lectureType || "LEC").trim();
+                                            const sameNum =
+                                              o.lectureNumber != null &&
+                                              lec.lectureNumber != null &&
+                                              String(o.lectureNumber) === String(lec.lectureNumber);
+                                            return sameType && sameNum;
+                                          });
                                           const masteredCount = objs.filter((o) => o.status === "mastered").length;
                                           const borderCol = t.border1 || t.border2;
+                                          // Pending review = any reviewDate scheduled today or in the future,
+                                          // and the user hasn't already logged activity today.
+                                          const todayStr = new Date().toISOString().slice(0, 10);
+                                          const lastActDay = lecComp?.lastActivityDate
+                                            ? String(lecComp.lastActivityDate).slice(0, 10)
+                                            : null;
+                                          const hasPendingReview =
+                                            Array.isArray(lecComp?.reviewDates) &&
+                                            lecComp.reviewDates.some(
+                                              (d) => String(d || "").split("T")[0] >= todayStr
+                                            ) &&
+                                            lastActDay !== todayStr;
                                           return (
                                             <div
                                               key={lec.id}
@@ -30038,6 +33413,11 @@ Current student level: ${tierLabel}`;
                                                   lecturesTabDetailLec?.id === lec.id
                                                     ? `2px solid ${step.color}`
                                                     : `1px solid ${borderCol}`,
+                                                borderLeft: hasPendingReview
+                                                  ? "3px solid #d97706"
+                                                  : (lecturesTabDetailLec?.id === lec.id
+                                                      ? `2px solid ${step.color}`
+                                                      : `1px solid ${borderCol}`),
                                                 background: t.surface || t.cardBg,
                                                 cursor: "pointer",
                                                 transition: "border-color 0.15s",
@@ -30068,7 +33448,7 @@ Current student level: ${tierLabel}`;
                                                       borderRadius: 4,
                                                       background: lec.lectureType === "DLA" ? "#ede9fe" : "#dbeafe",
                                                       color: lec.lectureType === "DLA" ? "#7c3aed" : "#1d4ed8",
-                                                      fontFamily: MONO,
+                                                      fontFamily: SANS,
                                                     }}
                                                   >
                                                     {lec.lectureType} {lec.lectureNumber}
@@ -30081,11 +33461,28 @@ Current student level: ${tierLabel}`;
                                                       background: `${step.color}15`,
                                                       color: step.color,
                                                       fontWeight: 600,
-                                                      fontFamily: MONO,
+                                                      fontFamily: SANS,
                                                     }}
                                                   >
                                                     {step.icon} Step {step.number}
                                                   </span>
+                                                  {hasPendingReview && (
+                                                    <span
+                                                      title="Spaced-repetition review scheduled"
+                                                      style={{
+                                                        fontSize: 10,
+                                                        padding: "1px 6px",
+                                                        borderRadius: 4,
+                                                        background: "#fff7ed",
+                                                        color: "#b45309",
+                                                        fontWeight: 700,
+                                                        fontFamily: SANS,
+                                                        border: "1px solid #fdba74",
+                                                      }}
+                                                    >
+                                                      🔁 Review
+                                                    </span>
+                                                  )}
                                                 </div>
                                                 <div
                                                   style={{
@@ -30099,7 +33496,7 @@ Current student level: ${tierLabel}`;
                                                           : score >= 60
                                                             ? t.statusWarn
                                                             : t.statusBad,
-                                                    fontFamily: MONO,
+                                                    fontFamily: SANS,
                                                   }}
                                                 >
                                                   {score != null ? `${score}%` : "—"}
@@ -30146,13 +33543,15 @@ Current student level: ${tierLabel}`;
                                                   justifyContent: "space-between",
                                                   fontSize: 11,
                                                   color: t.textSecondary || t.text3,
-                                                  fontFamily: MONO,
+                                                  fontFamily: SANS,
                                                 }}
                                               >
                                                 <span>
                                                   {sessions > 0
                                                     ? `${sessions} session${sessions > 1 ? "s" : ""}`
-                                                    : "Not started"}
+                                                    : masteredCount > 0
+                                                      ? `${masteredCount} objective${masteredCount === 1 ? "" : "s"} touched`
+                                                      : "Not started"}
                                                 </span>
                                                 <span>
                                                   {masteredCount}/{objs.length} mastered
@@ -30174,78 +33573,22 @@ Current student level: ${tierLabel}`;
                                                   type="button"
                                                   onClick={(e) => {
                                                     e.stopPropagation();
-                                                    handleDeepLearnStart({
-                                                      selectedTopics: [
-                                                        {
-                                                          id: lec.id + "_full",
-                                                          label: lec.lectureTitle,
-                                                          lecId: lec.id,
-                                                          weak: false,
-                                                        },
-                                                      ],
-                                                      blockId: bid,
-                                                    });
+                                                    setPracticeSetup({ open: true, blockId: bid, lecture: lec, lectureId: lec.id, scope: "lecture", count: 10 });
                                                   }}
-                                                  title="Deep Learn"
+                                                  title="Practice — MCQ vignettes targeting weak/untested objectives, weighted by recent misses"
                                                   style={{
                                                     flex: 1,
-                                                    padding: "5px 0",
+                                                    padding: "7px 0",
                                                     borderRadius: 6,
-                                                    border: "1px solid #dc2626",
-                                                    background: "transparent",
-                                                    color: "#dc2626",
+                                                    border: "1px solid " + tc,
+                                                    background: tc,
+                                                    color: "#fff",
                                                     cursor: "pointer",
-                                                    fontSize: 11,
-                                                    fontWeight: 600,
+                                                    fontSize: 12,
+                                                    fontWeight: 700,
                                                   }}
                                                 >
-                                                  🧠 Learn
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    window.dispatchEvent(
-                                                      new CustomEvent("rxt-start-drill", {
-                                                        detail: { lecId: lec.id, blockId: bid, mode: "mcq", filter: "all" },
-                                                      })
-                                                    );
-                                                  }}
-                                                  title="Drill"
-                                                  style={{
-                                                    flex: 1,
-                                                    padding: "5px 0",
-                                                    borderRadius: 6,
-                                                    border: `1px solid ${t.accent || tc || "#2563eb"}`,
-                                                    background: "transparent",
-                                                    color: t.accent || tc || "#2563eb",
-                                                    cursor: "pointer",
-                                                    fontSize: 11,
-                                                    fontWeight: 600,
-                                                  }}
-                                                >
-                                                  ⚡ Drill
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    openQuizSettingsForLecture(lec, bid);
-                                                  }}
-                                                  title="Quiz"
-                                                  style={{
-                                                    flex: 1,
-                                                    padding: "5px 0",
-                                                    borderRadius: 6,
-                                                    border: "1px solid #d97706",
-                                                    background: "transparent",
-                                                    color: "#d97706",
-                                                    cursor: "pointer",
-                                                    fontSize: 11,
-                                                    fontWeight: 600,
-                                                  }}
-                                                >
-                                                  📝 Quiz
+                                                  ▶ Practice
                                                 </button>
                                               </div>
                                             </div>
@@ -30297,10 +33640,79 @@ Current student level: ${tierLabel}`;
                                     zIndex: 1,
                                   }}
                                 >
-                                  <div style={{ fontWeight: 700, fontSize: 15, color: t.text1, paddingRight: 12 }}>
-                                    {lecturesTabDetailLec.lectureType} {lecturesTabDetailLec.lectureNumber}
-                                    {" — "}
-                                    {lecturesTabDetailLec.lectureTitle}
+                                  <div style={{ fontWeight: 700, fontSize: 15, color: t.text1, paddingRight: 12, flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
+                                    <span style={{ flexShrink: 0 }}>
+                                      {lecturesTabDetailLec.lectureType} {lecturesTabDetailLec.lectureNumber}{" — "}
+                                    </span>
+                                    {editingLecId === lecturesTabDetailLec.id ? (
+                                      <input
+                                        autoFocus
+                                        value={editingTitle}
+                                        onChange={(e) => setEditingTitle(e.target.value)}
+                                        onBlur={() => {
+                                          renameLecture(lecturesTabDetailLec.id, editingTitle);
+                                          setEditingLecId(null);
+                                        }}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            renameLecture(lecturesTabDetailLec.id, editingTitle);
+                                            setEditingLecId(null);
+                                          }
+                                          if (e.key === "Escape") {
+                                            e.preventDefault();
+                                            setEditingLecId(null);
+                                          }
+                                        }}
+                                        style={{
+                                          flex: 1,
+                                          minWidth: 0,
+                                          fontSize: 15,
+                                          fontWeight: 700,
+                                          fontFamily: SANS,
+                                          padding: "4px 8px",
+                                          border: `1.5px solid ${t.accent || "#2563eb"}`,
+                                          borderRadius: 6,
+                                          background: t.inputBg,
+                                          color: t.text1,
+                                          outline: "none",
+                                        }}
+                                      />
+                                    ) : (
+                                      <>
+                                        <span
+                                          onClick={() => {
+                                            setEditingLecId(lecturesTabDetailLec.id);
+                                            setEditingTitle(lecturesTabDetailLec.lectureTitle || "");
+                                          }}
+                                          style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "text" }}
+                                          title="Click to edit title"
+                                        >
+                                          {lecturesTabDetailLec.lectureTitle}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingLecId(lecturesTabDetailLec.id);
+                                            setEditingTitle(lecturesTabDetailLec.lectureTitle || "");
+                                          }}
+                                          title="Rename lecture"
+                                          style={{
+                                            fontSize: 11,
+                                            padding: "3px 8px",
+                                            background: "transparent",
+                                            border: `1px solid ${t.border1 || t.border2}`,
+                                            borderRadius: 4,
+                                            cursor: "pointer",
+                                            color: t.textSecondary || t.text3,
+                                            fontFamily: SANS,
+                                            flexShrink: 0,
+                                          }}
+                                        >
+                                          ✎ Edit
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                   <button
                                     type="button"
@@ -30384,7 +33796,7 @@ Current student level: ${tierLabel}`;
                               fontSize: 12,
                               color: "var(--color-text-tertiary)",
                               marginBottom: 8,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             From lecture: {cfg.lecTitle || "Selected lecture"}
@@ -30620,7 +34032,7 @@ Current student level: ${tierLabel}`;
                         gap: 10,
                       }}
                     >
-                      <span style={{ fontSize: 13, color: t.statusWarn || "#d97706", fontFamily: MONO }}>
+                      <span style={{ fontSize: 13, color: t.statusWarn || "#d97706", fontFamily: SANS }}>
                         △ Previous session data found for re-uploaded lectures
                       </span>
                       <button
@@ -30629,7 +34041,7 @@ Current student level: ${tierLabel}`;
                         style={{
                           padding: "6px 14px",
                           fontSize: 12,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           background: t.statusProgress || t.tc || "#6366f1",
                           color: "white",
                           border: "none",
@@ -30646,7 +34058,7 @@ Current student level: ${tierLabel}`;
                     const blockLecsForManual = getBlockLecs(lectures, resolveBlockMeta(bid));
                     return (
                       <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontSize: 12, fontFamily: MONO, color: t.text3, marginBottom: 8 }}>
+                        <div style={{ fontSize: 12, fontFamily: SANS, color: t.text3, marginBottom: 8 }}>
                           Map each orphaned session to a current lecture:
                         </div>
                         {orphanedSessionsForManual.map(({ oldKey, sample, sessions }) => {
@@ -30666,7 +34078,7 @@ Current student level: ${tierLabel}`;
                                     background: t.statusProgressBg || "#f0f7ff", color: t.statusProgress || "#2563eb",
                                     border: `1px solid ${t.statusProgress || "#2563eb"}`,
                                     borderRadius: 6, padding: "2px 10px",
-                                    fontSize: 11, fontFamily: MONO, fontWeight: "bold"
+                                    fontSize: 11, fontFamily: SANS, fontWeight: "bold"
                                   }}>
                                     {sample.sessionType.toUpperCase()}
                                   </span>
@@ -30676,14 +34088,14 @@ Current student level: ${tierLabel}`;
                                   <span style={{
                                     background: t.inputBg || "#f5f5f5", color: t.text2 || "#555",
                                     borderRadius: 6, padding: "2px 10px",
-                                    fontSize: 11, fontFamily: MONO
+                                    fontSize: 11, fontFamily: SANS
                                   }}>
                                     {sample.lectureType}{sample.lectureNumber}
                                   </span>
                                 )}
 
                                 <span style={{
-                                  fontFamily: MONO, fontSize: 12,
+                                  fontFamily: SANS, fontSize: 12,
                                   color: sample?.score >= 70 ? (t.statusGood || "#10b981") : (t.statusWarn || "#f59e0b"),
                                   fontWeight: "bold"
                                 }}>
@@ -30691,7 +34103,7 @@ Current student level: ${tierLabel}`;
                                 </span>
 
                                 {latest?.date && (
-                                  <span style={{ fontSize: 12, color: t.text3 || "#888", fontFamily: MONO }}>
+                                  <span style={{ fontSize: 12, color: t.text3 || "#888", fontFamily: SANS }}>
                                     {new Date(latest.date).toLocaleDateString("en-US", { 
                                       weekday: "short", month: "short", day: "numeric" 
                                     })} at {new Date(latest.date).toLocaleTimeString("en-US", { 
@@ -30701,7 +34113,7 @@ Current student level: ${tierLabel}`;
                                 )}
 
                                 {allSessions.length > 1 && (
-                                  <span style={{ fontSize: 12, color: t.text3 || "#888", fontFamily: MONO }}>
+                                  <span style={{ fontSize: 12, color: t.text3 || "#888", fontFamily: SANS }}>
                                     {allSessions.length} sessions
                                   </span>
                                 )}
@@ -30719,7 +34131,7 @@ Current student level: ${tierLabel}`;
                               {(sample?.confidenceLevel || sample?.nextReview) && (
                                 <div style={{ 
                                   fontSize: 12, color: t.text3 || "#888", 
-                                  fontFamily: MONO, marginBottom: 8 
+                                  fontFamily: SANS, marginBottom: 8 
                                 }}>
                                   {sample.confidenceLevel && `Confidence: ${sample.confidenceLevel}`}
                                   {sample.confidenceLevel && sample.nextReview && " · "}
@@ -30729,7 +34141,7 @@ Current student level: ${tierLabel}`;
 
                               <div style={{ 
                                 fontSize: 10, color: t.text3 || "#bbb", 
-                                fontFamily: MONO, marginBottom: 10,
+                                fontFamily: SANS, marginBottom: 10,
                                 wordBreak: "break-all"
                               }}>
                                 key: {oldKey.split("__")[0].slice(0, 40)}…
@@ -30740,7 +34152,7 @@ Current student level: ${tierLabel}`;
                                 style={{ 
                                   width: "100%", padding: "8px 10px", 
                                   borderRadius: 8, border: "1.5px solid " + (t.border1 || "#ddd"),
-                                  fontFamily: MONO, fontSize: 13,
+                                  fontFamily: SANS, fontSize: 13,
                                   background: t.inputBg || "white", cursor: "pointer", color: t.text1
                                 }}
                               >
@@ -30767,7 +34179,7 @@ Current student level: ${tierLabel}`;
                                   marginTop: 8, padding: "4px 12px",
                                   background: "none", border: "none",
                                   color: t.text3 || "#bbb", fontSize: 11,
-                                  fontFamily: MONO, cursor: "pointer"
+                                  fontFamily: SANS, cursor: "pointer"
                                 }}
                               >
                                 Skip — discard this session
@@ -30827,7 +34239,7 @@ Current student level: ${tierLabel}`;
                                 borderRadius: 6,
                                 color: "#633806",
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               Review
@@ -30849,7 +34261,7 @@ Current student level: ${tierLabel}`;
                       >
                         <span
                           style={{
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                             fontSize: 12,
                             fontWeight: 500,
                             color: linked === totalCt && totalCt > 0 ? "#27500A" : "#BA7517",
@@ -30867,7 +34279,7 @@ Current student level: ${tierLabel}`;
                             style={{
                               fontSize: 11,
                               color: "#185FA5",
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontWeight: 500,
                               flexShrink: 0,
                             }}
@@ -30933,7 +34345,7 @@ Current student level: ${tierLabel}`;
                                 type="button"
                                 onClick={() => runSmartAlignment(bid)}
                                 style={{
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontSize: 12,
                                   padding: "4px 10px",
                                   borderRadius: 6,
@@ -30950,7 +34362,7 @@ Current student level: ${tierLabel}`;
                                 type="button"
                                 onClick={() => setUnlinkedTabFocusKey((k) => k + 1)}
                                 style={{
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontSize: 12,
                                   padding: "4px 8px",
                                   border: "none",
@@ -30970,7 +34382,7 @@ Current student level: ${tierLabel}`;
                                 display: "inline-flex",
                                 alignItems: "center",
                                 gap: 8,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 12,
                                 color: t.text2,
                               }}
@@ -30992,7 +34404,7 @@ Current student level: ${tierLabel}`;
                           {alignmentStatus === "done" && (
                             <span
                               style={{
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 12,
                                 fontWeight: 600,
                                 color: "#27500A",
@@ -31006,14 +34418,14 @@ Current student level: ${tierLabel}`;
                           )}
                           {alignmentStatus === "error" && (
                             <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <span style={{ fontFamily: MONO, fontSize: 12, color: "#A32D2D" }}>
+                              <span style={{ fontFamily: SANS, fontSize: 12, color: "#A32D2D" }}>
                                 ⚠ Alignment failed{alignmentProgress ? ` — ${alignmentProgress}` : ""}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => runSmartAlignment(bid)}
                                 style={{
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontSize: 11,
                                   padding: "4px 8px",
                                   borderRadius: 6,
@@ -31045,7 +34457,7 @@ Current student level: ${tierLabel}`;
                               }, 0);
                             }}
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 11,
                               padding: "4px 8px",
                               borderRadius: 6,
@@ -31078,7 +34490,7 @@ Current student level: ${tierLabel}`;
                                   ? "var(--color-text-tertiary)"
                                   : "var(--color-text-secondary)",
                               cursor: dedupeStatus === "running" ? "not-allowed" : "pointer",
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                             disabled={dedupeStatus === "running"}
                           >
@@ -31088,7 +34500,7 @@ Current student level: ${tierLabel}`;
                             type="button"
                             onClick={resyncOrphanedPerformance}
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 11,
                               padding: "4px 8px",
                               borderRadius: 6,
@@ -31120,7 +34532,7 @@ Current student level: ${tierLabel}`;
                               });
                             }}
                             style={{
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 11,
                               padding: "4px 8px",
                               borderRadius: 6,
@@ -31174,7 +34586,7 @@ Current student level: ${tierLabel}`;
                               fontSize: 11,
                               color: t.text3,
                               marginTop: 8,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             {dedupeProgress}
@@ -31191,7 +34603,7 @@ Current student level: ${tierLabel}`;
                               marginTop: 8,
                             }}
                           >
-                            <span style={{ fontSize: 11, color: "#27500A", fontFamily: MONO }}>{dedupeProgress}</span>
+                            <span style={{ fontSize: 11, color: "#27500A", fontFamily: SANS }}>{dedupeProgress}</span>
                             <button
                               type="button"
                               onClick={() => {
@@ -31212,7 +34624,7 @@ Current student level: ${tierLabel}`;
                                 background: "transparent",
                                 color: "var(--color-text-secondary)",
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               ↩ Undo
@@ -31238,7 +34650,7 @@ Current student level: ${tierLabel}`;
                         )}
                         {dedupeStatus === "error" && (
                           <div style={{ width: "100%", marginTop: 8 }}>
-                            <div style={{ fontSize: 11, color: "#A32D2D", fontFamily: MONO }}>{dedupeProgress}</div>
+                            <div style={{ fontSize: 11, color: "#A32D2D", fontFamily: SANS }}>{dedupeProgress}</div>
                           </div>
                         )}
                       </div>
@@ -31275,7 +34687,7 @@ Current student level: ${tierLabel}`;
                             background: "transparent",
                             color: "var(--color-text-tertiary, " + (t.text3 || "#888") + ")",
                             cursor: "pointer",
-                            fontFamily: MONO,
+                            fontFamily: SANS,
                           }}
                         >
                           Close
@@ -31283,7 +34695,7 @@ Current student level: ${tierLabel}`;
                       </div>
 
                       {contentMismatches.length === 0 ? (
-                        <div style={{ fontSize: 12, color: t.text3, fontFamily: MONO }}>
+                        <div style={{ fontSize: 12, color: t.text3, fontFamily: SANS }}>
                           No items left — close or run alignment again.
                         </div>
                       ) : (
@@ -31308,7 +34720,7 @@ Current student level: ${tierLabel}`;
                                   style={{
                                     fontSize: 11,
                                     color: "#A32D2D",
-                                    fontFamily: MONO,
+                                    fontFamily: SANS,
                                   }}
                                 >
                                   Currently: {m.lecTitle}
@@ -31353,7 +34765,7 @@ Current student level: ${tierLabel}`;
                                 color: "var(--color-text-tertiary, " + (t.text3 || "#888") + ")",
                                 marginTop: 8,
                                 textAlign: "center",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               + {contentMismatches.length - 10} more — use the Unlinked tab to review all
@@ -31456,7 +34868,7 @@ Current student level: ${tierLabel}`;
                           fontSize: 12,
                           padding: "5px 12px",
                           cursor: "pointer",
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                           fontWeight: 600,
                         }}
                       >
@@ -31627,7 +35039,7 @@ Current student level: ${tierLabel}`;
                                 border: "none",
                                 borderRadius: 8,
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               Start New Block
@@ -31648,8 +35060,8 @@ Current student level: ${tierLabel}`;
                                   }}
                                 >
                                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                                    <span style={{ fontFamily: MONO, fontSize: 12, color: t.text3 }}>Q{idx + 1}</span>
-                                    <span style={{ fontFamily: MONO, fontSize: 12, fontWeight: 700, color: answer.wasCorrect ? "#639922" : "#E24B4A" }}>
+                                    <span style={{ fontFamily: SANS, fontSize: 12, color: t.text3 }}>Q{idx + 1}</span>
+                                    <span style={{ fontFamily: SANS, fontSize: 12, fontWeight: 700, color: answer.wasCorrect ? "#639922" : "#E24B4A" }}>
                                       {answer.wasCorrect ? "✓ Correct" : "✗ Incorrect"}
                                     </span>
                                   </div>
@@ -31788,7 +35200,7 @@ Current student level: ${tierLabel}`;
                               letterSpacing: 0.06,
                               marginTop: 16,
                               marginBottom: 8,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                             }}
                           >
                             Study style
@@ -31796,27 +35208,11 @@ Current student level: ${tierLabel}`;
                           <div
                             style={{
                               display: "grid",
-                              gridTemplateColumns: "1fr 1fr 1fr",
+                              gridTemplateColumns: "1fr 1fr",
                               gap: 8,
                               marginBottom: 8,
                             }}
                           >
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              onClick={() => setDrillStyle("flashcard")}
-                              style={{
-                                padding: "12px 14px",
-                                border: drillStyle === "flashcard" ? "1.5px solid #7F77DD" : "0.5px solid var(--color-border-tertiary)",
-                                borderRadius: "var(--border-radius-md, 8px)",
-                                cursor: "pointer",
-                                background: drillStyle === "flashcard" ? "#EEEDFE" : "transparent",
-                              }}
-                            >
-                              <div style={{ fontSize: 20, marginBottom: 6 }}>🃏</div>
-                              <div style={{ fontSize: 15, fontWeight: 500, color: drillStyle === "flashcard" ? "#3C3489" : "var(--color-text-primary, " + t.text1 + ")" }}>Flashcard</div>
-                              <div style={{ fontSize: 13, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>See the answer, self-assess</div>
-                            </div>
                             <div
                               role="button"
                               tabIndex={0}
@@ -31850,9 +35246,34 @@ Current student level: ${tierLabel}`;
                               <div style={{ fontSize: 13, color: "var(--color-text-tertiary, " + t.text3 + ")", marginTop: 4 }}>Timed · no feedback · full review at end</div>
                             </div>
                           </div>
-                          <div style={{ fontSize: 14, color: t.text2, marginTop: 16, marginBottom: 8 }}>
+                          <div style={{ fontSize: 14, color: t.text2, marginTop: 16, marginBottom: 6 }}>
                             From which lectures?
                             <span style={{ color: t.text1, fontWeight: 600 }}>{` → ${drillLectureScopeSummary}`}</span>
+                          </div>
+                          {/* Lecture search filter */}
+                          <div style={{ position: "relative", marginBottom: 6 }}>
+                            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: t.text3, pointerEvents: "none" }}>🔍</span>
+                            <input
+                              type="text"
+                              value={blockSearch}
+                              onChange={(e) => setBlockSearch(e.target.value)}
+                              placeholder="Filter lectures…"
+                              style={{
+                                width: "100%",
+                                padding: "7px 28px 7px 28px",
+                                borderRadius: 8,
+                                border: "0.5px solid " + (blockSearch ? tc : (t.border2 || t.border1)),
+                                background: t.inputBg || t.cardBg,
+                                color: t.text1,
+                                fontSize: 12,
+                                fontFamily: SANS,
+                                boxSizing: "border-box",
+                                outline: "none",
+                              }}
+                            />
+                            {blockSearch && (
+                              <button type="button" onClick={() => setBlockSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: t.text3, fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>
+                            )}
                           </div>
                           <div
                             style={{
@@ -31880,14 +35301,33 @@ Current student level: ${tierLabel}`;
                                     ? "0.5px solid " + tc
                                     : "0.5px solid " + (t.border2 || t.border1),
                                 color: selLecCount === 0 ? t.text1 : t.text3,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               <span style={{ marginRight: 8 }}>{selLecCount === 0 ? "◉" : "○"}</span>
                               All lectures
                             </button>
-                            {drillBlockLecsSorted.map((lec) => {
-                              const cnt = (getBlockObjectives(drillBid) || []).filter((o) => o.linkedLecId === lec.id).length;
+                            {drillBlockLecsSorted.filter((lec) => {
+                              if (!blockSearch.trim()) return true;
+                              const q = blockSearch.trim().toLowerCase();
+                              const title = (lec.lectureTitle || lec.fileName || "").toLowerCase();
+                              if (title.includes(q)) return true;
+                              const objs = getBlockObjectives(drillBid) || [];
+                              return objs.filter((o) => o.linkedLecId === lec.id).some((o) => (o.text || o.objective || "").toLowerCase().includes(q));
+                            }).map((lec) => {
+                              const allBlockObjs = getBlockObjectives(drillBid) || [];
+                              const lecObjs = allBlockObjs.filter((o) => o.linkedLecId === lec.id);
+                              const totalCnt = lecObjs.length;
+                              const nf = normalizeDrillObjectiveFilter(drillFilter);
+                              const today = new Date().toISOString().split("T")[0];
+                              const filteredCnt = (() => {
+                                if (nf === "untested") return lecObjs.filter((o) => !o.status || o.status === "untested").length;
+                                if (nf === "weak_untested") return lecObjs.filter((o) => o.status !== "mastered" && (o.consecutiveCorrect || 0) < DRILL_MASTERY_CONSECUTIVE_THRESHOLD).length;
+                                if (nf === "struggling") return lecObjs.filter((o) => o.status === "struggling").length;
+                                if (nf === "srs_due") return lecObjs.filter((o) => !o.srsNextReview || o.srsNextReview <= today).length;
+                                return totalCnt; // "all"
+                              })();
+                              const cnt = filteredCnt;
                               const title = lec.lectureTitle || lec.fileName || lec.id;
                               const titleShown = smartTruncate(title, 72);
                               const isOn = selectedLectureIds.has(lec.id);
@@ -31917,13 +35357,19 @@ Current student level: ${tierLabel}`;
                                         ? "0.5px solid " + tc
                                         : "0.5px solid " + (t.border2 || t.border1),
                                     color: !allMode && isOn ? t.text1 : t.text3,
-                                    fontFamily: MONO,
+                                    fontFamily: SANS,
                                     fontSize: 13,
                                   }}
                                 >
                                   <span style={{ marginRight: 8 }}>{!allMode && isOn ? "◉" : "○"}</span>
                                   {(lec.lectureType || "LEC")} {lec.lectureNumber ?? ""} — {titleShown}{" "}
-                                  <span style={{ color: t.text3 }}>({cnt} obj)</span>
+                                  <span style={{ color: cnt === 0 ? (t.text4 || t.text3) : t.text3 }}>
+                                    {nf === "all"
+                                      ? `(${cnt} obj)`
+                                      : cnt === totalCnt
+                                        ? `(${cnt} obj)`
+                                        : `(${cnt} / ${totalCnt})`}
+                                  </span>
                                 </button>
                               );
                             })}
@@ -31938,13 +35384,13 @@ Current student level: ${tierLabel}`;
                             )}
                           </div>
                           {nPreview > 0 && drillFilter === "weak_untested" && (
-                            <div style={{ fontSize: 13, color: t.text3, marginTop: 6, fontFamily: MONO }}>
+                            <div style={{ fontSize: 13, color: t.text3, marginTop: 6, fontFamily: SANS }}>
                               includes ⚠ {nStruggling} struggling · △ {nInProgressDrill} in progress · ○ {nUntested}{" "}
                               untested
                             </div>
                           )}
                           {nPreview > 0 && drillFilter === "struggling" && (
-                            <div style={{ fontSize: 13, color: t.text3, marginTop: 6, fontFamily: MONO }}>
+                            <div style={{ fontSize: 13, color: t.text3, marginTop: 6, fontFamily: SANS }}>
                               ⚠ Struggling objectives only ({nStruggling} in this scope)
                             </div>
                           )}
@@ -31974,6 +35420,7 @@ Current student level: ${tierLabel}`;
                                   nPreview
                                 );
                                 setDrillQueue(queue);
+                                drillOriginalQueueSizeRef.current = queue.length;
                                 setDrillIndex(0);
                                 setDrillComplete(false);
                                 setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
@@ -32017,7 +35464,7 @@ Current student level: ${tierLabel}`;
                                 padding: "10px 18px",
                                 fontSize: 13,
                                 cursor: nPreview === 0 ? "not-allowed" : "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontWeight: 600,
                                 background: nPreview === 0 ? t.border1 : tc,
                                 color: nPreview === 0 ? t.text3 : "#fff",
@@ -32035,7 +35482,7 @@ Current student level: ${tierLabel}`;
                                 padding: "10px 18px",
                                 fontSize: 13,
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 background: t.inputBg,
                                 border: "1px solid " + t.border1,
                                 color: t.text2,
@@ -32045,6 +35492,97 @@ Current student level: ${tierLabel}`;
                               Cancel
                             </button>
                           </div>
+
+                          {/* ── Drill from uploaded question banks (NotebookLM / Madcow) ── */}
+                          {(() => {
+                            let banks = {};
+                            try { banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}"); } catch {}
+                            const files = Object.entries(banks).filter(([, qs]) => qs?.length > 0);
+                            if (!files.length) return null;
+                            return (
+                              <div style={{ marginTop: 20, paddingTop: 16, borderTop: "0.5px solid " + t.border2 }}>
+                                <div style={{ fontSize: 12, color: t.text3, fontFamily: SANS, marginBottom: 8 }}>
+                                  Or drill from uploaded questions:
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                  {files.map(([fname, qs]) => (
+                                    <button
+                                      key={fname}
+                                      type="button"
+                                      onClick={() => {
+                                        // Convert question bank entries to synthetic objectives with pre-loaded MCQ data
+                                        const shuffled = [...qs].sort(() => Math.random() - 0.5);
+                                        const syntheticQueue = shuffled.map((q, idx) => {
+                                          const letters = ["A","B","C","D"];
+                                          const correctLetter = q.correct || q.correctAnswer || "A";
+                                          const options = letters.map((L) => ({
+                                            text: q.choices?.[L] || q.options?.[idx]?.text || `Option ${L}`,
+                                            correct: L === correctLetter,
+                                            whyWrong: L !== correctLetter ? (q.whyWrong?.[L] || null) : null,
+                                          })).filter((o) => o.text && o.text !== `Option ${L}`);
+                                          // Ensure at least 4 options
+                                          while (options.length < 4) options.push({ text: `—`, correct: false, whyWrong: null });
+                                          const preloadedMcq = {
+                                            question: q.stem || q.question || "",
+                                            options: options.slice(0, 4),
+                                            overallExplanation: q.explanation || q.rationale || "",
+                                            teachingPoint: q.teachingPoint || null,
+                                            imagePrompt: null,
+                                            visualSearchQuery: null,
+                                          };
+                                          return {
+                                            id: `bank_${fname}_${idx}`,
+                                            _drillBlockId: drillBid,
+                                            isSynthetic: true,
+                                            _fromBank: true,
+                                            _bankFile: fname,
+                                            objective: q.stem?.slice(0, 80) || `Question ${idx + 1}`,
+                                            text: q.stem?.slice(0, 80) || `Question ${idx + 1}`,
+                                            lectureTitle: fname.replace(/\.[^.]+$/, ""),
+                                            status: "untested",
+                                            consecutiveCorrect: 0,
+                                            drillCount: 0,
+                                            _preloadedMcq: preloadedMcq,
+                                          };
+                                        });
+                                        drillHistoryRef.current = [];
+                                        setDrillHistoryLen(0);
+                                        setDrillReviewSnapshot(null);
+                                        setDrillQueue(syntheticQueue);
+                                        drillOriginalQueueSizeRef.current = syntheticQueue.length;
+                                        setDrillIndex(0);
+                                        drillQueueRef.current = syntheticQueue;
+                                        drillIndexRef.current = 0;
+                                        setDrillComplete(false);
+                                        setDrillStyle("mcq");
+                                        drillStyleRef.current = "mcq";
+                                        setDrillMode(true);
+                                        setMcqData(null);
+                                        setMcqError(null);
+                                        setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
+                                        resetDrillSessionResultsRef();
+                                        drillCardModeRef.current = "back";
+                                        setDrillCardMode("back");
+                                        setCardState("front");
+                                      }}
+                                      style={{
+                                        padding: "7px 14px",
+                                        fontSize: 12,
+                                        fontFamily: SANS,
+                                        background: t.inputBg,
+                                        border: "1px solid " + t.border1,
+                                        borderRadius: 8,
+                                        cursor: "pointer",
+                                        color: t.text2,
+                                      }}
+                                    >
+                                      📄 {fname.replace(/\.[^.]+$/, "")} ({qs.length}q)
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     }
@@ -32067,12 +35605,14 @@ Current student level: ${tierLabel}`;
 
                     const nSaved =
                       drillStats.mastered + drillStats.inprogress + drillStats.struggling;
+                    const originalQueueSize = drillOriginalQueueSizeRef.current || drillQueue.length || 1;
                     const drillProgressDenom = Math.max(
                       1,
                       drillSessionQuestionTarget != null
-                        ? Math.min(drillSessionQuestionTarget, drillQueue.length || 1)
-                        : drillQueue.length || 1
+                        ? Math.min(drillSessionQuestionTarget, originalQueueSize)
+                        : originalQueueSize
                     );
+                    const reQueuedCount = sessionReQueuedRef.current.size;
                     const blockObjsForLevels = (() => {
                       const ids = new Set(
                         (drillQueue || []).map((o) => o._drillBlockId || o.sourceBlock).filter(Boolean)
@@ -32129,7 +35669,7 @@ Current student level: ${tierLabel}`;
                               borderRadius: 6,
                               background: "#E24B4A",
                               color: "white",
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 12,
                               fontWeight: 600,
                               textAlign: "center",
@@ -32146,7 +35686,7 @@ Current student level: ${tierLabel}`;
                               borderRadius: 8,
                               background: t.inputBg,
                               border: "1px solid " + t.border1,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 13,
                               color: cbseSecLeft < 120 ? t.statusBad : t.text2,
                             }}
@@ -32163,7 +35703,7 @@ Current student level: ${tierLabel}`;
                               borderRadius: 8,
                               background: t.inputBg,
                               border: "1px solid " + t.border1,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 13,
                               color: examBlockSecondsLeft < 120 ? "#E24B4A" : t.text2,
                             }}
@@ -32183,10 +35723,84 @@ Current student level: ${tierLabel}`;
                           }}
                         >
                           <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                            <span style={{ fontFamily: MONO, fontSize: 13, color: t.text3 }}>
-                              {drillIndex + 1} / {drillProgressDenom}
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontFamily: SANS, fontSize: 13, color: t.text3 }}>
+                                {drillReviewSnapshot
+                                  ? `Q${(drillReviewSnapshot.histIdx ?? 0) + 1} / ${drillHistoryLen} (reviewing)`
+                                  : `${drillIndex + 1} / ${drillProgressDenom}`}
+                                {!drillReviewSnapshot && reQueuedCount > 0 && (
+                                  <span style={{ color: "#E24B4A", marginLeft: 5, fontSize: 11 }}>
+                                    +{reQueuedCount} retry
+                                  </span>
+                                )}
+                              </span>
+                              {/* Inline back/forward nav — always shown, disabled when no history */}
+                              {(() => {
+                                const histLen = drillHistoryLen;
+                                const inReview = !!drillReviewSnapshot;
+                                const reviewIdx = drillReviewSnapshot?.histIdx ?? 0;
+                                // Back: enabled if there's a previous item to step to.
+                                // - Not in review: enabled when history exists (jumps into review at last entry)
+                                // - In review: enabled when reviewIdx > 0
+                                const backEnabled = inReview ? reviewIdx > 0 : histLen > 0;
+                                const fwdEnabled = inReview; // forward only meaningful while reviewing
+                                const baseBtn = {
+                                  background: t.cardBg || t.inputBg || "transparent",
+                                  border: `1px solid ${t.border1}`,
+                                  borderRadius: 6,
+                                  padding: "6px 12px",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                  fontFamily: SANS,
+                                  fontWeight: 500,
+                                  color: t.text1,
+                                  lineHeight: 1,
+                                  minHeight: 32,
+                                };
+                                return (
+                                  <div style={{ display: "flex", gap: 4 }} title={histLen > 0 ? "Review previous questions" : "No previous questions yet"}>
+                                    <button
+                                      type="button"
+                                      disabled={!backEnabled}
+                                      onClick={() => {
+                                        const h = drillHistoryRef.current;
+                                        if (!h.length) return;
+                                        if (inReview) {
+                                          if (reviewIdx > 0) setDrillReviewSnapshot({ ...h[reviewIdx - 1], histIdx: reviewIdx - 1 });
+                                        } else {
+                                          // Enter review at last history item
+                                          setDrillReviewSnapshot({ ...h[h.length - 1], histIdx: h.length - 1 });
+                                        }
+                                      }}
+                                      style={{ ...baseBtn, opacity: backEnabled ? 1 : 0.35, cursor: backEnabled ? "pointer" : "not-allowed" }}
+                                      aria-label="Previous question"
+                                    >
+                                      ← Prev
+                                    </button>
+                                    <button
+                                      type="button"
+                                      disabled={!fwdEnabled}
+                                      onClick={() => {
+                                        const h = drillHistoryRef.current;
+                                        if (!inReview) return;
+                                        if (reviewIdx < h.length - 1) {
+                                          setDrillReviewSnapshot({ ...h[reviewIdx + 1], histIdx: reviewIdx + 1 });
+                                        } else {
+                                          setDrillReviewSnapshot(null); // exit review → back to current
+                                        }
+                                      }}
+                                      style={{ ...baseBtn, opacity: fwdEnabled ? 1 : 0.35, cursor: fwdEnabled ? "pointer" : "not-allowed" }}
+                                      aria-label={inReview && reviewIdx >= histLen - 1 ? "Return to current question" : "Next question"}
+                                    >
+                                      {inReview && reviewIdx >= histLen - 1 ? "↩ Resume" : "Next →"}
+                                    </button>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                            <span style={{ fontSize: 10, color: drillReviewSnapshot ? "#f59e0b" : "#639922", fontFamily: SANS }}>
+                              {drillReviewSnapshot ? "reviewing past question" : "✓ auto-saving"}
                             </span>
-                            <span style={{ fontSize: 10, color: "#639922", fontFamily: MONO }}>✓ auto-saving</span>
                           </div>
                           <div
                             style={{
@@ -32203,7 +35817,7 @@ Current student level: ${tierLabel}`;
                                 style={{
                                   fontSize: 11,
                                   color: "#639922",
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontWeight: 600,
                                 }}
                               >
@@ -32218,17 +35832,17 @@ Current student level: ${tierLabel}`;
                               </>
                             )}
                             {drillStats.mastered > 0 && (
-                              <span style={{ fontSize: 11, color: "#639922", fontFamily: MONO }}>
+                              <span style={{ fontSize: 11, color: "#639922", fontFamily: SANS }}>
                                 ✓ {drillStats.mastered} mastered
                               </span>
                             )}
                             {drillStats.struggling > 0 && (
-                              <span style={{ fontSize: 11, color: "#E24B4A", fontFamily: MONO }}>
+                              <span style={{ fontSize: 11, color: "#E24B4A", fontFamily: SANS }}>
                                 ⚠ {drillStats.struggling} struggling
                               </span>
                             )}
                             {drillStats.skipped > 0 && (
-                              <span style={{ fontSize: 11, color: t.text3, fontFamily: MONO }}>
+                              <span style={{ fontSize: 11, color: t.text3, fontFamily: SANS }}>
                                 → {drillStats.skipped} skipped
                               </span>
                             )}
@@ -32252,12 +35866,12 @@ Current student level: ${tierLabel}`;
                                 background: "transparent",
                                 color: "var(--color-text-secondary)",
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontWeight: 600,
                                 whiteSpace: "nowrap",
                               }}
                             >
-                              {drillStyle === "flashcard" ? "❓ MCQ · Switch to MCQ" : "🃏 Flashcard · Switch to Flashcard"}
+                              {drillStyle === "exam_block" ? "❓ MCQ · Switch to MCQ" : "🎯 Exam Block · Switch"}
                             </button>
                             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
                               <button
@@ -32269,7 +35883,7 @@ Current student level: ${tierLabel}`;
                                   border: "none",
                                   background: "transparent",
                                   cursor: "pointer",
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontWeight: 600,
                                 }}
                               >
@@ -32319,7 +35933,7 @@ Current student level: ${tierLabel}`;
                                 border: "0.5px solid #97C459",
                                 borderRadius: 6,
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               Yes, exit
@@ -32335,7 +35949,7 @@ Current student level: ${tierLabel}`;
                                 color: "var(--color-text-secondary)",
                                 borderRadius: 6,
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                               }}
                             >
                               Keep going
@@ -32370,18 +35984,11 @@ Current student level: ${tierLabel}`;
                             opacity: drillCardOpacity,
                             transition: "opacity 0.15s ease",
                           }}
-                          onClick={() => {
-                            if (drillStyle !== "flashcard") return;
-                            if (revealedCardKey !== currentObj?.id) {
-                              setRevealedCardKey(currentObj.id);
-                              revealedCardKeyRef.current = currentObj.id;
-                              generateCardAnswer(currentObj);
-                            }
-                          }}
+                          onClick={() => {}}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
                             {lecForCard && lecTypeBadge(lecForCard.lectureType || "LEC")}
-                            <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3 }}>
+                            <span style={{ fontFamily: SANS, fontSize: 11, color: t.text3 }}>
                               {lecForCard ? `${lecForCard.lectureType || "LEC"} ${lecForCard.lectureNumber ?? ""}` : "—"}
                             </span>
                             <span
@@ -32404,7 +36011,7 @@ Current student level: ${tierLabel}`;
                                 borderRadius: 20,
                                 background: bloomBg,
                                 color: bloomColor,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontWeight: 600,
                                 border: "0.5px solid " + bloomColor + "55",
                               }}
@@ -32418,7 +36025,7 @@ Current student level: ${tierLabel}`;
                                 borderRadius: 20,
                                 background: statusPill.bg,
                                 color: statusPill.color,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontWeight: 600,
                                 border: "0.5px solid " + (statusPill.bg === "transparent" ? t.border1 : statusPill.color + "55"),
                               }}
@@ -32650,7 +36257,7 @@ Current student level: ${tierLabel}`;
                               {displayCode ? (
                                 <div
                                   style={{
-                                    fontFamily: MONO,
+                                    fontFamily: SANS,
                                     fontSize: 10,
                                     color: "var(--color-text-tertiary)",
                                     marginTop: 8,
@@ -32693,7 +36300,7 @@ Current student level: ${tierLabel}`;
                                     background: "var(--color-background-secondary)",
                                     color: "var(--color-text-secondary)",
                                     cursor: "pointer",
-                                    fontFamily: MONO,
+                                    fontFamily: SANS,
                                     fontWeight: 600,
                                   }}
                                 >
@@ -32734,7 +36341,7 @@ Current student level: ${tierLabel}`;
                             </div>
                           )}
 
-                          {isMcq && drillCardMode === "mcq_ready" && mcqData && (
+                          {isMcq && drillCardMode === "mcq_ready" && mcqData && !drillReviewSnapshot && (
                             <div
                               style={{
                                 maxWidth: 900,
@@ -32777,11 +36384,107 @@ Current student level: ${tierLabel}`;
                                   );
                                 }
                                 // No lecture slide — auto-fetch from Wikimedia Commons
+                                // Show image upfront if question stem references it; otherwise reveal after answer
+                                const isAnswered = drillCardMode === "mcq_answered";
+                                const stemRefersToImage = /\b(x-ray|xray|radiograph|scan|image|figure|shown|depicted|illustrat|diagram)\b/i.test(stemRaw);
+                                const wikiKey = `${currentObj?.id}_r${currentObj?.questionRound ?? 0}`;
+                                if (dismissedWikimediaRef.current[wikiKey]) return null;
                                 return (
                                   <WikimediaImagePanel
                                     query={mcqData.visualSearchQuery || imagePromptDrill}
                                     fallbackLabel={imagePromptDrill}
+                                    occluded={!isAnswered && !stemRefersToImage}
+                                    onDismiss={() => {
+                                      dismissedWikimediaRef.current[wikiKey] = true;
+                                      setQuestionImagesVer(v => v + 1);
+                                    }}
                                   />
+                                );
+                              })()}
+                              {/* Manual image attachments — Supabase Storage */}
+                              {(() => {
+                                void questionImagesVer;
+                                const objId = currentObj?.id;
+                                const round = currentObj?.questionRound ?? 0;
+                                const cached = getQuestionImagesCache(objId, round);
+                                // On first render for this question, kick off a fetch
+                                if (cached === null && objId && currentUser?.id) {
+                                  fetchQuestionImages(currentUser.id, objId, round).then((imgs) => {
+                                    setQuestionImagesCache(objId, round, imgs);
+                                    setQuestionImagesVer(v => v + 1);
+                                  });
+                                  setQuestionImagesCache(objId, round, []); // prevent double-fetch
+                                }
+                                const attached = cached || [];
+                                return (
+                                  <div style={{ margin: "8px 0 4px" }}>
+                                    {attached.map((img, idx) => (
+                                      <div key={img.storagePath || idx} style={{ position: "relative", marginBottom: 8 }}>
+                                        <img
+                                          src={img.url}
+                                          alt={img.filename || `Attached image ${idx + 1}`}
+                                          style={{
+                                            width: "100%",
+                                            maxHeight: 340,
+                                            objectFit: "contain",
+                                            borderRadius: 10,
+                                            border: "1px solid var(--color-border-tertiary)",
+                                            display: "block",
+                                            background: "#f5f5f5",
+                                          }}
+                                        />
+                                        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", textAlign: "right", marginTop: 2, fontStyle: "italic" }}>{img.filename}</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            deleteQuestionImage(currentUser?.id, img.storagePath).then(() => {
+                                              const next = attached.filter((_, i) => i !== idx);
+                                              setQuestionImagesCache(objId, round, next);
+                                              setQuestionImagesVer(v => v + 1);
+                                            });
+                                          }}
+                                          style={{
+                                            position: "absolute", top: 6, right: 6,
+                                            background: "rgba(0,0,0,0.55)", color: "#fff",
+                                            border: "none", borderRadius: "50%",
+                                            width: 22, height: 22, cursor: "pointer",
+                                            fontSize: 12, lineHeight: "22px", padding: 0, textAlign: "center",
+                                          }}
+                                          title="Remove image"
+                                        >✕</button>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => questionImagesInputRef.current?.click()}
+                                      style={{
+                                        fontSize: 11, color: "var(--color-text-tertiary)",
+                                        background: "none", border: "1px dashed var(--color-border-tertiary)",
+                                        borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                                        display: "flex", alignItems: "center", gap: 5,
+                                      }}
+                                    >📎 Attach image · or paste (⌘V)</button>
+                                    <input
+                                      ref={questionImagesInputRef}
+                                      type="file"
+                                      accept="image/*"
+                                      multiple
+                                      style={{ display: "none" }}
+                                      onChange={(e) => {
+                                        const files = Array.from(e.target.files || []);
+                                        if (!files.length || !currentUser?.id) return;
+                                        // Upload each file, then refresh the cache
+                                        Promise.all(
+                                          files.map((file) => uploadQuestionImage(currentUser.id, objId, round, file))
+                                        ).then(() => {
+                                          // Invalidate cache so it re-fetches with fresh signed URLs
+                                          setQuestionImagesCache(objId, round, null);
+                                          setQuestionImagesVer(v => v + 1);
+                                        });
+                                        e.target.value = "";
+                                      }}
+                                    />
+                                  </div>
                                 );
                               })()}
                               <div
@@ -32909,7 +36612,7 @@ Current student level: ${tierLabel}`;
                                         color: isElim ? "var(--color-text-tertiary)" : "var(--color-text-primary)",
                                       }}
                                     >
-                                      {opt.text}
+                                      {renderMedText(opt.text)}
                                     </span>
                                     {lockedAnswer === null && (
                                       <button
@@ -33017,7 +36720,7 @@ Current student level: ${tierLabel}`;
                             </div>
                           )}
 
-                          {isMcq && drillCardMode === "mcq_answered" && mcqData && (
+                          {isMcq && drillCardMode === "mcq_answered" && mcqData && !drillReviewSnapshot && (
                             <div
                               style={{
                                 maxWidth: 900,
@@ -33060,11 +36763,107 @@ Current student level: ${tierLabel}`;
                                   );
                                 }
                                 // No lecture slide — auto-fetch from Wikimedia Commons
+                                // Show image upfront if question stem references it; otherwise reveal after answer
+                                const isAnswered = drillCardMode === "mcq_answered";
+                                const stemRefersToImage = /\b(x-ray|xray|radiograph|scan|image|figure|shown|depicted|illustrat|diagram)\b/i.test(stemRaw);
+                                const wikiKey = `${currentObj?.id}_r${currentObj?.questionRound ?? 0}`;
+                                if (dismissedWikimediaRef.current[wikiKey]) return null;
                                 return (
                                   <WikimediaImagePanel
                                     query={mcqData.visualSearchQuery || imagePromptDrill}
                                     fallbackLabel={imagePromptDrill}
+                                    occluded={!isAnswered && !stemRefersToImage}
+                                    onDismiss={() => {
+                                      dismissedWikimediaRef.current[wikiKey] = true;
+                                      setQuestionImagesVer(v => v + 1);
+                                    }}
                                   />
+                                );
+                              })()}
+                              {/* Manual image attachments — Supabase Storage */}
+                              {(() => {
+                                void questionImagesVer;
+                                const objId = currentObj?.id;
+                                const round = currentObj?.questionRound ?? 0;
+                                const cached = getQuestionImagesCache(objId, round);
+                                // On first render for this question, kick off a fetch
+                                if (cached === null && objId && currentUser?.id) {
+                                  fetchQuestionImages(currentUser.id, objId, round).then((imgs) => {
+                                    setQuestionImagesCache(objId, round, imgs);
+                                    setQuestionImagesVer(v => v + 1);
+                                  });
+                                  setQuestionImagesCache(objId, round, []); // prevent double-fetch
+                                }
+                                const attached = cached || [];
+                                return (
+                                  <div style={{ margin: "8px 0 4px" }}>
+                                    {attached.map((img, idx) => (
+                                      <div key={img.storagePath || idx} style={{ position: "relative", marginBottom: 8 }}>
+                                        <img
+                                          src={img.url}
+                                          alt={img.filename || `Attached image ${idx + 1}`}
+                                          style={{
+                                            width: "100%",
+                                            maxHeight: 340,
+                                            objectFit: "contain",
+                                            borderRadius: 10,
+                                            border: "1px solid var(--color-border-tertiary)",
+                                            display: "block",
+                                            background: "#f5f5f5",
+                                          }}
+                                        />
+                                        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", textAlign: "right", marginTop: 2, fontStyle: "italic" }}>{img.filename}</div>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            deleteQuestionImage(currentUser?.id, img.storagePath).then(() => {
+                                              const next = attached.filter((_, i) => i !== idx);
+                                              setQuestionImagesCache(objId, round, next);
+                                              setQuestionImagesVer(v => v + 1);
+                                            });
+                                          }}
+                                          style={{
+                                            position: "absolute", top: 6, right: 6,
+                                            background: "rgba(0,0,0,0.55)", color: "#fff",
+                                            border: "none", borderRadius: "50%",
+                                            width: 22, height: 22, cursor: "pointer",
+                                            fontSize: 12, lineHeight: "22px", padding: 0, textAlign: "center",
+                                          }}
+                                          title="Remove image"
+                                        >✕</button>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => questionImagesInputRef.current?.click()}
+                                      style={{
+                                        fontSize: 11, color: "var(--color-text-tertiary)",
+                                        background: "none", border: "1px dashed var(--color-border-tertiary)",
+                                        borderRadius: 6, padding: "4px 10px", cursor: "pointer",
+                                        display: "flex", alignItems: "center", gap: 5,
+                                      }}
+                                    >📎 Attach image · or paste (⌘V)</button>
+                                    <input
+                                      ref={questionImagesInputRef}
+                                      type="file"
+                                      accept="image/*"
+                                      multiple
+                                      style={{ display: "none" }}
+                                      onChange={(e) => {
+                                        const files = Array.from(e.target.files || []);
+                                        if (!files.length || !currentUser?.id) return;
+                                        // Upload each file, then refresh the cache
+                                        Promise.all(
+                                          files.map((file) => uploadQuestionImage(currentUser.id, objId, round, file))
+                                        ).then(() => {
+                                          // Invalidate cache so it re-fetches with fresh signed URLs
+                                          setQuestionImagesCache(objId, round, null);
+                                          setQuestionImagesVer(v => v + 1);
+                                        });
+                                        e.target.value = "";
+                                      }}
+                                    />
+                                  </div>
                                 );
                               })()}
                               <div
@@ -33198,7 +36997,7 @@ Current student level: ${tierLabel}`;
                                           color: "var(--color-text-primary)",
                                         }}
                                       >
-                                        {opt.text}
+                                        {renderMedText(opt.text)}
                                       </span>
                                     </div>
 
@@ -33218,7 +37017,7 @@ Current student level: ${tierLabel}`;
                                           ✓ Correct
                                         </div>
                                         <div style={{ color: "var(--color-text-primary)", lineHeight: 1.6 }}>
-                                          {mcqData.overallExplanation}
+                                          {renderMedText(mcqData.overallExplanation)}
                                         </div>
                                         {mcqData.teachingPoint && (
                                           <div
@@ -33233,7 +37032,7 @@ Current student level: ${tierLabel}`;
                                               lineHeight: 1.5,
                                             }}
                                           >
-                                            💡 <strong>Teaching point:</strong> {mcqData.teachingPoint}
+                                            💡 <strong>Teaching point:</strong> {renderMedText(mcqData.teachingPoint)}
                                           </div>
                                         )}
                                       </div>
@@ -33261,7 +37060,7 @@ Current student level: ${tierLabel}`;
                                           {letters[i]} — Why this is wrong:
                                         </span>
                                         <span style={{ color: "var(--color-text-primary)", marginLeft: 6 }}>
-                                          {opt.whyWrong}
+                                          {renderMedText(opt.whyWrong)}
                                         </span>
                                         {chunkText && (
                                           <div
@@ -33421,7 +37220,7 @@ Current student level: ${tierLabel}`;
                                           background: "transparent",
                                           color: "var(--color-text-tertiary)",
                                           cursor: "pointer",
-                                          fontFamily: MONO,
+                                          fontFamily: SANS,
                                         }}
                                       >
                                         + Write out your reasoning (optional)
@@ -33473,6 +37272,89 @@ Current student level: ${tierLabel}`;
                                   </div>
                                 )}
 
+                              {/* ── Study Resources Panel ── */}
+                              {(() => {
+                                void questionNotesVer;
+                                const objId = currentObj?.id;
+                                const notes = getQuestionNotes(objId);
+                                const hasContent = notes.note?.trim() || notes.links?.length > 0;
+                                return (
+                                  <div style={{ marginTop: 10, borderRadius: 8, border: "0.5px solid var(--color-border-tertiary)", overflow: "hidden" }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => setQuestionNotesOpen(v => !v)}
+                                      style={{
+                                        width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between",
+                                        padding: "8px 12px", background: "var(--color-background-secondary)",
+                                        border: "none", cursor: "pointer", fontSize: 11, color: "var(--color-text-secondary)",
+                                        fontWeight: 600,
+                                      }}
+                                    >
+                                      <span>📚 Study resources {hasContent ? `· ${[notes.note?.trim() ? "note" : null, notes.links?.length > 0 ? `${notes.links.length} link${notes.links.length > 1 ? "s" : ""}` : null].filter(Boolean).join(", ")}` : "· add notes or links"}</span>
+                                      <span style={{ fontSize: 10 }}>{questionNotesOpen ? "▲" : "▼"}</span>
+                                    </button>
+                                    {questionNotesOpen && (
+                                      <div style={{ padding: "10px 12px", background: "var(--color-background-primary)" }}>
+                                        {/* Note textarea */}
+                                        <div style={{ fontSize: 10, color: "var(--color-text-tertiary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Your notes for this question</div>
+                                        <textarea
+                                          value={notes.note || ""}
+                                          onChange={(e) => {
+                                            const next = { ...notes, note: e.target.value };
+                                            saveQuestionNotes(objId, next);
+                                            setQuestionNotesVer(v => v + 1);
+                                          }}
+                                          placeholder="Mnemonics, clarifications, things to remember..."
+                                          style={{
+                                            width: "100%", minHeight: 70, fontSize: 12, lineHeight: 1.5,
+                                            padding: "7px 9px", border: "0.5px solid var(--color-border-secondary)",
+                                            borderRadius: 6, background: "var(--color-background-secondary)",
+                                            color: "var(--color-text-primary)", resize: "vertical",
+                                            fontFamily: "var(--font-sans, system-ui)",
+                                            boxSizing: "border-box",
+                                          }}
+                                        />
+                                        {/* Links */}
+                                        <div style={{ marginTop: 8 }}>
+                                          {(notes.links || []).map((link, i) => (
+                                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                                              <a href={link.url} target="_blank" rel="noopener noreferrer"
+                                                style={{ flex: 1, fontSize: 12, color: "#2563eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                🔗 {link.label || link.url}
+                                              </a>
+                                              <button type="button" onClick={() => {
+                                                const next = { ...notes, links: (notes.links || []).filter((_, j) => j !== i) };
+                                                saveQuestionNotes(objId, next);
+                                                setQuestionNotesVer(v => v + 1);
+                                              }} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-tertiary)", fontSize: 11 }}>✕</button>
+                                            </div>
+                                          ))}
+                                          <AddLinkRow onAdd={(url, label) => {
+                                            const next = { ...notes, links: [...(notes.links || []), { url, label }] };
+                                            saveQuestionNotes(objId, next);
+                                            setQuestionNotesVer(v => v + 1);
+                                          }} />
+                                        </div>
+                                        {/* Deep Learn shortcut */}
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            window.dispatchEvent(new CustomEvent("rxt-launch-deeplearn", {
+                                              detail: { lecId: currentObj?.linkedLecId || lecForCard?.id, blockId: drillBid, targetObjective: currentObj?.id },
+                                            }));
+                                          }}
+                                          style={{
+                                            marginTop: 10, width: "100%", padding: "6px 0", fontSize: 11,
+                                            background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6,
+                                            color: "#dc2626", cursor: "pointer", fontWeight: 600,
+                                          }}
+                                        >🧠 Open in Deep Learn → study this objective</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
+
                               <div style={{ marginTop: 12 }}>
                                 <div
                                   style={{
@@ -33500,7 +37382,7 @@ Current student level: ${tierLabel}`;
                                         : "0.5px solid #F09595",
                                       borderRadius: 8,
                                       cursor: "pointer",
-                                      fontFamily: MONO,
+                                      fontFamily: SANS,
                                       opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 0.5 : 1,
                                     }}
                                   >
@@ -33517,7 +37399,7 @@ Current student level: ${tierLabel}`;
                                       border: "0.5px solid var(--color-border-tertiary)",
                                       borderRadius: 8,
                                       cursor: "pointer",
-                                      fontFamily: MONO,
+                                      fontFamily: SANS,
                                     }}
                                   >
                                     △ Partially
@@ -33535,7 +37417,7 @@ Current student level: ${tierLabel}`;
                                         : "0.5px solid var(--color-border-tertiary)",
                                       borderRadius: 8,
                                       cursor: "pointer",
-                                      fontFamily: MONO,
+                                      fontFamily: SANS,
                                       opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 1 : 0.5,
                                     }}
                                   >
@@ -33543,8 +37425,103 @@ Current student level: ${tierLabel}`;
                                   </button>
                                 </div>
                               </div>
+                              {/* ← Back navigation */}
+                              {/* Back nav is now in the header counter row */}
                             </div>
                           )}
+
+                          {/* Review panel — full replacement view when user navigates back through history */}
+                          {drillReviewSnapshot && (() => {
+                            const rev = drillReviewSnapshot;
+                            const revMcq = rev.mcqData;
+                            const revSel = rev.selectedAnswer;
+                            const revObj = rev.obj;
+                            const hist = drillHistoryRef.current;
+                            const histIdx = rev.histIdx ?? (hist.length - 1);
+                            return (
+                              <div style={{ maxWidth: 900, margin: "0 auto", padding: "0 24px 24px" }}>
+                                {/* Reviewing banner — sticks out so user knows this is not the current question */}
+                                <div style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  gap: 12,
+                                  background: "#FEF3C7",
+                                  border: "1px solid #F59E0B",
+                                  borderRadius: 10,
+                                  padding: "10px 14px",
+                                  marginBottom: 16,
+                                  fontFamily: SANS,
+                                }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                                    <span style={{ fontSize: 14, fontWeight: 600, color: "#78350F" }}>
+                                      👁 Reviewing past question
+                                    </span>
+                                    <span style={{ fontSize: 12, color: "#92400E" }}>
+                                      Q{histIdx + 1} of {hist.length}
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDrillReviewSnapshot(null)}
+                                    style={{
+                                      ...btnStyles.secondary(t),
+                                      borderColor: "#F59E0B",
+                                      color: "#78350F",
+                                      background: "#fff",
+                                    }}
+                                  >
+                                    ↩ Back to current question
+                                  </button>
+                                </div>
+                                {/* Lecture badge */}
+                                <div style={{ fontSize: 12, color: t.text3, fontFamily: SANS, marginBottom: 12 }}>
+                                  {revObj?.lectureTitle || revObj?.fileName || "Past question"}
+                                </div>
+                                {/* Question + options */}
+                                <div style={{ maxWidth: 900, margin: "0 auto", padding: "16px 24px" }}>
+                                  <div style={{ fontWeight: 600, fontSize: "clamp(16px,2vw,20px)", lineHeight: 1.5, color: t.text1, marginBottom: 20 }}>
+                                    {renderMedText(stripImageTagFromStem(revMcq?.question || ""))}
+                                  </div>
+                                  {(revMcq?.options || []).map((opt, i) => {
+                                    const letters = ["A","B","C","D"];
+                                    const isSel = revSel === i;
+                                    const isCorrect = opt.correct;
+                                    let bg = "var(--color-background-primary)";
+                                    let border = "0.5px solid var(--color-border-tertiary)";
+                                    if (isCorrect && isSel) { bg = "#EAF3DE"; border = "1.5px solid #639922"; }
+                                    else if (isCorrect) { border = "1.5px solid #639922"; }
+                                    else if (isSel) { bg = "#FCEBEB"; border = "1.5px solid #E24B4A"; }
+                                    const icon = isCorrect ? "✓" : isSel ? "✗" : letters[i];
+                                    const iconBg = isCorrect ? "#639922" : isSel ? "#E24B4A" : "var(--color-background-secondary)";
+                                    return (
+                                      <div key={i} style={{ marginBottom: 10 }}>
+                                        <div style={{ background: bg, border, borderRadius: isCorrect || isSel ? "10px 10px 0 0" : 10, padding: "14px 18px", display: "flex", gap: 10, alignItems: "center", opacity: (!isCorrect && !isSel) ? 0.6 : 1 }}>
+                                          <div style={{ width: 28, height: 28, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: iconBg, color: (isCorrect || isSel) ? "#fff" : "var(--color-text-tertiary)", flexShrink: 0, fontSize: 13, fontFamily: SANS }}>
+                                            {icon}
+                                          </div>
+                                          <span style={{ flex: 1, fontSize: "clamp(14px,1.6vw,17px)", color: "var(--color-text-primary)" }}>{renderMedText(opt.text)}</span>
+                                        </div>
+                                        {isCorrect && (
+                                          <div style={{ padding: "10px 16px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderTop: "none", borderRadius: "0 0 10px 10px", fontSize: 14, lineHeight: 1.6 }}>
+                                            <div style={{ fontWeight: 700, color: "#16a34a", marginBottom: 6 }}>✓ Correct</div>
+                                            <div style={{ color: "var(--color-text-primary)" }}>{renderMedText(revMcq.overallExplanation)}</div>
+                                            {revMcq.teachingPoint && <div style={{ marginTop: 8, padding: "8px 12px", background: "#dbeafe", borderRadius: 6, borderLeft: "3px solid #2563eb", color: "#1e40af", fontSize: 13 }}>💡 <strong>Teaching point:</strong> {renderMedText(revMcq.teachingPoint)}</div>}
+                                          </div>
+                                        )}
+                                        {!isCorrect && isSel && opt.whyWrong && (
+                                          <div style={{ padding: "8px 16px", background: "#fef2f2", border: "1px solid #fecaca", borderTop: "none", borderRadius: "0 0 10px 10px", fontSize: 13, lineHeight: 1.5 }}>
+                                            <span style={{ fontWeight: 700, color: "#dc2626" }}>{letters[i]} — Why this is wrong: </span>
+                                            <span>{renderMedText(opt.whyWrong)}</span>
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            );
+                          })()}
 
                           <div
                             style={{
@@ -33653,7 +37630,7 @@ Current student level: ${tierLabel}`;
                                           border: "0.5px solid #F09595",
                                           borderRadius: 8,
                                           cursor: "pointer",
-                                          fontFamily: MONO,
+                                          fontFamily: SANS,
                                           fontWeight: 600,
                                         }}
                                       >
@@ -33670,7 +37647,7 @@ Current student level: ${tierLabel}`;
                                           border: "0.5px solid #EF9F27",
                                           borderRadius: 8,
                                           cursor: "pointer",
-                                          fontFamily: MONO,
+                                          fontFamily: SANS,
                                           fontWeight: 600,
                                         }}
                                       >
@@ -33687,7 +37664,7 @@ Current student level: ${tierLabel}`;
                                           border: "0.5px solid #97C459",
                                           borderRadius: 8,
                                           cursor: "pointer",
-                                          fontFamily: MONO,
+                                          fontFamily: SANS,
                                           fontWeight: 600,
                                         }}
                                       >
@@ -33710,7 +37687,7 @@ Current student level: ${tierLabel}`;
                                             background: "transparent",
                                             color: "var(--color-text-secondary)",
                                             cursor: "pointer",
-                                            fontFamily: MONO,
+                                            fontFamily: SANS,
                                           }}
                                         >
                                           ❓ Test me with a question instead
@@ -34482,7 +38459,7 @@ Current student level: ${tierLabel}`;
                                                 background: "transparent",
                                                 color: "var(--color-text-tertiary)",
                                                 cursor: "pointer",
-                                                fontFamily: MONO,
+                                                fontFamily: SANS,
                                               }}
                                             >
                                               + Write out your reasoning (optional)
@@ -34561,7 +38538,7 @@ Current student level: ${tierLabel}`;
                                               : "0.5px solid #F09595",
                                             borderRadius: 8,
                                             cursor: "pointer",
-                                            fontFamily: MONO,
+                                            fontFamily: SANS,
                                             opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 0.5 : 1,
                                           }}
                                         >
@@ -34578,7 +38555,7 @@ Current student level: ${tierLabel}`;
                                             border: "0.5px solid var(--color-border-tertiary)",
                                             borderRadius: 8,
                                             cursor: "pointer",
-                                            fontFamily: MONO,
+                                            fontFamily: SANS,
                                           }}
                                         >
                                           △ Partially
@@ -34596,7 +38573,7 @@ Current student level: ${tierLabel}`;
                                               : "0.5px solid var(--color-border-tertiary)",
                                             borderRadius: 8,
                                             cursor: "pointer",
-                                            fontFamily: MONO,
+                                            fontFamily: SANS,
                                             opacity: mcqData.options[mcqData.selectedIndex]?.correct ? 1 : 0.5,
                                           }}
                                         >
@@ -34761,7 +38738,7 @@ Current student level: ${tierLabel}`;
                                 border: "1px solid #e2e8f0",
                                 padding: 16,
                                 zIndex: 9999,
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 12,
                               }}
                             >
@@ -34869,7 +38846,7 @@ Current student level: ${tierLabel}`;
                                       color: "#475569",
                                       fontSize: 11,
                                       cursor: "pointer",
-                                      fontFamily: MONO,
+                                      fontFamily: SANS,
                                     }}
                                   >
                                     📝 Save to objective notes
@@ -34891,7 +38868,7 @@ Current student level: ${tierLabel}`;
                               borderRadius: 8,
                               background: "#1e293b",
                               color: "#f8fafc",
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               fontSize: 12,
                               boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
                             }}
@@ -34954,7 +38931,7 @@ Current student level: ${tierLabel}`;
                             <div>
                               <div
                                 style={{
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                   fontSize: 10,
                                   color: t.text3,
                                   letterSpacing: 1.2,
@@ -34989,7 +38966,7 @@ Current student level: ${tierLabel}`;
                           </div>
                           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                             {peekObjs.length === 0 ? (
-                              <div style={{ fontSize: 13, color: t.text2, fontFamily: MONO, lineHeight: 1.5 }}>
+                              <div style={{ fontSize: 13, color: t.text2, fontFamily: SANS, lineHeight: 1.5 }}>
                                 No objectives linked to this lecture in this block. Assign objectives from the
                                 Objectives tab after closing drill.
                               </div>
@@ -35013,7 +38990,7 @@ Current student level: ${tierLabel}`;
                                     {isHi && (
                                       <div
                                         style={{
-                                          fontFamily: MONO,
+                                          fontFamily: SANS,
                                           fontSize: 10,
                                           color: tc,
                                           marginBottom: 6,
@@ -35048,7 +39025,7 @@ Current student level: ${tierLabel}`;
                                 background: "transparent",
                                 color: t.text2,
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 12,
                               }}
                             >
@@ -35073,7 +39050,7 @@ Current student level: ${tierLabel}`;
                                 background: tc,
                                 color: "#fff",
                                 cursor: "pointer",
-                                fontFamily: MONO,
+                                fontFamily: SANS,
                                 fontSize: 12,
                                 fontWeight: 600,
                               }}
@@ -35086,7 +39063,7 @@ Current student level: ${tierLabel}`;
                               fontSize: 10,
                               color: t.text3,
                               marginTop: 10,
-                              fontFamily: MONO,
+                              fontFamily: SANS,
                               textAlign: "center",
                             }}
                           >
@@ -35101,7 +39078,7 @@ Current student level: ${tierLabel}`;
               {tab==="analysis" && (
                 <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
                   <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                    <p style={{ fontFamily:MONO, color:t.text4, fontSize:12 }}>AI study plan based on your block performance.</p>
+                    <p style={{ fontFamily:SANS, color:t.text4, fontSize:12 }}>AI study plan based on your block performance.</p>
                     <Btn onClick={runAnalysis} color={tc} disabled={aLoading}>{aLoading?"Analyzing…":"↺ Run Analysis"}</Btn>
                   </div>
                   {analyses[blockId] ? (
@@ -35110,11 +39087,11 @@ Current student level: ${tierLabel}`;
                     </div>
                   ) : (
                     <div style={{ ...CARD, border:"1px dashed " + t.border2, padding:50, textAlign:"center" }}>
-                      <p style={{ fontFamily:MONO, color:t.text4, fontSize:12 }}>Complete sessions, then run analysis for a personalized study plan.</p>
+                      <p style={{ fontFamily:SANS, color:t.text4, fontSize:12 }}>Complete sessions, then run analysis for a personalized study plan.</p>
                     </div>
                   )}
                   <div style={{ marginBottom: 24, padding: 16, background: t.inputBg, border: "1px solid " + t.border1, borderRadius: 10 }}>
-                    <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 10 }}>QUESTION STYLE PREFERENCES</div>
+                    <div style={{ fontFamily: SANS, color: t.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 10 }}>QUESTION STYLE PREFERENCES</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: "12px 20px" }}>
                       {[
                         { key: "longStems", label: "Long stems" },
@@ -35123,7 +39100,7 @@ Current student level: ${tierLabel}`;
                         { key: "firstAid", label: "First Aid references" },
                         { key: "explainWrong", label: "Explain wrong answers" },
                       ].map(({ key, label }) => (
-                        <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: MONO, fontSize: 12, color: t.text2, cursor: "pointer" }}>
+                        <label key={key} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: SANS, fontSize: 12, color: t.text2, cursor: "pointer" }}>
                           <input type="checkbox" checked={!!stylePrefs[key]} onChange={(e) => updateStylePref(key, e.target.checked)} />
                           {label}
                         </label>
@@ -35177,7 +39154,7 @@ Current student level: ${tierLabel}`;
 
                     return (
                       <div style={{ marginBottom: 24 }}>
-                        <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 12 }}>
+                        <div style={{ fontFamily: SANS, color: t.text3, fontSize: 9, letterSpacing: 1.5, marginBottom: 12 }}>
                           LECTURE PERFORMANCE
                         </div>
                         {lecData.map(({ lec, pct, mastered, struggling, untested, total, sessions, lastScore, lastStudied, status }) => (
@@ -35248,7 +39225,7 @@ Current student level: ${tierLabel}`;
                                 {lecTypeBadge(lec.lectureType || "LEC")}
                                 <span
                                   style={{
-                                    fontFamily: MONO,
+                                    fontFamily: SANS,
                                     color: t.text1,
                                     fontSize: 12,
                                     fontWeight: 700,
@@ -35263,22 +39240,22 @@ Current student level: ${tierLabel}`;
                               <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
                                 {total > 0 && (
                                   <>
-                                    <span style={{ fontFamily: MONO, color: t.statusGood, fontSize: 10 }}>✓ {mastered}/{total} obj</span>
+                                    <span style={{ fontFamily: SANS, color: t.statusGood, fontSize: 10 }}>✓ {mastered}/{total} obj</span>
                                     {struggling > 0 && (
-                                      <span style={{ fontFamily: MONO, color: t.statusBad, fontSize: 10 }}>⚠ {struggling} struggling</span>
+                                      <span style={{ fontFamily: SANS, color: t.statusBad, fontSize: 10 }}>⚠ {struggling} struggling</span>
                                     )}
                                     {untested > 0 && (
-                                      <span style={{ fontFamily: MONO, color: t.statusNeutral, fontSize: 10 }}>○ {untested} untested</span>
+                                      <span style={{ fontFamily: SANS, color: t.statusNeutral, fontSize: 10 }}>○ {untested} untested</span>
                                     )}
                                   </>
                                 )}
                                 {sessions > 0 && (
-                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
+                                  <span style={{ fontFamily: SANS, color: t.text3, fontSize: 10 }}>
                                     {sessions} session{sessions !== 1 ? "s" : ""}
                                   </span>
                                 )}
                                 {lastStudied && (
-                                  <span style={{ fontFamily: MONO, color: t.text3, fontSize: 10 }}>
+                                  <span style={{ fontFamily: SANS, color: t.text3, fontSize: 10 }}>
                                     last {new Date(lastStudied).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                                   </span>
                                 )}
@@ -35288,7 +39265,7 @@ Current student level: ${tierLabel}`;
                               {lastScore != null && (
                                 <div
                                   style={{
-                                    fontFamily: MONO,
+                                    fontFamily: SANS,
                                     fontWeight: 900,
                                     fontSize: 16,
                                     color:
@@ -35330,7 +39307,7 @@ Current student level: ${tierLabel}`;
                                   }}
                                 />
                               </div>
-                              <div style={{ fontFamily: MONO, color: t.text3, fontSize: 9, marginTop: 2 }}>{pct}% done</div>
+                              <div style={{ fontFamily: SANS, color: t.text3, fontSize: 9, marginTop: 2 }}>{pct}% done</div>
                             </div>
                           </div>
                         ))}
@@ -35364,17 +39341,17 @@ Current student level: ${tierLabel}`;
                         { label:"Trend", val:trend, color:trend.includes("Improving") ? t.green : trend.includes("Declining") ? t.red : t.text3 },
                       ].map(kpi => (
                         <div key={kpi.label} style={{ flex:"1 1 100px", background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"14px 16px", textAlign:"center" }}>
-                          <div style={{ fontFamily:MONO, color:kpi.color, fontSize:20, fontWeight:900, display:"inline-flex", alignItems:"center", gap:6 }}>
+                          <div style={{ fontFamily:SANS, color:kpi.color, fontSize:20, fontWeight:900, display:"inline-flex", alignItems:"center", gap:6 }}>
                             {kpi.dot ? <span style={{ width:7, height:7, borderRadius:"50%", background:"#E24B4A", display:"inline-block" }} /> : null}
                             {kpi.val}
                           </div>
-                          <div style={{ fontFamily:MONO, color:t.text3, fontSize:10, marginTop:3 }}>{kpi.label}</div>
+                          <div style={{ fontFamily:SANS, color:t.text3, fontSize:10, marginTop:3 }}>{kpi.label}</div>
                         </div>
                       ))}
                     </div>
                     {chartSessions.length >= 2 && (
                       <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
-                        <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>SCORE HISTORY</div>
+                        <div style={{ fontFamily:SANS, color:t.text3, fontSize:9, letterSpacing:1.5, marginBottom:12 }}>SCORE HISTORY</div>
                         <svg width="100%" height="60" style={{ overflow:"visible" }}>
                           {chartSessions.slice(-12).map((s, i, arr) => {
                             const x = (i / (arr.length-1||1)) * 100;
@@ -35388,7 +39365,7 @@ Current student level: ${tierLabel}`;
                                   return <line x1={px+"%"} y1={py} x2={x+"%"} y2={y} stroke={t.border1} strokeWidth="2"/>;
                                 })()}
                                 <circle cx={x+"%"} cy={y} r="5" fill={c}/>
-                                <text x={x+"%"} y={y-10} textAnchor="middle" style={{fontFamily:MONO,fontSize:9,fill:t.text3}}>{s.score}%</text>
+                                <text x={x+"%"} y={y-10} textAnchor="middle" style={{fontFamily:SANS,fontSize:9,fill:t.text3}}>{s.score}%</text>
                               </g>
                             );
                           })}
@@ -35397,8 +39374,8 @@ Current student level: ${tierLabel}`;
                     )}
                     <div style={{ background:t.cardBg, border:"1px solid "+t.border1, borderRadius:12, padding:"16px 20px" }}>
                       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
-                        <div style={{ fontFamily:MONO, color:t.text3, fontSize:9, letterSpacing:1.5 }}>OBJECTIVE MASTERY</div>
-                        <div style={{ fontFamily:MONO, color:tc, fontSize:12, fontWeight:700 }}>{totalObjs ? Math.round(masteredObjs/Math.max(totalObjs,1)*100) : 0}% mastered</div>
+                        <div style={{ fontFamily:SANS, color:t.text3, fontSize:9, letterSpacing:1.5 }}>OBJECTIVE MASTERY</div>
+                        <div style={{ fontFamily:SANS, color:tc, fontSize:12, fontWeight:700 }}>{totalObjs ? Math.round(masteredObjs/Math.max(totalObjs,1)*100) : 0}% mastered</div>
                       </div>
                       <div style={{ height:12, borderRadius:6, overflow:"hidden", display:"flex", marginBottom:10 }}>
                         {[{val:masteredObjs, color:t.green},{val:inprogressObjs, color:t.amber},{val:strugglingObjs, color:t.red},{val:untestedObjs, color:t.border1}].map((s,i) => (
@@ -35409,8 +39386,8 @@ Current student level: ${tierLabel}`;
                         {[{label:"Mastered", val:masteredObjs, color:t.green},{label:"In Progress", val:inprogressObjs, color:t.amber},{label:"Struggling", val:strugglingObjs, color:t.red},{label:"Untested", val:untestedObjs, color:t.text3}].map(s => (
                           <div key={s.label} style={{display:"flex",alignItems:"center",gap:5}}>
                             <div style={{width:8,height:8,borderRadius:2,background:s.color}}/>
-                            <span style={{fontFamily:MONO,color:s.color,fontSize:13,fontWeight:700}}>{s.val}</span>
-                            <span style={{fontFamily:MONO,color:t.text3,fontSize:10}}>{s.label}</span>
+                            <span style={{fontFamily:SANS,color:s.color,fontSize:13,fontWeight:700}}>{s.val}</span>
+                            <span style={{fontFamily:SANS,color:t.text3,fontSize:10}}>{s.label}</span>
                           </div>
                         ))}
                       </div>
@@ -35453,7 +39430,7 @@ Current student level: ${tierLabel}`;
                           cursor: "pointer",
                           fontWeight: 600,
                           fontSize: 13,
-                          fontFamily: MONO,
+                          fontFamily: SANS,
                         }}
                       >
                         + Add Exam Result
@@ -35599,7 +39576,7 @@ Current student level: ${tierLabel}`;
                                   color: t.text3,
                                   letterSpacing: "0.05em",
                                   marginBottom: 8,
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                 }}
                               >
                                 WEAK AREAS ({result.weakAreas.length})
@@ -35634,7 +39611,7 @@ Current student level: ${tierLabel}`;
                                   cursor: "pointer",
                                   fontSize: 13,
                                   fontWeight: 600,
-                                  fontFamily: MONO,
+                                  fontFamily: SANS,
                                 }}
                               >
                                 🎯 Drill these weak areas →
@@ -35652,7 +39629,7 @@ Current student level: ${tierLabel}`;
 
           {view==="block" && !activeBlock && (
             <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"60vh" }}>
-              <p style={{ fontFamily:MONO, color:t.text4, fontSize:13 }}>Select a block from the sidebar.</p>
+              <p style={{ fontFamily:SANS, color:t.text4, fontSize:13 }}>Select a block from the sidebar.</p>
             </div>
           )}
 
@@ -35660,9 +39637,152 @@ Current student level: ${tierLabel}`;
           {view==="analytics" && (
             <div style={{ padding:"30px 32px", display:"flex", flexDirection:"column", gap:24 }}>
               <h1 style={{ fontFamily:SERIF, fontSize:30, fontWeight:900, letterSpacing:-1, color:t.text1 }}>Global <span style={{ color:t.purple }}>Analytics</span></h1>
+
+              {/* Confidence calibration — how well your gut matches reality */}
+              {(() => {
+                const calibEntries = (() => {
+                  try { return JSON.parse(localStorage.getItem("rxt-calibration") || "[]"); } catch { return []; }
+                })();
+                const c = computeCalibration(calibEntries);
+                const empty = c.total === 0;
+                const bucketCard = (b, label, accent) => (
+                  <div key={label} style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 10, padding: "12px 14px", flex: 1, minWidth: 160 }}>
+                    <div style={{ fontSize: 11, color: t.text3, fontWeight: 700, letterSpacing: 0.6, marginBottom: 4, fontFamily: SANS }}>
+                      {label.toUpperCase()} CONFIDENCE
+                    </div>
+                    {b.accuracy == null ? (
+                      <div style={{ fontSize: 13, color: t.text3, fontFamily: SANS }}>No data yet</div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                          <span style={{ fontFamily: SERIF, fontSize: 24, fontWeight: 900, color: accent }}>{b.accuracy}%</span>
+                          <span style={{ fontFamily: SANS, fontSize: 11, color: t.text3 }}>actual</span>
+                        </div>
+                        <div style={{ fontFamily: SANS, fontSize: 11, color: t.text3, marginTop: 2 }}>
+                          Target ~{b.expected}% · {b.gap > 0 ? "+" : ""}{b.gap} gap
+                        </div>
+                        <div style={{ fontFamily: SANS, fontSize: 11, color: t.text3, marginTop: 4 }}>
+                          {b.correct}/{b.n} correct
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+                const trendDelta =
+                  c.trend.lastWeek?.score != null && c.trend.priorWeek?.score != null
+                    ? c.trend.lastWeek.score - c.trend.priorWeek.score
+                    : null;
+                return (
+                  <div style={{ background: t.surface || t.cardBg, border: "1px solid " + t.border2, borderRadius: 14, padding: "20px 22px" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+                      <h2 style={{ fontFamily: SERIF, fontSize: 20, fontWeight: 800, margin: 0, color: t.text1 }}>
+                        🎯 Confidence Calibration
+                      </h2>
+                      {!empty && (
+                        <span style={{ fontFamily: SANS, fontSize: 12, color: t.text3 }}>
+                          {c.total} rated answers · {c.overall}% overall
+                        </span>
+                      )}
+                    </div>
+                    {empty ? (
+                      <div style={{ fontFamily: SANS, fontSize: 13, color: t.text3 }}>
+                        Rate your confidence (High/Medium/Low) after each answer in Practice. After a few sessions this card will show how well your gut matches reality — overconfidence and underconfidence are both fixable signals.
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 14 }}>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                            <span style={{ fontFamily: SANS, fontSize: 11, color: t.text3, letterSpacing: 0.5 }}>CALIBRATION SCORE</span>
+                            <span
+                              style={{
+                                fontFamily: SERIF,
+                                fontSize: 36,
+                                fontWeight: 900,
+                                color:
+                                  c.calibrationScore == null
+                                    ? t.text3
+                                    : c.calibrationScore >= 80
+                                      ? t.statusGood
+                                      : c.calibrationScore >= 60
+                                        ? t.statusWarn
+                                        : t.statusBad,
+                              }}
+                            >
+                              {c.calibrationScore != null ? c.calibrationScore : "—"}
+                              <span style={{ fontSize: 16, marginLeft: 4, color: t.text3 }}>/ 100</span>
+                            </span>
+                            <span style={{ fontFamily: SANS, fontSize: 11, color: t.text3 }}>
+                              100 = your confidence matches your accuracy perfectly
+                            </span>
+                          </div>
+                          {trendDelta != null && (
+                            <div
+                              style={{
+                                padding: "8px 12px",
+                                borderRadius: 10,
+                                background: trendDelta >= 0 ? "#16a34a18" : "#dc262618",
+                                color: trendDelta >= 0 ? "#16a34a" : "#dc2626",
+                                fontFamily: SANS,
+                                fontSize: 12,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {trendDelta >= 0 ? "↑" : "↓"} {Math.abs(trendDelta)} pts vs prior week
+                            </div>
+                          )}
+                          {c.streak > 0 && (
+                            <div
+                              title="Consecutive days with calibration ≥ 80"
+                              style={{
+                                padding: "8px 12px",
+                                borderRadius: 10,
+                                background: "#fff7ed",
+                                color: "#b45309",
+                                border: "1px solid #fdba74",
+                                fontFamily: SANS,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 6,
+                              }}
+                            >
+                              🔥 {c.streak}-day streak
+                            </div>
+                          )}
+                        </div>
+                        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          {bucketCard(c.buckets.high, "High", t.statusGood)}
+                          {bucketCard(c.buckets.medium, "Medium", t.statusWarn)}
+                          {bucketCard(c.buckets.low, "Low", t.statusBad)}
+                        </div>
+                        {(c.flagged.overconfidentHigh || c.flagged.underconfidentLow) && (
+                          <div style={{ marginTop: 14, padding: "10px 12px", background: t.inputBg, borderRadius: 8 }}>
+                            <div style={{ fontFamily: SANS, fontSize: 12, color: t.text2, lineHeight: 1.5 }}>
+                              {c.flagged.overconfidentHigh && (
+                                <div>⚠ <b>Overconfidence on High picks</b> — you're saying "High" but only getting {c.buckets.high.accuracy}% right. On test day this is the dangerous one. Slow down on the answers you feel sure about and double-check.</div>
+                              )}
+                              {c.flagged.underconfidentLow && (
+                                <div style={{ marginTop: 6 }}>📈 <b>Underconfident on Low picks</b> — when you marked "Low" you actually got {c.buckets.low.accuracy}% right. You know more than you think. Trust your gut more on guesses you're not sure about.</div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {!c.flagged.overconfidentHigh && !c.flagged.underconfidentLow && c.calibrationScore != null && c.calibrationScore >= 80 && (
+                          <div style={{ marginTop: 14, padding: "10px 12px", background: "#16a34a12", borderRadius: 8, color: "#15803d", fontFamily: SANS, fontSize: 12 }}>
+                            ✓ Your confidence ratings track well with your actual accuracy. Trust your gut on test day.
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
+
+
               {sessions.length===0 ? (
                 <div style={{ ...CARD, border:"1px dashed " + t.border2, padding:60, textAlign:"center" }}>
-                  <p style={{ fontFamily:MONO, color:t.text5, fontSize:13 }}>Complete sessions to see analytics.</p>
+                  <p style={{ fontFamily:SANS, color:t.text5, fontSize:13 }}>Complete sessions to see analytics.</p>
                 </div>
               ) : terms.map(term => (
                 <div key={term.id}>
@@ -35680,8 +39800,8 @@ Current student level: ${tierLabel}`;
                     return (
                       <div key={block.id} style={{ ...CARD, border:"1px solid "+term.color+"15", marginBottom:14 }}>
                         <div style={{ display:"flex", justifyContent:"space-between", marginBottom:16 }}>
-                          <span style={{ fontFamily:MONO, color:t.text2, fontWeight:600, fontSize:14 }}>{block.name}</span>
-                          <span style={{ fontFamily:MONO, color:m.fg, fontWeight:700, fontSize:16 }}>{sc!==null?sc+"%":"—"}</span>
+                          <span style={{ fontFamily:SANS, color:t.text2, fontWeight:600, fontSize:14 }}>{block.name}</span>
+                          <span style={{ fontFamily:SANS, color:m.fg, fontWeight:700, fontSize:16 }}>{sc!==null?sc+"%":"—"}</span>
                         </div>
                         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(175px,1fr))", gap:8, marginBottom:14 }}>
                           {Object.entries(sub).sort((a,b)=>pct(a[1].c,a[1].t)-pct(b[1].c,b[1].t)).map(([s,v])=>{
@@ -35689,28 +39809,28 @@ Current student level: ${tierLabel}`;
                             const sm=mastery(p, t);
                             return (
                               <div key={s} style={{ background:sm.bg, border:"1px solid "+sm.border, borderRadius:9, padding:"9px 13px" }}>
-                                <div style={{ fontFamily:MONO, color:t.text4, fontSize:11, marginBottom:3 }}>{v.subject}</div>
+                                <div style={{ fontFamily:SANS, color:t.text4, fontSize:11, marginBottom:3 }}>{v.subject}</div>
                                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:6 }}>
-                                  <span style={{ fontFamily:MONO, color:t.text5, fontSize:11 }}>{s}</span>
-                                  <span style={{ fontFamily:MONO, color:sm.fg, fontWeight:700, fontSize:14 }}>{p}%</span>
+                                  <span style={{ fontFamily:SANS, color:t.text5, fontSize:11 }}>{s}</span>
+                                  <span style={{ fontFamily:SANS, color:sm.fg, fontWeight:700, fontSize:14 }}>{p}%</span>
                                 </div>
                                 <div style={{ height:3, background:t.border1, borderRadius:2 }}><div style={{ width:p+"%", height:"100%", background:sm.fg, borderRadius:2 }} /></div>
-                                <div style={{ fontFamily:MONO, color:t.text5, fontSize:11, marginTop:4 }}>{v.c}/{v.t} correct</div>
+                                <div style={{ fontFamily:SANS, color:t.text5, fontSize:11, marginTop:4 }}>{v.c}/{v.t} correct</div>
                               </div>
                             );
                           })}
                         </div>
                         <div style={{ borderTop:"1px solid " + t.border2, paddingTop:12 }}>
-                          <div style={{ fontFamily:MONO, color:t.text4, fontSize:11, letterSpacing:2, marginBottom:8 }}>RECENT SESSIONS</div>
+                          <div style={{ fontFamily:SANS, color:t.text4, fontSize:11, letterSpacing:2, marginBottom:8 }}>RECENT SESSIONS</div>
                           {[...bs].reverse().slice(0,5).map((s,i)=>{
                             const p=pct(s.correct,s.total);
                             const sm=mastery(p, t);
                             return (
                               <div key={i} style={{ display:"flex", justifyContent:"space-between", padding:"5px 0", borderBottom:"1px solid " + t.border2 }}>
-                                <span style={{ fontFamily:MONO, color:t.text3, fontSize:11 }}>{s.subtopic}</span>
+                                <span style={{ fontFamily:SANS, color:t.text3, fontSize:11 }}>{s.subtopic}</span>
                                 <div style={{ display:"flex", gap:16 }}>
-                                  <span style={{ fontFamily:MONO, color:t.text4, fontSize:12 }}>{new Date(s.date).toLocaleDateString()}</span>
-                                  <span style={{ fontFamily:MONO, color:sm.fg, fontWeight:700, fontSize:14 }}>{s.correct}/{s.total} ({p}%)</span>
+                                  <span style={{ fontFamily:SANS, color:t.text4, fontSize:12 }}>{new Date(s.date).toLocaleDateString()}</span>
+                                  <span style={{ fontFamily:SANS, color:sm.fg, fontWeight:700, fontSize:14 }}>{s.correct}/{s.total} ({p}%)</span>
                                 </div>
                               </div>
                             );
@@ -35778,6 +39898,20 @@ Current student level: ${tierLabel}`;
             setShowQuickCapture(false);
             setView("tracker");
           }}
+          onGoToLecture={(lecId, blockIdFromNote) => {
+            setShowQuickCapture(false);
+            const bid = blockIdFromNote || activeBlock?.id || blockId;
+            const lec = lectures.find((l) => l.id === lecId);
+            if (!lec) return;
+            repairObjectiveAlignment(bid);
+            setStudyCfg({
+              blockId: bid,
+              lecs: getBlockLecs(lectures, resolveBlockMeta(bid)),
+              blockObjectives: getBlockObjectives(bid),
+              preselectedLecId: lecId,
+            });
+            setView("deeplearn");
+          }}
           currentLectureName={quickCaptureLectureName}
           currentLectureId={quickCaptureLectureId}
           currentBlockId={activeBlock?.id || null}
@@ -35816,7 +39950,7 @@ Current student level: ${tierLabel}`;
         <div style={{ display:"flex", alignItems:"flex-start", gap:10 }}>
           <div style={{ flex:1 }}>
             <div style={{ fontFamily:SERIF, color:perfToast.color, fontSize:16, fontWeight:700, marginBottom:3 }}>{perfToast.title}</div>
-            <div style={{ fontFamily:MONO, color:t.text2, fontSize:13, lineHeight:1.5 }}>{perfToast.message}</div>
+            <div style={{ fontFamily:SANS, color:t.text2, fontSize:13, lineHeight:1.5 }}>{perfToast.message}</div>
           </div>
           <button onClick={() => setPerfToast(null)} style={{ background:"none", border:"none", color:t.text3, cursor:"pointer", fontSize:16, padding:0, flexShrink:0 }}>✕</button>
         </div>

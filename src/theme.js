@@ -10,7 +10,7 @@ export const STATUS_COLORS = {
   inprogress: { color: "#0891b2", bg: "#0891b215", border: "#0891b240", label: "◑" },
 };
 
-const MONO = "'DM Mono','Courier New',monospace";
+const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
 // Score → colorblind-safe color
 export function getScoreColor(T, score) {

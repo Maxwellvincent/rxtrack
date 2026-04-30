@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "./theme";
 import { LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
 
-const MONO = "'DM Mono','Courier New',monospace";
+const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
 const BLOOM_SHORT = {
   1: "Recall",
@@ -126,6 +126,7 @@ function LecObjectiveGroup({
   color,
   T,
   blockId,
+  weakCountByObjectiveId = {},
   quizLoadingId,
   quizErrorId,
   quizFlashLectureId,
@@ -482,6 +483,7 @@ function LecObjectiveGroup({
               color={color}
               hasLecture={obj.hasLecture}
               lectureType={objectives[0]?.lectureType || "LEC"}
+              weakMissCount={weakCountByObjectiveId[obj.id] || 0}
             />
           ))}
         </div>
@@ -498,7 +500,7 @@ function objectiveActivityBadgeVisible(obj, lectureType) {
   return act.toUpperCase() !== lt.toUpperCase();
 }
 
-function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture, lectureType = "LEC" }) {
+function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture, lectureType = "LEC", weakMissCount = 0 }) {
   const statusColorToken =
     getObjStatusColor(T, obj.status) ??
     T.text3;
@@ -609,6 +611,25 @@ function ObjectiveRow({ obj, index, onSelfRate, T, color, hasLecture, lectureTyp
             </span>
           )
         )}
+        {weakMissCount > 0 && (
+          <span
+            title={`${weakMissCount} recorded miss${weakMissCount === 1 ? "" : "es"} on this objective — see Weak Concepts`}
+            style={{
+              fontFamily: MONO,
+              color: "#A32D2D",
+              fontSize: 10,
+              background: "#F8D7D6",
+              padding: "1px 6px",
+              borderRadius: 3,
+              marginTop: 4,
+              marginLeft: 6,
+              display: "inline-block",
+              fontWeight: 700,
+            }}
+          >
+            ⚠ {weakMissCount} miss{weakMissCount === 1 ? "" : "es"}
+          </span>
+        )}
       </div>
       <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
         {[
@@ -677,6 +698,26 @@ export default function ObjectiveTracker({
   const color = termColor ?? T.red;
 
   const [subView, setSubView] = useState("lecture");
+
+  const weakCountByObjectiveId = useMemo(() => {
+    if (!blockId) return {};
+    try {
+      const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+      const arr = Array.isArray(stored[blockId]) ? stored[blockId] : [];
+      const map = {};
+      arr.forEach((c) => {
+        if (c.masteryLevel === "mastered") return;
+        const ids = Array.isArray(c.objectiveIds) ? c.objectiveIds : [];
+        ids.forEach((id) => {
+          if (!id) return;
+          map[id] = (map[id] || 0) + (c.missCount || 1);
+        });
+      });
+      return map;
+    } catch {
+      return {};
+    }
+  }, [blockId, objectives]);
 
   const validLecIds = useMemo(() => new Set((blockLectures || []).map((l) => l.id)), [blockLectures]);
 
@@ -970,6 +1011,7 @@ export default function ObjectiveTracker({
               color={color}
               T={T}
               blockId={blockId}
+              weakCountByObjectiveId={weakCountByObjectiveId}
               quizLoadingId={quizLoadingId}
               quizErrorId={quizErrorId}
               quizFlashLectureId={quizFlashLectureId}

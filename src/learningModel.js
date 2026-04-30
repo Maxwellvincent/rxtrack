@@ -141,7 +141,7 @@ export function recordAnswer(profile, topic, subtopic, wasCorrect, questionType)
   return next;
 }
 
-export function buildSystemPrompt(profile, subject, subtopic, mode) {
+export function buildSystemPrompt(profile, subject, subtopic, mode, extra = {}) {
   const p = profile || DEFAULT_PROFILE;
   const weights = p.questionTypeWeights || DEFAULT_PROFILE.questionTypeWeights;
 
@@ -171,12 +171,81 @@ export function buildSystemPrompt(profile, subject, subtopic, mode) {
         )}.`
       : "No strong-topic bias recorded yet.";
 
-  const baseInstructions = [
+  const sections = [
     "You are a USMLE Step 1 question writer and medical educator.",
     contextBits.length ? `Current session context: ${contextBits.join(" | ")}.` : "",
     `Question style distribution preference: ${typePrefs}.`,
     weakLine,
     strongLine,
+  ];
+
+  // ── Adaptivity signals (empty sections are omitted) ─────────────
+  const weakConcepts = Array.isArray(extra.weakConcepts) ? extra.weakConcepts : [];
+  if (weakConcepts.length > 0) {
+    const formatted = weakConcepts
+      .slice(0, 10)
+      .map((c) => {
+        const missCount = c.missCount ? ` (missed ${c.missCount}×)` : "";
+        const angle = c.angle && c.angle !== "general" ? ` [${c.angle}]` : "";
+        return `- ${c.concept}${angle}${missCount}${c.description ? ` — ${c.description}` : ""}`;
+      })
+      .join("\n");
+    sections.push(
+      "",
+      "WEAK CONCEPTS (target ≥30% of questions at these, prefer the indicated angle):",
+      formatted
+    );
+  }
+
+  const highYieldDetails = Array.isArray(extra.highYieldDetails) ? extra.highYieldDetails : [];
+  if (highYieldDetails.length > 0) {
+    const formatted = highYieldDetails
+      .slice(0, 20)
+      .map((d) => {
+        if (typeof d === "string") return `- ${d}`;
+        return `- ${d.term || d.name}: ${d.fact || d.detail || ""}${d.why_tested ? ` (why tested: ${d.why_tested})` : ""}`;
+      })
+      .join("\n");
+    sections.push(
+      "",
+      "HIGH-YIELD DETAILS (must test — these are the small/bolded facts the student has flagged or the lecture emphasized; ensure at least one question directly tests each relevant detail):",
+      formatted
+    );
+  }
+
+  const lectureNotes = typeof extra.lectureNotes === "string" ? extra.lectureNotes.trim() : "";
+  if (lectureNotes) {
+    sections.push(
+      "",
+      "LECTURE STUDY NOTES (from NotebookLM — use as primary factual reference, prefer drawing question content from here over general knowledge):",
+      lectureNotes.slice(0, 6000)
+    );
+  }
+
+  const userNotes = Array.isArray(extra.userNotes) ? extra.userNotes : [];
+  if (userNotes.length > 0) {
+    const formatted = userNotes.slice(0, 10).map((n) => `- ${n}`).join("\n");
+    sections.push(
+      "",
+      "USER-FLAGGED LOOKUPS / CLARIFICATIONS (ensure coverage):",
+      formatted
+    );
+  }
+
+  const examStyleSamples = Array.isArray(extra.examStyleSamples) ? extra.examStyleSamples : [];
+  if (examStyleSamples.length > 0) {
+    const formatted = examStyleSamples
+      .slice(0, 5)
+      .map((s, i) => `Sample ${i + 1}: ${String(s).slice(0, 600)}`)
+      .join("\n\n");
+    sections.push(
+      "",
+      "PAST EXAM STYLE SAMPLES (emulate the stem length, tone, and distractor flavor of these — this is what the student will be tested on):",
+      formatted
+    );
+  }
+
+  sections.push(
     "",
     "Write high-yield clinical vignette questions for an M1/M2 student preparing for Step 1.",
     "",
@@ -192,11 +261,9 @@ export function buildSystemPrompt(profile, subject, subtopic, mode) {
     "- Include a short **First Aid reference** (section or page-level descriptor) when appropriate.",
     "",
     "If the student has weak topics recorded, weight question selection toward those areas,",
-    "and make distractors particularly challenging around those weak mechanisms or diagnoses.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    "and make distractors particularly challenging around those weak mechanisms or diagnoses."
+  );
 
-  return baseInstructions;
+  return sections.filter(Boolean).join("\n");
 }
 

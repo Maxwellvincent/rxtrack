@@ -21,6 +21,8 @@ import {
   MCQ_OPTION_UNIQUENESS_CRITICAL,
 } from "./mcqUtils";
 import { renderAnnotatableStemNodes } from "./stemAnnotationUtils";
+import { recordWrongAnswer } from "./weakConcepts";
+import { recordCalibration, CALIBRATION_BUCKETS } from "./calibration";
 import {
   computeDifficultyTier,
   computeDifficultyLabel,
@@ -28,7 +30,7 @@ import {
   updateSessionStreak,
 } from "./difficultyEngine";
 
-const MONO = "'DM Mono', 'Courier New', monospace";
+const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display', Georgia, serif";
 const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
@@ -815,7 +817,7 @@ function DeepLearnConfig({
   tc,
   preselectLecId = null,
 }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
   const detectStudyModeFn = detectStudyModeProp || detectStudyMode;
 
@@ -1673,7 +1675,7 @@ function FirstPassWalkthrough(props) {
     return blockObjs.filter((o) => String(o.lectureNumber) === String(lectureNumber));
   }, [lecObjectivesProp, blockId, lecId, lectureNumber, lectureType, mergedFrom, getBlockObjectives]);
 
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   console.log("Walkthrough — lectureContent length:", lectureContent?.length);
   console.log("Walkthrough — objectives for this section:", objectives?.length, objectives?.slice(0, 2).map((o) => o?.objective?.slice(0, 40)));
 
@@ -1732,7 +1734,7 @@ function FirstPassWalkthroughInner({
   sessionId,
   deleteSession,
 }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const [step, setStep] = useState(0);
@@ -2217,7 +2219,7 @@ function DeepLearnSession({
   skipIntroPrep = false,
   deeplinkObjectiveId = null,
 }) {
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
   const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
@@ -2365,6 +2367,11 @@ function DeepLearnSession({
   );
   const [sectionUnderstood, setSectionUnderstood] = useState(() => normalizeSectionUnderstood(initialSectionUnderstood));
   const [loadingSection, setLoadingSection] = useState(false);
+  // Quick-check inline MCQs for "I think I already know this" path.
+  // Shape: { loading, qs: [{stem,choices,correct,explanation}], answers, revealed, completed }
+  const [quickCheck, setQuickCheck] = useState(null);
+  // Reset quick-check whenever the user moves to a new objective.
+  useEffect(() => { setQuickCheck(null); }, [teachingSection]);
 
   useEffect(() => {
     const n = resolvedObjectives?.length ?? 0;
@@ -3021,6 +3028,68 @@ function DeepLearnSession({
     }
   };
 
+  const generateQuickCheck = async (objIndex) => {
+    const objs = resolvedObjectives || [];
+    const obj = objs[objIndex];
+    if (!obj) return;
+    const objText = (obj.objective || obj.text || "").trim();
+    if (!objText) return;
+    setQuickCheck({ loading: true, qs: [], answers: {}, revealed: {}, completed: false });
+    const content =
+      isCrossLecture && crossCtx?.combinedContent
+        ? crossCtx.combinedContent
+        : getLecText(lec) || lectureContent || lec?.text || "";
+    const slice = content.slice(0, 4000);
+    const fallback = { questions: [] };
+    try {
+      const result = await callAIJSON(
+        `You write 2 quick check MCQs to test whether a medical student already knows a single learning objective. Return ONLY valid JSON: { "questions": [ { "stem": "...", "choices": {"A":"","B":"","C":"","D":""}, "correct":"A|B|C|D", "explanation":"1-2 sentences" } ] }. Two questions. Each must have 4 distinct choices and exactly one correct. Stems should be concise (under 50 words) and target core understanding, not trivia.`,
+        `OBJECTIVE: ${objText}\n\nLECTURE CONTENT (use this as the source of truth):\n${slice}\n\nWrite exactly 2 MCQs that would confirm a student truly understands this objective. If they get both right, we'll skip the lesson.`,
+        fallback,
+        1500
+      );
+      const qs = Array.isArray(result?.questions) ? result.questions.slice(0, 2).filter((q) => q && q.stem && q.choices && q.correct) : [];
+      if (!qs.length) {
+        setQuickCheck(null);
+        // Fall through silently — user can still tap "Teach me".
+        return;
+      }
+      setQuickCheck({ loading: false, qs, answers: {}, revealed: {}, completed: false });
+    } catch (err) {
+      console.error("generateQuickCheck failed:", err);
+      setQuickCheck(null);
+    }
+  };
+
+  const submitQuickCheckAnswer = (qIdx, choice) => {
+    setQuickCheck((prev) => {
+      if (!prev || prev.revealed?.[qIdx]) return prev;
+      const nextAnswers = { ...(prev.answers || {}), [qIdx]: choice };
+      const nextRevealed = { ...(prev.revealed || {}), [qIdx]: true };
+      const total = prev.qs.length;
+      const answeredCount = Object.keys(nextRevealed).length;
+      const completed = answeredCount >= total;
+      return { ...prev, answers: nextAnswers, revealed: nextRevealed, completed };
+    });
+  };
+
+  const acceptQuickCheckPass = () => {
+    setSectionUnderstood((prev) => ({ ...prev, [teachingSection]: true }));
+    setQuickCheck(null);
+    if (teachingSection < (resolvedObjectives?.length || 0) - 1) {
+      setTeachingSection((s) => s + 1);
+      setSectionExplanation(null);
+    } else {
+      setPatientCase(null);
+      advancePhase("patient");
+    }
+  };
+
+  const fallBackToTeaching = () => {
+    setQuickCheck(null);
+    void generateTeachingSection(teachingSection);
+  };
+
   const advanceFromBrainDump = () => {
     advancePhase("teach");
     setPatientCase(null);
@@ -3346,11 +3415,21 @@ function DeepLearnSession({
     setMcqFeedback((f) => (f && f.questionId === questionId ? { ...f, confidenceChosen: flag } : f));
   }, []);
 
-  const submitMCQ = () => {
+  const submitMCQ = (predictedConfidence = null) => {
     if (!mcqSelected) return;
     const q = mcqQuestions[currentMCQ];
     const correct = mcqSelected === q.correct;
     const questionId = q.id;
+    if (predictedConfidence != null) {
+      recordCalibration({
+        predicted: predictedConfidence,
+        correct,
+        source: "deeplearn",
+        blockId: blockId || null,
+        objectiveId: q.objectiveId || null,
+        lectureId: lec?.id || null,
+      });
+    }
     const result = {
       correct,
       score: correct ? 100 : 0,
@@ -3359,7 +3438,27 @@ function DeepLearnSession({
       questionId,
       stem: q.stem,
       correctText: q.choices?.[q.correct] ?? "",
+      userAnswer: mcqSelected,
+      userAnswerText: q.choices?.[mcqSelected] ?? "",
+      predictedConfidence,
     };
+    if (!correct && blockId && (lec?.id || q?.objectiveId)) {
+      const lecLabel = lec
+        ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.fileName || lectureTitle || ""}`
+        : (lectureTitle || "");
+      void recordWrongAnswer({
+        blockId,
+        blockName: "",
+        question: q.stem || q.topic || "Deep Learn MCQ",
+        wrongAnswer: String(q.choices?.[mcqSelected] || "incorrect").slice(0, 200),
+        correctAnswer: String(q.choices?.[q.correct] || "").slice(0, 200),
+        linkedLecId: lec?.id || null,
+        lectureLabel: lecLabel,
+        source: "deeplearn",
+        objectiveId: q.objectiveId || null,
+      });
+      result._weakLogged = true;
+    }
     setMcqFeedback({
       correct,
       explanation: q.explanation,
@@ -4974,24 +5073,168 @@ What is the clinical significance of this finding?`,
                 >
                   {sectionExplanation}
                 </div>
+              ) : quickCheck ? (
+                <div style={{ marginBottom: 12 }}>
+                  {quickCheck.loading && (
+                    <div style={{ color: T.textSecondary || T.text3, fontSize: 13, fontFamily: MONO }}>
+                      Building 2 quick MCQs…
+                    </div>
+                  )}
+                  {!quickCheck.loading && quickCheck.qs?.map((q, qi) => {
+                    const revealed = !!quickCheck.revealed?.[qi];
+                    const answer = quickCheck.answers?.[qi];
+                    return (
+                      <div
+                        key={qi}
+                        style={{
+                          padding: 14,
+                          background: T.cardBg,
+                          border: "1px solid " + T.border1,
+                          borderRadius: 10,
+                          marginBottom: 10,
+                          fontFamily: MONO,
+                        }}
+                      >
+                        <div style={{ fontSize: 11, color: T.text3, fontWeight: 700, letterSpacing: 1, marginBottom: 6 }}>
+                          QUICK CHECK {qi + 1} OF {quickCheck.qs.length}
+                        </div>
+                        <div style={{ fontSize: 14, color: T.text1, lineHeight: 1.5, marginBottom: 10, fontFamily: SERIF, fontWeight: 600 }}>
+                          {q.stem}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                          {Object.entries(q.choices || {}).map(([letter, text]) => {
+                            const isCorrect = letter === q.correct;
+                            const isPicked = letter === answer;
+                            let bg = "transparent";
+                            let border = T.border1;
+                            let color = T.text1;
+                            if (revealed) {
+                              if (isCorrect) { bg = "#16a34a18"; border = "#16a34a"; color = T.text1; }
+                              else if (isPicked) { bg = "#dc262618"; border = "#dc2626"; color = T.text1; }
+                            } else if (isPicked) {
+                              bg = (T.accent || tc) + "18"; border = T.accent || tc;
+                            }
+                            return (
+                              <button
+                                key={letter}
+                                type="button"
+                                disabled={revealed}
+                                onClick={() => submitQuickCheckAnswer(qi, letter)}
+                                style={{
+                                  textAlign: "left",
+                                  padding: "8px 10px",
+                                  border: "1px solid " + border,
+                                  background: bg,
+                                  color,
+                                  borderRadius: 7,
+                                  cursor: revealed ? "default" : "pointer",
+                                  fontSize: 13,
+                                  fontFamily: MONO,
+                                }}
+                              >
+                                <span style={{ fontWeight: 700, marginRight: 8 }}>{letter}.</span>{text}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {revealed && q.explanation && (
+                          <div style={{ marginTop: 8, padding: "6px 8px", background: T.inputBg, borderRadius: 6, fontSize: 12, color: T.text2, lineHeight: 1.5 }}>
+                            {q.explanation}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {!quickCheck.loading && quickCheck.completed && (() => {
+                    const total = quickCheck.qs.length;
+                    const correct = quickCheck.qs.reduce((n, q, i) => n + (quickCheck.answers?.[i] === q.correct ? 1 : 0), 0);
+                    const passed = correct === total;
+                    return (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: passed ? "#16a34a" : "#dc2626", fontFamily: MONO }}>
+                          {passed
+                            ? `✓ Got ${correct}/${total} — you've got this objective. Move on?`
+                            : `${correct}/${total} — gap detected. Recommend the lesson.`}
+                        </div>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                          {passed ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={acceptQuickCheckPass}
+                                style={{ padding: "8px 14px", borderRadius: 8, background: "#16a34a", color: "white", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: MONO }}
+                              >
+                                ✓ Mark understood · next →
+                              </button>
+                              <button
+                                type="button"
+                                onClick={fallBackToTeaching}
+                                style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + T.border1, color: T.text2, cursor: "pointer", fontSize: 13, fontFamily: MONO }}
+                              >
+                                Teach me anyway
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={fallBackToTeaching}
+                                style={{ padding: "8px 14px", borderRadius: 8, background: T.accent || tc, color: "white", border: "none", cursor: "pointer", fontWeight: 700, fontSize: 13, fontFamily: MONO }}
+                              >
+                                📖 Teach me this objective →
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void generateQuickCheck(teachingSection)}
+                                style={{ padding: "8px 14px", borderRadius: 8, background: "transparent", border: "1px solid " + T.border1, color: T.text2, cursor: "pointer", fontSize: 13, fontFamily: MONO }}
+                              >
+                                ↻ New questions
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => void generateTeachingSection(teachingSection)}
-                  style={{
-                    padding: "10px 20px",
-                    borderRadius: 8,
-                    background: T.accent || tc,
-                    color: "white",
-                    border: "none",
-                    cursor: "pointer",
-                    fontWeight: 600,
-                    fontSize: 14,
-                    fontFamily: MONO,
-                  }}
-                >
-                  📖 Teach me this objective →
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => void generateTeachingSection(teachingSection)}
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 8,
+                      background: T.accent || tc,
+                      color: "white",
+                      border: "none",
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 14,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    📖 Teach me this objective →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void generateQuickCheck(teachingSection)}
+                    title="Skip the lesson if you can answer 2 quick MCQs on this objective"
+                    style={{
+                      padding: "10px 20px",
+                      borderRadius: 8,
+                      background: "transparent",
+                      border: "1px solid " + (T.accent || tc),
+                      color: T.accent || tc,
+                      cursor: "pointer",
+                      fontWeight: 600,
+                      fontSize: 14,
+                      fontFamily: MONO,
+                    }}
+                  >
+                    🧠 I think I know this — quick check
+                  </button>
+                </div>
               )}
 
               {sectionExplanation && (
@@ -6478,23 +6721,72 @@ What is the clinical significance of this finding?`,
           </div>
 
           {!mcqFeedback ? (
-            <button
-              onClick={submitMCQ}
-              disabled={!mcqSelected}
-              style={{
-                background: mcqSelected ? tc : T.border1,
-                border: "none",
-                color: "#fff",
-                padding: "13px 0",
-                borderRadius: 10,
-                cursor: mcqSelected ? "pointer" : "not-allowed",
-                fontFamily: SERIF,
-                fontSize: 15,
-                fontWeight: 900,
-              }}
-            >
-              Submit Answer →
-            </button>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <div
+                style={{
+                  fontFamily: MONO,
+                  fontSize: 11,
+                  color: T.text3,
+                  textAlign: "center",
+                  letterSpacing: 0.5,
+                  textTransform: "uppercase",
+                }}
+              >
+                How confident are you? (locks in your answer)
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                {CALIBRATION_BUCKETS.map((pct) => (
+                  <button
+                    key={pct}
+                    onClick={() => submitMCQ(pct)}
+                    disabled={!mcqSelected}
+                    style={{
+                      background: mcqSelected
+                        ? pct === 90
+                          ? "#3C3489"
+                          : pct === 70
+                          ? tc
+                          : "#8E8E93"
+                        : T.border1,
+                      border: "none",
+                      color: "#fff",
+                      padding: "12px 0",
+                      borderRadius: 10,
+                      cursor: mcqSelected ? "pointer" : "not-allowed",
+                      fontFamily: SERIF,
+                      fontSize: 14,
+                      fontWeight: 900,
+                      letterSpacing: 0.3,
+                    }}
+                    title={
+                      pct === 50
+                        ? "Coin flip / educated guess"
+                        : pct === 70
+                        ? "Pretty sure"
+                        : "Locked in — I know this"
+                    }
+                  >
+                    {pct}% sure
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => submitMCQ(null)}
+                disabled={!mcqSelected}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: T.text3,
+                  padding: "4px 0",
+                  cursor: mcqSelected ? "pointer" : "not-allowed",
+                  fontFamily: MONO,
+                  fontSize: 10,
+                  textDecoration: "underline",
+                }}
+              >
+                Skip calibration
+              </button>
+            </div>
           ) : (
             <>
               <div
@@ -8277,7 +8569,7 @@ export default function DeepLearn({
       )}
 
       {phase === "crossPrep" && crossPrepPayload && (() => {
-        const MONO_X = "'DM Mono','Courier New',monospace";
+        const MONO_X = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
         const SERIF_X = "'Playfair Display',Georgia,serif";
         const bid = crossPrepPayload.blockId;
         const selectedLecs = crossPrepPayload.selectedTopics

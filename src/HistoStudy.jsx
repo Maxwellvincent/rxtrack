@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTheme } from "./theme";
 
-const MONO = "'DM Mono','Courier New',monospace";
+const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display',Georgia,serif";
 
 export const TISSUE_COLORS = {
@@ -370,7 +370,7 @@ function TissueStudyView({ tissue, slides, color, confidences, bookmarks, onConf
   const [idx, setIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
   const [quizMode, setQuizMode] = useState(false);
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   useEffect(() => {
@@ -1309,7 +1309,7 @@ export default function HistoStudy({ questions, profile, onBack, termColor, pars
   });
   const { T } = useTheme();
   const tc = termColor || "#a78bfa";
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const allSlides = [

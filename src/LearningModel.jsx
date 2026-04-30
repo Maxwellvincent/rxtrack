@@ -9,7 +9,7 @@ import { parseExamPDF, extractLectureObjectives } from "./examParser";
 import HistoStudy from "./HistoStudy";
 import { callAI } from "./aiClient";
 
-const MONO = "'DM Mono', 'Courier New', monospace";
+const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display', Georgia, serif";
 // Fallback when theme not in scope; prefer T.red from useTheme() where available
 const ACCENT = "#ef4444";
@@ -113,7 +113,7 @@ async function parseQuestionsWithAI(rawText, filename) {
 function QuestionBankCard({ filename, questions, onPractice, onPracticeWeak, onDelete, profile }) {
   const { T } = useTheme();
   const [expanded, setExpanded] = useState(false);
-  const MONO = "'DM Mono','Courier New',monospace";
+  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
 
   const total = questions.length;
@@ -760,8 +760,117 @@ function LearningSession({
   );
 }
 
-async function generateVignettesWithGemini(profile, subject, subtopic, count) {
-  const systemPrompt = buildSystemPrompt(profile, subject, subtopic, "lecture");
+/**
+ * Build the `extra` bag for buildSystemPrompt from available app state.
+ * All reads are best-effort; missing pieces simply omit the corresponding
+ * prompt section.
+ */
+function buildPromptExtras({ blockId, lectureIds, questionBanksByFile } = {}) {
+  const extras = {};
+
+  // 1) Weak concepts for this block → WEAK CONCEPTS section.
+  try {
+    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    const blockArr = Array.isArray(stored[blockId]) ? stored[blockId] : [];
+    const ranked = [...blockArr]
+      .filter((c) => c && (c.masteryLevel === "struggling" || (c.missCount || 0) >= 1))
+      .sort((a, b) => {
+        const missDiff = (b.missCount || 0) - (a.missCount || 0);
+        if (missDiff !== 0) return missDiff;
+        return String(b.lastMissed || "").localeCompare(String(a.lastMissed || ""));
+      });
+    if (ranked.length > 0) extras.weakConcepts = ranked.slice(0, 10);
+  } catch {}
+
+  // 2) Lecture notes + high-yield details → LECTURE STUDY NOTES + HIGH-YIELD DETAILS.
+  try {
+    const lecMeta = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+    const targetIds = Array.isArray(lectureIds) && lectureIds.length > 0 ? new Set(lectureIds) : null;
+    const relevant = Array.isArray(lecMeta)
+      ? lecMeta.filter((l) => {
+          if (l?.blockId && blockId && l.blockId !== blockId) return false;
+          if (targetIds && !targetIds.has(l.id)) return false;
+          return true;
+        })
+      : [];
+    const notes = relevant
+      .map((l) => (l.notebooklmNotes || "").trim())
+      .filter(Boolean)
+      .join("\n\n---\n\n");
+    if (notes) extras.lectureNotes = notes;
+
+    const details = relevant.flatMap((l) => (Array.isArray(l.highYieldDetails) ? l.highYieldDetails : []));
+    if (details.length > 0) extras.highYieldDetails = details;
+  } catch {}
+
+  // 3) Quick-capture notes for this block → USER-FLAGGED LOOKUPS.
+  try {
+    const notes = JSON.parse(localStorage.getItem("rxt-quick-notes") || "[]");
+    if (Array.isArray(notes) && notes.length > 0) {
+      const recent = notes
+        .filter((n) => !blockId || !n.blockId || n.blockId === blockId)
+        .filter((n) => ["lookup", "clarification", "question"].includes(n.tag))
+        .slice(0, 10)
+        .map((n) => n.text || n.note || "")
+        .filter(Boolean);
+      if (recent.length > 0) extras.userNotes = recent;
+    }
+  } catch {}
+
+  // 4) Past exam stems → PAST EXAM STYLE SAMPLES (from user-uploaded iMCQ/Esoft question banks).
+  // Rank by: (a) block match first, (b) most-recent uploads, (c) de-dup near-identical stems.
+  try {
+    const banks = questionBanksByFile || JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    const entries = Object.entries(banks || {}); // [fileKey, questions[]]
+    const scored = [];
+    for (const [fileKey, qs] of entries) {
+      if (!Array.isArray(qs)) continue;
+      const fileBlockMatch = blockId && typeof fileKey === "string" && fileKey.toLowerCase().includes(String(blockId).toLowerCase());
+      for (const q of qs) {
+        if (!q || !q.stem) continue;
+        const uploadedAt = q.uploadedAt || q.addedAt || q.createdAt || "";
+        const qBlockMatch = blockId && q.blockId && q.blockId === blockId;
+        const score =
+          (qBlockMatch ? 1000 : 0) +
+          (fileBlockMatch ? 500 : 0) +
+          (uploadedAt ? Date.parse(uploadedAt) / 1e11 : 0); // recency as tiebreaker
+        scored.push({ stem: q.stem, score });
+      }
+    }
+    scored.sort((a, b) => b.score - a.score);
+    const seen = new Set();
+    const deduped = [];
+    for (const { stem } of scored) {
+      const key = stem.slice(0, 60).toLowerCase().replace(/\s+/g, " ").trim();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(stem);
+      if (deduped.length >= 5) break;
+    }
+    if (deduped.length > 0) extras.examStyleSamples = deduped;
+  } catch {}
+
+  return extras;
+}
+
+async function generateVignettesWithGemini(profile, subject, subtopic, count, extra = {}) {
+  const systemPrompt = buildSystemPrompt(profile, subject, subtopic, "lecture", extra);
+  if (import.meta?.env?.DEV) {
+    // eslint-disable-next-line no-console
+    console.groupCollapsed(`[practice] generating ${count} vignettes — ${subject || "(no subject)"}${subtopic ? " / " + subtopic : ""}`);
+    // eslint-disable-next-line no-console
+    console.log(systemPrompt);
+    // eslint-disable-next-line no-console
+    console.log("extras summary:", {
+      weakConcepts: extra.weakConcepts?.length || 0,
+      highYieldDetails: extra.highYieldDetails?.length || 0,
+      lectureNotesChars: extra.lectureNotes?.length || 0,
+      userNotes: extra.userNotes?.length || 0,
+      examStyleSamples: extra.examStyleSamples?.length || 0,
+    });
+    // eslint-disable-next-line no-console
+    console.groupEnd();
+  }
   const userPrompt =
     `Generate exactly ${count} USMLE Step 1-style clinical vignette questions for the subject "${subject}"${subtopic ? `, subtopic "${subtopic}"` : ""}. ` +
     `Return ONLY valid JSON with no markdown: {"vignettes":[{"id":"v1","difficulty":"medium","stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","topic":"...","subtopic":"..."}]}`;
@@ -1014,7 +1123,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
       setSessionLoading(true);
       try {
         const subject = practiceSubject || subjectsFromLectures[0] || "General";
-        const fromAi = aiCount > 0 ? await generateVignettesWithGemini(profile, subject, "", aiCount) : [];
+        const fromAi = aiCount > 0 ? await generateVignettesWithGemini(profile, subject, "", aiCount, buildPromptExtras({ blockId, questionBanksByFile })) : [];
         const combined = [...fromBank, ...fromAi].sort(() => Math.random() - 0.5);
         setSessionVignettes(combined);
       } catch (e) {
@@ -1028,7 +1137,7 @@ export default function LearningModel({ profile: profileProp, onProfileUpdate, s
     setSessionLoading(true);
     try {
       const subject = practiceSubject || subjectsFromLectures[0] || "General";
-      const vignettes = await generateVignettesWithGemini(profile, subject, "", practiceCount);
+      const vignettes = await generateVignettesWithGemini(profile, subject, "", practiceCount, buildPromptExtras({ blockId, questionBanksByFile }));
       setSessionVignettes(vignettes);
     } catch (e) {
       setSessionError(e.message || "Generation failed");

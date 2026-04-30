@@ -496,7 +496,7 @@ function isOkLectureFromData(lec, blockId, perfEntry, completionEntry, getBlockO
 }
 
 // ── Constants ─────────────────────────────────────────────
-const MONO  = "'DM Mono','Courier New',monospace";
+const MONO  = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display',Georgia,serif";
 
 const BLOCKS = ["FTM 1","FTM 2","MSK","CPR 1","CPR 2"];
@@ -1197,6 +1197,16 @@ function newWrongQuestionId() {
     : `wq-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const WRONG_Q_SOURCES = [
+  { value: "manual", label: "Manual" },
+  { value: "uworld", label: "UWorld" },
+  { value: "amboss", label: "Amboss" },
+  { value: "anki", label: "Anki" },
+  { value: "lecture-qs", label: "Lecture Qs" },
+  { value: "boards-beyond", label: "Boards & Beyond" },
+  { value: "other", label: "Other" },
+];
+
 function getBlockNameForWeakConcept(blockId) {
   try {
     const blocks = JSON.parse(localStorage.getItem("rxt-blocks") || "[]");
@@ -1223,7 +1233,7 @@ function QuickLogWrongOnlyPanel({ lec, blockId, onCancel, onWrongConceptsLogged,
   function addWrongQuestionSlot() {
     setWrongQuestions((prev) => [
       ...prev,
-      { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "" },
+      { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "", source: "manual" },
     ]);
   }
 
@@ -1251,7 +1261,7 @@ function QuickLogWrongOnlyPanel({ lec, blockId, onCancel, onWrongConceptsLogged,
           correctAnswer: wq.correctAnswer.trim() || "Not specified",
           linkedLecId: lec.id,
           lectureLabel: lecLabel,
-          source: "manual",
+          source: wq.source || "manual",
         }).catch((e) => console.error("recordWrongAnswer failed:", e));
       });
       onWrongConceptsLogged?.(filled.length);
@@ -1327,12 +1337,37 @@ function QuickLogWrongOnlyPanel({ lec, blockId, onCancel, onWrongConceptsLogged,
 
           <div
             style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
               fontSize: 10,
               color: "var(--color-text-tertiary)",
               marginBottom: 6,
+              gap: 8,
             }}
           >
-            Question {idx + 1}
+            <span>Question {idx + 1}</span>
+            <select
+              value={wq.source || "manual"}
+              onChange={(e) => updateWrongQuestion(wq.id, "source", e.target.value)}
+              style={{
+                fontSize: 10,
+                padding: "2px 6px",
+                border: "0.5px solid var(--color-border-secondary)",
+                borderRadius: 4,
+                background: "var(--color-background-primary)",
+                color: "var(--color-text-secondary)",
+                fontFamily: "var(--font-sans)",
+                cursor: "pointer",
+              }}
+              title="Source of this question"
+            >
+              {WRONG_Q_SOURCES.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
           </div>
 
           <textarea
@@ -1487,7 +1522,7 @@ function QuickLogFormContent({ lec, blockId, examDate, todayStr, logActivity, on
   function addWrongQuestionSlot() {
     setWrongQuestions((prev) => [
       ...prev,
-      { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "" },
+      { id: newWrongQuestionId(), question: "", wrongAnswer: "", correctAnswer: "", source: "manual" },
     ]);
   }
 
@@ -1539,7 +1574,7 @@ function QuickLogFormContent({ lec, blockId, examDate, todayStr, logActivity, on
             correctAnswer: wq.correctAnswer.trim() || "Not specified",
             linkedLecId: lec.id,
             lectureLabel: lecLabel,
-            source: "manual",
+            source: wq.source || "manual",
           }).catch((e) => console.error("recordWrongAnswer failed:", e));
         });
 
@@ -1860,12 +1895,37 @@ function QuickLogFormContent({ lec, blockId, examDate, todayStr, logActivity, on
 
                     <div
                       style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
                         fontSize: 10,
                         color: "var(--color-text-tertiary)",
                         marginBottom: 6,
+                        gap: 8,
                       }}
                     >
-                      Question {idx + 1}
+                      <span>Question {idx + 1}</span>
+                      <select
+                        value={wq.source || "manual"}
+                        onChange={(e) => updateWrongQuestion(wq.id, "source", e.target.value)}
+                        style={{
+                          fontSize: 10,
+                          padding: "2px 6px",
+                          border: "0.5px solid var(--color-border-secondary)",
+                          borderRadius: 4,
+                          background: "var(--color-background-primary)",
+                          color: "var(--color-text-secondary)",
+                          fontFamily: "var(--font-sans)",
+                          cursor: "pointer",
+                        }}
+                        title="Source of this question"
+                      >
+                        {WRONG_Q_SOURCES.map((s) => (
+                          <option key={s.value} value={s.value}>
+                            {s.label}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
                     <textarea
@@ -2250,6 +2310,7 @@ function LecturesTabContent({
   getConfidenceTrend,
   theme: t,
   MONO,
+  externalSearch = "",
 }) {
   const loadBlockLecs = () => {
     try {
@@ -2331,11 +2392,12 @@ function LecturesTabContent({
     queueMicrotask(() => setSearchQuery(""));
   }, [typeFilter]);
 
+  const effectiveSearch = (externalSearch || searchQuery || "").trim();
   const filteredGroups = groups
     .map((g) => {
       if (typeFilter !== "all" && g.type !== typeFilter) return null;
-      if (!searchQuery.trim()) return g;
-      const q = searchQuery.toLowerCase();
+      if (!effectiveSearch) return g;
+      const q = effectiveSearch.toLowerCase();
       const matchingLecs = g.entries.filter(
         ({ lec }) =>
           lec.title?.toLowerCase().includes(q) ||
@@ -2380,7 +2442,7 @@ function LecturesTabContent({
 
   const progressFillColor = (level) => ({ critical: "#E24B4A", weak: "#BA7517", gaps: "#888780", strong: "#639922" }[level] || "#888780");
   const statusPillConfig = (g) => {
-    if (g.level === "critical") return { text: `⚠ ${g.struggling} struggling`, ...t.statusBadBg != null ? { bg: t.statusBadBg, border: t.statusBadBorder, color: t.statusBad } : { bg: t.statusBad + "15", border: t.statusBad, color: t.statusBad } };
+    if (g.level === "critical") return { text: `⚠ ${g.struggling} struggling`, bg: "#FCEBEB", border: "#F09595", color: "#A32D2D" };
     if (g.level === "weak") return { text: "△ Weak", ...t.statusWarnBg != null ? { bg: t.statusWarnBg, border: t.statusWarnBorder, color: t.statusWarn } : { bg: t.statusWarn + "15", border: t.statusWarn, color: t.statusWarn } };
     if (g.level === "gaps") return { text: `○ ${g.untouched} untouched`, color: t.text3, bg: "transparent", border: t.border2 };
     return { text: "✓ Strong", ...t.statusGoodBg != null ? { bg: t.statusGoodBg, border: t.statusGoodBorder, color: t.statusGood } : { bg: t.statusGood + "15", border: t.statusGood, color: t.statusGood } };
@@ -2430,22 +2492,17 @@ function LecturesTabContent({
   return (
     <div style={{ marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        {["all", "DLA", "LEC", "SG", "TBL"].map((type) => {
-          const active = typeFilter === type;
-          const style = { fontSize: 12, padding: "4px 10px", borderRadius: 20, cursor: "pointer", boxShadow: "none", fontFamily: MONO, ...typePillStyle(type, active) };
-          return (
-            <button key={type} type="button" onClick={() => setTypeFilter(type)} style={style}>
-              {type === "all" ? "All" : type}
-            </button>
-          );
-        })}
-        <input
-          type="text"
-          placeholder="Search lectures..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          style={{ marginLeft: "auto", width: 180, background: t.inputBg, border: "0.5px solid " + t.border2, borderRadius: 8, padding: "6px 10px", color: t.text1, fontFamily: MONO, fontSize: 12, outline: "none" }}
-        />
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          style={{ background: t.cardBg, border: "1px solid " + t.border1, borderRadius: 7, padding: "5px 10px", color: t.text2, fontFamily: MONO, fontSize: 12, fontWeight: 700, cursor: "pointer", outline: "none" }}
+        >
+          <option value="all">All types</option>
+          <option value="DLA">DLA</option>
+          <option value="LEC">LEC</option>
+          <option value="SG">SG</option>
+          <option value="TBL">TBL</option>
+        </select>
       </div>
 
       {filteredGroups.length === 0 ? (
@@ -2456,7 +2513,7 @@ function LecturesTabContent({
       ) : (
         filteredGroups.map((g) => {
           const groupKey = `${g.week}__${g.type}`;
-          const isGroupExpanded = searchQuery.trim() ? true : (expandedGroups[groupKey] !== undefined ? expandedGroups[groupKey] : (g.level === "critical" || g.level === "weak"));
+          const isGroupExpanded = effectiveSearch ? true : (expandedGroups[groupKey] !== undefined ? expandedGroups[groupKey] : (g.level === "critical" || g.level === "weak"));
           const statusCfg = statusPillConfig(g);
           return (
             <div key={groupKey} style={{ background: t.cardBg, border: "0.5px solid " + t.border2, borderRadius: 12, overflow: "hidden", marginBottom: 8 }}>
@@ -2465,13 +2522,12 @@ function LecturesTabContent({
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: t.inputBg, cursor: "pointer" }}
               >
                 <span style={{ fontSize: 10, color: t.text3 }}>{isGroupExpanded ? "▾" : "▸"}</span>
-                <span style={{ fontFamily: MONO, fontSize: 12, padding: "4px 10px", borderRadius: 20, ...typePillStyle(g.type, true) }}>{g.type}</span>
-                <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{g.week === "unscheduled" ? "Unscheduled" : `Week ${g.week}`}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, flex: 1, color: t.text1 }}>{g.week === "unscheduled" ? "Unscheduled" : `Week ${g.week}`} <span style={{ fontFamily: MONO, fontSize: 11, color: t.text3, fontWeight: 400, marginLeft: 6 }}>· {g.type}</span></span>
                 <span style={{ fontSize: 11, color: t.text3 }}>{g.entries.length} / {g.total} lectures</span>
                 <span style={{ fontFamily: MONO, fontSize: 11, padding: "3px 8px", borderRadius: 20, background: statusCfg.bg, border: "1px solid " + (statusCfg.border || t.border2), color: statusCfg.color, fontWeight: 700 }}>{statusCfg.text}</span>
               </div>
-              <div style={{ height: 4, background: t.border2 }}>
-                <div style={{ width: `${(g.tracked / g.total) * 100}%`, height: "100%", background: progressFillColor(g.level), transition: "width 0.3s ease" }} />
+              <div style={{ height: 2, background: t.border2 }}>
+                <div style={{ width: `${(g.tracked / g.total) * 100}%`, height: "100%", background: progressFillColor(g.level), opacity: 0.6, transition: "width 0.3s ease" }} />
               </div>
               {isGroupExpanded && (
                 <div>
@@ -2535,84 +2591,53 @@ function LecturesTabContent({
                               {title}
                             </span>
                             <div style={{ display: "flex", gap: 4, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  window.dispatchEvent(
-                                    new CustomEvent("rxt-launch-deeplearn", {
-                                      detail: { lecId: lec.id, blockId: bid },
-                                    })
-                                  );
-                                }}
-                                title="Deep Learn — guided teaching"
-                                style={{
+                              {(() => {
+                                const actionBtn = {
                                   width: 32,
                                   height: 32,
                                   borderRadius: 6,
-                                  border: `1px solid #dc2626`,
+                                  border: "1px solid " + t.border1,
                                   background: "transparent",
-                                  color: "#dc2626",
+                                  color: t.text2,
                                   cursor: "pointer",
                                   fontSize: 14,
                                   display: "flex",
                                   alignItems: "center",
                                   justifyContent: "center",
-                                }}
-                              >
-                                🧠
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  window.dispatchEvent(
-                                    new CustomEvent("rxt-start-drill", {
-                                      detail: { lecId: lec.id, blockId: bid },
-                                    })
-                                  );
-                                }}
-                                title="Drill — rapid objective self-assess"
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: 6,
-                                  border: `1px solid ${t?.accent || "#2563eb"}`,
-                                  background: "transparent",
-                                  color: t?.accent || "#2563eb",
-                                  cursor: "pointer",
-                                  fontSize: 14,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                ⚡
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  window.dispatchEvent(
-                                    new CustomEvent("rxt-launch-quiz", {
-                                      detail: { lecId: lec.id, blockId: bid },
-                                    })
-                                  );
-                                }}
-                                title="Quiz — AI clinical MCQs"
-                                style={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: 6,
-                                  border: `1px solid #d97706`,
-                                  background: "transparent",
-                                  color: "#d97706",
-                                  cursor: "pointer",
-                                  fontSize: 14,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                }}
-                              >
-                                📝
-                              </button>
+                                };
+                                return (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        window.dispatchEvent(
+                                          new CustomEvent("rxt-launch-deeplearn", {
+                                            detail: { lecId: lec.id, blockId: bid },
+                                          })
+                                        );
+                                      }}
+                                      title="Deep Learn — guided teaching"
+                                      style={actionBtn}
+                                    >
+                                      🧠
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        window.dispatchEvent(
+                                          new CustomEvent("rxt-launch-quiz", {
+                                            detail: { lecId: lec.id, blockId: bid },
+                                          })
+                                        );
+                                      }}
+                                      title="Practice — MCQ vignettes (pick scope + count in modal)"
+                                      style={{ ...actionBtn, color: "#d97706", border: "1px solid #d97706" }}
+                                    >
+                                      ▶
+                                    </button>
+                                  </>
+                                );
+                              })()}
                             </div>
                           </div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -3497,14 +3522,34 @@ function CalendarTabContent({
                     borderBottom: i === selectedReviews.length - 1 ? "none" : "0.5px solid " + t.border2,
                   }}
                 >
-                  <div style={{ minWidth: 0, flex: 1 }}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      window.dispatchEvent(
+                        new CustomEvent("rxt-launch-deeplearn", {
+                          detail: { lecId: r.lectureId, blockId: bid },
+                        })
+                      )
+                    }
+                    title="Open lecture"
+                    style={{
+                      minWidth: 0,
+                      flex: 1,
+                      textAlign: "left",
+                      background: "transparent",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                      color: "inherit",
+                    }}
+                  >
                     <div style={{ fontWeight: 500, fontSize: 14, color: t.text1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {r.lecTitle}
                     </div>
                     <div style={{ fontSize: 11, color: t.text3, marginTop: 2 }}>
                       {label} · {r.daysSinceReview || 0} days since review
                     </div>
-                  </div>
+                  </button>
 
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                     <span style={{ fontSize: 12, color: labelColor, fontWeight: 600 }}>
@@ -3541,38 +3586,12 @@ function CalendarTabContent({
                         type="button"
                         onClick={() =>
                           window.dispatchEvent(
-                            new CustomEvent("rxt-start-drill", {
-                              detail: { lecId: r.lectureId, blockId: bid },
-                            })
-                          )
-                        }
-                        title="Drill"
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: 6,
-                          border: `1px solid ${t?.accent || "#2563eb"}`,
-                          background: "transparent",
-                          color: t?.accent || "#2563eb",
-                          cursor: "pointer",
-                          fontSize: 13,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        ⚡
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          window.dispatchEvent(
                             new CustomEvent("rxt-launch-quiz", {
                               detail: { lecId: r.lectureId, blockId: bid },
                             })
                           )
                         }
-                        title="Quiz"
+                        title="Practice — MCQ vignettes (pick scope + count in modal)"
                         style={{
                           width: 28,
                           height: 28,
@@ -3587,7 +3606,7 @@ function CalendarTabContent({
                           justifyContent: "center",
                         }}
                       >
-                        📝
+                        ▶
                       </button>
                     </div>
                   </div>
@@ -3725,8 +3744,7 @@ export default function Tracker({
     { id: "lecture", icon: "🎓", label: "Attended lecture" },
     { id: "video", icon: "▶", label: "Watched video" },
     { id: "deep_learn", icon: "🧠", label: "Deep Learn" },
-    { id: "drill", icon: "⚡", label: "Drilled" },
-    { id: "quiz", icon: "📝", label: "Quiz" },
+    { id: "questions", icon: "▶", label: "Did Practice" },
     { id: "anki", icon: "🗂", label: "Anki" },
     { id: "read", icon: "📖", label: "Read slides" },
     { id: "sg", icon: "👥", label: "Small group" },
@@ -4526,6 +4544,8 @@ export default function Tracker({
         return { ...(prev || {}), [key]: { ...ex, ankiInRotation: true } };
       });
     }
+    setRefreshKey((k) => k + 1);
+    try { window.dispatchEvent(new CustomEvent("rxt-completion-changed", { detail: { lectureId, blockId } })); } catch {}
   };
 
   /** Writes rxt-completion via logActivity using key `${lectureId}__${blockId}` only — never resolves lectureId from title. */
@@ -4543,10 +4563,14 @@ export default function Tracker({
         ? new Date(sessionDateInput).toISOString().slice(0, 10)
         : todayStr();
     logActivity(lectureId, blockId, activityType || "review", confidenceRating, { date: logDate, examDate: examDateStr });
+    setRefreshKey((k) => k + 1);
+    try { window.dispatchEvent(new CustomEvent("rxt-completion-changed", { detail: { lectureId, blockId } })); } catch {}
   };
 
   const logReview = (lectureId, blockId, reviewDate, newConfidenceRating, examDateStr) => {
     logActivity(lectureId, blockId, "review", newConfidenceRating, { date: reviewDate || todayStr(), examDate: examDateStr });
+    setRefreshKey((k) => k + 1);
+    try { window.dispatchEvent(new CustomEvent("rxt-completion-changed", { detail: { lectureId, blockId } })); } catch {}
   };
 
   // Filter
@@ -4696,8 +4720,9 @@ export default function Tracker({
                 background: activeTab === v ? t.cardBg : "transparent",
                 border: "1px solid " + (activeTab === v ? t.border2 : "transparent"),
                 borderBottom: activeTab === v ? "none" : "1px solid transparent",
-                color: activeTab === v ? t.text1 : t.text3,
-                padding: "6px 12px",
+                color: activeTab === v ? t.text1 : t.text2,
+                padding: "10px 16px",
+                minHeight: 40,
                 borderRadius: 8,
                 cursor: "pointer",
                 fontFamily: MONO,
@@ -4711,47 +4736,49 @@ export default function Tracker({
         </div>
 
         {tab==="tracker" && activeTab !== "weakConcepts" && <>
-          {/* Block filters */}
-          <div style={{ display:"flex", gap:4, flexWrap:"wrap" }}>
-            {[
-              { key: "all", name: "All", id: null },
-              ...Object.values(blocks || {}).filter(b => b?.name).map(b => ({ key: b.id, name: b.name })),
-            ].map(({ key: tabKey, name, id }) => {
-              const block = id === null ? null : (Object.values(blocks || {}).find((b) => b.id === tabKey || b.name === name));
-              const bid = block?.id ?? null;
-              const isSelected = trackerBlockId === bid;
-              const examDate = bid ? (examDates?.[bid] || "") : "";
-              const pressure = bid && examDate ? getPressureZone(examDate) : null;
-              const overdueCount = bid ? (trackerSummary.perBlockOverdue[bid] ?? 0) : 0;
-              const activeColor = overdueCount > 0 ? (t.statusBad || "#E24B4A") : (pressure?.zone === "crunch" || pressure?.zone === "critical" || pressure?.zone === "exam") ? (t.statusWarn || "#BA7517") : (t.statusGood || "#639922");
-              return (
-                <button
-                  key={tabKey}
-                  onClick={() => {
-                    setTrackerBlockId(bid);
-                    setFilter(name);
-                  }}
-                  style={{
-                    padding: "6px 16px",
-                    borderRadius: 20,
-                    cursor: "pointer",
-                    fontFamily: MONO,
-                    fontSize: 12,
-                    fontWeight: isSelected ? 700 : 500,
-                    border: (isSelected ? "2px solid " : "0.5px solid ") + (isSelected ? activeColor : t.border2),
-                    background: isSelected ? activeColor + "18" : "transparent",
-                    color: isSelected ? activeColor : t.text3,
-                    transition: "all 0.15s ease",
-                  }}
-                >
-                  {name}
-                </button>
-              );
-            })}
-          </div>
+          {/* Block filter — compact dropdown (was a row of pills) */}
+          {(() => {
+            const blockOpts = [
+              { id: null, name: "All blocks" },
+              ...Object.values(blocks || {}).filter(b => b?.name).map(b => ({ id: b.id, name: b.name })),
+            ];
+            const currentBid = trackerBlockId ?? "all";
+            const currentOverdue = trackerBlockId ? (trackerSummary.perBlockOverdue[trackerBlockId] ?? 0) : 0;
+            const activeColor = currentOverdue > 0 ? (t.statusBad || "#E24B4A") : (t.statusGood || "#639922");
+            return (
+              <select
+                value={currentBid}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  const bidVal = v === "all" ? null : v;
+                  const opt = blockOpts.find((o) => (o.id ?? "all") === v);
+                  setTrackerBlockId(bidVal);
+                  setFilter(opt?.name || "All");
+                }}
+                style={{
+                  background: trackerBlockId ? activeColor + "18" : t.cardBg,
+                  color: trackerBlockId ? activeColor : t.text2,
+                  border: "1px solid " + (trackerBlockId ? activeColor + "60" : t.border1),
+                  borderRadius: 7,
+                  padding: "5px 12px",
+                  fontFamily: MONO,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                {blockOpts.map((o) => (
+                  <option key={o.id ?? "all"} value={o.id ?? "all"}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
 
-          {/* Urgency filter */}
-          <div style={{ display:"flex", gap:3 }}>
+          {/* Urgency filter — only relevant on Lectures tab (Today has its own priority ordering) */}
+          {activeTab === "lectures" && <div style={{ display:"flex", gap:3 }}>
             {[
               ["all", `All (${filterCounts.all})`, { bg: t.inputBg, fg: t.text1, border: t.border1 }, filterCounts.all],
               ["critical", `△ Critical (${filterCounts.critical})`, { bg: "#FCEBEB", fg: "#A32D2D", border: "#F09595" }, filterCounts.critical],
@@ -4772,7 +4799,7 @@ export default function Tracker({
                 transition: "all 0.15s ease",
               }}>{l}</button>
             ))}
-          </div>
+          </div>}
 
           {/* Sort */}
           <select value={todaySort} onChange={e=>setTodaySort(e.target.value)} style={{ background:t.cardBg,border:"1px solid "+t.border1,color:t.text5,padding:"4px 10px",borderRadius:7,fontFamily:MONO,fontSize:13,outline:"none",cursor:"pointer" }}>
@@ -4817,15 +4844,7 @@ export default function Tracker({
         {/* Right side */}
         {activeTab !== "weakConcepts" && (
           <div style={{ marginLeft:"auto", display:"flex", gap:7, alignItems:"center" }}>
-            {trackerSummary.critical>0 && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⚠</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{trackerSummary.critical} critical</span></div>}
-            {trackerSummary.overdue>0  && <div style={{ background:t.statusBadBg,border:"1px solid "+t.statusBad,borderRadius:6,padding:"3px 10px",display:"flex",gap:4,alignItems:"center" }}><span style={{ fontSize:16 }}>⏰</span><span style={{ fontFamily:MONO,color:t.statusBad,fontSize:13,fontWeight:700 }}>{trackerSummary.overdue} overdue</span></div>}
-            {[["Rows",trackerSummary.total],["Done",trackerSummary.done]].map(([l,v])=>(
-              <div key={l} style={{ background:t.cardBg,borderRadius:6,padding:"3px 10px",display:"flex",gap:5,alignItems:"center", border:"1px solid "+t.border1 }}>
-                <span style={{ color:t.text4,fontSize:13 }}>{l}</span>
-                <span style={{ color:t.text1,fontSize:13,fontWeight:600 }}>{v}</span>
-              </div>
-            ))}
-            <button onClick={()=>setShowAdd(true)} style={{ background:t.statusBad,border:"none",color:t.text1,padding:"6px 14px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:13,fontWeight:700 }}>+ Add Row</button>
+            <button onClick={()=>setShowAdd(true)} style={{ background:"#3C3489",border:"none",color:"#fff",padding:"6px 14px",borderRadius:7,cursor:"pointer",fontFamily:MONO,fontSize:13,fontWeight:700 }}>+ Add Row</button>
             {saveMsg&&<span style={{ fontSize:13,color:saveMsg==="saved"?t.statusGood:t.statusWarn }}>{saveMsg==="saving"?"⟳ Saving…":"✓ Saved"}</span>}
           </div>
         )}
@@ -4859,6 +4878,7 @@ export default function Tracker({
                   getConfidenceTrend={getConfidenceTrend}
                   theme={t}
                   MONO={MONO}
+                  externalSearch={todaySearch}
                 />
               );
             })()}
@@ -5354,9 +5374,38 @@ export default function Tracker({
                 }
               };
 
+              // Lectures already surfaced in the dedicated "REVIEWS DUE TODAY" panel above —
+              // exclude them from the unified list so the same lecture doesn't appear twice.
+              const todayKeyLocalForFilter = studyDayKeyNow();
+              const reviewsDueTodayKeys = new Set();
+              const reviewsPendingKeys = new Set(); // any future review scheduled (badge target)
+              Object.entries(completion || {}).forEach(([key, e]) => {
+                if (!e || !Array.isArray(e.reviewDates)) return;
+                if (trackerBlockId && e.blockId !== trackerBlockId) return;
+                const lecId = e.lectureId || key.split("__")[0];
+                if (!lecId || !e.blockId) return;
+                const k = `${lecId}__${e.blockId}`;
+                const lastActDay = e.lastActivityDate ? String(e.lastActivityDate).slice(0, 10) : null;
+                const loggedTodayInLog = Array.isArray(e.activityLog)
+                  ? e.activityLog.some((a) => (a?.date || "").slice(0, 10) === todayKeyLocalForFilter)
+                  : false;
+                const hasToday = e.reviewDates.some(
+                  (d) => String(d || "").split("T")[0] === todayKeyLocalForFilter
+                );
+                if (hasToday && lastActDay !== todayKeyLocalForFilter && !loggedTodayInLog) {
+                  reviewsDueTodayKeys.add(k);
+                }
+                // Pending = any review scheduled today or in the future.
+                const hasFuture = e.reviewDates.some(
+                  (d) => String(d || "").split("T")[0] >= todayKeyLocalForFilter
+                );
+                if (hasFuture) reviewsPendingKeys.add(k);
+              });
+
               const unifiedList = [
                 ...todayLectures
                   .filter((t0) => t0?.lec?.id && t0?.blockId)
+                  .filter((t0) => !reviewsDueTodayKeys.has(`${t0.lec.id}__${t0.blockId}`))
                   .map((t0) => {
                     const perfKey = `${t0.lec.id}__${t0.blockId}`;
                     return {
@@ -5364,6 +5413,7 @@ export default function Tracker({
                       blockId: t0.blockId,
                       isToday: true,
                       isReview: false,
+                      hasPendingReview: reviewsPendingKeys.has(perfKey),
                       coach: studyCoachForToday(t0.lec, t0.blockId),
                       sessionCount: mergedCompletion[perfKey]?.sessionCount || 0,
                       lastScore: perfData[perfKey]?.score,
@@ -5372,6 +5422,7 @@ export default function Tracker({
                 ...sortedReviewsDue
                   .filter((t0) => t0?.lec?.id && t0?.blockId)
                   .filter((t0) => !todayKeys.has(`${t0.lec.id}__${t0.blockId}`))
+                  .filter((t0) => !reviewsDueTodayKeys.has(`${t0.lec.id}__${t0.blockId}`))
                   .map((t0) => {
                     const perfKey = `${t0.lec.id}__${t0.blockId}`;
                     return {
@@ -5379,6 +5430,7 @@ export default function Tracker({
                       blockId: t0.blockId,
                       isToday: false,
                       isReview: true,
+                      hasPendingReview: reviewsPendingKeys.has(perfKey),
                       coach: studyCoachForToday(t0.lec, t0.blockId),
                       sessionCount: mergedCompletion[perfKey]?.sessionCount || 0,
                       lastScore: perfData[perfKey]?.score,
@@ -5499,6 +5551,217 @@ export default function Tracker({
                     <div style={{ fontSize: 13, fontWeight: 700 }}>📋 Today — {unifiedList.length} lectures</div>
                     <div style={{ fontSize: 11, color: t.text3 }}>Ordered by priority · Step 1 first</div>
                   </div>
+                  {(() => {
+                    const todayKeyLocal = studyDayKeyNow();
+                    const todayReviews = [];
+                    const lecsById = {};
+                    (lecs || []).forEach((l) => {
+                      if (l?.id) lecsById[l.id] = l;
+                    });
+                    Object.entries(completion || {}).forEach(([key, e]) => {
+                      if (!e || !Array.isArray(e.reviewDates)) return;
+                      if (trackerBlockId && e.blockId !== trackerBlockId) return;
+                      const lecId = e.lectureId || key.split("__")[0];
+                      const lec = lecsById[lecId];
+                      if (!lec) return;
+                      const hasToday = e.reviewDates.some(
+                        (d) => String(d || "").split("T")[0] === todayKeyLocal
+                      );
+                      if (!hasToday) return;
+                      // If the user already did *any* activity today (Practice, Drill, manual log,
+                      // Reviewed button, etc.), the lecture is no longer "due today" — hide it.
+                      // Without this check the row stuck around even after completion because the
+                      // recomputed reviewDates can still contain today (e.g. a Saturday sweep date
+                      // that lands on the same day as the activity).
+                      const lastActDay = e.lastActivityDate
+                        ? String(e.lastActivityDate).slice(0, 10)
+                        : null;
+                      if (lastActDay === todayKeyLocal) return;
+                      // Cross-check the activityLog directly in case lastActivityDate is stale.
+                      const loggedToday = Array.isArray(e.activityLog)
+                        ? e.activityLog.some((a) => (a?.date || "").slice(0, 10) === todayKeyLocal)
+                        : false;
+                      if (loggedToday) return;
+                      // Calendar-day diff (not 24-hour rounding) so "1 day ago" actually
+                      // means yesterday, not "9pm yesterday counted as 0".
+                      const sinceLabel = (() => {
+                        const last = e.lastActivityDate;
+                        if (!last) return "Never reviewed";
+                        const d = new Date(last);
+                        if (isNaN(d.getTime())) return "Never reviewed";
+                        const lastDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                        const today = new Date();
+                        const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+                        const diff = Math.floor((todayDay - lastDay) / 86400000);
+                        if (diff <= 0) return "Last reviewed today";
+                        if (diff === 1) return "Last reviewed yesterday";
+                        return `Last reviewed ${diff} days ago`;
+                      })();
+                      todayReviews.push({
+                        lectureId: lecId,
+                        blockId: e.blockId,
+                        lecTitle:
+                          lec.lectureTitle || lec.title || lec.filename || lec.fileName || "",
+                        lecType: lec.lectureType || "LEC",
+                        lecNumber: lec.lectureNumber ?? null,
+                        sinceLabel,
+                        lastConfidence: e.lastConfidence,
+                      });
+                    });
+                    if (!todayReviews.length) return null;
+                    return (
+                      <div
+                        style={{
+                          marginBottom: 14,
+                          padding: "10px 12px",
+                          background: "#FFF7ED",
+                          border: "1px solid #F59E0B",
+                          borderRadius: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            letterSpacing: "0.08em",
+                            color: "#B45309",
+                            marginBottom: 8,
+                          }}
+                        >
+                          🔁 REVIEWS DUE TODAY ({todayReviews.length})
+                        </div>
+                        {(() => {
+                          // Defensive dedupe by lectureId+blockId — the predicate iterates
+                          // completion entries and could surface the same lecture twice if
+                          // the store has stale duplicates.
+                          const seenLec = new Set();
+                          return todayReviews.filter((r) => {
+                            const k = `${r.lectureId}__${r.blockId}`;
+                            if (seenLec.has(k)) return false;
+                            seenLec.add(k);
+                            return true;
+                          });
+                        })().map((r, i, deduped) => {
+                          const labelR = "Due";
+                          const labelColorR = t.statusWarn;
+                          return (
+                            <div
+                              key={`today-review-${i}`}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                                padding: "8px 0",
+                                borderBottom:
+                                  i === deduped.length - 1 ? "none" : "1px solid #FDE68A",
+                              }}
+                            >
+                              <div
+                                style={{
+                                  flex: 1,
+                                  minWidth: 0,
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "baseline",
+                                    gap: 6,
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  <span
+                                    style={{
+                                      fontFamily: MONO,
+                                      fontSize: 10,
+                                      fontWeight: 700,
+                                      color: "#B45309",
+                                      flexShrink: 0,
+                                      letterSpacing: 0.3,
+                                    }}
+                                  >
+                                    {(r.lecType || "LEC")} {r.lecNumber ?? ""}
+                                  </span>
+                                  <span
+                                    style={{
+                                      fontWeight: 600,
+                                      fontSize: 13,
+                                      color: t.text1,
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {r.lecTitle}
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: 11, marginTop: 2 }}>
+                                  <span style={{ color: labelColorR, fontWeight: 600 }}>
+                                    △ {labelR}
+                                  </span>
+                                  <span style={{ color: t.text3 }}>
+                                    {" · "}
+                                    {r.sinceLabel || "Last reviewed —"}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const rbid = r.blockId || trackerBlockId;
+                                  markLectureReviewedToday(
+                                    r.lectureId,
+                                    rbid,
+                                    "okay",
+                                    examDates?.[rbid] || "",
+                                    "review"
+                                  );
+                                }}
+                                title="Mark reviewed"
+                                style={{
+                                  padding: "6px 10px",
+                                  borderRadius: 6,
+                                  border: "1px solid " + (t.statusGood || "#16a34a"),
+                                  background: "transparent",
+                                  color: t.statusGood || "#16a34a",
+                                  cursor: "pointer",
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  fontFamily: MONO,
+                                }}
+                              >
+                                ✓ Reviewed
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  window.dispatchEvent(
+                                    new CustomEvent("rxt-launch-quiz", {
+                                      detail: { lecId: r.lectureId, blockId: r.blockId || trackerBlockId },
+                                    })
+                                  )
+                                }
+                                title="Practice — MCQ vignettes (pick scope + count in modal)"
+                                style={{
+                                  width: 32,
+                                  height: 32,
+                                  borderRadius: 6,
+                                  border: "1px solid #d97706",
+                                  background: "transparent",
+                                  color: "#d97706",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                ▶
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
                   {strugglingCount > 0 && (
                     <div
                       style={{
@@ -5564,6 +5827,7 @@ export default function Tracker({
                         { id: "deep_learn", icon: "🧠", label: "Did Deep Learn" },
                         { id: "read", icon: "📖", label: "Read slides" },
                         { id: "anki", icon: "🗂", label: "Did Anki" },
+                        { id: "questions", icon: "▶", label: "Did Practice" },
                         { id: "sg", icon: "👥", label: "Small group" },
                       ];
                       const selected = activityType[unifiedLecId] || "none";
@@ -5607,6 +5871,10 @@ export default function Tracker({
                             padding: "12px 16px",
                             borderRadius: 10,
                             border: `1px solid ${t.border1 || t.border2}`,
+                            borderLeft:
+                              item.hasPendingReview && !isDoneThisRow
+                                ? "3px solid #d97706"
+                                : `1px solid ${t.border1 || t.border2}`,
                             background: t.surface || t.cardBg,
                             marginBottom: 8,
                             opacity: isDoneThisRow ? 0.78 : 1,
@@ -5656,6 +5924,23 @@ export default function Tracker({
                                       }}
                                     >
                                       ✓ Logged
+                                    </span>
+                                  )}
+                                  {item.hasPendingReview && !isDoneThisRow && (
+                                    <span
+                                      title="Spaced-repetition review scheduled for this lecture"
+                                      style={{
+                                        padding: "2px 8px",
+                                        borderRadius: 20,
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        background: "#fff7ed",
+                                        color: "#b45309",
+                                        border: "1px solid #fdba74",
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      🔁 Review pending
                                     </span>
                                   )}
                                   <span style={{ fontWeight: 600, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: t.text1 }}>
@@ -5865,38 +6150,21 @@ export default function Tracker({
                                   type="button"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    dispatchUnifiedAction("drill", unifiedLecId, unifiedBlockId, unifiedLecTitle);
-                                  }}
-                                  style={{
-                                    padding: "8px 12px",
-                                    borderRadius: 8,
-                                    border: `1px solid ${t.border1 || t.border2}`,
-                                    background: "transparent",
-                                    color: t.text3,
-                                    cursor: "pointer",
-                                    fontSize: 12,
-                                    marginRight: 6,
-                                  }}
-                                >
-                                  ⚡ Drill
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
                                     dispatchUnifiedAction("quiz", unifiedLecId, unifiedBlockId, unifiedLecTitle);
                                   }}
+                                  title="Practice — MCQ vignettes (pick scope + count in modal)"
                                   style={{
                                     padding: "8px 12px",
                                     borderRadius: 8,
-                                    border: `1px solid ${t.border1 || t.border2}`,
+                                    border: `1px solid #d97706`,
                                     background: "transparent",
-                                    color: t.text3,
+                                    color: "#d97706",
                                     cursor: "pointer",
                                     fontSize: 12,
+                                    fontWeight: 700,
                                   }}
                                 >
-                                  📝 Quiz
+                                  ▶ Practice
                                 </button>
                               </div>
 
@@ -8217,34 +8485,6 @@ export default function Tracker({
                                           const bid = upBid;
                                           setTimeout(() => {
                                             window.dispatchEvent(
-                                              new CustomEvent("rxt-start-drill", {
-                                                detail: { lecId: lid, blockId: bid },
-                                              })
-                                            );
-                                          }, 0);
-                                        }}
-                                        style={{
-                                          width: 26,
-                                          height: 26,
-                                          borderRadius: 6,
-                                          border: `1px solid ${t?.accent || "#2563eb"}`,
-                                          background: "transparent",
-                                          color: t?.accent || "#2563eb",
-                                          cursor: "pointer",
-                                          fontSize: 12,
-                                        }}
-                                        title="Drill"
-                                      >
-                                        ⚡
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          const lid = lec.id;
-                                          const bid = upBid;
-                                          setTimeout(() => {
-                                            window.dispatchEvent(
                                               new CustomEvent("rxt-launch-quiz", {
                                                 detail: { lecId: lid, blockId: bid },
                                               })
@@ -8260,10 +8500,11 @@ export default function Tracker({
                                           color: "#d97706",
                                           cursor: "pointer",
                                           fontSize: 12,
+                                          fontWeight: 700,
                                         }}
-                                        title="Quiz"
+                                        title="Practice — MCQ vignettes (pick scope + count in modal)"
                                       >
-                                        📝
+                                        ▶
                                       </button>
                                     </div>
                                   </div>
@@ -8550,40 +8791,13 @@ export default function Tracker({
                                       const bid = upBid;
                                       setTimeout(() => {
                                         window.dispatchEvent(
-                                          new CustomEvent("rxt-start-drill", {
-                                            detail: { lecId: lid, blockId: bid },
-                                          })
-                                        );
-                                      }, 0);
-                                    }}
-                                    style={{
-                                      padding: "5px 12px",
-                                      borderRadius: 6,
-                                      border: `1px solid ${t?.accent || "#2563eb"}`,
-                                      background: "transparent",
-                                      color: t?.accent || "#2563eb",
-                                      cursor: "pointer",
-                                      fontSize: 12,
-                                      fontWeight: 600,
-                                      fontFamily: MONO,
-                                    }}
-                                  >
-                                    ⚡ Drill
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      const lid = lec.id;
-                                      const bid = upBid;
-                                      setTimeout(() => {
-                                        window.dispatchEvent(
                                           new CustomEvent("rxt-launch-quiz", {
                                             detail: { lecId: lid, blockId: bid },
                                           })
                                         );
                                       }, 0);
                                     }}
+                                    title="Practice — MCQ vignettes (pick scope + count in modal)"
                                     style={{
                                       padding: "5px 12px",
                                       borderRadius: 6,
@@ -8592,11 +8806,11 @@ export default function Tracker({
                                       color: "#d97706",
                                       cursor: "pointer",
                                       fontSize: 12,
-                                      fontWeight: 600,
+                                      fontWeight: 700,
                                       fontFamily: MONO,
                                     }}
                                   >
-                                    📝 Quiz
+                                    ▶ Practice
                                   </button>
                                   <button
                                     type="button"
