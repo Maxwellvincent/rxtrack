@@ -21234,18 +21234,42 @@ export default function App() {
     const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
     const blockObjs = getBlockObjectives(blockId) || [];
     const allUploaded = Object.entries(questionBanksByFileArg || {});
-    const relevantQs = allUploaded
-      .flatMap(([fname, questions]) => (questions || []).map((q) => ({ ...q, sourceFile: fname })))
-      .filter((q) => {
-        if (!lectureId) return true;
-        const lec = lectures.find((l) => l.id === lectureId);
-        if (!lec) return true;
-        const fname = (q.sourceFile || "").toLowerCase();
-        const topic = (q.topic || q.subject || "").toLowerCase();
-        const lecTitle = (lec.lectureTitle || "").toLowerCase().slice(0, 20);
-        const lecNum = String(lec.lectureNumber || "");
-        return fname.includes(lecNum) || topic.includes(lecTitle) || fname.includes(lecTitle.slice(0, 10));
-      });
+    const allFlat = allUploaded.flatMap(([fname, questions]) =>
+      (questions || []).map((q) => ({ ...q, sourceFile: fname }))
+    );
+    // Rank every uploaded question by relevance to the current lecture instead
+    // of dropping non-matching files entirely. Previous behavior filtered out
+    // any file whose name didn't contain the lecture number or title — which
+    // silently excluded most Q-bank uploads from informing generation.
+    const lecForRank = lectureId ? lectures.find((l) => l.id === lectureId) : null;
+    const lecTitleLow = (lecForRank?.lectureTitle || "").toLowerCase().slice(0, 30);
+    const lecNumStr = String(lecForRank?.lectureNumber || "").trim();
+    const scoreQ = (q) => {
+      if (!lecForRank) return 0;
+      const fname = (q.sourceFile || "").toLowerCase();
+      const topic = (q.topic || q.subject || "").toLowerCase();
+      const stem = (q.stem || "").toLowerCase();
+      let score = 0;
+      // Strong signals
+      if (lecTitleLow && (topic.includes(lecTitleLow) || stem.includes(lecTitleLow))) score += 5;
+      if (lecTitleLow && fname.includes(lecTitleLow.slice(0, 10))) score += 3;
+      // Lecture-number match in filename only counts when it's at least 2 chars
+      // (avoids "2" matching "MADCOW_CPR2" for any single-digit lecture).
+      if (lecNumStr.length >= 2 && fname.includes(lecNumStr)) score += 2;
+      // Weak title-keyword overlap
+      if (lecTitleLow) {
+        const keywords = lecTitleLow.split(/\W+/).filter((w) => w.length >= 5);
+        for (const kw of keywords) {
+          if (topic.includes(kw)) score += 1;
+          if (stem.includes(kw)) score += 0.5;
+        }
+      }
+      return score;
+    };
+    const relevantQs = allFlat
+      .map((q) => ({ q, s: scoreQ(q) }))
+      .sort((a, b) => b.s - a.s)
+      .map((x) => x.q);
 
     const selectedLecIds = options.selectedLecIds || (lectureId ? [lectureId] : []);
     let lectureChunks = "";
@@ -21287,8 +21311,35 @@ export default function App() {
           }
         : null;
 
+    // Diversify the 8-question sample: cap any single source file to 3 of the 8
+    // so the AI sees stylistic variety from multiple Q-banks instead of all 8
+    // coming from whichever file happened to score highest.
+    const pickedSample = (() => {
+      const picked = [];
+      const perFileCount = new Map();
+      const PER_FILE_CAP = 3;
+      const TARGET = 8;
+      // First pass: score-ordered with cap
+      for (const q of relevantQs) {
+        if (picked.length >= TARGET) break;
+        const f = q.sourceFile || "";
+        const c = perFileCount.get(f) || 0;
+        if (c >= PER_FILE_CAP) continue;
+        picked.push(q);
+        perFileCount.set(f, c + 1);
+      }
+      // Second pass: if still under target (because cap excluded some), fill with leftovers
+      if (picked.length < TARGET) {
+        for (const q of relevantQs) {
+          if (picked.length >= TARGET) break;
+          if (!picked.includes(q)) picked.push(q);
+        }
+      }
+      return picked;
+    })();
+
     const context = {
-      relevantQs: relevantQs.slice(0, 8),
+      relevantQs: pickedSample,
       lectureChunks,
       objectives: objectives.slice(0, 20),
       styleAnalysis,
