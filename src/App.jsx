@@ -8101,14 +8101,25 @@ What is the clinical significance of this finding?`,
     ];
     if (idx + 1 >= vigs.length) {
       const correctCount = nr.filter((r) => r.ok).length;
+      // Derive an implicit confidence from how many wrong answers the user
+      // eliminated before submitting. 3 strikeouts → High (only 1 choice left,
+      // committed pick), 2 → Medium-High, 1 → Medium, 0 → Low (no narrowing).
+      // Used as a fallback when no explicit H/M/L was set.
+      const deriveFromElim = (qid) => {
+        const n = (eliminated[qid] || []).length;
+        if (n >= 3) return "High";
+        if (n === 2) return "Medium";
+        if (n === 1) return "Medium";
+        return "Low";
+      };
       const resultsWithObjectives = nr.map((r) => {
         const vig = vigs.find((v) => v.id === r.questionId);
-        // Capture per-question confidence so the Analytics calibration panel can compute
-        // accuracy at each confidence level (High/Medium/Low) over time.
-        const qConfidence =
+        const explicit =
           (conf && r.questionId === curVig.id ? conf : null) ||
           confidences[r.questionId] ||
           null;
+        const derived = deriveFromElim(r.questionId);
+        const qConfidence = explicit || derived;
         return {
           questionId: vig?.id ?? r.questionId,
           objectiveId: vig?.objectiveId ?? null,
@@ -8118,6 +8129,8 @@ What is the clinical significance of this finding?`,
           correct: r.ok,
           score: r.ok ? 100 : 0,
           confidence: qConfidence,
+          confidenceSource: explicit ? "explicit" : "derived-elimination",
+          eliminatedCount: (eliminated[r.questionId] || []).length,
         };
       });
       onDone({
@@ -8137,7 +8150,20 @@ What is the clinical significance of this finding?`,
           perObjectiveDrillQuiz: !!cfg.perObjectiveDrillQuiz,
           quizDifficultyTier: cfg.quizDifficultyTier ?? 1,
           quizTierLabel: cfg.quizTierLabel ?? null,
-          confidences: { ...confidences, ...(conf ? { [curVig.id]: conf } : {}) },
+          // Confidence map includes both explicit (H/M/L) and derived
+          // (from elimination count) so the calibration panel sees a value
+          // for every question, not just ones the user manually rated.
+          confidences: (() => {
+            const out = { ...confidences, ...(conf ? { [curVig.id]: conf } : {}) };
+            for (const r of nr) {
+              if (out[r.questionId]) continue;
+              out[r.questionId] = deriveFromElim(r.questionId);
+            }
+            return out;
+          })(),
+          eliminationCounts: Object.fromEntries(
+            nr.map((r) => [r.questionId, (eliminated[r.questionId] || []).length])
+          ),
           flaggedQuestionIds: Object.keys(flaggedIds),
         },
       });
@@ -9003,11 +9029,36 @@ What is the clinical significance of this finding?`,
           );
         })}
       </div>
-      {!shown && (
-        <p style={{ fontFamily: SANS, color: T.text3, fontSize: 12, marginTop: 8 }}>
-          ✕ Click the X button next to a choice to eliminate it · Click ↩ to restore
-        </p>
-      )}
+      {!shown && (() => {
+        const elimCountForCur = (eliminated[curVig?.id] || []).length;
+        const inferred =
+          elimCountForCur >= 3 ? "High" :
+          elimCountForCur >= 1 ? "Medium" :
+          "Low";
+        const inferredColor =
+          inferred === "High" ? T.statusGood :
+          inferred === "Medium" ? "#d97706" :
+          T.statusBad;
+        return (
+          <p style={{ fontFamily: SANS, color: T.text3, fontSize: 12, marginTop: 8 }}>
+            ✕ Eliminate wrong choices · ↩ restore
+            {elimCountForCur > 0 && (
+              <>
+                {" · "}
+                <span style={{ color: T.text2 }}>
+                  {elimCountForCur} eliminated
+                </span>
+                {!confidence && (
+                  <>
+                    {" → confidence will be inferred as "}
+                    <span style={{ color: inferredColor, fontWeight: 700 }}>{inferred}</span>
+                  </>
+                )}
+              </>
+            )}
+          </p>
+        );
+      })()}
 
       {/* Pre-reveal confidence prompt — appears once a choice is selected, before reveal.
           This trains the prediction muscle: rate before you see the answer, not after. */}
