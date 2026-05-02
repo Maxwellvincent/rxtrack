@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Component } from "react";
 import {
   supabase,
   signInWithGoogle,
@@ -37,6 +37,8 @@ import { extractPDFWithMistralSafe, extractTextWithMistral, ocrPageToLectureChun
 import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
 import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from "./calibration";
 import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
+import StudyRoutineModal from "./StudyRoutineModal";
+import { evaluateToday as evaluateRoutineToday, getSuggestions as getRoutineSuggestions } from "./studyRoutine";
 import {
   ThemeContext,
   useTheme,
@@ -8205,9 +8207,14 @@ What is the clinical significance of this finding?`,
         if (e.key === "h" || e.key === "H") { e.preventDefault(); setConfidence("High"); return; }
         if (e.key === "m" || e.key === "M") { e.preventDefault(); setConfidence("Medium"); return; }
         if (e.key === "l" || e.key === "L") { e.preventDefault(); setConfidence("Low"); return; }
-        if (e.key === "Enter" && sel && confidence) {
-          e.preventDefault();
-          setShown(true);
+        if (e.key === "Enter" && sel) {
+          // Allow Enter to reveal when either explicit confidence is set OR
+          // the user eliminated at least one wrong choice (derived signal).
+          const elimCount = (eliminated[vigs[idx]?.id] || []).length;
+          if (confidence || elimCount > 0) {
+            e.preventDefault();
+            setShown(true);
+          }
         }
         return;
       }
@@ -8594,6 +8601,7 @@ What is the clinical significance of this finding?`,
   }
 
   const v = vigs[idx];
+  const curVig = v;
   const cleanStemV = stripImageTagFromStem(v.stem);
   const displayStem = cleanStemV || v.stem || "";
   const imagePromptV = resolveMcqImagePrompt(v);
@@ -9030,7 +9038,7 @@ What is the clinical significance of this finding?`,
         })}
       </div>
       {!shown && (() => {
-        const elimCountForCur = (eliminated[curVig?.id] || []).length;
+        const elimCountForCur = (eliminated[v?.id] || []).length;
         const inferred =
           elimCountForCur >= 3 ? "High" :
           elimCountForCur >= 1 ? "Medium" :
@@ -9214,16 +9222,33 @@ What is the clinical significance of this finding?`,
         </button>
         <div style={{ flex: 1 }} />
         {!shown
-          ? (
-            <Btn
-              onClick={() => setShown(true)}
-              color={tc}
-              disabled={!sel || !confidence}
-              title={!sel ? "Pick an answer first" : !confidence ? "Rate your confidence first (1/2/3)" : ""}
-            >
-              {!sel ? "Pick an answer" : !confidence ? "Rate confidence to reveal" : "Reveal Answer"}
-            </Btn>
-          )
+          ? (() => {
+              // Allow reveal if either explicit confidence is set OR the user has
+              // narrowed via elimination (any strikeout = enough signal to derive
+              // a confidence value). Pure first-glance picks still require H/M/L.
+              const elimCount = (eliminated[curVig?.id] || []).length;
+              const hasSignal = !!confidence || elimCount > 0;
+              return (
+                <Btn
+                  onClick={() => setShown(true)}
+                  color={tc}
+                  disabled={!sel || !hasSignal}
+                  title={
+                    !sel
+                      ? "Pick an answer first"
+                      : !hasSignal
+                        ? "Rate confidence (1/2/3) or eliminate at least one wrong choice"
+                        : ""
+                  }
+                >
+                  {!sel
+                    ? "Pick an answer"
+                    : !hasSignal
+                      ? "Rate confidence or eliminate a choice"
+                      : "Reveal Answer"}
+                </Btn>
+              );
+            })()
           : <Btn onClick={next} color={T.statusGood}>{idx+1>=vigs.length ? "Finish ✓" : "Next →"}</Btn>
         }
       </div>
@@ -18434,6 +18459,112 @@ ${objList}`;
   };
 }
 
+function SessionErrorFallback({ error, onRetry, onBack }) {
+  return (
+    <div
+      style={{
+        background: "var(--color-background, #0b0f16)",
+        color: "var(--color-text-primary, #e6edf3)",
+        border: "1px solid var(--color-border-secondary, #2b3440)",
+        borderRadius: 12,
+        maxWidth: 780,
+        margin: "24px auto",
+        padding: "20px 18px",
+        fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+      }}
+    >
+      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Session crashed</div>
+      <div style={{ fontSize: 13, opacity: 0.9, marginBottom: 12 }}>
+        A runtime error occurred while rendering this session. You can go back or retry.
+      </div>
+      {error?.message && (
+        <pre
+          style={{
+            margin: "0 0 14px",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            maxHeight: 220,
+            overflow: "auto",
+            background: "var(--color-background-secondary, #111826)",
+            border: "1px solid var(--color-border-tertiary, #394355)",
+            borderRadius: 8,
+            padding: 10,
+            fontSize: 12,
+          }}
+        >
+          {error.message}
+        </pre>
+      )}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={onBack}
+          style={{
+            border: "1px solid var(--color-border-secondary, #3a4454)",
+            background: "var(--color-background-secondary, #111826)",
+            color: "var(--color-text-primary, #e6edf3)",
+            borderRadius: 8,
+            padding: "8px 12px",
+            cursor: "pointer",
+            fontSize: 13,
+          }}
+        >
+          Back
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          style={{
+            border: "1px solid #3b82f6",
+            background: "#1d4ed8",
+            color: "#ffffff",
+            borderRadius: 8,
+            padding: "8px 12px",
+            cursor: "pointer",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
+          Retry Session
+        </button>
+      </div>
+    </div>
+  );
+}
+
+class SessionErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+    this.handleRetry = this.handleRetry.bind(this);
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("SessionErrorBoundary caught:", error, errorInfo);
+  }
+
+  handleRetry() {
+    this.setState({ hasError: false, error: null });
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SessionErrorFallback
+          error={this.state.error}
+          onRetry={this.handleRetry}
+          onBack={this.props.onBack}
+        />
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const objectiveSaveLockRef = useRef(false);
   const objectiveSaveQueueRef = useRef([]);
@@ -19053,6 +19184,8 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState(null);
   const [hasCloudData, setHasCloudData] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showStudyRoutine, setShowStudyRoutine] = useState(false);
+  const [routineTick, setRoutineTick] = useState(0);
   const [showImportScreen, setShowImportScreen] = useState(false);
   const [importJson, setImportJson] = useState("");
   const [importing, setImporting] = useState(false);
@@ -31335,6 +31468,47 @@ Current student level: ${tierLabel}`;
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
 
+                    {(() => {
+                      void routineTick;
+                      let summary = "";
+                      try {
+                        const evalResult = evaluateRoutineToday();
+                        const sugg = getRoutineSuggestions();
+                        summary = `${evalResult.doneCount}/${evalResult.totalCount} done today${
+                          sugg.length ? ` · ${sugg.length} suggestion${sugg.length === 1 ? "" : "s"}` : ""
+                        }`;
+                      } catch {}
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowStudyRoutine(true);
+                            setShowUserMenu(false);
+                          }}
+                          style={{
+                            width: "100%",
+                            padding: "8px 14px",
+                            fontSize: 12,
+                            textAlign: "left",
+                            background: "transparent",
+                            border: "none",
+                            cursor: "pointer",
+                            color: "var(--color-text-secondary, " + t.text2 + ")",
+                            fontFamily: SANS,
+                          }}
+                        >
+                          📋 Study routine
+                          {summary && (
+                            <span style={{ display: "block", fontSize: 10, color: t.text3, marginTop: 2 }}>
+                              {summary}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })()}
+
+                    <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
+
                     <button
                       type="button"
                       onClick={async () => {
@@ -31698,9 +31872,7 @@ Current student level: ${tierLabel}`;
           {/* STUDY */}
           {view==="study" && studyCfg && (
             <div style={{ padding:"32px 36px" }}>
-              <Session
-                cfg={studyCfg}
-                onDone={onSessionDone}
+              <SessionErrorBoundary
                 onBack={() => {
                   // Return the user to whichever view launched this session
                   // (Tracker, Block overview, etc.) instead of always going to "block".
@@ -31710,13 +31882,27 @@ Current student level: ${tierLabel}`;
                   setQuizSavedState(null);
                   setTrackerKey((k) => k + 1);
                 }}
-                onGenerateTopicVignettes={generateTopicVignettes}
-                quizSavedState={quizSavedState}
-                quizTargetLecture={lectures.find((l) => l.id === studyCfg?.lectureId) || null}
-                quizBlockId={studyCfg?.blockId ?? null}
-                onAddLectureToTodayReview={addLectureToTodayReview}
-                onObjectiveQuizAnswer={updateDrillProgression}
-              />
+              >
+                <Session
+                  cfg={studyCfg}
+                  onDone={onSessionDone}
+                  onBack={() => {
+                    // Return the user to whichever view launched this session
+                    // (Tracker, Block overview, etc.) instead of always going to "block".
+                    const returnTo = studyReturnViewRef.current || "block";
+                    setView(returnTo);
+                    setStudyCfg(null);
+                    setQuizSavedState(null);
+                    setTrackerKey((k) => k + 1);
+                  }}
+                  onGenerateTopicVignettes={generateTopicVignettes}
+                  quizSavedState={quizSavedState}
+                  quizTargetLecture={lectures.find((l) => l.id === studyCfg?.lectureId) || null}
+                  quizBlockId={studyCfg?.blockId ?? null}
+                  onAddLectureToTodayReview={addLectureToTodayReview}
+                  onObjectiveQuizAnswer={updateDrillProgression}
+                />
+              </SessionErrorBoundary>
             </div>
           )}
 
