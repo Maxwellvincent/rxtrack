@@ -7,13 +7,18 @@ import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
+import { EngineSession } from "../engine/EngineSession.jsx";
+import { supabase } from "../supabase.js";
 
 export default function Shell() {
   const { theme, toggle } = useTheme();
   const blocks = useMemo(() => flattenBlocks(readTerms(), readLectures()), []);
   const [activeBlockId, setActiveBlockId] = useState(() => blocks[0]?.id ?? null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [inSession, setInSession] = useState(false);
+  const [userId, setUserId] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
+  useEffect(() => { supabase.auth.getUser().then(({ data }) => setUserId(data?.user?.id ?? null)); }, []);
 
   // ⌘K opens the palette globally.
   useEffect(() => {
@@ -29,10 +34,7 @@ export default function Shell() {
     [blocks]
   );
 
-  const onContinue = useCallback(() => {
-    // Placeholder — the adaptive engine is sub-project #2.
-    alert("Adaptive learning session — coming in the next build (engine sub-project).");
-  }, []);
+  const onContinue = useCallback(() => setInSession(true), []);
 
   return (
     <div className={`theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
@@ -44,7 +46,17 @@ export default function Shell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <Header termName={active?.termName} blockName={active?.name} theme={theme} onToggleTheme={toggle} />
         <main className="flex-1 overflow-y-auto">
-          <BlockHome blockId={activeBlockId} onContinue={onContinue} />
+          {inSession && activeBlockId ? (
+            <EngineSession
+              userId={userId}
+              blockId={activeBlockId}
+              blockName={active?.name}
+              newPool={[]}
+              onExit={() => setInSession(false)}
+            />
+          ) : (
+            <BlockHome blockId={activeBlockId} onContinue={onContinue} />
+          )}
         </main>
       </div>
       <CommandPalette
