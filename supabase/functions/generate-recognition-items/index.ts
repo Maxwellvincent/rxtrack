@@ -35,6 +35,12 @@ Deno.serve(async (req) => {
     const { userId, blockId, perCard = 3, weakSubjects = [] } = await req.json();
     if (!userId) return new Response(JSON.stringify({ error: "userId required" }), { status: 400 });
     const apiKey = Deno.env.get("GEMINI_API_KEY");
+    if (!apiKey) {
+      return new Response(
+        JSON.stringify({ error: "GEMINI_API_KEY not set as an Edge Function secret" }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     // Cards for this user/block that have no items yet (idempotent).
