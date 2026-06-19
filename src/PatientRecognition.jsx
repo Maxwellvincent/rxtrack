@@ -44,10 +44,13 @@ function readObjectivePool() {
   }
 }
 
-function readWeakSubjects() {
+function readWeakConcepts() {
   try {
     const w = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
-    return Object.values(w).flat().map((c) => c?.subject).filter(Boolean);
+    return Object.values(w)
+      .flat()
+      .map((c) => c?.concept || c?.subject)
+      .filter(Boolean);
   } catch { return []; }
 }
 
@@ -151,7 +154,7 @@ export default function PatientRecognition({ T, onClose }) {
         }
         if (myReq !== reqIdRef.current) return; // superseded
         if (items.length > 0) {
-          const [pickItem] = pickWeightedItems(items, readWeakSubjects(), 1);
+          const [pickItem] = pickWeightedItems(items, readWeakConcepts(), 1);
           if (pickItem?.data) {
             setQ(pickItem.data);
             setLoading(false);

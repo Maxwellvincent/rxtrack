@@ -219,14 +219,18 @@ export default function AnkiSyncModal({ T, onClose }) {
                 disabled={building}
                 onClick={async () => {
                   setBuilding(true);
+                  setError("");
                   const { data: { user } } = await supabase.auth.getUser();
                   let total = 0;
+                  let firstErr = null;
                   for (const blockId of result.blockIds || []) {
                     const r = await triggerBankBuild(user.id, blockId);
                     total += r.generated || 0;
+                    if (r.error && !firstErr) firstErr = r.error;
                   }
                   setBuilt(total);
                   setBuilding(false);
+                  if (firstErr) setError(typeof firstErr === "string" ? firstErr : (firstErr.message || "Bank build failed"));
                 }}
                 style={{ ...primaryBtn, marginTop: 12 }}
               >
@@ -234,6 +238,9 @@ export default function AnkiSyncModal({ T, onClose }) {
               </button>
               {built != null && (
                 <div style={{ fontSize: 12.5, color: T.text3, marginTop: 8 }}>{built} items generated</div>
+              )}
+              {error && (
+                <div style={{ fontSize: 12.5, color: T.statusBad, marginTop: 6 }}>{error}</div>
               )}
               <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
                 <button type="button" onClick={() => setStatus("ready")} style={primaryBtn}>

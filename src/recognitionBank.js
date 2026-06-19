@@ -1,11 +1,23 @@
 import { supabase } from "./supabase.js";
 
-/** Weak-area items first, then the rest; up to n. Pure + deterministic. */
-export function pickWeightedItems(items, weakSubjects, n) {
+/**
+ * Weak-area items first, then the rest; up to n. Pure + deterministic.
+ * A "weak" item is one whose subject, weak_for tags, or vignette content
+ * contains any of the weak terms (case-insensitive). Terms are weak-concept
+ * names (e.g. "radial nerve innervation"), matched against item content.
+ */
+export function pickWeightedItems(items, weakTerms, n) {
   if (!items?.length) return [];
-  const weak = new Set(weakSubjects || []);
-  const isWeak = (it) =>
-    weak.has(it.subject) || (it.weak_for || []).some((w) => weak.has(w));
+  const terms = (weakTerms || []).map((t) => String(t).toLowerCase()).filter(Boolean);
+  const isWeak = (it) => {
+    if (!terms.length) return false;
+    const hay = (
+      (it.subject || "") + " " +
+      (Array.isArray(it.weak_for) ? it.weak_for.join(" ") : "") + " " +
+      JSON.stringify(it.data || "")
+    ).toLowerCase();
+    return terms.some((t) => hay.includes(t));
+  };
   const weakItems = items.filter(isWeak);
   const rest = items.filter((it) => !isWeak(it));
   return [...weakItems, ...rest].slice(0, n);

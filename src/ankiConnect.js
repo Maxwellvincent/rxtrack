@@ -1,5 +1,4 @@
 // ── AnkiConnect client ──────────────────────────────────────────────────────
-import { cardToRow } from "./ankiCards.js";
 // Pulls deck content from the locally-running Anki desktop app via the
 // AnkiConnect add-on (HTTP API on http://localhost:8765). The deck is the
 // knowledge base: each card becomes an objective anchor that Patient
@@ -14,6 +13,8 @@ import { cardToRow } from "./ankiCards.js";
 //
 // Local-only by design: a deployed https:// site cannot call http://localhost
 // (mixed-content block), so this runs only in local dev / a local build.
+
+import { cardToRow } from "./ankiCards.js";
 
 export const ANKI_URL = "http://localhost:8765";
 export const ANKICONNECT_ADDON_CODE = "2055492159";
