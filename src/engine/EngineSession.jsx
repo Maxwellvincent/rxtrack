@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Button } from "../ui/Button.jsx";
 import { readConcepts, writeConcept } from "./masteryStore.js";
 import { ensureBlockItems, pickItemForConcept } from "./content.js";
@@ -24,16 +24,38 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
     return () => { alive = false; };
   }, [userId, blockId]);
 
+  // Seed a "new material" pool from the bank's diagnoses (real concepts) so a
+  // fresh block — no stored concepts yet — can still teach. De-duped; the
+  // caller's newPool prop takes priority.
+  const derivedPool = useMemo(() => {
+    const fromItems = (items || [])
+      .map((it) => it?.data?.correctDiagnosis || it?.subject)
+      .filter(Boolean)
+      .map((concept) => ({ concept, blockId }));
+    const seen = new Set();
+    const uniq = [];
+    for (const p of [...(newPool || []), ...fromItems]) {
+      const k = (p.concept || "").toLowerCase();
+      if (k && !seen.has(k)) { seen.add(k); uniq.push(p); }
+    }
+    return uniq;
+  }, [items, newPool, blockId]);
+
   const nextItem = useCallback(() => {
     setPicked(null); setRevealed(false);
     const concepts = readConcepts(blockId);
-    const sel = selectNext(concepts, newPool);
+    // Don't re-introduce a concept that's already tracked (would reset its progress).
+    const known = new Set(concepts.map((c) => (c.concept || "").toLowerCase()));
+    const pool = derivedPool.filter((p) => !known.has((p.concept || "").toLowerCase()));
+    const sel = selectNext(concepts, pool);
     if (!sel) { setCurrent(null); return; }
     const item = pickItemForConcept(items || [], sel.concept.concept);
     setCurrent({ ...sel, item });
-  }, [blockId, newPool, items]);
+  }, [blockId, derivedPool, items]);
 
-  useEffect(() => { if (items && !current && !session.done) nextItem(); }, [items]); // eslint-disable-line
+  // Kick the first item, and restart after "Another round". Guard prevents
+  // double-firing with the synchronous nextItem() in submit (current is set there).
+  useEffect(() => { if (items && !current && !session.done) nextItem(); }, [items, current, session.done, nextItem]);
 
   const submit = useCallback((outcome) => {
     if (!current) return;
