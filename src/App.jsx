@@ -39,6 +39,7 @@ import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from
 import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
 import StudyRoutineModal from "./StudyRoutineModal";
 import PatientRecognition from "./PatientRecognition";
+import AnkiSyncModal from "./AnkiSyncModal";
 import { evaluateToday as evaluateRoutineToday, getSuggestions as getRoutineSuggestions } from "./studyRoutine";
 import {
   ThemeContext,
@@ -19187,6 +19188,7 @@ export default function App() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showStudyRoutine, setShowStudyRoutine] = useState(false);
   const [showPatientRecognition, setShowPatientRecognition] = useState(false);
+  const [showAnkiSync, setShowAnkiSync] = useState(false);
   const [routineTick, setRoutineTick] = useState(0);
   const [showImportScreen, setShowImportScreen] = useState(false);
   const [importJson, setImportJson] = useState("");
@@ -30798,6 +30800,9 @@ Current student level: ${tierLabel}`;
     {showPatientRecognition && (
       <PatientRecognition T={t} onClose={() => setShowPatientRecognition(false)} />
     )}
+    {showAnkiSync && (
+      <AnkiSyncModal T={t} onClose={() => setShowAnkiSync(false)} />
+    )}
     {showImportScreen && currentUser && (
       <div
         style={{
@@ -31487,6 +31492,17 @@ Current student level: ${tierLabel}`;
                     >
                       🩺 Patient Recognition
                       <span style={{ display: "block", fontSize: 10, color: t.text3, marginTop: 2 }}>Vignette → diagnosis · Step 1 style</span>
+                    </button>
+
+                    <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
+
+                    <button
+                      type="button"
+                      onClick={() => { setShowAnkiSync(true); setShowUserMenu(false); }}
+                      style={{ width: "100%", padding: "8px 14px", fontSize: 12, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text-secondary, " + t.text2 + ")", fontFamily: SANS }}
+                    >
+                      🃏 Anki Sync
+                      <span style={{ display: "block", fontSize: 10, color: t.text3, marginTop: 2 }}>Pull deck → knowledge base · local only</span>
                     </button>
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
