@@ -3,6 +3,13 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const GEMINI_MODEL = "gemini-2.5-flash";
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+const jsonHeaders = { ...corsHeaders, "Content-Type": "application/json" };
+
 const SYSTEM = `You are a USMLE Step 1 item writer. Given a fact from a medical
 flashcard, produce diverse patient-recognition items. Return STRICT JSON:
 {"vignettes":[{"vignette":"...","leadIn":"What is the most likely diagnosis?",
@@ -31,14 +38,15 @@ async function genForCard(card: any, perCard: number, apiKey: string) {
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
     const { userId, blockId, perCard = 3, weakSubjects = [] } = await req.json();
-    if (!userId) return new Response(JSON.stringify({ error: "userId required" }), { status: 400 });
+    if (!userId) return new Response(JSON.stringify({ error: "userId required" }), { status: 400, headers: jsonHeaders });
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) {
       return new Response(
         JSON.stringify({ error: "GEMINI_API_KEY not set as an Edge Function secret" }),
-        { status: 500, headers: { "Content-Type": "application/json" } }
+        { status: 500, headers: jsonHeaders }
       );
     }
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -70,9 +78,9 @@ Deno.serve(async (req) => {
       }
     }
     return new Response(JSON.stringify({ generated, cards: todo.length }), {
-      headers: { "Content-Type": "application/json" },
+      headers: jsonHeaders,
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: String(e) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(e) }), { status: 500, headers: jsonHeaders });
   }
 });
