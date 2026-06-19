@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+/* Map design tokens into Tailwind's theme so classes like bg-bg, text-text-1,
+   border-border, text-accent work. Tailwind v4 reads @theme. */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-panel: var(--panel);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text-1: var(--text-1);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
+  --color-status-blue: var(--status-blue);
+  --color-status-amber: var(--status-amber);
+  --color-status-purple: var(--status-purple);
+  --color-status-cyan: var(--status-cyan);
+  --color-good: var(--good);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-display: var(--font-display);
+}
