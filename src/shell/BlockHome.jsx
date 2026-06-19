@@ -29,7 +29,7 @@ export function BlockHome({ blockId, onContinue }) {
       </div>
 
       <div className="mt-2">
-        {cov == null && <div className="text-xs text-text-3">No objectives yet for this block.</div>}
+        {cov == null && <div className="text-xs text-text-3">No coverage data yet for this block.</div>}
         {cov != null && (
           <div className="flex items-center justify-between border-t border-border py-2 text-xs text-text-2">
             <span className="flex items-center gap-2"><StatusGlyph status={block.status} /> Objectives coverage</span>

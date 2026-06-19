@@ -9,7 +9,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette }) {
   const byTerm = useMemo(() => {
     const m = new Map();
     for (const b of blocks) {
-      if (!m.has(b.termId)) m.set(b.termId, { name: b.termName, blocks: [] });
+      if (!m.has(b.termId)) m.set(b.termId, { id: b.termId, name: b.termName, blocks: [] });
       m.get(b.termId).blocks.push(b);
     }
     return [...m.values()];
@@ -30,8 +30,8 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette }) {
         {byTerm.length === 0 && (
           <div className="px-3.5 py-6 text-xs text-text-3">No terms yet.</div>
         )}
-        {byTerm.map((term, i) => (
-          <div key={i}>
+        {byTerm.map((term) => (
+          <div key={term.id}>
             <div className="px-3.5 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider text-text-3">{term.name}</div>
             {term.blocks.map((b) => {
               const cov = blockCoverage(b.id);

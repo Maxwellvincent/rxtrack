@@ -1,5 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { flattenBlocks } from "./data.js";
+import { flattenBlocks, flattenObjectiveEntry } from "./data.js";
+
+describe("flattenObjectiveEntry", () => {
+  it("handles a flat array", () => {
+    expect(flattenObjectiveEntry([{ id: "a" }, { id: "b" }])).toHaveLength(2);
+  });
+  it("handles {imported, extracted}", () => {
+    expect(flattenObjectiveEntry({ imported: [{ id: "a" }], extracted: [{ id: "b" }] })).toHaveLength(2);
+  });
+  it("handles numeric-keyed objects of objective objects", () => {
+    expect(flattenObjectiveEntry({ 0: { id: "a" }, 1: { id: "b" } })).toHaveLength(2);
+  });
+  it("handles numeric-keyed objects of arrays", () => {
+    expect(flattenObjectiveEntry({ 0: [{ id: "a" }], 1: [{ id: "b" }, { id: "c" }] })).toHaveLength(3);
+  });
+  it("returns [] for null/empty", () => {
+    expect(flattenObjectiveEntry(null)).toEqual([]);
+    expect(flattenObjectiveEntry({})).toEqual([]);
+  });
+});
 
 describe("flattenBlocks", () => {
   it("flattens terms→blocks with term metadata + lecture count", () => {
