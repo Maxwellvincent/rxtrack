@@ -1,4 +1,5 @@
 // ── AnkiConnect client ──────────────────────────────────────────────────────
+import { cardToRow } from "./ankiCards.js";
 // Pulls deck content from the locally-running Anki desktop app via the
 // AnkiConnect add-on (HTTP API on http://localhost:8765). The deck is the
 // knowledge base: each card becomes an objective anchor that Patient
@@ -183,6 +184,35 @@ export async function pullDeckObjectives(deck, { onProgress } = {}) {
     if (onProgress) onProgress(Math.min(i + CHUNK, ids.length), ids.length);
   }
   return out;
+}
+
+/**
+ * Pull every note under AnKing::Proper Learning (text deck), mapped to
+ * anki_cards rows. Skips Proper Learning+ (handled in a later phase).
+ */
+export async function pullProperLearningCards(appTerms, { onProgress } = {}) {
+  const all = await getDeckNames();
+  const decks = all.filter(
+    (d) => d.includes("Proper Learning::") || d === "AnKing::Proper Learning"
+  );
+  const rows = [];
+  const seen = new Set();
+  for (let i = 0; i < decks.length; i++) {
+    const deck = decks[i];
+    const ids = await findNotesInDeck(deck);
+    if (ids?.length) {
+      const CHUNK = 200;
+      for (let j = 0; j < ids.length; j += CHUNK) {
+        const batch = await notesInfo(ids.slice(j, j + CHUNK));
+        for (const note of batch) {
+          const row = cardToRow(note, deck, appTerms);
+          if (row && !seen.has(row.card_id)) { seen.add(row.card_id); rows.push(row); }
+        }
+      }
+    }
+    if (onProgress) onProgress(i + 1, decks.length, deck);
+  }
+  return rows;
 }
 
 const OBJ_KEY = "rxt-block-objectives";

@@ -1,12 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
-import {
-  ping,
-  getDeckNames,
-  pullDeckObjectives,
-  saveObjectivesToStore,
-  ANKI_SETUP_NOTE,
-  ANKICONNECT_ADDON_CODE,
-} from "./ankiConnect";
+import { ping, pullProperLearningCards, ANKI_SETUP_NOTE, ANKICONNECT_ADDON_CODE } from "./ankiConnect";
+import { upsertAnkiCards } from "./ankiCards";
+import { supabase } from "./supabase";
 
 // ── Anki Sync ────────────────────────────────────────────────────────────────
 // Pulls deck content from the locally-running Anki desktop (AnkiConnect add-on)
@@ -20,8 +15,6 @@ import {
 export default function AnkiSyncModal({ T, onClose }) {
   const [status, setStatus] = useState("connecting"); // connecting | ready | error | syncing | done
   const [error, setError] = useState("");
-  const [decks, setDecks] = useState([]);
-  const [selected, setSelected] = useState(() => new Set());
   const [progress, setProgress] = useState(null); // { deck, done, total }
   const [result, setResult] = useState(null); // { blocks, total }
 
@@ -30,8 +23,6 @@ export default function AnkiSyncModal({ T, onClose }) {
     setError("");
     try {
       await ping();
-      const names = await getDeckNames();
-      setDecks(names);
       setStatus("ready");
     } catch (e) {
       setError(e?.message || String(e));
@@ -43,31 +34,25 @@ export default function AnkiSyncModal({ T, onClose }) {
     connect();
   }, [connect]);
 
-  const toggle = (deck) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(deck) ? next.delete(deck) : next.add(deck);
-      return next;
-    });
-  };
-
   const sync = useCallback(async () => {
-    const chosen = Array.from(selected);
-    if (chosen.length === 0) return;
     setStatus("syncing");
     setError("");
     setResult(null);
     try {
-      const all = [];
-      for (const deck of chosen) {
-        setProgress({ deck, done: 0, total: 0 });
-        const objs = await pullDeckObjectives(deck, {
-          onProgress: (done, total) => setProgress({ deck, done, total }),
-        });
-        all.push(...objs);
-      }
-      const saved = saveObjectivesToStore(all);
-      setResult(saved);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("Sign in first — cards are saved to your account.");
+      const appTerms = JSON.parse(localStorage.getItem("rxt-terms") || "[]");
+      setProgress({ deck: "Proper Learning", done: 0, total: 0 });
+      const rows = await pullProperLearningCards(appTerms, {
+        onProgress: (done, total, deck) => setProgress({ deck, done, total }),
+      });
+      const { count, error } = await upsertAnkiCards(user.id, rows);
+      if (error) throw new Error(error.message || "Upload failed");
+      setResult({
+        blocks: new Set(rows.map((r) => r.block_id)).size,
+        total: count,
+        blockIds: Array.from(new Set(rows.map((r) => r.block_id))),
+      });
       setStatus("done");
     } catch (e) {
       setError(e?.message || String(e));
@@ -75,7 +60,7 @@ export default function AnkiSyncModal({ T, onClose }) {
     } finally {
       setProgress(null);
     }
-  }, [selected]);
+  }, []);
 
   const overlay = {
     position: "fixed",
@@ -190,109 +175,30 @@ export default function AnkiSyncModal({ T, onClose }) {
             </div>
           )}
 
-          {/* Deck picker */}
-          {(status === "ready" || status === "syncing") && (
+          {/* Ready */}
+          {status === "ready" && (
             <>
-              <div style={{ fontSize: 13, color: T.text2, marginBottom: 12, lineHeight: 1.5 }}>
-                Pick decks to pull into the knowledge base. Each deck becomes its own block; re-syncing updates
-                cards in place (no duplicates).
+              <div style={{ fontSize: 13, color: T.text2, marginBottom: 14, lineHeight: 1.5 }}>
+                Pull every card under <strong>Proper Learning</strong> into your account (organized by term → block).
+                Anki must be open. This is a one-time grab; re-running updates cards in place.
               </div>
+              <button type="button" onClick={sync} style={primaryBtn}>
+                Pull Proper Learning → my account
+              </button>
+            </>
+          )}
 
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
-                  maxHeight: 320,
-                  overflowY: "auto",
-                  border: "1px solid " + T.border2,
-                  borderRadius: 11,
-                  padding: 6,
-                  marginBottom: 16,
-                }}
-              >
-                {decks.length === 0 && (
-                  <div style={{ padding: "16px", textAlign: "center", color: T.text3, fontSize: 13 }}>
-                    No decks found in Anki.
-                  </div>
-                )}
-                {decks.map((deck) => {
-                  const on = selected.has(deck);
-                  return (
-                    <button
-                      key={deck}
-                      type="button"
-                      onClick={() => toggle(deck)}
-                      disabled={status === "syncing"}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "9px 12px",
-                        background: on ? T.statusProgressBg : "transparent",
-                        border: "1px solid " + (on ? T.statusProgressBorder : "transparent"),
-                        borderRadius: 9,
-                        cursor: status === "syncing" ? "default" : "pointer",
-                        color: T.text1,
-                        fontFamily: "var(--font-sans)",
-                        fontSize: 13.5,
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 16,
-                          height: 16,
-                          flexShrink: 0,
-                          borderRadius: 4,
-                          border: "1.5px solid " + (on ? accent : T.border1),
-                          background: on ? accent : "transparent",
-                          color: "#fff",
-                          fontSize: 11,
-                          lineHeight: "14px",
-                          textAlign: "center",
-                        }}
-                      >
-                        {on ? "✓" : ""}
-                      </span>
-                      <span style={{ flex: 1 }}>{deck}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {status === "syncing" && progress && (
+          {/* Syncing */}
+          {status === "syncing" && (
+            <div style={{ padding: "16px 0" }}>
+              {progress && (
                 <div style={{ fontSize: 12.5, color: T.text3, marginBottom: 12, fontFamily: "var(--font-mono)" }}>
                   Pulling <span style={{ color: T.text2 }}>{progress.deck}</span>
                   {progress.total > 0 ? ` — ${progress.done}/${progress.total}` : "…"}
                 </div>
               )}
-
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <button
-                  type="button"
-                  onClick={sync}
-                  disabled={selected.size === 0 || status === "syncing"}
-                  style={{
-                    ...primaryBtn,
-                    opacity: selected.size === 0 || status === "syncing" ? 0.5 : 1,
-                    cursor: selected.size === 0 || status === "syncing" ? "default" : "pointer",
-                  }}
-                >
-                  {status === "syncing" ? "Syncing…" : `Sync ${selected.size || ""} deck${selected.size === 1 ? "" : "s"}`}
-                </button>
-                {selected.size > 0 && status !== "syncing" && (
-                  <button
-                    type="button"
-                    onClick={() => setSelected(new Set())}
-                    style={{ background: "transparent", border: "none", color: T.text3, fontSize: 12.5, cursor: "pointer" }}
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </>
+              <div style={{ fontSize: 13, color: T.text3 }}>Syncing…</div>
+            </div>
           )}
 
           {/* Done */}
