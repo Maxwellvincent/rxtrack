@@ -38,6 +38,7 @@ import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
 import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from "./calibration";
 import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
 import StudyRoutineModal from "./StudyRoutineModal";
+import PatientRecognition from "./PatientRecognition";
 import { evaluateToday as evaluateRoutineToday, getSuggestions as getRoutineSuggestions } from "./studyRoutine";
 import {
   ThemeContext,
@@ -1071,7 +1072,7 @@ function renderNoteWithLinks(text) {
           borderRadius: 3,
           padding: "0 4px",
           fontSize: 11,
-          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          fontFamily: "var(--font-sans)",
         }}
       >
         {part}
@@ -5644,9 +5645,9 @@ const PALETTE = ["#60a5fa","#f472b6","#34d399","#a78bfa","#fb923c","#38bdf8","#4
 // ─────────────────────────────────────────────
 // SMALL UI PIECES
 // ─────────────────────────────────────────────
-const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-const SANS = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-const SERIF = "'Playfair Display', Georgia, serif";
+const MONO = "var(--font-sans)";
+const SANS = "var(--font-sans)";
+const SERIF = "var(--font-display)";
 
 // ── Semantic button system (use these instead of ad-hoc inline button styles)
 // Pass the theme object `t` — returns a complete style object.
@@ -5808,8 +5809,8 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
     cfg.mode === "block" ? "block" : cfg.subtopic === "__full__" ? "full" : "subtopic"
   );
   const tc = termColor || T.red;
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
 
   const diffOptions = [
     { value: "auto", label: "Auto", desc: "Based on your weak areas", color: T.blue },
@@ -6094,8 +6095,8 @@ function renderStemWithHighlightsStatic(stem, highlightList) {
 function ReviewSession({ questions, originalAnswers, highlights, onClose, termColor, renderStemWithHighlightsStatic }) {
   const { T } = useTheme();
   const [idx, setIdx] = useState(0);
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
   const tc = termColor || T.red;
   const q = questions[idx];
   const yourAnswer = originalAnswers[q.id];
@@ -9370,7 +9371,7 @@ function EditableText({ value, onChange, style, placeholder }) {
         background: T.inputBg,
         border: "1px solid " + T.blue,
         color: T.text1,
-        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        fontFamily: "var(--font-sans)",
         fontSize: 15,
         padding: "2px 8px",
         borderRadius: 5,
@@ -9399,7 +9400,7 @@ function EditableText({ value, onChange, style, placeholder }) {
 function EditableLecNumber({ value, type, onChange, tc, T }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ?? "");
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const MONO = "var(--font-sans)";
 
   const commit = () => {
     setEditing(false);
@@ -9459,7 +9460,7 @@ function EditableLecNumber({ value, type, onChange, tc, T }) {
 
 function LecTypeBadge({ value, onChange, tc, T }) {
   const TYPES = ["LEC", "DLA", "SG", "TBL", "LAB", "CLIN"];
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const MONO = "var(--font-sans)";
   const cycle = (e) => {
     e.stopPropagation();
     const v = (value || "LEC").toUpperCase();
@@ -9517,8 +9518,8 @@ function WeekGroup({
   setExpandedLec,
   ...lecRowProps
 }) {
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
   const { T, tc } = lecRowProps;
   const [open, setOpen] = useState(defaultOpen);
 
@@ -9821,7 +9822,7 @@ function ObjectiveQuizSettingsModal({
         >
           ×
         </button>
-        <div id="obj-quiz-settings-title" style={{ fontFamily: "'Playfair Display',Georgia,serif", fontSize: 20, fontWeight: 700, color: T.text1, marginBottom: 16 }}>
+        <div id="obj-quiz-settings-title" style={{ fontFamily: "var(--font-display)", fontSize: 20, fontWeight: 700, color: T.text1, marginBottom: 16 }}>
           📝 Quiz Settings
         </div>
         <div style={{ fontSize: 12, color: T.text3, marginBottom: 12, padding: "6px 10px", background: (T.surfaceAlt || T.inputBg), borderRadius: 6 }}>
@@ -9858,11 +9859,11 @@ function ObjectiveQuizSettingsModal({
             </button>
           </div>
         )}
-        <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3, marginBottom: 10 }}>
+        <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.text3, marginBottom: 10 }}>
           Up to {maxObjectives} objective{maxObjectives !== 1 ? "s" : ""} available
         </div>
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
             QUESTIONS
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -9876,7 +9877,7 @@ function ObjectiveQuizSettingsModal({
                 disabled={disabled}
                 onClick={() => !disabled && setQuizSettings((s) => ({ ...(s || {}), count: p.val }))}
                 style={{
-                  fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                  fontFamily: "var(--font-sans)",
                   fontSize: 12,
                   fontWeight: 700,
                   padding: "8px 14px",
@@ -9896,7 +9897,7 @@ function ObjectiveQuizSettingsModal({
         </div>
 
         <div style={{ marginBottom: 14 }}>
-          <div style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
+          <div style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.text3, marginBottom: 8, letterSpacing: 0.6 }}>
             STYLE
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -9912,7 +9913,7 @@ function ObjectiveQuizSettingsModal({
                   type="button"
                   onClick={() => setQuizSettings((q) => ({ ...(q || {}), style: s.id }))}
                   style={{
-                    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                    fontFamily: "var(--font-sans)",
                     fontSize: 12,
                     fontWeight: 700,
                     padding: "8px 14px",
@@ -9932,7 +9933,7 @@ function ObjectiveQuizSettingsModal({
 
         {quizSettings?.style === "rapid" && (
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <span style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontSize: 11, color: T.text3 }}>
+            <span style={{ fontFamily: "var(--font-sans)", fontSize: 11, color: T.text3 }}>
               Time limit:
             </span>
             {[15, 30, 60].map((m) => {
@@ -9943,7 +9944,7 @@ function ObjectiveQuizSettingsModal({
                   type="button"
                   onClick={() => setQuizSettings((s) => ({ ...(s || {}), timed: true, timeMins: m }))}
                   style={{
-                    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                    fontFamily: "var(--font-sans)",
                     fontSize: 12,
                     fontWeight: 700,
                     padding: "6px 12px",
@@ -9962,7 +9963,7 @@ function ObjectiveQuizSettingsModal({
               type="button"
               onClick={() => setQuizSettings((s) => ({ ...(s || {}), timed: false }))}
               style={{
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                fontFamily: "var(--font-sans)",
                 fontSize: 12,
                 fontWeight: 700,
                 padding: "6px 12px",
@@ -9994,7 +9995,7 @@ function ObjectiveQuizSettingsModal({
             fontWeight: 700,
             fontSize: 14,
             transition: "all 0.2s",
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            fontFamily: "var(--font-sans)",
             opacity: quizGenerating ? 0.9 : 1,
           }}
         >
@@ -10159,8 +10160,8 @@ function LecListRow({
   openBackdateModalForLec = null,
   saveBackdateForLecture = null,
 }) {
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
   const [quizLoading, setQuizLoading] = useState(false);
   const [coachExpanded, setCoachExpanded] = useState(false);
   const [showAllSteps, setShowAllSteps] = useState({});
@@ -12728,7 +12729,7 @@ function BlockWeakObjectivesBreakdown({
               padding: "12px 0",
               borderRadius: 9,
               cursor: "pointer",
-              fontFamily: "'Playfair Display',Georgia,serif",
+              fontFamily: "var(--font-display)",
               fontSize: 14,
               fontWeight: 900,
             }}
@@ -12770,7 +12771,7 @@ const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function LecCard({ lec, sessions, accent, tint, onStudy, onDelete, onUpdateLec, onDeepLearn, mergeMode, mergeSelected = [], onMergeToggle, bulkWeekTarget, allObjectives, showSubjectLabel = true, setAnkiLogTarget, getBlockObjectives, currentBlock, setBlockObjectives, startObjectiveQuiz, detectStudyMode, handleDeepLearnStart, getLectureSubtopicCompletion, getLecCompletion, getSubtopicCompletion, getLecPerf, reviewedLectures = {}, setReviewedLectures, markLectureReviewed, unmarkLectureReviewed, reanalyzeLecture }) {
   const { T } = useTheme();
   const tc = tint || accent || "#ef4444";
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const MONO = "var(--font-sans)";
   const [confirming, setConfirming] = useState(false);
   const confirmTimeoutRef = useRef(null);
   const [addingTopic, setAddingTopic] = useState(false);
@@ -13795,8 +13796,8 @@ function AIContextBadge({ context, T, MONO }) {
 // ANKI LOG MODAL — log external Anki sessions for a lecture
 // ─────────────────────────────────────────────
 function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
 
   const [cardCount, setCardCount] = useState("");
   const [newCards, setNewCards] = useState("");
@@ -14034,8 +14035,8 @@ function AnkiLogModal({ lec, blockId, onSave, onClose, T, tc }) {
 // CONFIDENCE MODAL (post-session rating)
 // ─────────────────────────────────────────────
 function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
 
   const scoreColor = getScoreColor(T, score);
   const suggestedConfidence = score >= 80 ? "High" : score >= 60 ? "Medium" : "Low";
@@ -14108,8 +14109,8 @@ function ConfidenceModal({ lectureName, score, sessionType, onRate, T, tc }) {
 // PRACTICE SETUP MODAL
 // ─────────────────────────────────────────────
 function PracticeSetupModal({ defaults, blockId, blockLecs, T, tc, onCancel, onStart }) {
-  const SERIF = "'Playfair Display',Georgia,serif";
-  const SANS = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const SERIF = "var(--font-display)";
+  const SANS = "var(--font-sans)";
   const [scope, setScope] = useState(defaults?.scope || (defaults?.lecture ? "lecture" : "weak"));
   const [lectureId, setLectureId] = useState(defaults?.lecture?.id || defaults?.lectureId || "");
   const [count, setCount] = useState(defaults?.count || 10);
@@ -14289,8 +14290,8 @@ function PracticeSetupModal({ defaults, blockId, blockLecs, T, tc, onCancel, onS
 // EXAM CONFIG MODAL
 // ─────────────────────────────────────────────
 function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, performanceHistory, onStart, onCancel, T, tc, buildQuestionContext, stylePrefs = {}, updateStylePref }) {
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
   const DIFFICULTY_LADDER = ["easy", "medium", "hard", "expert"];
 
   const { mode, blockId } = config;
@@ -14686,8 +14687,8 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
 // ─────────────────────────────────────────────
 function MergeModal({ config, onConfirm, onCancel, T, tc }) {
   const { lectures } = config;
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-  const SERIF = "'Playfair Display',Georgia,serif";
+  const MONO = "var(--font-sans)";
+  const SERIF = "var(--font-display)";
 
   const primaryLec = lectures.length ? lectures.reduce((a, b) =>
     (b.chunks?.length || 0) > (a.chunks?.length || 0) ? b : a
@@ -14829,7 +14830,7 @@ function ObjectivesImporter({
   const liveEndRef = useRef(null);
   const lastFileRef = useRef(null);
   const doneClearRef = useRef(null);
-  const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  const MONO = "var(--font-sans)";
 
   const processing = importStatus === "processing";
 
@@ -16568,7 +16569,7 @@ function ExamResultModal({
             boxSizing: "border-box",
             background: t.inputBg,
             color: t.text1,
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            fontFamily: "var(--font-sans)",
           }}
         />
         <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
@@ -16589,7 +16590,7 @@ function ExamResultModal({
                 background: t.inputBg,
                 color: t.text1,
                 boxSizing: "border-box",
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                fontFamily: "var(--font-sans)",
               }}
             />
           </div>
@@ -16610,7 +16611,7 @@ function ExamResultModal({
                 background: t.inputBg,
                 color: t.text1,
                 boxSizing: "border-box",
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                fontFamily: "var(--font-sans)",
               }}
             />
           </div>
@@ -16634,7 +16635,7 @@ function ExamResultModal({
             color: t.text1,
             resize: "vertical",
             fontSize: 13,
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            fontFamily: "var(--font-sans)",
           }}
         />
         <label
@@ -16665,7 +16666,7 @@ function ExamResultModal({
               background: "transparent",
               cursor: "pointer",
               color: t.text2,
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+              fontFamily: "var(--font-sans)",
             }}
           >
             Cancel
@@ -16681,7 +16682,7 @@ function ExamResultModal({
               border: "none",
               cursor: "pointer",
               fontWeight: 600,
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+              fontFamily: "var(--font-sans)",
             }}
           >
             Save
@@ -16747,7 +16748,7 @@ function CBSECompReviewDashboard({
       <div style={{ marginBottom: 8 }}>
         <h1
           style={{
-            fontFamily: "'Playfair Display', Georgia, serif",
+            fontFamily: "var(--font-display)",
             fontSize: 26,
             fontWeight: 800,
             color: t.text1,
@@ -16758,7 +16759,7 @@ function CBSECompReviewDashboard({
         </h1>
         <p
           style={{
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            fontFamily: "var(--font-sans)",
             color: t.text3,
             fontSize: 12,
             marginTop: 6,
@@ -16794,7 +16795,7 @@ function CBSECompReviewDashboard({
           >
             <div style={{ fontSize: 28 }}>{card.icon}</div>
             <div style={{ fontSize: 32, fontWeight: 700, color: card.color }}>{card.count}</div>
-            <div style={{ fontSize: 12, color: t.text3, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" }}>
+            <div style={{ fontSize: 12, color: t.text3, fontFamily: "var(--font-sans)" }}>
               {card.label}
             </div>
           </div>
@@ -16814,7 +16815,7 @@ function CBSECompReviewDashboard({
           style={{
             fontWeight: 600,
             marginBottom: 12,
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            fontFamily: "var(--font-sans)",
             fontSize: 12,
             color: t.text2,
           }}
@@ -16836,7 +16837,7 @@ function CBSECompReviewDashboard({
               color: cbseMode === mode ? "#fff" : t.text2,
               cursor: "pointer",
               fontSize: 13,
-              fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+              fontFamily: "var(--font-sans)",
             }}
           >
             {mode === "adaptive"
@@ -16860,7 +16861,7 @@ function CBSECompReviewDashboard({
                 border: "1px solid " + t.border1,
                 background: t.inputBg,
                 color: t.text1,
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                fontFamily: "var(--font-sans)",
                 fontSize: 13,
               }}
             >
@@ -16893,7 +16894,7 @@ function CBSECompReviewDashboard({
                 border: "1px solid " + t.border1,
                 background: t.inputBg,
                 color: t.text1,
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                fontFamily: "var(--font-sans)",
               }}
             >
               {[30, 60, 90, 120].map((m) => (
@@ -16917,7 +16918,7 @@ function CBSECompReviewDashboard({
                 border: "1px solid " + t.border1,
                 background: t.inputBg,
                 color: t.text1,
-                fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                fontFamily: "var(--font-sans)",
               }}
             >
               {[10, 20, 40, 60, 80, "All"].map((n) => (
@@ -17008,7 +17009,7 @@ function CBSECompReviewDashboard({
           fontWeight: 700,
           cursor: drillSetupLaunching ? "default" : "pointer",
           marginTop: 8,
-            fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            fontFamily: "var(--font-sans)",
           }}
         >
           {drillSetupLaunching ? "Starting…" : `🎯 Start CBSE Session → ${qLabel} questions`}
@@ -17873,7 +17874,7 @@ function LectureAssignDropdown({ blockLecs, currentLecId, objId, onAssign }) {
           padding: "6px 8px",
           borderRadius: 6,
           border: "0.5px solid var(--color-border-secondary)",
-          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+          fontFamily: "var(--font-sans)",
           boxSizing: "border-box",
         }}
       >
@@ -18470,7 +18471,7 @@ function SessionErrorFallback({ error, onRetry, onBack }) {
         maxWidth: 780,
         margin: "24px auto",
         padding: "20px 18px",
-        fontFamily: "Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif",
+        fontFamily: "var(--font-sans)",
       }}
     >
       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Session crashed</div>
@@ -19185,6 +19186,7 @@ export default function App() {
   const [hasCloudData, setHasCloudData] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showStudyRoutine, setShowStudyRoutine] = useState(false);
+  const [showPatientRecognition, setShowPatientRecognition] = useState(false);
   const [routineTick, setRoutineTick] = useState(0);
   const [showImportScreen, setShowImportScreen] = useState(false);
   const [importJson, setImportJson] = useState("");
@@ -30786,6 +30788,16 @@ Current student level: ${tierLabel}`;
         tc={tc}
       />
     )}
+    {showStudyRoutine && (
+      <StudyRoutineModal
+        T={t}
+        onClose={() => setShowStudyRoutine(false)}
+        onChange={() => setRoutineTick((x) => x + 1)}
+      />
+    )}
+    {showPatientRecognition && (
+      <PatientRecognition T={t} onClose={() => setShowPatientRecognition(false)} />
+    )}
     {showImportScreen && currentUser && (
       <div
         style={{
@@ -31464,6 +31476,17 @@ Current student level: ${tierLabel}`;
                       }}
                     >
                       💾 Export backup
+                    </button>
+
+                    <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
+
+                    <button
+                      type="button"
+                      onClick={() => { setShowPatientRecognition(true); setShowUserMenu(false); }}
+                      style={{ width: "100%", padding: "8px 14px", fontSize: 12, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text-secondary, " + t.text2 + ")", fontFamily: SANS }}
+                    >
+                      🩺 Patient Recognition
+                      <span style={{ display: "block", fontSize: 10, color: t.text3, marginTop: 2 }}>Vignette → diagnosis · Step 1 style</span>
                     </button>
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />

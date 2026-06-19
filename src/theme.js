@@ -10,7 +10,7 @@ export const STATUS_COLORS = {
   inprogress: { color: "#0891b2", bg: "#0891b215", border: "#0891b240", label: "◑" },
 };
 
-const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+const MONO = "var(--font-sans)";
 
 // Score → colorblind-safe color
 export function getScoreColor(T, score) {
@@ -104,8 +104,8 @@ const THEMES = {
     border2: "#0f1e30",
     text1: "#f1f5f9",
     text2: "#c4cdd6",
-    text3: "#6b7280",
-    text4: "#374151",
+    text3: "#94a3b8",
+    text4: "#475569",
     text5: "#2d3d4f",
     badgeBg: "#0d1829",
     pillBg: "#1a2a3a",
@@ -164,8 +164,8 @@ const THEMES = {
     subjectRow: "#080d18",
     scrollbarTrack: "#06090f",
     scrollbarThumb: "#1a2a3a",
-    cardShadow: "none",
-    navShadow: "none",
+    cardShadow: "0 1px 2px rgba(0,0,0,0.5), 0 8px 24px -12px rgba(0,0,0,0.7)",
+    navShadow: "0 1px 0 #0d1829",
   },
   light: {
     appBg: "#f0f4f8",

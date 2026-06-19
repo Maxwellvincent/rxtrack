@@ -1,4 +1,15 @@
 /* App-wide base styles: let the React app fill the viewport. */
+
+:root {
+  /* Type system — IBM Plex superfamily + Fraunces display.
+     Defined once here; referenced as var(--font-*) throughout the app. */
+  --font-sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code",
+    "Roboto Mono", Menlo, Consolas, monospace;
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+}
+
 html,
 body,
 #root {
@@ -15,7 +26,15 @@ body,
 body {
   min-width: 320px;
   min-height: 100vh;
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
-    sans-serif;
+  font-family: var(--font-sans);
   background: #06090f;
+  /* Crisper type rendering for dense clinical text. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Optical-size the display face for headline-scale rendering. */
+:where(h1, h2, h3) {
+  font-optical-sizing: auto;
 }
