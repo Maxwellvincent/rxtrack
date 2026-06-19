@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { callAIJSON } from "./aiClient";
+import { fetchRecognitionItems, pickWeightedItems } from "./recognitionBank";
+import { supabase } from "./supabase";
 
 // ── Patient Recognition ────────────────────────────────────────────────────
 // Vignette → diagnosis mode. Shows a USMLE Step 1-style clinical vignette built
@@ -40,6 +42,16 @@ function readObjectivePool() {
   } catch {
     return [];
   }
+}
+
+function readWeakConcepts() {
+  try {
+    const w = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    return Object.values(w)
+      .flat()
+      .map((c) => c?.concept || c?.subject)
+      .filter(Boolean);
+  } catch { return []; }
 }
 
 function pickAnchors(pool, n = 2) {
@@ -129,6 +141,28 @@ export default function PatientRecognition({ T, onClose }) {
     setQ(null);
     const chosen = pickAnchors(pool, 2);
     setAnchors(chosen);
+    // Prefer the pre-generated bank (instant, no live AI call).
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (myReq !== reqIdRef.current) return; // superseded
+      if (user) {
+        const activeBlock = localStorage.getItem("rxt-current-block") || null;
+        const blocks = activeBlock ? [activeBlock] : Array.from(new Set(pool.map((p) => p.block)));
+        let items = [];
+        for (const b of blocks) {
+          items = items.concat(await fetchRecognitionItems(user.id, b));
+        }
+        if (myReq !== reqIdRef.current) return; // superseded
+        if (items.length > 0) {
+          const [pickItem] = pickWeightedItems(items, readWeakConcepts(), 1);
+          if (pickItem?.data) {
+            setQ(pickItem.data);
+            setLoading(false);
+            return; // served from bank — no live AI call
+          }
+        }
+      }
+    } catch { /* fall through to live generation */ }
     try {
       const data = await callAIJSON(
         SYSTEM_PROMPT,

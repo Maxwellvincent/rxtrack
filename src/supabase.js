@@ -5,12 +5,53 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 
 let _supabaseInstance = null;
 
+/** Whether real Supabase credentials are configured (vs. local/offline mode). */
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseKey);
+
+/**
+ * Stub client used when env vars are absent (e.g. local dev with an empty
+ * .env). Without this, createClient(undefined, …) throws at module load and
+ * blanks the entire app. The stub boots the app as "logged out, offline":
+ * auth resolves to no user, queries resolve to a not-configured error, and
+ * every cloud call no-ops instead of crashing.
+ */
+function makeStubClient() {
+  const notConfigured = { message: "Supabase not configured", code: "NOT_CONFIGURED" };
+  // A thenable query builder: any chain (.select().eq()… ) resolves to {data:null,error}.
+  const query = () => {
+    const result = Promise.resolve({ data: null, error: notConfigured });
+    const chain = new Proxy(function () {}, {
+      get(_t, prop) {
+        if (prop === "then") return result.then.bind(result);
+        if (prop === "catch") return result.catch.bind(result);
+        if (prop === "finally") return result.finally.bind(result);
+        if (prop === "maybeSingle" || prop === "single") return () => result;
+        return () => chain;
+      },
+      apply() {
+        return chain;
+      },
+    });
+    return chain;
+  };
+  return {
+    auth: {
+      getUser: async () => ({ data: { user: null }, error: null }),
+      getSession: async () => ({ data: { session: null }, error: null }),
+      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
+      signInWithOAuth: async () => ({ error: notConfigured }),
+      signOut: async () => ({ error: null }),
+    },
+    from: query,
+    storage: { from: () => ({ upload: async () => ({ error: notConfigured }), createSignedUrl: async () => ({ data: null }), remove: async () => ({ error: null }) }) },
+  };
+}
+
 function getSupabase() {
   if (_supabaseInstance) return _supabaseInstance;
-  _supabaseInstance = createClient(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_ANON_KEY
-  );
+  _supabaseInstance = isSupabaseConfigured
+    ? createClient(supabaseUrl, supabaseKey)
+    : makeStubClient();
   return _supabaseInstance;
 }
 
