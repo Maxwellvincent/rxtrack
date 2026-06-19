@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { ping, pullProperLearningCards, ANKI_SETUP_NOTE, ANKICONNECT_ADDON_CODE } from "./ankiConnect";
 import { upsertAnkiCards } from "./ankiCards";
 import { supabase } from "./supabase";
+import { triggerBankBuild } from "./recognitionBank";
 
 // ── Anki Sync ────────────────────────────────────────────────────────────────
 // Pulls deck content from the locally-running Anki desktop (AnkiConnect add-on)
@@ -17,6 +18,8 @@ export default function AnkiSyncModal({ T, onClose }) {
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(null); // { deck, done, total }
   const [result, setResult] = useState(null); // { blocks, total }
+  const [building, setBuilding] = useState(false);
+  const [built, setBuilt] = useState(null);
 
   const connect = useCallback(async () => {
     setStatus("connecting");
@@ -211,6 +214,27 @@ export default function AnkiSyncModal({ T, onClose }) {
               <div style={{ fontSize: 12.5, color: T.text3, marginBottom: 18, fontFamily: "var(--font-mono)" }}>
                 across {result.blocks} block{result.blocks === 1 ? "" : "s"} · ready for Patient Recognition
               </div>
+              <button
+                type="button"
+                disabled={building}
+                onClick={async () => {
+                  setBuilding(true);
+                  const { data: { user } } = await supabase.auth.getUser();
+                  let total = 0;
+                  for (const blockId of result.blockIds || []) {
+                    const r = await triggerBankBuild(user.id, blockId);
+                    total += r.generated || 0;
+                  }
+                  setBuilt(total);
+                  setBuilding(false);
+                }}
+                style={{ ...primaryBtn, marginTop: 12 }}
+              >
+                {building ? "Building bank…" : "Build recognition bank"}
+              </button>
+              {built != null && (
+                <div style={{ fontSize: 12.5, color: T.text3, marginTop: 8 }}>{built} items generated</div>
+              )}
               <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
                 <button type="button" onClick={() => setStatus("ready")} style={primaryBtn}>
                   Sync more
