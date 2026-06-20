@@ -6,6 +6,8 @@ import { selectNext } from "./selectConcept.js";
 import { createSession, advanceSession, sessionSummary } from "./session.js";
 import { recordOutcome } from "./mastery.js";
 import { callAIJSON } from "../aiClient.js";
+import { generateDiagram } from "./visualize.js";
+import { DiagramView } from "./DiagramView.jsx";
 
 const BURST = 10;
 
@@ -18,6 +20,16 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
   const [struck, setStruck] = useState(() => new Set()); // eliminated choices
   const [deep, setDeep] = useState("");
   const [deepLoading, setDeepLoading] = useState(false);
+  const [diagram, setDiagram] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagErr, setDiagErr] = useState(false);
+
+  const visualize = useCallback(async (item, conceptName) => {
+    setDiagLoading(true); setDiagErr(false);
+    const d = await generateDiagram(conceptName, item?.data?.mechanism);
+    setDiagram(d); setDiagErr(!d); setDiagLoading(false);
+  }, []);
+
   const toggleStrike = (letter) =>
     setStruck((prev) => {
       const n = new Set(prev);
@@ -75,6 +87,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
 
   const nextItem = useCallback(() => {
     setPicked(null); setRevealed(false); setStruck(new Set()); setDeep(""); setDeepLoading(false);
+    setDiagram(null); setDiagLoading(false); setDiagErr(false);
     const concepts = readConcepts(blockId);
     // Don't re-introduce a concept that's already tracked (would reset its progress).
     const known = new Set(concepts.map((c) => (c.concept || "").toLowerCase()));
@@ -228,6 +241,22 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
                       </div>
                     </div>
                   )}
+                {(current.mode === "teach" || current.mode === "recognize") && (
+                  <div className="space-y-2">
+                    {!diagram && (
+                      <button
+                        type="button"
+                        onClick={() => visualize(current.item, current.concept.concept)}
+                        disabled={diagLoading}
+                        className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-semibold text-accent-text hover:bg-panel disabled:opacity-50"
+                      >
+                        {diagLoading ? "Drawing…" : "🖼️ Visualize"}
+                      </button>
+                    )}
+                    {diagErr && <div className="text-xs text-text-3">Couldn't build a diagram — try again.</div>}
+                    {diagram && <DiagramView diagram={diagram} />}
+                  </div>
+                )}
                 {(current.mode === "teach" || current.mode === "recognize") && (
                   <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
                 )}
