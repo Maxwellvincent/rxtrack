@@ -18,11 +18,21 @@ export function cardToRow(note, deckPath, appTerms) {
   const has_media = ordered.some((f) => /<img|\[sound:/i.test(f.raw));
   const pathTags = [parsed.subject, parsed.lecture, parsed.author].filter(Boolean);
   const tags = Array.from(new Set([...(Array.isArray(note.tags) ? note.tags : []), ...pathTags]));
+  // Lecture = the deepest segment under the block that isn't a "Week N" grouping
+  // or a known author leaf. Null when cards sit directly under the block.
+  const AUTHOR = /^(pickle|quizlet|mikey|anki|faranki|far|tan|lolnotacop|dr\.?\s|mr\.?\s)/i;
+  const WEEK = /^week\s*\d+/i;
+  const lecture =
+    [parsed.subject, parsed.lecture, parsed.author]
+      .filter(Boolean)
+      .filter((s) => !WEEK.test(s) && !AUTHOR.test(s))
+      .pop() || null;
   return {
     card_id: String(note.noteId),
     block_id: blockId,
     term_id: termId,
     subject: parsed.subject || parsed.lecture || parsed.block,
+    lecture,
     text,
     tags,
     has_media,
