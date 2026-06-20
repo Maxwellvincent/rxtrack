@@ -15,8 +15,15 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
   const [current, setCurrent] = useState(null); // { concept, mode, item, isNew }
   const [picked, setPicked] = useState(null);
   const [revealed, setRevealed] = useState(false);
+  const [struck, setStruck] = useState(() => new Set()); // eliminated choices
   const [deep, setDeep] = useState("");
   const [deepLoading, setDeepLoading] = useState(false);
+  const toggleStrike = (letter) =>
+    setStruck((prev) => {
+      const n = new Set(prev);
+      n.has(letter) ? n.delete(letter) : n.add(letter);
+      return n;
+    });
 
   // Live Claude/Gemini Socratic mechanism deepening for the current item.
   const teachDeeper = useCallback(async (item) => {
@@ -67,7 +74,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
   }, [items, newPool, blockId]);
 
   const nextItem = useCallback(() => {
-    setPicked(null); setRevealed(false); setDeep(""); setDeepLoading(false);
+    setPicked(null); setRevealed(false); setStruck(new Set()); setDeep(""); setDeepLoading(false);
     const concepts = readConcepts(blockId);
     // Don't re-introduce a concept that's already tracked (would reset its progress).
     const known = new Set(concepts.map((c) => (c.concept || "").toLowerCase()));
@@ -122,7 +129,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
   return (
     <div className="mx-auto max-w-2xl p-5">
       <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-accent-text">{modeLabel} · {current.concept.concept}</span>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-accent-text">{modeLabel}</span>
         <span className="font-mono text-[11px] text-text-3">{session.index + 1}/{session.size}</span>
       </div>
 
@@ -136,15 +143,29 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
           <div className="flex flex-col gap-2">
             {(q.options || []).map((o) => {
               const isPicked = picked === o.letter;
+              const isStruck = struck.has(o.letter);
               const cls = !revealed
-                ? "border-border hover:border-border-strong cursor-pointer"
-                : o.isCorrect ? "border-good" : isPicked ? "border-bad" : "border-border opacity-70";
+                ? (isStruck ? "border-border opacity-40 line-through" : "border-border hover:border-border-strong cursor-pointer")
+                : o.isCorrect ? "border-good" : isPicked ? "border-bad" : "border-border opacity-60";
               return (
-                <button key={o.letter} disabled={revealed}
-                  onClick={() => { setPicked(o.letter); setRevealed(true); }}
-                  className={"flex items-center gap-2 rounded-lg border bg-bg-elevated px-3 py-2 text-left text-sm text-text-1 " + cls}>
-                  <span className="font-mono text-text-3">{o.letter}</span>{o.text}
-                </button>
+                <div key={o.letter} className="flex items-center gap-2">
+                  <button
+                    disabled={revealed || isStruck}
+                    onClick={() => { setPicked(o.letter); setRevealed(true); }}
+                    className={"flex flex-1 items-center gap-2 rounded-lg border bg-bg-elevated px-3 py-2 text-left text-sm text-text-1 " + cls}
+                  >
+                    <span className="font-mono text-text-3">{o.letter}</span>{o.text}
+                  </button>
+                  {!revealed && (
+                    <button
+                      onClick={() => toggleStrike(o.letter)}
+                      title={isStruck ? "Bring back" : "Eliminate"}
+                      className="rounded-md px-2 py-1 text-xs text-text-3 hover:text-bad"
+                    >
+                      {isStruck ? "↩" : "✕"}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
