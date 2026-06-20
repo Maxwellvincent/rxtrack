@@ -100,6 +100,28 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
     else nextItem();
   }, [current, session, blockId, nextItem]);
 
+  // Keyboard: A–E (or 1–5) to answer, Enter to advance after reveal.
+  useEffect(() => {
+    const data = current?.item?.data;
+    if (!data) return;
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const opts = data.options || [];
+      if (!revealed) {
+        let letter = (e.key || "").toUpperCase();
+        if (/^[1-9]$/.test(e.key)) letter = (opts[Number(e.key) - 1] || {}).letter; // 1→A
+        const opt = opts.find((o) => o.letter === letter);
+        if (opt && !struck.has(letter)) { e.preventDefault(); setPicked(letter); setRevealed(true); }
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const correct = opts.find((o) => o.letter === picked)?.isCorrect;
+        submit(correct ? "correct" : "wrong");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [current, revealed, picked, struck, submit]);
+
   if (items === null) return <Centered>Loading your session…</Centered>;
 
   if (session.done) {
@@ -142,7 +164,10 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
         <div className="space-y-3">
           {/* Always question-first: read the case, think, answer — THEN teaching. */}
           <div className="rounded-lg border border-border bg-bg-elevated p-4 text-sm leading-relaxed text-text-1 whitespace-pre-wrap">{q.vignette}</div>
-          <div className="text-sm font-semibold text-text-1">{q.leadIn || "Most likely diagnosis?"}</div>
+          <div className="flex items-baseline justify-between">
+            <div className="text-sm font-semibold text-text-1">{q.leadIn || "Most likely diagnosis?"}</div>
+            {!revealed && <span className="font-mono text-[10px] text-text-3">A–E or 1–5 · ✕ eliminate</span>}
+          </div>
           <div className="flex flex-col gap-2">
             {(q.options || []).map((o) => {
               const isPicked = picked === o.letter;
@@ -187,10 +212,26 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
                 {current.mode === "teach" && q.keyDifferentiator && (
                   <Panel label="Key differentiator">{q.keyDifferentiator}</Panel>
                 )}
+                {(current.mode === "teach" || current.mode === "recognize") &&
+                  (q.options || []).some((o) => !o.isCorrect && o.whyWrong) && (
+                    <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-text-3">Why not the others</div>
+                      <div className="flex flex-col gap-1.5 text-xs leading-relaxed text-text-2">
+                        {(q.options || [])
+                          .filter((o) => !o.isCorrect && o.whyWrong)
+                          .map((o) => (
+                            <div key={o.letter} className={picked === o.letter ? "text-bad" : ""}>
+                              <span className="font-mono text-text-3">{o.letter}.</span>{" "}
+                              <span className="text-text-3">{o.text}</span> — {o.whyWrong}
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  )}
                 {(current.mode === "teach" || current.mode === "recognize") && (
                   <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
                 )}
-                <Button onClick={() => submit(correct ? "correct" : "wrong")}>Next →</Button>
+                <Button onClick={() => submit(correct ? "correct" : "wrong")}>Next → <span className="opacity-60">(Enter)</span></Button>
               </div>
             );
           })()}
