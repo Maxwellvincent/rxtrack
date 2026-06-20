@@ -9,7 +9,10 @@ import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
 import { EngineSession } from "../engine/EngineSession.jsx";
 import { Button } from "../ui/Button.jsx";
-import { supabase, signInWithGoogle, pullAllDataFromSupabase } from "../supabase.js";
+import { supabase, signInWithGoogle, signOut, pullAllDataFromSupabase } from "../supabase.js";
+import AnkiSyncModal from "../AnkiSyncModal.jsx";
+import PatientRecognition from "../PatientRecognition.jsx";
+import { themes } from "../theme.js";
 
 /**
  * Auth + cloud-load gate. localStorage is per-origin, so the shell pulls the
@@ -60,7 +63,10 @@ function ShellMain({ theme, toggle, userId }) {
   const [activeBlockId, setActiveBlockId] = useState(() => blocks[0]?.id ?? null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [inSession, setInSession] = useState(false);
+  const [showAnki, setShowAnki] = useState(false);
+  const [showRecognize, setShowRecognize] = useState(false);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
+  const legacyTheme = themes[theme] || themes.dark;
 
   useEffect(() => {
     const onKey = (e) => {
@@ -85,7 +91,15 @@ function ShellMain({ theme, toggle, userId }) {
         onOpenPalette={() => setPaletteOpen(true)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <Header termName={active?.termName} blockName={active?.name} theme={theme} onToggleTheme={toggle} />
+        <Header
+          termName={active?.termName}
+          blockName={active?.name}
+          theme={theme}
+          onToggleTheme={toggle}
+          onAnki={() => setShowAnki(true)}
+          onRecognize={() => setShowRecognize(true)}
+          onSignOut={() => signOut().then(() => window.location.reload())}
+        />
         <main className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">No terms found in your account yet. Add them in the current app (?shell=old), then reload.</div>
@@ -108,6 +122,8 @@ function ShellMain({ theme, toggle, userId }) {
         items={paletteItems}
         onPick={(it) => { setActiveBlockId(it.id); setInSession(false); }}
       />
+      {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
+      {showRecognize && <PatientRecognition T={legacyTheme} onClose={() => setShowRecognize(false)} />}
     </div>
   );
 }
