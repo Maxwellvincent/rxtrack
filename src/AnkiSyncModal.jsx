@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import { ping, pullProperLearningCards, ANKI_SETUP_NOTE, ANKICONNECT_ADDON_CODE } from "./ankiConnect";
 import { upsertAnkiCards } from "./ankiCards";
 import { supabase } from "./supabase";
-import { triggerBankBuild } from "./recognitionBank";
+import { buildBlockBank } from "./recognitionBank";
 
 // ── Anki Sync ────────────────────────────────────────────────────────────────
 // Pulls deck content from the locally-running Anki desktop (AnkiConnect add-on)
@@ -220,12 +220,18 @@ export default function AnkiSyncModal({ T, onClose }) {
                 onClick={async () => {
                   setBuilding(true);
                   setError("");
+                  setBuilt(0);
                   const { data: { user } } = await supabase.auth.getUser();
                   let total = 0;
                   let firstErr = null;
+                  // Loop small batches per block (cap each) so calls never time out.
                   for (const blockId of result.blockIds || []) {
-                    const r = await triggerBankBuild(user.id, blockId);
+                    const r = await buildBlockBank(user.id, blockId, {
+                      cap: 60,
+                      onProgress: ({ generated }) => setBuilt(total + generated),
+                    });
                     total += r.generated || 0;
+                    setBuilt(total);
                     if (r.error && !firstErr) firstErr = r.error;
                   }
                   setBuilt(total);
@@ -234,9 +240,9 @@ export default function AnkiSyncModal({ T, onClose }) {
                 }}
                 style={{ ...primaryBtn, marginTop: 12 }}
               >
-                {building ? "Building bank…" : "Build recognition bank"}
+                {building ? `Building bank… (${built ?? 0})` : "Build recognition bank"}
               </button>
-              {built != null && (
+              {built != null && !building && (
                 <div style={{ fontSize: 12.5, color: T.text3, marginTop: 8 }}>{built} items generated</div>
               )}
               {error && (

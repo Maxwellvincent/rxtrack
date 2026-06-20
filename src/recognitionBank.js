@@ -38,15 +38,38 @@ export async function fetchRecognitionItems(userId, blockId, subject) {
   return data || [];
 }
 
-/** Trigger server-side generation for a block. */
-export async function triggerBankBuild(userId, blockId, weakSubjects = []) {
+/** One server-side generation batch for a block. Returns { generated, processed, remaining, provider, error }. */
+export async function triggerBankBuild(userId, blockId, { weakSubjects = [], perCard = 3, batch = 6 } = {}) {
   try {
     const { data, error } = await supabase.functions.invoke("generate-recognition-items", {
-      body: { userId, blockId, perCard: 3, weakSubjects },
+      body: { userId, blockId, perCard, batch, weakSubjects },
     });
-    if (error) return { generated: 0, cards: 0, error };
+    if (error) return { generated: 0, processed: 0, remaining: null, error };
     return { ...data, error: null };
   } catch (e) {
-    return { generated: 0, cards: 0, error: e };
+    return { generated: 0, processed: 0, remaining: null, error: e };
   }
+}
+
+/**
+ * Build a block's bank by looping small batches until the per-block `cap` of
+ * generated items is reached, no cards remain, or a batch errors. Small batches
+ * keep each Edge call well under the timeout. Calls onProgress({generated, remaining})
+ * after each batch. Returns { generated, remaining, error }.
+ */
+export async function buildBlockBank(userId, blockId, { cap = 60, weakSubjects = [], batch = 6, onProgress } = {}) {
+  if (!userId || !blockId) return { generated: 0, remaining: null, error: new Error("missing userId/blockId") };
+  let generated = 0;
+  let remaining = null;
+  let guard = 0;
+  while (generated < cap && guard < 50) {
+    guard++;
+    const r = await triggerBankBuild(userId, blockId, { weakSubjects, batch });
+    if (r.error) return { generated, remaining, error: r.error };
+    generated += r.generated || 0;
+    remaining = r.remaining;
+    if (onProgress) onProgress({ generated, remaining });
+    if (!r.processed || remaining === 0) break; // nothing more to do
+  }
+  return { generated, remaining, error: null };
 }
