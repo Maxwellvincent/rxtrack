@@ -5,6 +5,7 @@ import { ensureBlockItems, pickItemForConcept } from "./content.js";
 import { selectNext } from "./selectConcept.js";
 import { createSession, advanceSession, sessionSummary } from "./session.js";
 import { recordOutcome } from "./mastery.js";
+import { callAIJSON } from "../aiClient.js";
 
 const BURST = 10;
 
@@ -14,6 +15,30 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
   const [current, setCurrent] = useState(null); // { concept, mode, item, isNew }
   const [picked, setPicked] = useState(null);
   const [revealed, setRevealed] = useState(false);
+  const [deep, setDeep] = useState("");
+  const [deepLoading, setDeepLoading] = useState(false);
+
+  // Live Claude/Gemini Socratic mechanism deepening for the current item.
+  const teachDeeper = useCallback(async (item) => {
+    const dx = item?.data?.correctDiagnosis;
+    if (!dx) return;
+    setDeepLoading(true);
+    try {
+      const data = await callAIJSON(
+        "You are a USMLE Step 1 tutor. Teach mechanism-first, Socratic, high-yield.",
+        `For the diagnosis "${dx}", teach the mechanism Socratically for USMLE Step 1.
+Walk from first cause → downstream effects → how each classic finding arises. End with
+the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mechanism-first)"}`,
+        null,
+        1200
+      );
+      setDeep(data?.teaching || "No deeper explanation available.");
+    } catch (e) {
+      setDeep("Could not load deeper teaching: " + (e?.message || ""));
+    } finally {
+      setDeepLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -42,7 +67,7 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
   }, [items, newPool, blockId]);
 
   const nextItem = useCallback(() => {
-    setPicked(null); setRevealed(false);
+    setPicked(null); setRevealed(false); setDeep(""); setDeepLoading(false);
     const concepts = readConcepts(blockId);
     // Don't re-introduce a concept that's already tracked (would reset its progress).
     const known = new Set(concepts.map((c) => (c.concept || "").toLowerCase()));
@@ -107,6 +132,7 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
           <Panel label="Mechanism">{q.mechanism}</Panel>
           {q.keyDifferentiator && <Panel label="Key differentiator">{q.keyDifferentiator}</Panel>}
           <div className="rounded-lg border border-border bg-bg-elevated p-3 text-sm text-text-2">{q.vignette}</div>
+          <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
           <Button onClick={() => submit("exposure")}>Got it →</Button>
         </div>
       )}
@@ -132,6 +158,7 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
           {revealed && (
             <div className="space-y-2">
               {current.mode === "recognize" && <Panel label="Mechanism">{q.mechanism}</Panel>}
+              <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
               <Button onClick={() => {
                 const correct = (q.options || []).find((o) => o.letter === picked)?.isCorrect;
                 submit(correct ? "correct" : "wrong");
@@ -152,6 +179,26 @@ function Panel({ label, children }) {
       <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-text-3">{label}</div>
       <div className="text-sm leading-relaxed text-text-1 whitespace-pre-wrap">{children}</div>
     </div>
+  );
+}
+
+function Deeper({ loading, deep, onClick }) {
+  if (deep) {
+    return (
+      <div className="rounded-lg border border-border bg-accent-soft p-3 text-sm leading-relaxed text-text-1 whitespace-pre-wrap">
+        {deep}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={loading}
+      className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-semibold text-accent-text hover:bg-panel disabled:opacity-50"
+    >
+      {loading ? "Teaching…" : "🧠 Teach me deeper"}
+    </button>
   );
 }
 
