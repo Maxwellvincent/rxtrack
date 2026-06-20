@@ -1,17 +1,18 @@
 /* Design tokens. Scoped to the shell root via .theme-dark / .theme-light so the
    legacy app (which does not use these vars) is never affected. */
 .theme-dark {
-  --bg: #0f1420;
-  --bg-elevated: #0b0f17;
-  --panel: #131a2a;
-  --border: #1c2433;
-  --border-strong: #2a3650;
-  --text-1: #e2e8f0;
-  --text-2: #94a3b8;
-  --text-3: #64748b;
-  --accent: #3b82f6;
-  --accent-soft: #15203a;
-  --accent-text: #60a5fa;
+  /* Softer dark — lifted surfaces + lower-contrast text to ease eye strain. */
+  --bg: #161b22;
+  --bg-elevated: #1b212b;
+  --panel: #202833;
+  --border: #2b333f;
+  --border-strong: #3a4451;
+  --text-1: #d6dce4;
+  --text-2: #9aa6b4;
+  --text-3: #6b7785;
+  --accent: #4f8cf0;
+  --accent-soft: #233049;
+  --accent-text: #82b1ff;
   /* colorblind-safe status palette */
   --status-blue: #3b82f6;
   --status-amber: #f59e0b;

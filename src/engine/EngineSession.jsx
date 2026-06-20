@@ -129,6 +129,9 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
 
       {q && current.mode === "teach" && (
         <div className="space-y-3">
+          <div className="rounded-lg border border-border-strong bg-accent-soft px-3 py-2 text-xs text-accent-text">
+            📖 New concept — learn it first. No question yet; you'll be quizzed once it's familiar.
+          </div>
           <Panel label="Mechanism">{q.mechanism}</Panel>
           {q.keyDifferentiator && <Panel label="Key differentiator">{q.keyDifferentiator}</Panel>}
           <div className="rounded-lg border border-border bg-bg-elevated p-3 text-sm text-text-2">{q.vignette}</div>
