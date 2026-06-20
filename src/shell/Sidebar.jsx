@@ -16,7 +16,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette }) {
   }, [blocks]);
 
   return (
-    <aside className="flex w-[210px] flex-col border-r border-border bg-bg-elevated text-text-2">
+    <aside className="flex w-60 flex-col border-r border-border bg-bg-elevated text-text-2">
       <div className="p-2.5">
         <button
           onClick={onOpenPalette}
