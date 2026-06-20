@@ -116,7 +116,8 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
   }
 
   const q = current.item?.data;
-  const modeLabel = { teach: "Teach", recognize: "Recognize", test: "Test" }[current.mode];
+  // All modes are question-first; the label hints how much teaching follows.
+  const modeLabel = { teach: "New · full teach", recognize: "Review", test: "Test" }[current.mode];
 
   return (
     <div className="mx-auto max-w-2xl p-5">
@@ -127,28 +128,17 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
 
       {!q && <Centered>No case available for this concept.<div className="mt-3"><Button onClick={() => submit("exposure")}>Skip</Button></div></Centered>}
 
-      {q && current.mode === "teach" && (
+      {q && (
         <div className="space-y-3">
-          <div className="rounded-lg border border-border-strong bg-accent-soft px-3 py-2 text-xs text-accent-text">
-            📖 New concept — learn it first. No question yet; you'll be quizzed once it's familiar.
-          </div>
-          <Panel label="Mechanism">{q.mechanism}</Panel>
-          {q.keyDifferentiator && <Panel label="Key differentiator">{q.keyDifferentiator}</Panel>}
-          <div className="rounded-lg border border-border bg-bg-elevated p-3 text-sm text-text-2">{q.vignette}</div>
-          <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
-          <Button onClick={() => submit("exposure")}>Got it →</Button>
-        </div>
-      )}
-
-      {q && (current.mode === "recognize" || current.mode === "test") && (
-        <div className="space-y-3">
-          <div className="rounded-lg border border-border bg-bg-elevated p-4 text-sm text-text-1">{q.vignette}</div>
+          {/* Always question-first: read the case, think, answer — THEN teaching. */}
+          <div className="rounded-lg border border-border bg-bg-elevated p-4 text-sm leading-relaxed text-text-1 whitespace-pre-wrap">{q.vignette}</div>
           <div className="text-sm font-semibold text-text-1">{q.leadIn || "Most likely diagnosis?"}</div>
           <div className="flex flex-col gap-2">
             {(q.options || []).map((o) => {
               const isPicked = picked === o.letter;
-              const show = revealed;
-              const cls = !show ? "border-border" : o.isCorrect ? "border-good" : isPicked ? "border-bad" : "border-border";
+              const cls = !revealed
+                ? "border-border hover:border-border-strong cursor-pointer"
+                : o.isCorrect ? "border-good" : isPicked ? "border-bad" : "border-border opacity-70";
               return (
                 <button key={o.letter} disabled={revealed}
                   onClick={() => { setPicked(o.letter); setRevealed(true); }}
@@ -158,16 +148,28 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
               );
             })}
           </div>
-          {revealed && (
-            <div className="space-y-2">
-              {current.mode === "recognize" && <Panel label="Mechanism">{q.mechanism}</Panel>}
-              <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
-              <Button onClick={() => {
-                const correct = (q.options || []).find((o) => o.letter === picked)?.isCorrect;
-                submit(correct ? "correct" : "wrong");
-              }}>Next →</Button>
-            </div>
-          )}
+
+          {/* Reveal: depth scales with mastery — teach=full, review=mechanism, test=minimal. */}
+          {revealed && (() => {
+            const correct = (q.options || []).find((o) => o.letter === picked)?.isCorrect;
+            return (
+              <div className="space-y-2">
+                <div className={"text-sm font-semibold " + (correct ? "text-good" : "text-bad")}>
+                  {correct ? "✓ Correct" : "✕ Not quite"} — {q.correctDiagnosis}
+                </div>
+                {(current.mode === "teach" || current.mode === "recognize") && q.mechanism && (
+                  <Panel label="Mechanism">{q.mechanism}</Panel>
+                )}
+                {current.mode === "teach" && q.keyDifferentiator && (
+                  <Panel label="Key differentiator">{q.keyDifferentiator}</Panel>
+                )}
+                {(current.mode === "teach" || current.mode === "recognize") && (
+                  <Deeper loading={deepLoading} deep={deep} onClick={() => teachDeeper(current.item)} />
+                )}
+                <Button onClick={() => submit(correct ? "correct" : "wrong")}>Next →</Button>
+              </div>
+            );
+          })()}
         </div>
       )}
 
