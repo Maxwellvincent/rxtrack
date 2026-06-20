@@ -1,5 +1,14 @@
 /* Design tokens. Scoped to the shell root via .theme-dark / .theme-light so the
    legacy app (which does not use these vars) is never affected. */
+
+/* Shell base type scale. This file loads ONLY with the new shell (imported by
+   Shell.jsx via dynamic import), so it never affects the legacy app. Bumping the
+   root font-size scales every rem-based Tailwind size up uniformly — comfortable
+   on large desktop displays instead of the cramped default. */
+html {
+  font-size: 18px;
+}
+
 .theme-dark {
   /* Softer dark — lifted surfaces + lower-contrast text to ease eye strain. */
   --bg: #161b22;
