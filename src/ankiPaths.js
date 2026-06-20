@@ -17,7 +17,9 @@ function slug(s) {
 
 /**
  * Parse a deck path anchored on the exact `Proper Learning` segment.
- * Returns null for `Proper Learning+` or any path without that anchor.
+ * Returns null for `Proper Learning+`, any path without that anchor, or a branch
+ * that isn't Term-structured (e.g. `Proper Learning::Anatomy- Radiology::…`,
+ * which is image/anatomy content handled separately — never a study term/block).
  */
 export function parseProperLearningPath(deckPath) {
   if (!deckPath || typeof deckPath !== "string") return null;
@@ -26,6 +28,9 @@ export function parseProperLearningPath(deckPath) {
   if (anchorIdx === -1) return null;
   const rest = parts.slice(anchorIdx + 1);
   if (rest.length < 2) return null; // need at least term + block
+  // The first segment under "Proper Learning" must be a term (e.g. "Term 1").
+  // Anything else (Anatomy- Radiology, etc.) is non-study content — skip it.
+  if (!/^term\b/i.test(rest[0])) return null;
   return {
     term: rest[0],
     block: rest[1],

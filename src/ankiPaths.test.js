@@ -24,6 +24,11 @@ describe("parseProperLearningPath", () => {
     expect(parseProperLearningPath("AnKing::Proper Learning+::Anatomy- Radiology::Abdomen")).toBeNull();
     expect(parseProperLearningPath("AnKing::Dr. Pickle's Anki::Term 1")).toBeNull();
   });
+
+  it("returns null for non-Term branches under Proper Learning (anatomy/image decks)", () => {
+    expect(parseProperLearningPath("AnKing::Proper Learning::Anatomy- Radiology::Abdomen")).toBeNull();
+    expect(parseProperLearningPath("AnKing::Proper Learning::Anatomy- Radiology::Back::Pickle")).toBeNull();
+  });
 });
 
 describe("resolveBlock", () => {
