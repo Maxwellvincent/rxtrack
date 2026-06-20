@@ -70,8 +70,20 @@ async function genWithClaude(system: string, prompt: string, apiKey: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
-    const { userId, blockId = null, perCard = 3, batch = 6, weakSubjects = [] } = await req.json();
-    if (!userId) return new Response(JSON.stringify({ error: "userId required" }), { status: 400, headers: jsonHeaders });
+    const { blockId = null, perCard = 3, batch = 6, weakSubjects = [] } = await req.json();
+
+    // Derive the user from the JWT (verify_jwt is on) — never trust a body userId.
+    // This prevents a caller from generating rows / spending the AI budget under
+    // another user's id.
+    const authHeader = req.headers.get("Authorization") || "";
+    const authClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: { user }, error: authErr } = await authClient.auth.getUser();
+    if (authErr || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders });
+    }
+    const userId = user.id;
 
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
     const geminiKey = Deno.env.get("GEMINI_API_KEY");
