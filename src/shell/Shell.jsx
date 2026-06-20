@@ -26,14 +26,24 @@ export default function Shell() {
 
   useEffect(() => {
     let alive = true;
+    let booted = false;
     async function boot(uid) {
+      if (booted) return; // run once; sign-out reloads the page
+      booted = true;
       if (!uid) { if (alive) { setUserId(null); setPhase("signedout"); } return; }
       if (alive) { setUserId(uid); setPhase("loading"); }
-      try { await pullAllDataFromSupabase(uid); } catch (e) { console.warn("cloud pull failed", e?.message); }
+      // Never hang on a slow/stuck cloud query — proceed after 8s with whatever loaded.
+      const timeout = new Promise((res) => setTimeout(res, 8000));
+      try { await Promise.race([pullAllDataFromSupabase(uid), timeout]); }
+      catch (e) { console.warn("cloud pull failed", e?.message); }
       if (alive) setPhase("ready");
     }
     supabase.auth.getSession().then(({ data }) => boot(data?.session?.user?.id ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => boot(session?.user?.id ?? null));
+    // Defer the auth-callback path to avoid the Supabase auth-lock deadlock
+    // (calling supabase queries synchronously inside onAuthStateChange can hang).
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      setTimeout(() => boot(session?.user?.id ?? null), 0);
+    });
     return () => { alive = false; sub?.subscription?.unsubscribe?.(); };
   }, []);
 
@@ -42,7 +52,12 @@ export default function Shell() {
   );
 
   if (phase === "checking") return wrap(<div className="text-sm text-text-3">Loading…</div>);
-  if (phase === "loading") return wrap(<div className="text-sm text-text-3">Loading your data…</div>);
+  if (phase === "loading") return wrap(
+    <div className="flex flex-col items-center gap-3">
+      <div className="text-sm text-text-3">Loading your data…</div>
+      <button onClick={() => setPhase("ready")} className="text-xs text-text-3 underline hover:text-text-1">Skip</button>
+    </div>
+  );
   if (phase === "signedout") {
     return wrap(
       <div className="flex flex-col items-center gap-4">
