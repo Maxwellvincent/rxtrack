@@ -129,7 +129,10 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
   return (
     <div className="mx-auto max-w-2xl p-5">
       <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-accent-text">{modeLabel}</span>
+        <span className="font-mono text-[11px] uppercase tracking-wider text-accent-text">
+          {modeLabel}
+          {current.item?.lecture && <span className="ml-2 normal-case tracking-normal text-text-3">· {current.item.lecture}</span>}
+        </span>
         <span className="font-mono text-[11px] text-text-3">{session.index + 1}/{session.size}</span>
       </div>
 

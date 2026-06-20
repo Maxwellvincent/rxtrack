@@ -126,6 +126,7 @@ Deno.serve(async (req) => {
       processed++;
       const rows = vignettes.map((v) => ({
         user_id: userId, block_id: card.block_id, subject: card.subject,
+        lecture: card.lecture ?? null,
         source_card_id: card.card_id, kind: "vignette", data: v,
         weak_for: weak.has(card.subject) ? [card.subject] : [],
       }));

@@ -28,7 +28,7 @@ export async function fetchRecognitionItems(userId, blockId, subject) {
   if (!userId || !blockId) return [];
   let q = supabase
     .from("recognition_items")
-    .select("id, block_id, subject, source_card_id, kind, data, difficulty, weak_for")
+    .select("id, block_id, subject, lecture, source_card_id, kind, data, difficulty, weak_for")
     .eq("user_id", userId)
     .eq("block_id", blockId)
     .eq("kind", "vignette");
