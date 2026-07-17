@@ -34,6 +34,7 @@ import {
 } from "./mcqUtils";
 import { renderAnnotatableStemNodes } from "./stemAnnotationUtils";
 import { extractPDFWithMistralSafe, extractTextWithMistral, ocrPageToLectureChunk } from "./mistralOCR";
+import { extractTextSmart, extractPDFSmartSafe } from "./ocrExtract";
 import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
 import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from "./calibration";
 import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
@@ -16479,16 +16480,15 @@ async function extractObjectivesPdfText(file, onProgress) {
   onProgress?.("Extracting text from PDF...");
   let pdfText = await extractPdfTextFast(file);
   if (!pdfText || pdfText.trim().length < 100) {
-    if (import.meta.env.VITE_MISTRAL_API_KEY) {
-      onProgress?.("Running OCR (scanned PDF)...");
-      try {
-        const mistralResult = await extractPDFWithMistralSafe(file);
-        if (mistralResult?.markdown?.trim()) {
-          pdfText = mistralResult.markdown;
-        }
-      } catch (e) {
-        console.warn("Mistral OCR failed:", e);
+    onProgress?.("Running OCR (scanned PDF)...");
+    try {
+      // Tiered OCR: local marker (GPU) → Datalab → Mistral. Returns null on total failure.
+      const ocrResult = await extractPDFSmartSafe(file, { onProgress });
+      if (ocrResult?.markdown?.trim()) {
+        pdfText = ocrResult.markdown;
       }
+    } catch (e) {
+      console.warn("OCR failed:", e);
     }
   }
   if (!pdfText || pdfText.trim().length < 100) {
@@ -18092,19 +18092,18 @@ async function extractPdfTextFast(file) {
 /** Mistral OCR first when API key is set; else / on failure fall back to pdfplumber (parseExamPDF). */
 async function extractWithSmartFallback(file, onProgress, opts = {}) {
   void opts?.forceMistralOcr;
-  const mistralKey = import.meta.env.VITE_MISTRAL_API_KEY;
 
-  if (mistralKey) {
+  {
     try {
       onProgress?.("🔍 Running OCR...");
-      console.log("Attempting Mistral OCR...");
-      const mistralExtract = await extractTextWithMistral(file);
-      const chunks = mistralExtract.chunks || mistralExtract;
-      const slideImages = mistralExtract.slideImages || [];
-      console.log("Mistral OCR success, chunks:", chunks.length);
+      console.log("Attempting OCR (marker → datalab → mistral)...");
+      const ocrExtract = await extractTextSmart(file, { onProgress });
+      const chunks = ocrExtract.chunks || ocrExtract;
+      const slideImages = ocrExtract.slideImages || [];
+      console.log("OCR success, chunks:", chunks.length, "method:", ocrExtract.method);
       const md = chunks.map((c) => c.markdown || c.text || "").join("\n\n---\n\n").trim();
       if (chunks?.length && md) {
-        const extractionMethod = mistralKey && chunks ? "mistral-ocr" : "pdfplumber";
+        const extractionMethod = ocrExtract.method || "marker-ocr";
         return {
           contentResult: {
             fullText: md,
@@ -18125,7 +18124,7 @@ async function extractWithSmartFallback(file, onProgress, opts = {}) {
         };
       }
     } catch (err) {
-      console.warn("Mistral OCR failed, falling back to pdfplumber:", err?.message || err);
+      console.warn("OCR failed, falling back to pdfplumber:", err?.message || err);
     }
   }
 
@@ -18156,6 +18155,9 @@ async function extractWithSmartFallback(file, onProgress, opts = {}) {
 function extractionMethodSuffix(method) {
   if (method === "pdfplumber") return "direct extract";
   if (method === "mistral-ocr") return "OCR";
+  if (method === "marker-local") return "marker (GPU)";
+  if (method === "marker-datalab") return "marker (cloud)";
+  if (method === "marker-ocr") return "marker";
   if (method === "none" || method === "error") return null;
   return null;
 }
@@ -22808,7 +22810,7 @@ Generate ${batch} new objectives that cover different aspects of this lecture.`;
       if (e.target) e.target.value = "";
       if (!file) return;
       try {
-        const mistral = await extractTextWithMistral(file);
+        const mistral = await extractTextSmart(file);
         const chunks = mistral?.chunks || [];
         const text = chunks.map((c) => getChunkBody(c)).join("\n").slice(0, 3000);
         const systemPrompt =
