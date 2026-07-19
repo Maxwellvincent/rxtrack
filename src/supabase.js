@@ -352,234 +352,117 @@ function mergeKvValue(cloud, local) {
 
 // ─── PUSH LOCAL DATA TO SUPABASE ─────────────────────
 
+const KV_KEYS = [
+  "rxt-question-banks",
+  "rxt-exam-results",
+  "rxt-exam-dates",
+  "rxt-learning-profile",
+  "rxt-sessions",
+  "rxt-analyses",
+  "rxt-weak-areas",
+  "rxt-dl-sessions",
+  "rxt-missed-questions",
+  "rxt-supplemental-resources",
+  "rxt-reviewed-lecs",
+  "rxt-style-prefs",
+  "rxt-question-notes",
+  "rxt-calibration-log",
+];
+
+// Byte-guard: Firestore doc limit is 1MB; skip (log+shard-later) anything
+// that would trip it rather than silently truncating or crashing (R4-6).
+const MAX_DOC_BYTES = 900_000;
+
 export async function pushAllLocalDataToSupabase(userId) {
   if (!userId) return [];
   console.log("Starting merge-push for user:", userId);
   const errors = [];
-  let networkDown = false;
-  const now = new Date().toISOString();
 
-  // Helper: upsert a single row, tracking network failures
-  const upsert = async (table, data, conflictCol = "user_id") => {
-    if (networkDown) {
-      errors.push({ table, error: { message: "Skipped — network unavailable", code: "NETWORK_ERROR" } });
-      return false;
-    }
+  // ── 1-5. STATE STORES (transactional merge, write merged back to localStorage) ──
+  for (const [lsKey, name, mergeFn] of [
+    ["rxt-terms", "terms", mergeTerms],
+    ["rxt-performance", "performance", mergePerformance],
+    ["rxt-completion", "completion", mergeCompletion],
+    ["rxt-weak-concepts", "weak_concepts", mergeWeakConcepts],
+    ["rxt-tracker-v2", "tracker", mergeKvValue],
+  ]) {
+    const raw = localStorage.getItem(lsKey);
+    if (!raw) continue;
     try {
-      const { error } = await supabase.from(table).upsert(data, { onConflict: conflictCol });
-      if (error) {
-        if (!error.code || error.message?.includes("Failed to fetch")) {
-          networkDown = true;
-          console.warn(`Supabase unreachable on ${table}. Aborting remaining pushes.`);
-        } else {
-          console.error(`${table} push failed:`, error);
-        }
-        errors.push({ table, error });
-        return false;
+      const parsed = JSON.parse(raw);
+      if (JSON.stringify(parsed).length > MAX_DOC_BYTES) {
+        errors.push({ store: name, error: { message: "oversized, skipped" } });
+        continue;
       }
-      return true;
+      const merged = await mergeDoc(stateRef(userId, name), parsed, mergeFn);
+      localStorage.setItem(lsKey, JSON.stringify(merged));
     } catch (e) {
-      networkDown = true;
-      const err = { message: e?.message || String(e), code: "NETWORK_ERROR" };
-      console.warn(`${table} push exception:`, err.message);
-      errors.push({ table, error: err });
-      return false;
+      errors.push({ store: name, error: { message: e?.message || String(e) } });
     }
-  };
-
-  // Helper: fetch current cloud value for a single-row table
-  const fetchCloud = async (table, select = "data") => {
-    try {
-      const { data } = await supabase.from(table).select(select).eq("user_id", userId).maybeSingle();
-      return data?.data ?? null;
-    } catch { return null; }
-  };
-
-  // ── 1. TERMS ──────────────────────────────────────────
-  const localTerms = localStorage.getItem("rxt-terms");
-  if (localTerms && !networkDown) {
-    const cloudTerms = await fetchCloud("terms");
-    const merged = mergeTerms(cloudTerms, JSON.parse(localTerms));
-    // Write merged back to localStorage so local is always the union
-    localStorage.setItem("rxt-terms", JSON.stringify(merged));
-    await upsert("terms", { user_id: userId, data: merged, updated_at: now });
   }
 
-  // ── 2. LECTURES (per-record upsert — additive by nature) ──────────────────
-  // We only push local lectures; cloud-only lectures are preserved because
-  // we never DELETE from the lectures table.
-  const localLecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
-  if (localLecs.length > 0 && !networkDown) {
+  // ── 6. OBJECTIVES (merge per block, encoded ids) ──────────────────
+  const objStore = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+  for (const [blockId, local] of Object.entries(objStore)) {
     try {
-      const { error } = await supabase.from("lectures").upsert(
-        localLecs.map((l) => {
-          const { chunks, ...lecWithoutChunks } = l;
-          return {
-            user_id: userId,
-            lecture_id: l.id,
-            block_id: l.blockId,
-            term_id: l.termId,
-            data: lecWithoutChunks,
-            chunks: chunks || [],
-            updated_at: now,
-          };
-        }),
-        { onConflict: "user_id,lecture_id" }
+      if (JSON.stringify(local).length > MAX_DOC_BYTES) {
+        errors.push({ store: `objectives:${blockId}`, error: { message: "oversized, skipped" } });
+        continue;
+      }
+      const merged = await mergeDoc(
+        doc(db, "users", userId, "objectives", encodeDocId(blockId)),
+        local,
+        mergeBlockObjectives
       );
-      if (error) {
-        if (!error.code || error.message?.includes("Failed to fetch")) networkDown = true;
-        console.error("lectures push failed:", error);
-        errors.push({ table: "lectures", error });
-      }
+      objStore[blockId] = merged;
     } catch (e) {
-      networkDown = true;
-      errors.push({ table: "lectures", error: { message: e?.message || String(e), code: "NETWORK_ERROR" } });
+      errors.push({ store: `objectives:${blockId}`, error: { message: e?.message || String(e) } });
     }
   }
+  try { localStorage.setItem("rxt-block-objectives", JSON.stringify(objStore)); } catch {}
 
-  // ── 3. OBJECTIVES (merge per block) ───────────────────
-  const localObjStore = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-  for (const [blockId, localBlockData] of Object.entries(localObjStore)) {
-    if (networkDown) {
-      errors.push({ table: `objectives:${blockId}`, error: { message: "Skipped — network unavailable", code: "NETWORK_ERROR" } });
+  // ── 7. LECTURES (chunked batch, encoded ids, never delete) ──────────────────
+  const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+  const lecOps = [];
+  for (const l of lecs) {
+    const { chunks, ...meta } = l;
+    const payload = { data: meta, chunks: chunks || [], blockId: l.blockId, termId: l.termId };
+    if (JSON.stringify(payload).length > MAX_DOC_BYTES) {
+      errors.push({ store: `lectures:${l.id}`, error: { message: "oversized, skipped" } });
       continue;
     }
+    lecOps.push((b) =>
+      b.set(
+        doc(db, "users", userId, "lectures", encodeDocId(l.id)),
+        { ...payload, updatedAt: serverTimestamp() },
+        { merge: true }
+      )
+    );
+  }
+  await commitInChunks(lecOps, errors);
+
+  // ── 8. USER_KV (all remaining keys, encoded ids) ───────────────────
+  for (const key of KV_KEYS) {
+    const raw = localStorage.getItem(key);
+    if (!raw) continue;
     try {
-      // Fetch cloud version of this block
-      const { data: cloudRow } = await supabase
-        .from("objectives")
-        .select("data")
-        .eq("user_id", userId)
-        .eq("block_id", blockId)
-        .maybeSingle();
-      const merged = mergeBlockObjectives(cloudRow?.data ?? null, localBlockData);
-      // Write merged back locally so local is always the union
-      localObjStore[blockId] = merged;
-      const { error } = await supabase.from("objectives").upsert(
-        { user_id: userId, block_id: blockId, data: merged, updated_at: now },
-        { onConflict: "user_id,block_id" }
-      );
-      if (error) {
-        if (!error.code || error.message?.includes("Failed to fetch")) networkDown = true;
-        console.error(`objectives:${blockId} push failed:`, error);
-        errors.push({ table: `objectives:${blockId}`, error });
+      const parsed = JSON.parse(raw);
+      if (JSON.stringify(parsed).length > MAX_DOC_BYTES) {
+        errors.push({ store: `kv:${key}`, error: { message: "oversized, skipped" } });
+        continue;
       }
+      const merged = await mergeDoc(doc(db, "users", userId, "kv", encodeDocId(key)), parsed, mergeKvValue);
+      localStorage.setItem(key, JSON.stringify(merged));
     } catch (e) {
-      networkDown = true;
-      errors.push({ table: `objectives:${blockId}`, error: { message: e?.message || String(e), code: "NETWORK_ERROR" } });
-    }
-  }
-  // Persist any locally-updated merged objectives
-  if (!networkDown) {
-    try { localStorage.setItem("rxt-block-objectives", JSON.stringify(localObjStore)); } catch {}
-  }
-
-  // ── 4. PERFORMANCE ────────────────────────────────────
-  const localPerf = localStorage.getItem("rxt-performance");
-  if (localPerf && !networkDown) {
-    const cloudPerf = await fetchCloud("performance");
-    const merged = mergePerformance(cloudPerf, JSON.parse(localPerf));
-    localStorage.setItem("rxt-performance", JSON.stringify(merged));
-    await upsert("performance", { user_id: userId, data: merged, updated_at: now });
-  }
-
-  // ── 5. COMPLETION ─────────────────────────────────────
-  const localComp = localStorage.getItem("rxt-completion");
-  if (localComp && !networkDown) {
-    const cloudComp = await fetchCloud("completion");
-    const merged = mergeCompletion(cloudComp, JSON.parse(localComp));
-    localStorage.setItem("rxt-completion", JSON.stringify(merged));
-    await upsert("completion", { user_id: userId, data: merged, updated_at: now });
-  }
-
-  // ── 6. WEAK CONCEPTS ──────────────────────────────────
-  const localWeak = localStorage.getItem("rxt-weak-concepts");
-  if (localWeak && !networkDown) {
-    const cloudWeak = await fetchCloud("weak_concepts");
-    const merged = mergeWeakConcepts(cloudWeak, JSON.parse(localWeak));
-    localStorage.setItem("rxt-weak-concepts", JSON.stringify(merged));
-    await upsert("weak_concepts", { user_id: userId, data: merged, updated_at: now });
-  }
-
-  // ── 7. TRACKER ────────────────────────────────────────
-  const localTracker = localStorage.getItem("rxt-tracker-v2");
-  if (localTracker && !networkDown) {
-    // Tracker is an array; cloud is authoritative for old rows, local adds new ones
-    const cloudTracker = await fetchCloud("tracker");
-    const merged = mergeKvValue(cloudTracker, JSON.parse(localTracker));
-    localStorage.setItem("rxt-tracker-v2", JSON.stringify(merged));
-    await upsert("tracker", { user_id: userId, data: merged, updated_at: now });
-  }
-
-  // ── 8. USER_KV (all remaining keys) ───────────────────
-  const KV_KEYS = [
-    "rxt-question-banks",
-    "rxt-exam-results",
-    "rxt-exam-dates",
-    "rxt-learning-profile",
-    "rxt-sessions",
-    "rxt-analyses",
-    "rxt-weak-areas",
-    "rxt-dl-sessions",
-    "rxt-missed-questions",
-    "rxt-supplemental-resources",
-    "rxt-reviewed-lecs",
-    "rxt-style-prefs",
-    "rxt-question-notes",
-    "rxt-calibration-log",
-  ];
-  if (!networkDown) {
-    // Fetch all existing cloud kv rows in one query
-    try {
-      const { data: cloudKvRows } = await supabase
-        .from("user_kv")
-        .select("key, data")
-        .eq("user_id", userId)
-        .in("key", KV_KEYS);
-      const cloudKvMap = {};
-      (cloudKvRows || []).forEach((r) => { cloudKvMap[r.key] = r.data; });
-
-      const kvRows = KV_KEYS
-        .map((key) => {
-          const raw = localStorage.getItem(key);
-          if (!raw) return null;
-          try {
-            const localVal = JSON.parse(raw);
-            const merged = mergeKvValue(cloudKvMap[key] ?? null, localVal);
-            // Write merged back locally
-            try { localStorage.setItem(key, JSON.stringify(merged)); } catch {}
-            return { user_id: userId, key, data: merged, updated_at: now };
-          } catch { return null; }
-        })
-        .filter(Boolean);
-
-      if (kvRows.length > 0) {
-        const { error } = await supabase.from("user_kv").upsert(kvRows, { onConflict: "user_id,key" });
-        if (error) {
-          if (!error.code || error.message?.includes("Failed to fetch")) networkDown = true;
-          console.error("user_kv push failed:", error);
-          errors.push({ table: "user_kv", error });
-        }
-      }
-    } catch (e) {
-      networkDown = true;
-      errors.push({ table: "user_kv", error: { message: e?.message || String(e), code: "NETWORK_ERROR" } });
+      errors.push({ store: `kv:${key}`, error: { message: e?.message || String(e) } });
     }
   }
 
-  // ── 9. MCQ BANK (fire and forget — per-record, additive) ──────────────────
-  if (!networkDown) {
-    pushMcqBankToSupabase(userId).catch(() => {});
-  }
+  // ── 9. MCQ BANK (fire and forget — per-record, additive; still Supabase, Task 6) ──
+  pushMcqBankToSupabase(userId).catch(() => {});
 
   if (errors.length > 0) {
-    const networkErrors = errors.filter((e) => e.error?.code === "NETWORK_ERROR").length;
-    const realErrors = errors.length - networkErrors;
-    if (networkDown) {
-      console.warn(`Push aborted — Supabase unreachable. ${realErrors} API error(s), ${networkErrors} skipped.`);
-    } else {
-      console.warn(`Push completed with ${errors.length} error(s):`, errors);
-    }
+    console.warn(`Push completed with ${errors.length} error(s):`, errors);
   } else {
     console.log("Merge-push complete — all data additive, nothing overwritten");
   }
@@ -594,41 +477,41 @@ export async function pullAllDataFromSupabase(userId) {
 
   console.log("Pulling data for user:", userId);
 
-  const { data: terms, error: termsErr } = await supabase
-    .from("terms")
-    .select("data")
-    .eq("user_id", userId)
-    .maybeSingle();
+  // Read all 5 state docs up front so we can decide "empty" only when ALL
+  // canonical stores are absent — objectives/lectures/kv must still pull
+  // even if e.g. state/terms is missing (independent-pull requirement).
+  const [terms, perf, comp, weak, tracker] = await Promise.all([
+    readDoc(stateRef(userId, "terms")),
+    readDoc(stateRef(userId, "performance")),
+    readDoc(stateRef(userId, "completion")),
+    readDoc(stateRef(userId, "weak_concepts")),
+    readDoc(stateRef(userId, "tracker")),
+  ]);
 
-  if (termsErr) {
-    console.error("terms pull failed:", termsErr);
-    throw termsErr;
-  }
+  const objsSnap = await getDocs(collection(db, "users", userId, "objectives"));
+  const lecsSnap = await getDocs(collection(db, "users", userId, "lectures"));
 
-  if (!terms?.data) {
+  if (
+    terms == null && perf == null && comp == null && weak == null && tracker == null &&
+    objsSnap.empty && lecsSnap.empty
+  ) {
     console.log("No cloud data found — skipping pull");
     return { empty: true };
   }
 
   // Terms: merge cloud into local (union blocks)
-  const localTermsRaw = localStorage.getItem("rxt-terms");
-  const mergedTerms = mergeTerms(localTermsRaw ? JSON.parse(localTermsRaw) : null, terms.data);
-  localStorage.setItem("rxt-terms", JSON.stringify(mergedTerms));
+  if (terms != null) {
+    const localTermsRaw = localStorage.getItem("rxt-terms");
+    const mergedTerms = mergeTerms(localTermsRaw ? JSON.parse(localTermsRaw) : null, terms);
+    localStorage.setItem("rxt-terms", JSON.stringify(mergedTerms));
+  }
 
   // Lectures: cloud adds to local, local stubs preserved
-  const { data: lecs, error: lecsErr } = await supabase
-    .from("lectures")
-    .select("data, chunks, lecture_id")
-    .eq("user_id", userId);
-
-  if (lecsErr) {
-    console.error("lectures pull failed:", lecsErr);
-  } else if (lecs?.length > 0) {
-    const fromCloud = lecs.map((l) => ({
-      ...l.data,
-      chunks: l.chunks || [],
-      id: l.lecture_id,
-    }));
+  if (!lecsSnap.empty) {
+    const fromCloud = lecsSnap.docs.map((d) => {
+      const v = d.data();
+      return { ...(v.data || {}), chunks: v.chunks || [], id: decodeDocId(d.id) };
+    });
     const local = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
     const cloudIds = new Set(fromCloud.map((l) => l.id));
     const localOnly = local.filter((l) => !cloudIds.has(l.id));
@@ -636,51 +519,41 @@ export async function pullAllDataFromSupabase(userId) {
   }
 
   // Objectives: merge per block using same merge function as push
-  const { data: objs, error: objsErr } = await supabase
-    .from("objectives")
-    .select("block_id, data")
-    .eq("user_id", userId);
-
-  if (objsErr) {
-    console.error("objectives pull failed:", objsErr);
-  } else if (objs?.length > 0) {
+  if (!objsSnap.empty) {
     const local = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
     const objMap = { ...local };
-    objs.forEach((o) => {
-      objMap[o.block_id] = mergeBlockObjectives(local[o.block_id] ?? null, o.data);
+    objsSnap.docs.forEach((d) => {
+      const blockId = decodeDocId(d.id);
+      objMap[blockId] = mergeBlockObjectives(local[blockId] ?? null, d.data()?.data ?? null);
     });
     localStorage.setItem("rxt-block-objectives", JSON.stringify(objMap));
   }
 
   // Performance: merge sessions — never lose local sessions
-  const { data: perf } = await supabase.from("performance").select("data").eq("user_id", userId).maybeSingle();
-  if (perf?.data) {
+  if (perf != null) {
     const localPerf = localStorage.getItem("rxt-performance");
-    const merged = mergePerformance(perf.data, localPerf ? JSON.parse(localPerf) : {});
+    const merged = mergePerformance(perf, localPerf ? JSON.parse(localPerf) : {});
     localStorage.setItem("rxt-performance", JSON.stringify(merged));
   }
 
   // Completion: merge, take max completionLevel
-  const { data: comp } = await supabase.from("completion").select("data").eq("user_id", userId).maybeSingle();
-  if (comp?.data) {
+  if (comp != null) {
     const localComp = localStorage.getItem("rxt-completion");
-    const merged = mergeCompletion(comp.data, localComp ? JSON.parse(localComp) : {});
+    const merged = mergeCompletion(comp, localComp ? JSON.parse(localComp) : {});
     localStorage.setItem("rxt-completion", JSON.stringify(merged));
   }
 
   // Weak concepts: union
-  const { data: weak } = await supabase.from("weak_concepts").select("data").eq("user_id", userId).maybeSingle();
-  if (weak?.data) {
+  if (weak != null) {
     const localWeak = localStorage.getItem("rxt-weak-concepts");
-    const merged = mergeWeakConcepts(weak.data, localWeak ? JSON.parse(localWeak) : {});
+    const merged = mergeWeakConcepts(weak, localWeak ? JSON.parse(localWeak) : {});
     localStorage.setItem("rxt-weak-concepts", JSON.stringify(merged));
   }
 
   // Tracker: additive merge
-  const { data: tracker } = await supabase.from("tracker").select("data").eq("user_id", userId).maybeSingle();
-  if (tracker?.data) {
+  if (tracker != null) {
     const localTracker = localStorage.getItem("rxt-tracker-v2");
-    const merged = mergeKvValue(tracker.data, localTracker ? JSON.parse(localTracker) : null);
+    const merged = mergeKvValue(tracker, localTracker ? JSON.parse(localTracker) : null);
     localStorage.setItem("rxt-tracker-v2", JSON.stringify(merged));
   }
 
@@ -695,27 +568,27 @@ export async function pullAllDataFromSupabase(userId) {
 }
 
 /**
- * Pull all user_kv rows from Supabase into localStorage.
+ * Pull all kv docs from Firestore into localStorage.
  * Called once on sign-in alongside pullAllDataFromSupabase.
  */
 export async function pullUserKvFromSupabase(userId) {
   if (!userId) return;
   try {
-    const { data, error } = await supabase
-      .from("user_kv")
-      .select("key, data")
-      .eq("user_id", userId);
-    if (error) { console.warn("user_kv pull failed:", error); return; }
-    if (!data?.length) return;
-    data.forEach(({ key, data: val }) => {
+    const snap = await getDocs(collection(db, "users", userId, "kv"));
+    if (snap.empty) return;
+    let count = 0;
+    snap.docs.forEach((d) => {
+      const val = d.data()?.data;
       if (val == null) return;
+      const key = decodeDocId(d.id);
       try {
         localStorage.setItem(key, JSON.stringify(val));
+        count++;
       } catch (e) {
         console.warn("user_kv restore failed for", key, e?.message);
       }
     });
-    console.log(`user_kv: pulled ${data.length} keys from Supabase`);
+    console.log(`user_kv: pulled ${count} keys from Firestore`);
   } catch (e) {
     console.warn("user_kv pull exception:", e?.message);
   }
