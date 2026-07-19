@@ -9,15 +9,15 @@ import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
 import { EngineSession } from "../engine/EngineSession.jsx";
 import { Button } from "../ui/Button.jsx";
-import { supabase, signInWithGoogle, signOut, pullAllDataFromSupabase } from "../supabase.js";
+import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
 import PatientRecognition from "../PatientRecognition.jsx";
 import { themes } from "../theme.js";
 
 /**
- * Auth + cloud-load gate. localStorage is per-origin, so the shell pulls the
- * user's data from Supabase on sign-in — it works on any origin, not just the
- * one where data was first created.
+ * Auth (Firebase) + cloud-load gate. localStorage is per-origin, so the shell
+ * pulls the user's data from the cloud on sign-in — it works on any origin,
+ * not just the one where data was first created.
  */
 export default function Shell() {
   const { theme, toggle } = useTheme();
@@ -27,6 +27,7 @@ export default function Shell() {
   useEffect(() => {
     let alive = true;
     let booted = false;
+    let shellUnsub = null;
     async function boot(uid) {
       if (booted) return; // run once; sign-out reloads the page
       booted = true;
@@ -38,13 +39,16 @@ export default function Shell() {
       catch (e) { console.warn("cloud pull failed", e?.message); }
       if (alive) setPhase("ready");
     }
-    supabase.auth.getSession().then(({ data }) => boot(data?.session?.user?.id ?? null));
-    // Defer the auth-callback path to avoid the Supabase auth-lock deadlock
-    // (calling supabase queries synchronously inside onAuthStateChange can hang).
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      setTimeout(() => boot(session?.user?.id ?? null), 0);
+    // Resolve a pending Google redirect sign-in before the auth gate settles.
+    completeRedirectSignIn().finally(() => {
+      // Defer the boot call to avoid running synchronously inside the auth callback.
+      const unsub = onAuthChange((user) => {
+        setTimeout(() => boot(user?.id ?? null), 0);
+      });
+      if (alive) shellUnsub = unsub;
+      else unsub();
     });
-    return () => { alive = false; sub?.subscription?.unsubscribe?.(); };
+    return () => { alive = false; shellUnsub?.(); };
   }, []);
 
   const wrap = (children) => (

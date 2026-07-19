@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { callAIJSON } from "./aiClient";
 import { fetchRecognitionItems, pickWeightedItems } from "./recognitionBank";
-import { supabase } from "./supabase";
+import { getCurrentUser } from "./supabase";
 
 // ── Patient Recognition ────────────────────────────────────────────────────
 // Vignette → diagnosis mode. Shows a USMLE Step 1-style clinical vignette built
@@ -143,7 +143,7 @@ export default function PatientRecognition({ T, onClose }) {
     setAnchors(chosen);
     // Prefer the pre-generated bank (instant, no live AI call).
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getCurrentUser();
       if (myReq !== reqIdRef.current) return; // superseded
       if (user) {
         const activeBlock = localStorage.getItem("rxt-current-block") || null;

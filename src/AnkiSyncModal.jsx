@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { ping, pullProperLearningCards, ANKI_SETUP_NOTE, ANKICONNECT_ADDON_CODE } from "./ankiConnect";
 import { upsertAnkiCards } from "./ankiCards";
-import { supabase } from "./supabase";
+import { getCurrentUser } from "./supabase";
 import { buildBlockBank } from "./recognitionBank";
 
 // ── Anki Sync ────────────────────────────────────────────────────────────────
@@ -42,7 +42,7 @@ export default function AnkiSyncModal({ T, onClose }) {
     setError("");
     setResult(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const user = await getCurrentUser();
       if (!user) throw new Error("Sign in first — cards are saved to your account.");
       const appTerms = JSON.parse(localStorage.getItem("rxt-terms") || "[]");
       setProgress({ deck: "Proper Learning", done: 0, total: 0 });
@@ -221,7 +221,7 @@ export default function AnkiSyncModal({ T, onClose }) {
                   setBuilding(true);
                   setError("");
                   setBuilt(0);
-                  const { data: { user } } = await supabase.auth.getUser();
+                  const user = await getCurrentUser();
                   let total = 0;
                   let firstErr = null;
                   // Loop small batches per block (cap each) so calls never time out.

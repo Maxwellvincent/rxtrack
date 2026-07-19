@@ -3,7 +3,7 @@
  * Used by Tracker quick log without modifying App.jsx.
  */
 import { callAI } from "./aiClient";
-import { supabase, scheduleDebouncedCloudPush } from "./supabase";
+import { getCurrentUser, scheduleDebouncedCloudPush } from "./supabase";
 
 /**
  * A lecture is "available" (i.e. it has happened) when it has no scheduled
@@ -39,9 +39,7 @@ export function filterAvailableWeakConcepts(concepts, lectures, todayISO) {
 
 async function triggerWeakConceptPush() {
   try {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getCurrentUser();
     if (user?.id) scheduleDebouncedCloudPush(user.id);
   } catch (e) {
     // Offline / not signed in — localStorage write still persists.

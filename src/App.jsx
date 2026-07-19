@@ -3,6 +3,9 @@ import {
   supabase,
   signInWithGoogle,
   signOut,
+  getCurrentUser,
+  onAuthChange,
+  completeRedirectSignIn,
   pushAllLocalDataToSupabase,
   pullAllDataFromSupabase,
   scheduleSyncToSupabase,
@@ -2047,8 +2050,8 @@ function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
     stored.lifetime = lifetimeConcepts;
     localStorage.setItem("rxt-weak-concepts", JSON.stringify(stored));
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user?.id) scheduleDebouncedCloudPush(data.user.id);
+    getCurrentUser().then((user) => {
+      if (user?.id) scheduleDebouncedCloudPush(user.id);
     }).catch(() => {});
   } catch (e) {
     console.error("saveWeakConcepts failed:", e);
@@ -19203,9 +19206,7 @@ export default function App() {
 
   const backgroundSync = useCallback(async () => {
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const user = await getCurrentUser();
       if (!user?.id) return;
       await pushAllLocalDataToSupabase(user.id);
       setSyncStatus("synced");
@@ -25779,63 +25780,46 @@ What is the clinical significance of this finding?`,
       }
     };
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      const u = session?.user ?? null;
-      setUser(u);
-      setCurrentUser(u);
-      setAuthLoading(false);
-      if (session?.user && !hasSyncedRef.current) {
-        hasSyncedRef.current = true;
-        void performSignInPush(session.user.id);
-      }
-    });
+    // Resolve a pending Google redirect sign-in before the auth gate settles.
+    let alive = true;
+    let unsub = null;
+    completeRedirectSignIn().finally(() => {
+      // onAuthChange fires immediately with the current session (replacing the old
+      // separate getSession() call), then again on every sign-in/sign-out and on
+      // Firebase's internal token refreshes.
+      const cb = onAuthChange((u) => {
+        setAuthLoading(false);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event !== "TOKEN_REFRESHED") {
-        console.log("Auth event:", event, session?.user?.email);
-      }
-
-      if (event === "SIGNED_OUT") {
-        clearDebouncedCloudPush();
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("rxt-sync-resolved");
+        if (!u) {
+          clearDebouncedCloudPush();
+          if (typeof window !== "undefined") {
+            sessionStorage.removeItem("rxt-sync-resolved");
+          }
+          setUser(null);
+          setCurrentUser(null);
+          hasSyncedRef.current = false;
+          setShowImportScreen(false);
+          setHasCloudData(false);
+          setSyncStatus(null);
+          handleUserSignedInDedupRef.current = { id: null, t: 0 };
+          return;
         }
-        setUser(null);
-        setCurrentUser(null);
-        hasSyncedRef.current = false;
-        setShowImportScreen(false);
-        setHasCloudData(false);
-        setSyncStatus(null);
-        handleUserSignedInDedupRef.current = { id: null, t: 0 };
-        return;
-      }
 
-      if (event === "TOKEN_REFRESHED" && session?.user) {
-        setCurrentUser(session.user);
-        return;
-      }
-
-      if (event === "SIGNED_IN" && session?.user) {
-        setUser(session.user);
-        setCurrentUser(session.user);
+        setUser(u);
+        setCurrentUser(u);
 
         if (hasSyncedRef.current) return;
 
         hasSyncedRef.current = true;
-        void performSignInPush(session.user.id);
-        return;
-      }
-
-      if (session?.user) {
-        setUser(session.user);
-        setCurrentUser(session.user);
-      }
+        void performSignInPush(u.id);
+      });
+      if (alive) unsub = cb;
+      else cb();
     });
 
     return () => {
-      subscription?.unsubscribe();
+      alive = false;
+      unsub?.();
     };
   }, []);
 

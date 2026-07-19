@@ -1,4 +1,16 @@
 import { createClient } from "@supabase/supabase-js";
+// Firebase Auth + Firestore (Task 3: auth cutover). `db` is used here only for
+// checkCloudHasData; the remaining imports (setDoc/where/writeBatch/runTransaction/
+// serverTimestamp) are unused until Tasks 4-6 migrate the data functions below —
+// kept here per the SP0 plan's import list so those tasks don't need to touch this line.
+import { auth, db, isFirebaseConfigured } from "./firebase";
+import {
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  signOut as fbSignOut, onAuthStateChanged,
+} from "firebase/auth";
+import {
+  doc, getDoc, collection, getDocs, query, limit,
+} from "firebase/firestore";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -6,7 +18,10 @@ const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 let _supabaseInstance = null;
 
 /** Whether real Supabase credentials are configured (vs. local/offline mode). */
-export const isSupabaseConfigured = !!(supabaseUrl && supabaseKey);
+const _isSupabaseCredsPresent = !!(supabaseUrl && supabaseKey);
+// Auth (and, once Tasks 4-6 land, data) now gate on Firebase config — name
+// preserved for callers that still check it before showing cloud-dependent UI.
+export const isSupabaseConfigured = isFirebaseConfigured;
 
 /**
  * Stub client used when env vars are absent (e.g. local dev with an empty
@@ -49,52 +64,65 @@ function makeStubClient() {
 
 function getSupabase() {
   if (_supabaseInstance) return _supabaseInstance;
-  _supabaseInstance = isSupabaseConfigured
+  _supabaseInstance = _isSupabaseCredsPresent
     ? createClient(supabaseUrl, supabaseKey)
     : makeStubClient();
   return _supabaseInstance;
 }
 
+// Kept for the still-Supabase data functions below (Tasks 4-6 remove this
+// export once push/pull/mcq/images are migrated to Firestore).
 export const supabase = getSupabase();
 
-// ─── AUTH ────────────────────────────────────────────
+// ─── AUTH (Firebase) ─────────────────────────────────
+
+// Normalize Firebase User -> app shape (findings 2, R2-8). Firebase User fields
+// are non-enumerable getters, so Object.assign drops them — build an explicit
+// plain object and bind the one method callers use (getIdToken).
+const normalize = (u) => (u ? {
+  id: u.uid, uid: u.uid, email: u.email, displayName: u.displayName, photoURL: u.photoURL,
+  getIdToken: (...a) => u.getIdToken(...a),
+} : null);
 
 export async function signInWithGoogle() {
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env");
+  const provider = new GoogleAuthProvider();
+  try {
+    await signInWithPopup(auth, provider);            // primary (desktop-first)
+  } catch (e) {
+    if (["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request"].includes(e?.code)) {
+      await signInWithRedirect(auth, provider);        // fallback (mobile/blocked)
+    } else throw e;
   }
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
-    },
-  });
-  if (error) throw error;
 }
 
 export async function signOut() {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
+  await fbSignOut(auth);
 }
 
-export async function getCurrentUser() {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
+export function getCurrentUser() {
+  return new Promise((resolve) => {
+    const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(normalize(u)); });
+  });
 }
 
-/** True if cloud has a terms row or any objectives row (matches pull “has data” semantics). */
+export function onAuthChange(cb) {
+  return onAuthStateChanged(auth, (u) => cb(normalize(u)));
+}
+
+// Complete a pending redirect sign-in on boot (findings 3,4).
+export async function completeRedirectSignIn() {
+  try { const res = await getRedirectResult(auth); return normalize(res?.user ?? null); }
+  catch { return null; }
+}
+
+/** True if cloud has a terms doc or any objectives doc (matches pull “has data” semantics). */
 export async function checkCloudHasData(userId) {
+  if (!userId) return false;
   try {
-    const [termsRes, objRes] = await Promise.all([
-      supabase.from("terms").select("user_id").eq("user_id", userId).maybeSingle(),
-      supabase.from("objectives").select("block_id").eq("user_id", userId).limit(1),
-    ]);
-
-    if (termsRes.data) return true;
-    if (objRes.error) return false;
-    return !!(objRes.data && objRes.data.length > 0);
+    const termsSnap = await getDoc(doc(db, "users", userId, "state", "terms"));
+    if (termsSnap.exists() && termsSnap.data()?.data) return true;
+    const objSnap = await getDocs(query(collection(db, "users", userId, "objectives"), limit(1)));
+    return !objSnap.empty;
   } catch {
     return false;
   }
@@ -860,9 +888,7 @@ export function scheduleDebouncedCloudPush(userId) {
   debouncedPushTimer = setTimeout(async () => {
     debouncedPushTimer = null;
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+      const user = await getCurrentUser();
       if (!user || user.id !== userId) return;
       await pushAllLocalDataToSupabase(userId);
       console.log("Background cloud push complete");

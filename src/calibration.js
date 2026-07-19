@@ -6,7 +6,7 @@
  * Synced to Supabase via user_kv (see supabase.js KV_KEYS).
  */
 
-import { supabase, scheduleDebouncedCloudPush } from "./supabase";
+import { getCurrentUser, scheduleDebouncedCloudPush } from "./supabase";
 
 const STORAGE_KEY = "rxt-calibration-log";
 const MAX_ENTRIES = 5000;
@@ -29,8 +29,8 @@ function saveLog(log) {
     const trimmed = log.length > MAX_ENTRIES ? log.slice(-MAX_ENTRIES) : log;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
     window.dispatchEvent(new CustomEvent("rxt-calibration-updated"));
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user?.id) scheduleDebouncedCloudPush(data.user.id);
+    getCurrentUser().then((user) => {
+      if (user?.id) scheduleDebouncedCloudPush(user.id);
     }).catch(() => {});
   } catch (e) {
     console.error("saveCalibrationLog failed:", e);
