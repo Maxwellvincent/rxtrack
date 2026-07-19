@@ -1,0 +1,20 @@
+{
+  "name": "functions",
+  "description": "RXTrack Cloud Functions — server-side AI gateway (Task 7)",
+  "main": "index.js",
+  "type": "commonjs",
+  "engines": {
+    "node": "20"
+  },
+  "scripts": {
+    "test": "vitest run handlers.test.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^6.3.1"
+  },
+  "devDependencies": {
+    "vitest": "^3.2.4"
+  },
+  "private": true
+}
