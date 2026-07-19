@@ -1,0 +1,21 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    // IMPORTANT: Firestore rules OR together — a recursive {document=**} write grant
+    // would re-enable writes to the server-only bank. So DON'T use a catch-all; enumerate
+    // client-writable collections, and give recognitionItems read-only (R3-finding 6).
+    match /users/{uid} {
+      allow read, write: if owner(uid);            // the user profile doc
+      match /state/{name}        { allow read, write: if owner(uid); }
+      match /objectives/{blockId}{ allow read, write: if owner(uid); }
+      match /lectures/{lecId}    { allow read, write: if owner(uid); }
+      match /kv/{key}            { allow read, write: if owner(uid); }
+      match /mcq/{id}            { allow read, write: if owner(uid); }
+      match /ankiCards/{id}      { allow read, write: if owner(uid); }
+      match /ungeneratedCards/{id}{ allow read, write: if owner(uid); } // client Anki-ingest writes; server marks generated
+      match /questionImages/{id} { allow read, write: if owner(uid); }
+      match /recognitionItems/{id}{ allow read: if owner(uid); allow write: if false; } // server-only (Admin bypasses)
+    }
+  }
+}

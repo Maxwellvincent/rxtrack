@@ -1,0 +1,11 @@
+{
+  "indexes": [
+    { "collectionGroup": "questionImages", "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "objectiveId", "order": "ASCENDING" },
+        { "fieldPath": "round", "order": "ASCENDING" },
+        { "fieldPath": "addedAt", "order": "ASCENDING" }
+      ] }
+  ],
+  "fieldOverrides": []
+}
