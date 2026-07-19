@@ -1,6 +1,6 @@
 import { stripAnki } from "./ankiConnect.js";
 import { parseProperLearningPath, resolveBlock } from "./ankiPaths.js";
-import { supabase } from "./supabase.js";
+import { saveAnkiCards } from "./supabase.js";
 
 /** Map an AnkiConnect note + its deck path → an anki_cards row, or null. */
 export function cardToRow(note, deckPath, appTerms) {
@@ -40,17 +40,8 @@ export function cardToRow(note, deckPath, appTerms) {
   };
 }
 
-/** Upsert rows into anki_cards in chunks; conflict on (user_id, card_id). */
+/** Upsert rows into users/{uid}/ankiCards, keyed by card_id (via saveAnkiCards). */
 export async function upsertAnkiCards(userId, rows) {
   if (!userId || !rows?.length) return { count: 0, error: null };
-  const now = new Date().toISOString();
-  let count = 0;
-  let lastError = null;
-  for (let i = 0; i < rows.length; i += 200) {
-    const batch = rows.slice(i, i + 200).map((r) => ({ ...r, user_id: userId, updated_at: now }));
-    const { error } = await supabase.from("anki_cards").upsert(batch, { onConflict: "user_id,card_id" });
-    if (error) { lastError = error; break; }
-    count += batch.length;
-  }
-  return { count, error: lastError };
+  return saveAnkiCards(userId, rows);
 }

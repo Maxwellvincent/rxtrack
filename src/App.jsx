@@ -1,6 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, Component } from "react";
 import {
-  supabase,
   signInWithGoogle,
   signOut,
   getCurrentUser,
@@ -18964,19 +18963,9 @@ export default function App() {
       store[objId] = data;
       localStorage.setItem("rxt-question-notes", JSON.stringify(store));
     } catch (e) { console.warn("saveQuestionNotes failed:", e?.message); }
-    // Debounce cloud sync
-    if (currentUser?.id) {
-      clearTimeout(saveQuestionNotes._t);
-      saveQuestionNotes._t = setTimeout(() => {
-        try {
-          const allNotes = JSON.parse(localStorage.getItem("rxt-question-notes") || "{}");
-          supabase.from("user_kv").upsert(
-            { user_id: currentUser.id, key: "rxt-question-notes", data: allNotes, updated_at: new Date().toISOString() },
-            { onConflict: "user_id,key" }
-          ).then(({ error }) => { if (error) console.warn("question-notes sync failed:", error.message); });
-        } catch {}
-      }, 2000);
-    }
+    // Debounce cloud sync — rxt-question-notes is in KV_KEYS, so the shared
+    // debounced push (read-merge-write via mergeKvValue) covers it.
+    if (currentUser?.id) scheduleDebouncedCloudPush(currentUser.id);
   };
 
   // ── Per-question manual image attachments (Supabase Storage) ────────────
@@ -25830,8 +25819,8 @@ What is the clinical significance of this finding?`,
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.from("terms").select("user_id").eq("user_id", user.id).maybeSingle();
-      if (!cancelled) setHasCloudData(!!data);
+      const has = await checkCloudHasData(user.id);
+      if (!cancelled) setHasCloudData(has);
     })();
     return () => {
       cancelled = true;

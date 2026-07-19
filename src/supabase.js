@@ -1,80 +1,22 @@
-import { createClient } from "@supabase/supabase-js";
-// Firebase Auth + Firestore (Task 3: auth cutover; Task 4: JSON-doc primitives).
-// `db` backs checkCloudHasData and the stateRef/readDoc/writeDoc/mergeDoc/
-// commitInChunks primitives below; the still-Supabase data functions further
-// down are migrated in Tasks 5-6.
-import { auth, db, isFirebaseConfigured } from "./firebase";
+// Firebase Auth + Firestore + Storage — the sole backend (Task 3: auth
+// cutover; Task 4: JSON-doc primitives; Task 5: push/pull/kv; Task 6:
+// mcq/images/recognition tables). The Supabase JS client and its stub
+// fallback are gone from this module entirely.
+import { auth, db, storage, isFirebaseConfigured } from "./firebase";
 import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut as fbSignOut, onAuthStateChanged,
 } from "firebase/auth";
 import {
-  doc, getDoc, collection, getDocs, query, limit,
+  doc, getDoc, deleteDoc, collection, getDocs, query, where, orderBy, limit,
   setDoc, runTransaction, writeBatch, serverTimestamp,
 } from "firebase/firestore";
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { encodeDocId, decodeDocId } from "./idCodec";
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-
-let _supabaseInstance = null;
-
-/** Whether real Supabase credentials are configured (vs. local/offline mode). */
-const _isSupabaseCredsPresent = !!(supabaseUrl && supabaseKey);
-// Auth (and, once Tasks 4-6 land, data) now gate on Firebase config — name
-// preserved for callers that still check it before showing cloud-dependent UI.
+// Auth (and data) gate on Firebase config — name preserved for callers that
+// still check it before showing cloud-dependent UI.
 export const isSupabaseConfigured = isFirebaseConfigured;
-
-/**
- * Stub client used when env vars are absent (e.g. local dev with an empty
- * .env). Without this, createClient(undefined, …) throws at module load and
- * blanks the entire app. The stub boots the app as "logged out, offline":
- * auth resolves to no user, queries resolve to a not-configured error, and
- * every cloud call no-ops instead of crashing.
- */
-function makeStubClient() {
-  const notConfigured = { message: "Supabase not configured", code: "NOT_CONFIGURED" };
-  // A thenable query builder: any chain (.select().eq()… ) resolves to {data:null,error}.
-  const query = () => {
-    const result = Promise.resolve({ data: null, error: notConfigured });
-    const chain = new Proxy(function () {}, {
-      get(_t, prop) {
-        if (prop === "then") return result.then.bind(result);
-        if (prop === "catch") return result.catch.bind(result);
-        if (prop === "finally") return result.finally.bind(result);
-        if (prop === "maybeSingle" || prop === "single") return () => result;
-        return () => chain;
-      },
-      apply() {
-        return chain;
-      },
-    });
-    return chain;
-  };
-  return {
-    auth: {
-      getUser: async () => ({ data: { user: null }, error: null }),
-      getSession: async () => ({ data: { session: null }, error: null }),
-      onAuthStateChange: () => ({ data: { subscription: { unsubscribe() {} } } }),
-      signInWithOAuth: async () => ({ error: notConfigured }),
-      signOut: async () => ({ error: null }),
-    },
-    from: query,
-    storage: { from: () => ({ upload: async () => ({ error: notConfigured }), createSignedUrl: async () => ({ data: null }), remove: async () => ({ error: null }) }) },
-  };
-}
-
-function getSupabase() {
-  if (_supabaseInstance) return _supabaseInstance;
-  _supabaseInstance = _isSupabaseCredsPresent
-    ? createClient(supabaseUrl, supabaseKey)
-    : makeStubClient();
-  return _supabaseInstance;
-}
-
-// Kept for the still-Supabase data functions below (Tasks 4-6 remove this
-// export once push/pull/mcq/images are migrated to Firestore).
-export const supabase = getSupabase();
 
 // ─── AUTH (Firebase) ─────────────────────────────────
 
@@ -458,8 +400,13 @@ export async function pushAllLocalDataToSupabase(userId) {
     }
   }
 
-  // ── 9. MCQ BANK (fire and forget — per-record, additive; still Supabase, Task 6) ──
-  pushMcqBankToSupabase(userId).catch(() => {});
+  // ── 9. MCQ BANK (awaited — folds its errors into the returned errors[], R2-finding 13) ──
+  try {
+    const mcqErrors = await pushMcqBankToSupabase(userId);
+    if (Array.isArray(mcqErrors)) errors.push(...mcqErrors);
+  } catch (e) {
+    errors.push({ store: "mcq", error: { message: e?.message || String(e) } });
+  }
 
   if (errors.length > 0) {
     console.warn(`Push completed with ${errors.length} error(s):`, errors);
@@ -600,7 +547,7 @@ export async function pullUserKvFromSupabase(userId) {
 // ─── MCQ BANK ─────────────────────────────────────────
 
 /**
- * Upsert a single question into Supabase mcq_bank.
+ * Upsert a single question into Firestore users/{uid}/mcq/{objectiveId}__r{round}.
  * Also writes to localStorage as a fast local cache.
  */
 export async function saveMcqBankEntry(userId, objectiveId, round, data) {
@@ -613,100 +560,83 @@ export async function saveMcqBankEntry(userId, objectiveId, round, data) {
   } catch { /* storage full — ignore */ }
 
   try {
-    await supabase.from("mcq_bank").upsert(
-      { user_id: userId, objective_id: objectiveId, round: round ?? 0, data, updated_at: new Date().toISOString() },
-      { onConflict: "user_id,objective_id,round" }
-    );
+    const ref = doc(db, "users", userId, "mcq", `${encodeDocId(objectiveId)}__r${round ?? 0}`);
+    await setDoc(ref, { objectiveId, round: round ?? 0, data, updatedAt: serverTimestamp() }, { merge: true });
   } catch (e) {
-    console.warn("mcq_bank save failed:", e?.message);
+    console.warn("mcq save failed:", e?.message);
   }
 }
 
 /**
- * Pull all mcq_bank rows for this user from Supabase into localStorage.
+ * Pull all mcq docs for this user from Firestore into localStorage.
  * Called once on sign-in alongside pullAllDataFromSupabase.
  */
 export async function pullMcqBankFromSupabase(userId) {
   if (!userId) return;
   try {
-    const { data, error } = await supabase
-      .from("mcq_bank")
-      .select("objective_id, round, data")
-      .eq("user_id", userId);
-    if (error) { console.warn("mcq_bank pull failed:", error); return; }
-    if (!data?.length) return;
+    const snap = await getDocs(collection(db, "users", userId, "mcq"));
+    if (snap.empty) return;
     const bank = {};
-    data.forEach(({ objective_id, round, data: qData }) => {
-      bank[`${objective_id}_r${round ?? 0}`] = qData;
+    snap.docs.forEach((d) => {
+      const v = d.data();
+      // Rebuild the local cache key from the doc's own fields, not the encoded doc id.
+      bank[`${v.objectiveId}_r${v.round ?? 0}`] = v.data;
     });
     localStorage.setItem("rxt-mcq-bank", JSON.stringify(bank));
-    console.log(`mcq_bank: pulled ${data.length} questions from Supabase`);
+    console.log(`mcq: pulled ${snap.docs.length} questions from Firestore`);
   } catch (e) {
-    console.warn("mcq_bank pull exception:", e?.message);
+    console.warn("mcq pull exception:", e?.message);
   }
 }
 
 /**
- * Push the entire local mcq_bank to Supabase.
- * Used in the full data push cycle.
+ * Push the entire local mcq_bank to Firestore.
+ * Used in the full data push cycle. Returns an errors[] array (folded into
+ * pushAllLocalDataToSupabase's return, R2-finding 13 — no fire-and-forget).
  */
 export async function pushMcqBankToSupabase(userId) {
-  if (!userId) return;
+  const errors = [];
+  if (!userId) return errors;
   try {
     const bank = JSON.parse(localStorage.getItem("rxt-mcq-bank") || "{}");
     const entries = Object.entries(bank);
-    if (!entries.length) return;
-    const rows = entries.map(([key, data]) => {
+    if (!entries.length) return errors;
+    const ops = entries.map(([key, data]) => {
       const [objId, roundStr] = key.split("_r");
-      return {
-        user_id: userId,
-        objective_id: objId,
-        round: parseInt(roundStr ?? "0", 10) || 0,
-        data,
-        updated_at: new Date().toISOString(),
-      };
+      const round = parseInt(roundStr ?? "0", 10) || 0;
+      const ref = doc(db, "users", userId, "mcq", `${encodeDocId(objId)}__r${round}`);
+      return (b) => b.set(ref, { objectiveId: objId, round, data, updatedAt: serverTimestamp() }, { merge: true });
     });
-    // Batch in groups of 100 to stay within Supabase payload limits
-    for (let i = 0; i < rows.length; i += 100) {
-      const batch = rows.slice(i, i + 100);
-      const { error } = await supabase
-        .from("mcq_bank")
-        .upsert(batch, { onConflict: "user_id,objective_id,round" });
-      if (error) console.warn("mcq_bank batch push failed:", error);
-    }
-    console.log(`mcq_bank: pushed ${rows.length} questions to Supabase`);
+    await commitInChunks(ops, errors);
+    console.log(`mcq: pushed ${ops.length - errors.length} questions to Firestore`);
   } catch (e) {
-    console.warn("mcq_bank push exception:", e?.message);
+    errors.push({ store: "mcq", error: { message: e?.message || String(e) } });
   }
+  return errors;
 }
 
 // ─── QUESTION IMAGES ─────────────────────────────────
 
 /**
  * Upload a single image file (File or Blob) attached to a drill question.
- * Stores the file in Storage and records metadata in question_images table.
- * Returns the storage path on success, null on failure.
+ * Stores the file in Firebase Storage and records metadata in
+ * users/{uid}/questionImages. Returns the storage path on success, null on failure.
  */
 export async function uploadQuestionImage(userId, objectiveId, round, file) {
   if (!userId || !objectiveId || !file) return null;
   const ext = file.name.split(".").pop() || "jpg";
   const safeName = `${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`;
-  const path = `${userId}/${objectiveId}_r${round ?? 0}/${safeName}`;
+  const path = `question-images/${userId}/${encodeDocId(objectiveId)}_r${round ?? 0}/${safeName}`;
   try {
-    const { error: uploadErr } = await supabase.storage
-      .from("question-images")
-      .upload(path, file, { contentType: file.type || "image/jpeg", upsert: false });
-    if (uploadErr) { console.warn("question image upload failed:", uploadErr.message); return null; }
-
-    const { error: metaErr } = await supabase.from("question_images").insert({
-      user_id: userId,
-      objective_id: objectiveId,
+    await uploadBytes(storageRef(storage, path), file, { contentType: file.type || "image/jpeg" });
+    await setDoc(doc(db, "users", userId, "questionImages", encodeDocId(path)), {
+      objectiveId,
       round: round ?? 0,
-      storage_path: path,
+      storagePath: path,
       filename: file.name,
-      mime_type: file.type || null,
+      mimeType: file.type || null,
+      addedAt: serverTimestamp(),
     });
-    if (metaErr) console.warn("question_images meta insert failed:", metaErr.message);
     return path;
   } catch (e) {
     console.warn("uploadQuestionImage exception:", e?.message);
@@ -715,36 +645,40 @@ export async function uploadQuestionImage(userId, objectiveId, round, file) {
 }
 
 /**
- * Fetch all image metadata for a question, with signed URLs for display.
+ * Fetch all image metadata for a question, with download URLs for display.
  * Returns [{storagePath, filename, mimeType, url, addedAt}]
  */
 export async function fetchQuestionImages(userId, objectiveId, round) {
   if (!userId || !objectiveId) return [];
   try {
-    const { data, error } = await supabase
-      .from("question_images")
-      .select("storage_path, filename, mime_type, added_at")
-      .eq("user_id", userId)
-      .eq("objective_id", objectiveId)
-      .eq("round", round ?? 0)
-      .order("added_at", { ascending: true });
-    if (error || !data?.length) return [];
+    const snap = await getDocs(
+      query(
+        collection(db, "users", userId, "questionImages"),
+        where("objectiveId", "==", objectiveId),
+        where("round", "==", round ?? 0),
+        orderBy("addedAt")
+      )
+    );
+    if (snap.empty) return [];
 
-    const signed = await Promise.all(
-      data.map(async (row) => {
-        const { data: urlData } = await supabase.storage
-          .from("question-images")
-          .createSignedUrl(row.storage_path, 3600); // 1h TTL
-        return {
-          storagePath: row.storage_path,
-          filename: row.filename,
-          mimeType: row.mime_type,
-          url: urlData?.signedUrl || null,
-          addedAt: row.added_at,
-        };
+    const withUrls = await Promise.all(
+      snap.docs.map(async (d) => {
+        const v = d.data();
+        try {
+          const url = await getDownloadURL(storageRef(storage, v.storagePath));
+          return {
+            storagePath: v.storagePath,
+            filename: v.filename,
+            mimeType: v.mimeType,
+            url,
+            addedAt: v.addedAt,
+          };
+        } catch {
+          return null;
+        }
       })
     );
-    return signed.filter((s) => s.url);
+    return withUrls.filter(Boolean);
   } catch (e) {
     console.warn("fetchQuestionImages exception:", e?.message);
     return [];
@@ -757,12 +691,92 @@ export async function fetchQuestionImages(userId, objectiveId, round) {
 export async function deleteQuestionImage(userId, storagePath) {
   if (!userId || !storagePath) return;
   try {
-    await supabase.storage.from("question-images").remove([storagePath]);
-    await supabase.from("question_images").delete()
-      .eq("user_id", userId)
-      .eq("storage_path", storagePath);
+    await deleteObject(storageRef(storage, storagePath));
+  } catch (e) {
+    console.warn("deleteQuestionImage storage delete failed:", e?.message);
+  }
+  try {
+    await deleteDoc(doc(db, "users", userId, "questionImages", encodeDocId(storagePath)));
   } catch (e) {
     console.warn("deleteQuestionImage exception:", e?.message);
+  }
+}
+
+// ─── RECOGNITION-BANK TABLES (Task 6) ────────────────
+// ankiCards / ungeneratedCards are client read/write; recognitionItems is
+// server-write-only (allow write: if false in firestore.rules) — it is
+// populated by the buildRecognitionBank Cloud Function (Task 7), so there is
+// deliberately no client saveRecognitionItems helper here.
+
+/** Upsert Anki-card rows (see ankiCards.js cardToRow) keyed by card_id. */
+export async function saveAnkiCards(uid, cards) {
+  if (!uid || !cards?.length) return { count: 0, error: null };
+  const errors = [];
+  const ops = cards.map((c) => (b) =>
+    b.set(
+      doc(db, "users", uid, "ankiCards", encodeDocId(c.card_id)),
+      { ...c, updatedAt: serverTimestamp() },
+      { merge: true }
+    )
+  );
+  await commitInChunks(ops, errors);
+  return { count: cards.length - errors.length, error: errors[0]?.error || null };
+}
+
+/** All Anki-card rows for this user. */
+export async function getAnkiCards(uid) {
+  if (!uid) return [];
+  try {
+    const snap = await getDocs(collection(db, "users", uid, "ankiCards"));
+    return snap.docs.map((d) => d.data());
+  } catch (e) {
+    console.warn("getAnkiCards exception:", e?.message);
+    return [];
+  }
+}
+
+/** Upsert ungenerated-card rows keyed by card_id (client Anki-ingest write; server marks generated). */
+export async function saveUngeneratedCards(uid, cards) {
+  if (!uid || !cards?.length) return { count: 0, error: null };
+  const errors = [];
+  const ops = cards.map((c) => (b) =>
+    b.set(
+      doc(db, "users", uid, "ungeneratedCards", encodeDocId(c.card_id ?? c.id)),
+      { ...c, updatedAt: serverTimestamp() },
+      { merge: true }
+    )
+  );
+  await commitInChunks(ops, errors);
+  return { count: cards.length - errors.length, error: errors[0]?.error || null };
+}
+
+/** All ungenerated-card rows for this user. */
+export async function getUngeneratedCards(uid) {
+  if (!uid) return [];
+  try {
+    const snap = await getDocs(collection(db, "users", uid, "ungeneratedCards"));
+    return snap.docs.map((d) => d.data());
+  } catch (e) {
+    console.warn("getUngeneratedCards exception:", e?.message);
+    return [];
+  }
+}
+
+/**
+ * Read-only fetch of recognition-bank items for a block (optionally a subject).
+ * recognitionItems is server-write-only — writes go through the
+ * buildRecognitionBank Cloud Function, never the client.
+ */
+export async function getRecognitionItems(uid, blockId, subject) {
+  if (!uid || !blockId) return [];
+  try {
+    const constraints = [where("block_id", "==", blockId), where("kind", "==", "vignette")];
+    if (subject) constraints.push(where("subject", "==", subject));
+    const snap = await getDocs(query(collection(db, "users", uid, "recognitionItems"), ...constraints, limit(200)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.warn("getRecognitionItems exception:", e?.message);
+    return [];
   }
 }
 

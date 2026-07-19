@@ -52,4 +52,17 @@ describe("firestore doc primitives", () => {
     await new Promise((r) => setTimeout(r, 300));
     expect(JSON.parse(localStorage.getItem("rxt-question-notes"))).toEqual({ note: "hello" });
   });
+
+  it("saveMcqBankEntry then pull restores the question", async () => {
+    // The previous test signed in as a different user (kvonly@d.com) —
+    // restore auth to the original `uid` before writing to its subtree,
+    // or Firestore rules' owner(uid) check denies the write.
+    await signInWithEmailAndPassword(auth, "d@d.com", "pw1234");
+    const { saveMcqBankEntry, pullMcqBankFromSupabase } = await import("./supabase");
+    await saveMcqBankEntry(uid, "obj1", 0, { stem: "Q?" });
+    localStorage.removeItem("rxt-mcq-bank");
+    await pullMcqBankFromSupabase(uid);
+    const bank = JSON.parse(localStorage.getItem("rxt-mcq-bank"));
+    expect(bank["obj1_r0"].stem).toBe("Q?");
+  });
 });

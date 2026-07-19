@@ -1,4 +1,6 @@
-import { supabase } from "./supabase.js";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { app } from "./firebase.js";
+import { getRecognitionItems } from "./supabase.js";
 
 /**
  * Weak-area items first, then the rest; up to n. Pure + deterministic.
@@ -23,29 +25,19 @@ export function pickWeightedItems(items, weakTerms, n) {
   return [...weakItems, ...rest].slice(0, n);
 }
 
-/** Fetch bank items for a block (optionally a subject). */
+/** Fetch bank items for a block (optionally a subject). Read-only — recognitionItems
+ *  is server-write-only, populated by the buildRecognitionBank Cloud Function (Task 7). */
 export async function fetchRecognitionItems(userId, blockId, subject) {
-  if (!userId || !blockId) return [];
-  let q = supabase
-    .from("recognition_items")
-    .select("id, block_id, subject, lecture, source_card_id, kind, data, difficulty, weak_for")
-    .eq("user_id", userId)
-    .eq("block_id", blockId)
-    .eq("kind", "vignette");
-  if (subject) q = q.eq("subject", subject);
-  const { data, error } = await q.limit(200);
-  if (error) return [];
-  return data || [];
+  return getRecognitionItems(userId, blockId, subject);
 }
 
-/** One server-side generation batch for a block. Returns { generated, processed, remaining, provider, error }. */
+/** One server-side generation batch for a block. Returns { generated, processed, remaining, provider, error }.
+ *  Calls the buildRecognitionBank Cloud Function (Task 7 deploys it — this call errors until then). */
 export async function triggerBankBuild(userId, blockId, { weakSubjects = [], perCard = 3, batch = 6 } = {}) {
   try {
-    const { data, error } = await supabase.functions.invoke("generate-recognition-items", {
-      body: { userId, blockId, perCard, batch, weakSubjects },
-    });
-    if (error) return { generated: 0, processed: 0, remaining: null, error };
-    return { ...data, error: null };
+    const call = httpsCallable(getFunctions(app), "buildRecognitionBank");
+    const res = await call({ userId, blockId, perCard, batch, weakSubjects });
+    return { ...res.data, error: null };
   } catch (e) {
     return { generated: 0, processed: 0, remaining: null, error: e };
   }
