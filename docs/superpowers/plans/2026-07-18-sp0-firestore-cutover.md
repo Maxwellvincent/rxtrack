@@ -213,9 +213,17 @@ const cfg = {
 
 export const isFirebaseConfigured = !!(cfg.apiKey && cfg.projectId);
 
-// Under Vitest we always init against the emulator (projectId "demo-rxtrack").
+// getAuth() validates that apiKey + authDomain are PRESENT even for the emulator
+// (Task-2 fix: {projectId} alone throws auth/invalid-api-key). So the test and
+// empty-.env branches use a dummy-but-present config; isFirebaseConfigured still
+// gates real cloud use, and an empty .env boots logged-out instead of crashing.
 const underTest = !!import.meta.env.VITEST;
-export const app = initializeApp(underTest ? { projectId: "demo-rxtrack" } : (isFirebaseConfigured ? cfg : { projectId: "demo-unconfigured" }));
+const demoCfg = { apiKey: "demo-api-key", authDomain: "demo-rxtrack.firebaseapp.com", projectId: "demo-rxtrack" };
+export const app = initializeApp(
+  underTest ? demoCfg
+  : isFirebaseConfigured ? cfg
+  : { ...demoCfg, projectId: "demo-unconfigured", authDomain: "localhost" }
+);
 export const auth = getAuth(app);
 
 // Offline persistence (findings 8, R2-9): persistent IndexedDB cache with the
