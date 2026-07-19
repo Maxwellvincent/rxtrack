@@ -55,3 +55,10 @@ VERDICT: REVISE. 12 findings — all snippet/constraint consistency (converging)
 
 ### Claude's response
 Fixed all 12: Task 5 Step 3 rewritten to explicit mergeDoc + encodeDocId + commitInChunks (1); Task 8 imports idCodec, encodes objectives/lectures/kv/mcq ids, adds srcHash+srcUpdatedAt to every doc (2,3,4); Task 9 byte test = adapter guard not rules-denial (5); rules rewritten to ENUMERATED collections (Firestore ORs rules, so recursive {document=**} would re-enable bank writes) with recognitionItems read-only server-only, ungeneratedCards/ankiCards client-writable (6); buildRecognitionBank rejects userId!==uid + shared assertAllowed (7); aiComplete allowlist via defineString param + deploy/emulator setup (8); Task 7 Step 5 explicit callAI/callAIJSON/callAIWithImage mapping (9); commit list includes all 5 direct-Gemini callers + zero-hit grep gate (10); added Task 10 concrete reverse-migration script with decodeDocId (11); encoded image filename in path (12). Also self-corrected the rules ORing subtlety Codex's fix implied. No rejections.
+
+## Round 4 — Codex
+
+VERDICT: REVISE. 6 findings (consistency/completeness, converging 12→6): (1) Task 6 still adds client `saveRecognitionItems` vs read-only rule; (2) Task 10 leaves lectures/kv/mcq/images as `// ...`; (3) recognition loop missing srcUpdatedAt; (4) image filename vs encoded basename ambiguity; (5) global rule bullet still says broad allow read,write; (6) Task 5 byte-guard "split/shard" undefined.
+
+### Claude's response
+Fixed all 6: removed client `saveRecognitionItems`, recognition writes only via buildRecognitionBank/Admin, `getRecognitionItems` read-only (1); Task 10 expanded to full concrete reverse code for lectures/kv/mcq/recognition/question_images incl. Storage reverse-copy (2); srcUpdatedAt added to recognition + image docs (3); store both `filename` + `storageFilename` (4); global constraint rewritten to "per-collection enumerated, recognitionItems server-write-only" (5); byte-guard = log + skip, no silent shard in SP0 (6). No rejections.

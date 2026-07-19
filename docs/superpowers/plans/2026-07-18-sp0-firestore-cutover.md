@@ -24,7 +24,7 @@
   - `users/{uid}/mcq/{objectiveId}__r{round}` — `{ objectiveId, round, data, updatedAt }`
   - `users/{uid}/questionImages/{autoId}` — `{ objectiveId, round, storagePath, filename, mimeType, addedAt }`; file in Storage at `question-images/{uid}/{objectiveId}_r{round}/{name}`
   - `users/{uid}/ankiCards/{id}`, `users/{uid}/recognitionItems/{id}`, `users/{uid}/ungeneratedCards/{id}` (from migrations 0001-0004)
-- **Security rule (all paths):** `allow read, write: if request.auth != null && request.auth.uid == uid;`. NOTE (R2-finding 2): Firestore rules have **no serialized byte-size check** — `request.resource.size()` counts map keys, not bytes. So the 1 MiB doc limit is enforced by **(a)** an app-side byte guard before writing (`if (JSON.stringify(v).length > 900_000) shard/split`) and **(b)** Firestore's hard 1 MiB write error surfaced into `errors[]`. Storage writes ARE gated on `image/*` contentType + byte size in rules (Task 1, where `request.resource.size` on Storage IS bytes). Full per-field Firestore schema validation is intentionally OUT of scope (single-user app) — REVIEW-LOG finding 6.
+- **Security rules (per-collection, NOT a catch-all — R4-finding 5):** rules are **enumerated per collection** under `users/{uid}` (Task 1), all owner-gated (`request.auth.uid == uid`), because Firestore ORs matching rules so a recursive `{document=**}` write grant would defeat any tighter rule. `recognitionItems` is **server-write-only** (`allow write: if false`; Admin/Functions bypass); `ankiCards`/`ungeneratedCards`/state/objectives/lectures/kv/mcq/questionImages are client read/write. NOTE (R2-finding 2): rules have **no serialized byte-size check** (`request.resource.size()` counts map keys, not bytes) — the 1 MiB doc limit is enforced by **(a)** an app-side guard that **logs + skips** an oversized write (`if (JSON.stringify(v).length > 900_000) { errors.push(...); return; }` — no silent shard in SP0) and **(b)** Firestore's hard 1 MiB write error caught into `errors[]`. Storage writes ARE byte/contentType gated in rules (Task 1 — Storage `request.resource.size` IS bytes). Full per-field Firestore schema validation is OUT of scope (single-user app) — REVIEW-LOG finding 6.
 - **`uid` normalization (finding 2):** the app is wired around `user.id`; Firebase `User` uses `user.uid`. `getCurrentUser()` and `onAuthChange(cb)` MUST return/emit a normalized object `{ ...user, id: user.uid }` so no downstream call-site changes.
 - **Reversible doc-ids (finding 9):** dynamic doc ids (blockId, lectureId, objectiveId, mcq key, storage segments) may contain `/`, spaces, or long imported strings. All dynamic ids go through `encodeDocId(s)` / `decodeDocId(s)` (Task 4). Never pass a raw id to `doc(...)`.
 - **Batched writes (finding 14):** all multi-doc writes go through `commitInChunks(writes, 400)` (≤500 Firestore batch limit, chunk 400) with per-chunk try/catch that pushes to `errors[]`. No unbounded `writeBatch`.
@@ -536,7 +536,7 @@ for (const key of KV_KEYS) {
   } catch (e) { errors.push({ store: `kv:${key}`, error: { message: e?.message } }); }
 }
 ```
-Byte-guard (constraint): before any `set`, `if (JSON.stringify(v).length > 900_000)` split/shard and log. Drop the old `networkDown`/`Failed to fetch` string checks — Firestore throws typed errors; catch → `errors[]`.
+Byte-guard (constraint, R4-finding 6): before any `set`, `if (JSON.stringify(v).length > 900_000) { errors.push({ store, error: { message: "oversized, skipped" } }); continue; }` — **log + skip, no silent shard in SP0** (a store that trips this is a signal to split its schema in a follow-on). Drop the old `networkDown`/`Failed to fetch` string checks — Firestore throws typed errors; catch → `errors[]`.
 
 - [ ] **Step 4: Rewrite the pull body** symmetrically: `readDoc` each state ref, merge into localStorage using the same merge fns; `getDocs(collection(...,"objectives"))` and `...,"lectures")` for the per-doc collections; call `pullUserKvFromSupabase` (now reads `getDocs(collection(...,"kv"))`).
 
@@ -580,7 +580,7 @@ it("saveMcqBankEntry then pull restores the question", async () => {
 
 - [ ] **Step 4: Rewrite image functions to Firebase Storage (encode path segments, R2-finding 3).** `uploadQuestionImage` → build `path = `question-images/${userId}/${encodeDocId(objectiveId)}_r${round??0}/${safeName}``, `uploadBytes(storageRef(storage, path), file)`, then `setDoc(doc(db,"users",userId,"questionImages",encodeDocId(path)), { objectiveId, round: round??0, storagePath: path, filename: file.name, mimeType: file.type, addedAt: serverTimestamp() })` (deterministic id from path = idempotent, matches migration). `fetchQuestionImages` → `getDocs(query(collection(db,"users",userId,"questionImages"), where("objectiveId","==",objectiveId), where("round","==",round??0), orderBy("addedAt")))`, `getDownloadURL` per `storagePath`. `deleteQuestionImage` → `deleteObject` + `deleteDoc`. (Import `ref as storageRef, uploadBytes, getDownloadURL, deleteObject` from `firebase/storage`; `orderBy` from `firebase/firestore`.)
 
-- [ ] **Step 5: Swap direct `supabase.from(...)` call-sites in the 6 other files** to Firestore. Add small exported helpers from `supabase.js` for the recognition tables (`saveAnkiCards(uid, cards)`, `getAnkiCards(uid)`, `saveRecognitionItems(uid, items)`, `getRecognitionItems(uid)`, `getUngeneratedCards(uid)`) writing `users/{uid}/ankiCards|recognitionItems|ungeneratedCards`, and replace each file's inline query with a call to the helper. (Grep `supabase.from` across `src/` — zero results after this step.)
+- [ ] **Step 5: Swap direct `supabase.from(...)` call-sites in the 6 other files** to Firestore. Add exported helpers from `supabase.js`: `saveAnkiCards(uid, cards)` + `getAnkiCards(uid)` (client read/write `ankiCards`), `saveUngeneratedCards(uid, cards)` + `getUngeneratedCards(uid)` (client read/write `ungeneratedCards`), and `getRecognitionItems(uid)` (**read only** — `recognitionItems` is server-written by `buildRecognitionBank`, R4-finding 1). Do **NOT** add a client `saveRecognitionItems` helper — the rules deny it; all recognition-item writes go through the Cloud Function. Replace each file's inline query with a helper call. (Grep `supabase.from` across `src/` — zero results after this step.)
 
 - [ ] **Step 6: Run to verify it passes.** Run: `firebase emulators:exec --only auth,firestore,storage "npx vitest run src/firestoreAdapter.test.js"` → Expected: PASS.
 
@@ -727,7 +727,7 @@ for (const [table, coll] of [["anki_cards","ankiCards"],["recognition_items","re
   const { data: rows } = await sb.from(table).select("*").eq("user_id", SB_UID);
   for (const r of rows || []) {
     const id = encodeDocId(r.id ?? r.card_id ?? `${r.deck||""}_${r.note_id||""}`); // deterministic from source PK
-    await db.doc(`users/${FB_UID}/${coll}/${id}`).set({ ...r, srcHash: srcHash(r), updatedAt: new Date() });
+    await db.doc(`users/${FB_UID}/${coll}/${id}`).set({ ...r, srcHash: srcHash(r), srcUpdatedAt: r.updated_at ?? r.created_at ?? null, updatedAt: new Date() });
   }
 }
 
@@ -742,7 +742,9 @@ for (const im of imgs || []) {
     await admin.storage().bucket().file(dest).save(buf, { contentType: im.mime_type || "image/jpeg" });
   }
   const id = encodeDocId(dest); // deterministic from NEW path → idempotent
-  await db.doc(`users/${FB_UID}/questionImages/${id}`).set({ objectiveId: im.objective_id, round: im.round ?? 0, storagePath: dest, filename: im.filename, mimeType: im.mime_type, srcHash: srcHash(im), addedAt: im.added_at || new Date() });
+  // Store BOTH the original filename and the encoded storage basename (R4-finding 4) so
+  // reverse-export knows what to restore vs how to locate the object.
+  await db.doc(`users/${FB_UID}/questionImages/${id}`).set({ objectiveId: im.objective_id, round: im.round ?? 0, storagePath: dest, filename: im.filename, storageFilename: encodeDocId(im.filename), mimeType: im.mime_type, srcHash: srcHash(im), srcUpdatedAt: im.added_at ?? null, addedAt: im.added_at || new Date() });
 }
 console.log("migration complete");
 ```
@@ -806,10 +808,37 @@ for (const name of ["terms","performance","completion","weak_concepts","tracker"
   const snap = await fdb.doc(`users/${FB_UID}/state/${name}`).get();
   if (snap.exists) await sb.from(name).upsert({ user_id: SB_UID, data: snap.data().data, updated_at: new Date() }, { onConflict: "user_id" });
 }
-// objectives / lectures / kv / mcq -> decode ids back to source keys
-const objs = await fdb.collection(`users/${FB_UID}/objectives`).get();
-for (const d of objs.docs) await sb.from("objectives").upsert({ user_id: SB_UID, block_id: decodeDocId(d.id), data: d.data().data, updated_at: new Date() }, { onConflict: "user_id,block_id" });
-// ...lectures (decodeDocId(d.id) -> lecture_id), kv (decodeDocId -> key), mcq (split "__r"), question_images (reverse-copy Storage file back to Supabase bucket)...
+// objectives (decode id -> block_id)
+for (const d of (await fdb.collection(`users/${FB_UID}/objectives`).get()).docs)
+  await sb.from("objectives").upsert({ user_id: SB_UID, block_id: decodeDocId(d.id), data: d.data().data, updated_at: new Date() }, { onConflict: "user_id,block_id" });
+// lectures (decode id -> lecture_id)
+for (const d of (await fdb.collection(`users/${FB_UID}/lectures`).get()).docs) {
+  const v = d.data();
+  await sb.from("lectures").upsert({ user_id: SB_UID, lecture_id: decodeDocId(d.id), block_id: v.blockId, term_id: v.termId, data: v.data, chunks: v.chunks || [], updated_at: new Date() }, { onConflict: "user_id,lecture_id" });
+}
+// kv (decode id -> key)
+for (const d of (await fdb.collection(`users/${FB_UID}/kv`).get()).docs)
+  await sb.from("user_kv").upsert({ user_id: SB_UID, key: decodeDocId(d.id), data: d.data().data, updated_at: new Date() }, { onConflict: "user_id,key" });
+// mcq (id = `${encodedObjId}__r${round}` -> split)
+for (const d of (await fdb.collection(`users/${FB_UID}/mcq`).get()).docs) {
+  const v = d.data();
+  await sb.from("mcq_bank").upsert({ user_id: SB_UID, objective_id: v.objectiveId, round: v.round ?? 0, data: v.data, updated_at: new Date() }, { onConflict: "user_id,objective_id,round" });
+}
+// recognition tables
+for (const [coll, table] of [["ankiCards","anki_cards"],["recognitionItems","recognition_items"],["ungeneratedCards","ungenerated_cards"]]) {
+  for (const d of (await fdb.collection(`users/${FB_UID}/${coll}`).get()).docs) {
+    const { srcHash, srcUpdatedAt, updatedAt, ...row } = d.data();
+    await sb.from(table).upsert({ ...row, user_id: SB_UID }, { onConflict: "user_id,id" });
+  }
+}
+// question_images: reverse-copy Storage object + meta
+for (const d of (await fdb.collection(`users/${FB_UID}/questionImages`).get()).docs) {
+  const v = d.data();
+  const [file] = await admin.storage().bucket().file(v.storagePath).download().catch(() => [null]);
+  const sbPath = `${SB_UID}/${encodeURIComponent(v.objectiveId)}_r${v.round ?? 0}/${v.filename}`;
+  if (file) await sb.storage.from("question-images").upload(sbPath, file, { contentType: v.mimeType || "image/jpeg", upsert: true });
+  await sb.from("question_images").upsert({ user_id: SB_UID, objective_id: v.objectiveId, round: v.round ?? 0, storage_path: sbPath, filename: v.filename, mime_type: v.mimeType }, { onConflict: "user_id,storage_path" });
+}
 console.log("reverse export complete");
 ```
 
