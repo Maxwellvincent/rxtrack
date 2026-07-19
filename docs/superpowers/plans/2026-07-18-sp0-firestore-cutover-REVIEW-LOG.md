@@ -62,3 +62,11 @@ VERDICT: REVISE. 6 findings (consistency/completeness, converging 12→6): (1) T
 
 ### Claude's response
 Fixed all 6: removed client `saveRecognitionItems`, recognition writes only via buildRecognitionBank/Admin, `getRecognitionItems` read-only (1); Task 10 expanded to full concrete reverse code for lectures/kv/mcq/recognition/question_images incl. Storage reverse-copy (2); srcUpdatedAt added to recognition + image docs (3); store both `filename` + `storageFilename` (4); global constraint rewritten to "per-collection enumerated, recognitionItems server-write-only" (5); byte-guard = log + skip, no silent shard in SP0 (6). No rejections.
+
+## Round 5 — Codex
+
+**VERDICT: APPROVED.** "No remaining material blockers. The plan is now implementable: the security model is internally consistent, the auth/client API breakage is accounted for, dynamic IDs are encoded across primary paths, AI keys move server-side with an allowlist, migration is idempotent, and rollback has a concrete reverse path."
+
+4 residual nits (fixed during this pass, non-blocking): Task 9 byte-guard wording → "logs/skips"; Task 2 removed unused `getFirestore` import; Task 10 recognition reverse-upsert uses table-specific conflict keys (`anki_cards`/`ungenerated_cards` = `user_id,card_id`); Task 8 >700 KB state doc → STOP before live migration + Louis-gated sharding follow-up (no silent shard).
+
+**Converged: 5 rounds, ~40 findings resolved. Human gate #2 next.**

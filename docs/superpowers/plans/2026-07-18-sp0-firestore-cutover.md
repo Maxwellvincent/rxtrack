@@ -199,7 +199,7 @@ describe("firebase init", () => {
 ```js
 import { initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator } from "firebase/auth";
-import { getFirestore, connectFirestoreEmulator } from "firebase/firestore";
+import { connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
 
 const cfg = {
@@ -753,7 +753,7 @@ RPC-backed data (`ungenerated_cards` / `ungenerated_count`): these are Postgres 
 
 Idempotency: every `.set()` above uses a **deterministic id derived from the source primary key / storage path**, so rerunning overwrites in place instead of duplicating (fixes finding 15's `autoId` duplication).
 
-- [ ] **Step 2: Dry-run count + size audit (findings 10, 15).** Add flags: `--count` (row counts, no writes), `--sizes` (byte size of each state-doc JSON — flag any >700 KB approaching Firestore's 1 MiB limit), `--verify` (post-migration: compare Firestore doc counts to Supabase row counts), `--resume` (skip a doc only when its stored `srcHash` equals a hash of the source row — NOT `updatedAt`, which the migration regenerates each run, R2-finding 16; every migrated doc also stores `srcHash` + the source `updated_at`/`created_at` where available). Run: `node scripts/migrate-supabase-to-firestore.mjs --count --sizes` → Expected: non-zero counts matching Term 1; **if any state doc >700 KB, shard it** (performance/completion by block; lectures already per-doc) before the real run.
+- [ ] **Step 2: Dry-run count + size audit (findings 10, 15).** Add flags: `--count` (row counts, no writes), `--sizes` (byte size of each state-doc JSON — flag any >700 KB approaching Firestore's 1 MiB limit), `--verify` (post-migration: compare Firestore doc counts to Supabase row counts), `--resume` (skip a doc only when its stored `srcHash` equals a hash of the source row — NOT `updatedAt`, which the migration regenerates each run, R2-finding 16; every migrated doc also stores `srcHash` + the source `updated_at`/`created_at` where available). Run: `node scripts/migrate-supabase-to-firestore.mjs --count --sizes` → Expected: non-zero counts matching Term 1; **if any state doc >700 KB, STOP before live migration** and get Louis's go on an explicit follow-up sharding task (performance/completion by block) — SP0 does no silent sharding (R5 nit). Migration proceeds only once all state docs are under the threshold or a sharding decision is made.
 
 - [ ] **Step 3: Run the migration into the emulator first.** Point Admin SDK at the Firestore emulator (`FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`) and run; then start the app against the emulator and confirm Term 1 renders (terms, 350 objectives).
 
@@ -773,7 +773,7 @@ git commit -m "feat(sp0): one-time Supabase→Firestore data migration script"
 **Files:**
 - Create: `src/rules.test.js` (security-rule tests via `@firebase/rules-unit-testing`)
 
-- [ ] **Step 0: Security-rule + hardening tests (findings 19, R3-5).** Install `@firebase/rules-unit-testing`. Assert against the emulator: (a) user A **cannot** read/write `users/{B}/...` (cross-user denial); (b) a client write to `users/{A}/recognitionItems` is **denied** (server-only, R3-6) while a read is allowed, and a client write to `users/{A}/ankiCards`/`ungeneratedCards` is **allowed** (client Anki ingest); (c) a Storage write with `contentType:"application/pdf"` is denied, `image/png` allowed, and a >10 MB image denied; (d) `encodeDocId`/`decodeDocId` round-trips ids containing `/`, spaces, `.`, and a 200-char string. **Byte-size is NOT a rules test** (R3-5): instead a plain unit test asserts the adapter's app-side guard splits/logs a >900 KB value and that a genuine >1 MiB Firestore write rejection is caught into `errors[]`. Run: `firebase emulators:exec --only firestore,storage,auth "npx vitest run src/rules.test.js"` → Expected: PASS.
+- [ ] **Step 0: Security-rule + hardening tests (findings 19, R3-5).** Install `@firebase/rules-unit-testing`. Assert against the emulator: (a) user A **cannot** read/write `users/{B}/...` (cross-user denial); (b) a client write to `users/{A}/recognitionItems` is **denied** (server-only, R3-6) while a read is allowed, and a client write to `users/{A}/ankiCards`/`ungeneratedCards` is **allowed** (client Anki ingest); (c) a Storage write with `contentType:"application/pdf"` is denied, `image/png` allowed, and a >10 MB image denied; (d) `encodeDocId`/`decodeDocId` round-trips ids containing `/`, spaces, `.`, and a 200-char string. **Byte-size is NOT a rules test** (R3-5): instead a plain unit test asserts the adapter's app-side guard **logs and skips** a >900 KB value (pushing to `errors[]`) and that a genuine >1 MiB Firestore write rejection is caught into `errors[]`. Run: `firebase emulators:exec --only firestore,storage,auth "npx vitest run src/rules.test.js"` → Expected: PASS.
 - [ ] **Step 1: Configure `.env`** with the real `VITE_FIREBASE_*` values.
 - [ ] **Step 2: Enable Google sign-in** in Firebase console (Auth → Sign-in method → Google) and add `localhost` to authorized domains.
 - [ ] **Step 3: Build + run.** Run: `npm run build` (Expected: clean) then `npm run dev`.
@@ -825,10 +825,10 @@ for (const d of (await fdb.collection(`users/${FB_UID}/mcq`).get()).docs) {
   await sb.from("mcq_bank").upsert({ user_id: SB_UID, objective_id: v.objectiveId, round: v.round ?? 0, data: v.data, updated_at: new Date() }, { onConflict: "user_id,objective_id,round" });
 }
 // recognition tables
-for (const [coll, table] of [["ankiCards","anki_cards"],["recognitionItems","recognition_items"],["ungeneratedCards","ungenerated_cards"]]) {
+for (const [coll, table, conflict] of [["ankiCards","anki_cards","user_id,card_id"],["recognitionItems","recognition_items","user_id,id"],["ungeneratedCards","ungenerated_cards","user_id,card_id"]]) {
   for (const d of (await fdb.collection(`users/${FB_UID}/${coll}`).get()).docs) {
     const { srcHash, srcUpdatedAt, updatedAt, ...row } = d.data();
-    await sb.from(table).upsert({ ...row, user_id: SB_UID }, { onConflict: "user_id,id" });
+    await sb.from(table).upsert({ ...row, user_id: SB_UID }, { onConflict: conflict }); // table-specific PK (R5 nit)
   }
 }
 // question_images: reverse-copy Storage object + meta
