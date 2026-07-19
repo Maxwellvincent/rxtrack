@@ -24,7 +24,15 @@
   - `users/{uid}/mcq/{objectiveId}__r{round}` — `{ objectiveId, round, data, updatedAt }`
   - `users/{uid}/questionImages/{autoId}` — `{ objectiveId, round, storagePath, filename, mimeType, addedAt }`; file in Storage at `question-images/{uid}/{objectiveId}_r{round}/{name}`
   - `users/{uid}/ankiCards/{id}`, `users/{uid}/recognitionItems/{id}`, `users/{uid}/ungeneratedCards/{id}` (from migrations 0001-0004)
-- **Security rule (all paths):** `allow read, write: if request.auth != null && request.auth.uid == uid;`
+- **Security rule (all paths):** `allow read, write: if request.auth != null && request.auth.uid == uid;` plus per-write **size cap** (`request.resource.size() < 900000` where a doc is written) and **immutable owner**; Storage writes additionally gated on `image/*` contentType + size (Task 1). Full per-field schema validation is intentionally OUT of scope (single-user app) — logged in REVIEW-LOG finding 6.
+- **`uid` normalization (finding 2):** the app is wired around `user.id`; Firebase `User` uses `user.uid`. `getCurrentUser()` and `onAuthChange(cb)` MUST return/emit a normalized object `{ ...user, id: user.uid }` so no downstream call-site changes.
+- **Reversible doc-ids (finding 9):** dynamic doc ids (blockId, lectureId, objectiveId, mcq key, storage segments) may contain `/`, spaces, or long imported strings. All dynamic ids go through `encodeDocId(s)` / `decodeDocId(s)` (Task 4). Never pass a raw id to `doc(...)`.
+- **Batched writes (finding 14):** all multi-doc writes go through `commitInChunks(writes, 400)` (≤500 Firestore batch limit, chunk 400) with per-chunk try/catch that pushes to `errors[]`. No unbounded `writeBatch`.
+- **Transactional merges (finding 11):** the read-merge-write state docs (terms/performance/completion/weak_concepts/tracker) use `runTransaction` (read-in-txn → merge → write-in-txn) to avoid cross-device last-writer-wins. Append-only per-record docs for sessions is a noted SP-follow-on, not SP0.
+- **Independent pull (finding 12):** `pullAllDataFromSupabase` must read each collection independently and return `{ empty: true }` only when ALL canonical stores are absent — never skip objectives/kv/mcq just because `state/terms` is missing.
+- **Await MCQ push (finding 13):** `pushAllLocalDataToSupabase` awaits `pushMcqBankToSupabase` and folds its errors into the returned `errors[]` (no fire-and-forget).
+- **All AI server-side (finding 5, Louis's Option A):** SP0 moves EVERY browser AI call (`VITE_GEMINI_API_KEY`/Anthropic in App.jsx, aiClient.js, DeepLearn.jsx, examParser.js, HistoStudy.jsx, LearningModel.jsx, recognition) behind authenticated Cloud Functions using `defineSecret`. No AI key ships in the client bundle after SP0. (Task 7 scope.)
+- **Rollback path (rejects finding 20's dual-backend, keeps a revert path):** Supabase data is left INTACT until Task 9 live-verify passes. Rollback = revert the branch; Postgres data is untouched. No dual-backend.
 
 ---
 
@@ -98,7 +106,11 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /question-images/{uid}/{allPaths=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpeg|jpg|webp)');
+      allow delete: if request.auth != null && request.auth.uid == uid;
     }
   }
 }
@@ -181,7 +193,13 @@ export const isFirebaseConfigured = !!(cfg.apiKey && cfg.projectId);
 const underTest = !!import.meta.env.VITEST;
 export const app = initializeApp(underTest ? { projectId: "demo-rxtrack" } : (isFirebaseConfigured ? cfg : { projectId: "demo-unconfigured" }));
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// Offline persistence (finding 8): initializeFirestore with a persistent
+// IndexedDB cache — replaces getFirestore(). Under Vitest use memory cache.
+import { initializeFirestore, persistentLocalCache, memoryLocalCache } from "firebase/firestore";
+export const db = initializeFirestore(app, {
+  localCache: underTest ? memoryLocalCache() : persistentLocalCache(),
+});
 export const storage = getStorage(app);
 
 if (underTest) {
@@ -239,25 +257,41 @@ describe("auth adapter", () => {
 ```js
 import { auth, db, storage, isFirebaseConfigured } from "./firebase";
 import {
-  GoogleAuthProvider, signInWithPopup, signOut as fbSignOut,
-  onAuthStateChanged,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  signOut as fbSignOut, onAuthStateChanged,
 } from "firebase/auth";
 import {
-  doc, getDoc, setDoc, collection, getDocs, query, where, limit, writeBatch,
+  doc, getDoc, setDoc, collection, getDocs, query, where, limit, writeBatch, runTransaction, serverTimestamp,
 } from "firebase/firestore";
 
 export const isSupabaseConfigured = isFirebaseConfigured; // name preserved for callers
 
+// Normalize Firebase User -> app shape (finding 2): expose `.id` = uid so no
+// downstream call-site (which all read user.id) changes.
+const normalize = (u) => (u ? Object.assign(Object.create(Object.getPrototypeOf(u)), u, { id: u.uid }) : null);
+
 export async function signInWithGoogle() {
-  await signInWithPopup(auth, new GoogleAuthProvider());
+  const provider = new GoogleAuthProvider();
+  try {
+    await signInWithPopup(auth, provider);            // primary (desktop-first)
+  } catch (e) {
+    if (["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request"].includes(e?.code)) {
+      await signInWithRedirect(auth, provider);        // fallback (mobile/blocked)
+    } else throw e;
+  }
 }
 export async function signOut() { await fbSignOut(auth); }
 export function getCurrentUser() {
   return new Promise((resolve) => {
-    const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(u); });
+    const unsub = onAuthStateChanged(auth, (u) => { unsub(); resolve(normalize(u)); });
   });
 }
-export function onAuthChange(cb) { return onAuthStateChanged(auth, cb); }
+export function onAuthChange(cb) { return onAuthStateChanged(auth, (u) => cb(normalize(u))); }
+// Complete a pending redirect sign-in on boot (findings 3,4).
+export async function completeRedirectSignIn() {
+  try { const res = await getRedirectResult(auth); return normalize(res?.user ?? null); }
+  catch { return null; }
+}
 
 export async function checkCloudHasData(userId) {
   if (!userId) return false;
@@ -272,13 +306,15 @@ export async function checkCloudHasData(userId) {
 
 - [ ] **Step 4: Run test to verify it passes.** Run: `firebase emulators:exec --only auth,firestore "npx vitest run src/authAdapter.test.js"` → Expected: PASS.
 
-- [ ] **Step 5: Update the OAuth redirect handling in `src/shell/Shell.jsx` and `src/App.jsx`.** `signInWithPopup` needs no redirect callback handling (unlike Supabase's `signInWithOAuth` + URL hash). Remove any post-redirect `getSessionFromUrl`/hash parsing; keep the `onAuthChange`/`getCurrentUser` gate. (Grep `signInWithOAuth`, `INITIAL_SESSION`, `#access_token` — none should remain.)
+- [ ] **Step 5: Migrate ALL raw `supabase.*` auth call-sites and remove the `supabase` client export (finding 1).** The plan's "signatures preserved" only holds if the exported helpers replace every raw client use. Grep `supabase\.auth\.`, `import { supabase }`, `supabase.functions`, `getSessionFromUrl`, `INITIAL_SESSION`, `#access_token`, `onAuthStateChange` across `src/`. Replace: `supabase.auth.getUser()/getSession()` → `getCurrentUser()`; Supabase's `onAuthStateChange((_e,session)=>…)` + `{data:{subscription}}` → `onAuthChange(user=>…)` (returns an unsubscribe fn directly — update the boot/cleanup shape in `Shell.jsx`/`App.jsx`); call `completeRedirectSignIn()` once on boot before the auth gate resolves. Delete the `export const supabase` client. Boot states to manually test: initial load (no user), sign-in (popup), reload (session persists), sign-out, redirect-fallback return.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Verify no raw Supabase client references remain.** Run: `grep -rn "supabase\.auth\|supabase\.functions\|export const supabase\|onAuthStateChange\|getSessionFromUrl" src/` → Expected: zero (all via `getCurrentUser`/`onAuthChange`/`completeRedirectSignIn`).
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add src/supabase.js src/authAdapter.test.js src/shell/Shell.jsx src/App.jsx
-git commit -m "feat(sp0): Firebase Auth (Google popup) replaces Supabase auth"
+git commit -m "feat(sp0): Firebase Auth (popup+redirect) + uid normalization; drop supabase client export"
 ```
 
 ---
@@ -324,7 +360,15 @@ describe("firestore doc primitives", () => {
 - [ ] **Step 3: Add the primitives to `src/supabase.js`**
 
 ```js
-import { serverTimestamp } from "firebase/firestore";
+// serverTimestamp/runTransaction already imported in the auth section.
+
+// Reversible doc-id encoding (finding 9): Firestore ids can't contain "/",
+// can't be "." / "..", and cap ~1500 bytes. encodeURIComponent handles "/",
+// spaces, unicode; we also escape "." and leading "__".
+export function encodeDocId(s) {
+  return encodeURIComponent(String(s)).replace(/\./g, "%2E").replace(/^__/, "%5F%5F");
+}
+export function decodeDocId(s) { return decodeURIComponent(s); }
 
 const stateRef = (uid, name) => doc(db, "users", uid, "state", name);
 async function readDoc(ref) {
@@ -334,9 +378,28 @@ async function readDoc(ref) {
 async function writeDoc(ref, dataObj) {
   await setDoc(ref, { data: dataObj, updatedAt: serverTimestamp() }, { merge: true });
 }
+// Transactional read-merge-write for the shared state docs (finding 11).
+async function mergeDoc(ref, localVal, mergeFn) {
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const cloud = snap.exists() ? (snap.data()?.data ?? null) : null;
+    tx.set(ref, { data: mergeFn(cloud, localVal), updatedAt: serverTimestamp() }, { merge: true });
+  });
+}
+// Chunked batch commit (finding 14): Firestore batch limit is 500; chunk 400.
+async function commitInChunks(writeOps, errors, chunk = 400) {
+  for (let i = 0; i < writeOps.length; i += chunk) {
+    const batch = writeBatch(db);
+    writeOps.slice(i, i + chunk).forEach((op) => op(batch));
+    try { await batch.commit(); }
+    catch (e) { errors.push({ store: "batch", error: { message: e?.message || String(e) } }); }
+  }
+}
 
-export const __test = { stateRef, readDoc, writeDoc }; // test-only surface
+export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 ```
+
+Note: Task 5 uses `mergeDoc(stateRef(uid,name), localVal, mergeFn)` for the 5 state stores; `commitInChunks` for the per-doc lectures/objectives/kv/mcq collections. Task 6/8 use `encodeDocId` for every dynamic doc id and storage path segment.
 
 - [ ] **Step 4: Run to verify it passes.** Run: `firebase emulators:exec --only auth,firestore "npx vitest run src/firestoreAdapter.test.js"` → Expected: PASS.
 
@@ -445,41 +508,64 @@ git commit -m "feat(sp0): mcq bank + question images + recognition tables on Fir
 
 ---
 
-## Task 7: Edge Function → Cloud Function (`generateRecognitionItems`)
+## Task 7: All AI behind Cloud Functions v2 (keys server-side)
+
+**Scope note (findings 5, 17, 18):** not just porting one edge function — this moves EVERY browser AI call server-side (Louis's Option A) and PRESERVES the existing client callable contract.
 
 **Files:**
 - Create: `functions/index.js`, `functions/package.json`
-- Modify: caller of the edge function (grep `functions/v1/generate-recognition-items` / `supabase.functions.invoke` — in `src/recognitionBank.js` or `src/PatientRecognition.jsx`)
-- Reference: `supabase/functions/generate-recognition-items/index.ts` (port its Gemini logic verbatim)
+- Modify callers: `src/recognitionBank.js` (`triggerBankBuild`), `src/aiClient.js` (`callAI`/`callAIJSON`), and confirm `App.jsx`/`DeepLearn.jsx`/`examParser.js`/`HistoStudy.jsx`/`LearningModel.jsx` route through `aiClient` (grep `VITE_GEMINI_API_KEY`, `generativelanguage.googleapis.com`, `api.anthropic.com` — zero client hits after this task).
+- Reference: `supabase/functions/generate-recognition-items/index.ts` (port its Gemini + card-selection logic).
 
 **Interfaces:**
-- Produces: an HTTPS **callable** `generateRecognitionItems({ cards, weakSubjects })` returning `{ items }`. Caller uses `httpsCallable(getFunctions(app), "generateRecognitionItems")`.
+- Produces callables that PRESERVE existing client contracts (finding 17):
+  - `buildRecognitionBank({ userId, blockId, perCard, batch, weakSubjects })` → `{ generated, processed, remaining, provider }` — server-side card selection via Admin SDK reading `users/{uid}/ankiCards` + `ungeneratedCards`, writing `recognitionItems` (mirrors the edge fn's server-side select-and-insert; do NOT collapse to `{cards}→{items}`).
+  - `aiComplete({ prompt, json, model })` → `{ text }` or `{ data }` — generic gateway that ALL other AI calls (`aiClient.callAI`/`callAIJSON`) proxy to (finding 5).
+- Consumes: `defineSecret("GEMINI_API_KEY")`, `defineSecret("ANTHROPIC_API_KEY")` (finding 18); client uses `getFunctions(app)` + `httpsCallable`.
 
-- [ ] **Step 1: Init functions.** Run: `firebase init functions` (JavaScript, no lint prompt block) — creates `functions/`. Set `GEMINI_API_KEY` via `firebase functions:config:set` or `.env` in `functions/`.
+- [ ] **Step 1: Init functions + secrets (finding 18).** Run: `firebase init functions` (JavaScript). Define secrets (NOT `functions:config:set`): `firebase functions:secrets:set GEMINI_API_KEY` and `…ANTHROPIC_API_KEY`. In `functions/index.js`: `const { defineSecret } = require("firebase-functions/params"); const GEMINI = defineSecret("GEMINI_API_KEY"); const ANTHROPIC = defineSecret("ANTHROPIC_API_KEY");`.
 
-- [ ] **Step 2: Port the handler** — copy the Deno/TS body of `supabase/functions/generate-recognition-items/index.ts` into `functions/index.js` as a callable:
+- [ ] **Step 2: Write `buildRecognitionBank` preserving the contract (finding 17).** Port the Deno fn's server-side card-selection + Gemini generation into an Admin-SDK callable:
 
 ```js
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
-exports.generateRecognitionItems = onCall(async (req) => {
-  const { cards, weakSubjects } = req.data || {};
+const admin = require("firebase-admin"); admin.initializeApp();
+const db = admin.firestore();
+
+exports.buildRecognitionBank = onCall({ secrets: [GEMINI] }, async (req) => {
   if (!req.auth) throw new HttpsError("unauthenticated", "sign in required");
-  // ...port the Gemini prompt + fetch + JSON parse from the Deno fn verbatim...
-  return { items };
+  const uid = req.auth.uid;
+  const { blockId, perCard = 2, batch = 20, weakSubjects = [] } = req.data || {};
+  // 1. select ungenerated cards for this block (Admin read of users/{uid}/ungeneratedCards, weak-weighted)
+  // 2. call Gemini with GEMINI.value() (port prompt from the Deno fn verbatim)
+  // 3. write users/{uid}/recognitionItems/{deterministicId}; mark cards generated
+  return { generated, processed, remaining, provider: "gemini" };
 });
 ```
 
-- [ ] **Step 3: Test against the functions emulator.** Run: `firebase emulators:exec --only functions,auth "npx vitest run src/recognitionGen.test.js"` (write a small test calling the callable with 1 fake card, GEMINI mocked or a fixture) → Expected: PASS returning `{ items: [...] }`.
+- [ ] **Step 3: Write `aiComplete` generic gateway (finding 5).**
 
-- [ ] **Step 4: Swap the caller** from `supabase.functions.invoke("generate-recognition-items", {...})` to `httpsCallable(getFunctions(app), "generateRecognitionItems")({ cards, weakSubjects })` and read `.data.items`.
+```js
+exports.aiComplete = onCall({ secrets: [GEMINI, ANTHROPIC] }, async (req) => {
+  if (!req.auth) throw new HttpsError("unauthenticated", "sign in required");
+  const { prompt, json = false, model = "gemini" } = req.data || {};
+  const key = model === "claude" ? ANTHROPIC.value() : GEMINI.value();
+  // fetch the provider endpoint server-side; parse; return { text } or { data } when json
+  return json ? { data } : { text };
+});
+```
 
-- [ ] **Step 5: Deploy the function.** Run: `firebase deploy --only functions` → Expected: function URL printed, no errors.
+- [ ] **Step 4: Test against the functions emulator with mocked AI.** Run: `firebase emulators:exec --only functions,auth,firestore "npx vitest run src/aiGateway.test.js"` — mock `global.fetch` to the provider, assert `buildRecognitionBank` returns the `{ generated, processed, remaining, provider }` shape and writes `recognitionItems`, and `aiComplete` returns `{ text }` → Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Swap all callers to the callables.** `recognitionBank.triggerBankBuild()` → `httpsCallable(getFunctions(app), "buildRecognitionBank")({ userId, blockId, perCard, batch, weakSubjects })`, read `.data.{generated,processed,remaining,provider}` (unchanged downstream). Rewrite `aiClient.callAI/callAIJSON` to call `httpsCallable(getFunctions(app), "aiComplete")({ prompt, json })`. Delete `VITE_GEMINI_API_KEY` usage. Grep `generativelanguage.googleapis.com|api.anthropic.com|VITE_GEMINI_API_KEY` in `src/` → zero.
+
+- [ ] **Step 6: Deploy.** Run: `firebase deploy --only functions` → Expected: `buildRecognitionBank`, `aiComplete` deployed, no errors.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add functions src/recognitionBank.js src/PatientRecognition.jsx
-git commit -m "feat(sp0): port recognition-item generation to a Cloud Function callable"
+git add functions src/recognitionBank.js src/aiClient.js src/App.jsx .env.example
+git commit -m "feat(sp0): all AI behind Cloud Functions v2 (defineSecret); preserve bank-build contract"
 ```
 
 ---
@@ -520,15 +606,40 @@ for (const l of lecs || []) await db.doc(`users/${FB_UID}/lectures/${l.lecture_i
 // user_kv
 const { data: kv } = await sb.from("user_kv").select("key,data").eq("user_id", SB_UID);
 for (const r of kv || []) await db.doc(`users/${FB_UID}/kv/${r.key}`).set({ data: r.data, updatedAt: new Date() });
-// mcq_bank
+import { encodeDocId } from "../src/supabase.js"; // reuse the SAME encoder
+// mcq_bank (deterministic id = idempotent on rerun)
 const { data: mcq } = await sb.from("mcq_bank").select("objective_id,round,data").eq("user_id", SB_UID);
-for (const m of mcq || []) await db.doc(`users/${FB_UID}/mcq/${m.objective_id}__r${m.round ?? 0}`).set({ objectiveId: m.objective_id, round: m.round ?? 0, data: m.data, updatedAt: new Date() });
+for (const m of mcq || []) await db.doc(`users/${FB_UID}/mcq/${encodeDocId(m.objective_id)}__r${m.round ?? 0}`).set({ objectiveId: m.objective_id, round: m.round ?? 0, data: m.data, updatedAt: new Date() });
+
+// recognition tables (finding 16) — anki_cards, recognition_items, ungenerated_cards
+for (const [table, coll] of [["anki_cards","ankiCards"],["recognition_items","recognitionItems"],["ungenerated_cards","ungeneratedCards"]]) {
+  const { data: rows } = await sb.from(table).select("*").eq("user_id", SB_UID);
+  for (const r of rows || []) {
+    const id = encodeDocId(r.id ?? r.card_id ?? `${r.deck||""}_${r.note_id||""}`); // deterministic from source PK
+    await db.doc(`users/${FB_UID}/${coll}/${id}`).set({ ...r, updatedAt: new Date() });
+  }
+}
+
+// question_images (finding 15/16) — copy Storage file + meta, deterministic id from storage_path
+const { data: imgs } = await sb.from("question_images").select("*").eq("user_id", SB_UID);
+for (const im of imgs || []) {
+  const { data: file } = await sb.storage.from("question-images").download(im.storage_path);
+  if (file) {
+    const buf = Buffer.from(await file.arrayBuffer());
+    const dest = im.storage_path; // same layout question-images/{uid}/...
+    await admin.storage().bucket().file(dest).save(buf, { contentType: im.mime_type || "image/jpeg" });
+  }
+  const id = encodeDocId(im.storage_path); // deterministic → idempotent
+  await db.doc(`users/${FB_UID}/questionImages/${id}`).set({ objectiveId: im.objective_id, round: im.round ?? 0, storagePath: im.storage_path, filename: im.filename, mimeType: im.mime_type, addedAt: im.added_at || new Date() });
+}
 console.log("migration complete");
 ```
 
-(question_images: also copy Storage objects — download from Supabase Storage, upload to Firebase Storage, rewrite meta doc paths. Enumerate `question_images` rows and stream each file.)
+RPC-backed data (`ungenerated_cards` / `ungenerated_count`): these are Postgres RPCs computing over `anki_cards`; after copying `anki_cards`/`ungenerated_cards` above, the Firestore `buildRecognitionBank` function recomputes the "ungenerated" set from `ankiCards` docs — no RPC to port. Confirm counts match post-migration (Step 4 verify).
 
-- [ ] **Step 2: Dry-run count.** Add a `--count` flag that logs row counts per table without writing. Run: `SB_URL=… SB_SERVICE_KEY=… SB_UID=… node scripts/migrate-supabase-to-firestore.mjs --count` → Expected: prints non-zero counts for terms/objectives/lectures matching Louis's Term 1.
+Idempotency: every `.set()` above uses a **deterministic id derived from the source primary key / storage path**, so rerunning overwrites in place instead of duplicating (fixes finding 15's `autoId` duplication).
+
+- [ ] **Step 2: Dry-run count + size audit (findings 10, 15).** Add flags: `--count` (row counts, no writes), `--sizes` (byte size of each state-doc JSON — flag any >700 KB approaching Firestore's 1 MiB limit), `--verify` (post-migration: compare Firestore doc counts to Supabase row counts), `--resume` (skip docs that already exist with matching `updatedAt`). Run: `node scripts/migrate-supabase-to-firestore.mjs --count --sizes` → Expected: non-zero counts matching Term 1; **if any state doc >700 KB, shard it** (performance/completion by block; lectures already per-doc) before the real run.
 
 - [ ] **Step 3: Run the migration into the emulator first.** Point Admin SDK at the Firestore emulator (`FIRESTORE_EMULATOR_HOST=127.0.0.1:8080`) and run; then start the app against the emulator and confirm Term 1 renders (terms, 350 objectives).
 
@@ -543,16 +654,19 @@ git commit -m "feat(sp0): one-time Supabase→Firestore data migration script"
 
 ---
 
-## Task 9: Live end-to-end verification (closes the "never run in browser" gap)
+## Task 9: Security-rule tests + live end-to-end verification
 
-**Files:** none (verification task)
+**Files:**
+- Create: `src/rules.test.js` (security-rule tests via `@firebase/rules-unit-testing`)
 
+- [ ] **Step 0: Security-rule + hardening tests (finding 19).** Install `@firebase/rules-unit-testing`. Assert against the emulator: (a) user A **cannot** read/write `users/{B}/...` (cross-user denial); (b) a write >900 KB is denied; (c) a Storage write with `contentType:"application/pdf"` is denied, `image/png` allowed; (d) `encodeDocId`/`decodeDocId` round-trips ids containing `/`, spaces, `.`, and a 200-char string; (e) a ~1 MiB-adjacent state doc write succeeds and a >1 MiB one fails loud (surfaces in `errors[]`). Run: `firebase emulators:exec --only firestore,storage,auth "npx vitest run src/rules.test.js"` → Expected: PASS.
 - [ ] **Step 1: Configure `.env`** with the real `VITE_FIREBASE_*` values.
 - [ ] **Step 2: Enable Google sign-in** in Firebase console (Auth → Sign-in method → Google) and add `localhost` to authorized domains.
 - [ ] **Step 3: Build + run.** Run: `npm run build` (Expected: clean) then `npm run dev`.
 - [ ] **Step 4: Drive the app in the browser** (use the run/claude-in-chrome flow): load `localhost:5174`, **sign in with Google**, confirm Term 1 data loads (sidebar terms, FTM 2 = 350 objectives), open a block, start an adaptive session, answer an item, confirm the session result **persists** (reload → still there), confirm Patient Recognition pulls from the bank. Read the console for errors — Expected: none.
 - [ ] **Step 5: Confirm a fresh write round-trips to Firestore** (make an edit, check the doc appears in the Firebase console).
 - [ ] **Step 6: Commit a short verification note** to `docs/superpowers/plans/2026-07-18-sp0-firestore-cutover.md` (check the boxes) and tag the branch.
+- [ ] **Step 7: Rollback criteria (finding 20 mitigation).** Do NOT decommission Supabase yet. Merge to `main` only if ALL pass: rule tests green, `--verify` doc-counts match source, live sign-in + data-load + session-persist + recognition all work, zero console errors. If ANY fails → revert the branch; Supabase data is untouched (the rollback path). Leave the Supabase project read-only for one term as a safety net before deleting.
 
 ---
 
