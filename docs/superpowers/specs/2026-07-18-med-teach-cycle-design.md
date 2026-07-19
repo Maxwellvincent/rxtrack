@@ -43,7 +43,7 @@ Three study frameworks, same philosophy (active recall + spaced retrieval + clin
 | 3 | **Objectives → binary tickets** — each objective a closeable question | completion | ✅ built; add lecture↔objective auto-tag | A-P1 |
 | 4 | **Feedback engine** — recognition/cloze items | completion | ✅ built (recognition bank, edge fn) | A-P2 / B |
 | 5 | **Debug/test loop** — adaptive engine, answer-before-reveal | completion | ✅ built (`src/engine/`, Teach/Recognize/Test) | A-P3 / B-Link&Test |
-| 6 | **CPC cases** — chief-complaint → differential → pathophys | time | 🔨 **build** — new "Reason" engine mode | C / A-P3 / B-Clinical |
+| 6 | **CPC cases** — chief-complaint → differential → pathophys | time | 🔨 partial — clinical-vignette gen exists (`genTopicVignettesWithContext`); build the **CPC structure** (differential/pathophys, reason-before-reveal) as a new "Reason" mode | C / A-P3 / B-Clinical |
 | 7 | **Teach-back** — explain from memory to AI-as-student | time | 🔨 **build** — gaps → SRS + Learner Model | A-P4 / B-Feynman |
 | 8 | **Spaced retrieval** — SRS `[1,1,3,7,14,30]` | time | ✅ built (existing SRS engine) | A-P4 / B-Spaced |
 
@@ -63,12 +63,16 @@ Three study frameworks, same philosophy (active recall + spaced retrieval + clin
 
 ## 6. Practice-question sources (calibration)
 
+**Already built (in the `App.jsx` monolith — porting, not building):** `genTopicVignettesWithContext` + `buildLectureContext` already generate MCQ vignettes using **uploaded school exam-bank questions as few-shot style exemplars** ("model after this exact style, format, length, clinical depth"), mapped to objectives, grounded in lecture markdown + NotebookLM high-yield details, with adaptive difficulty (streak/lastScore/tier). Persisted in `mcq_bank`.
+
 Item sources for phase 5/6, ranked by trust:
 
-1. **School practice questions** (imported) — highest trust; closest to the real test. Source of truth for the **80-line prediction**, real error patterns, and CPC-case seeds. Collection `practice_questions`, `source: school`, tagged to block/objective. Import via the existing OCR pipeline.
-2. **AI recognition/CPC items** — generated, weak-area-weighted; fill coverage where school Qs are sparse.
+1. **School practice questions** (uploaded exam banks) — highest trust; closest to the real test. Already feed generation as style exemplars. Become the source of truth for the **80-line prediction**, real error patterns, and CPC-case seeds. Migrate the uploaded-question store + `mcq_bank` to Firestore; collection `practice_questions`, `source: school`, tagged to block/objective.
+2. **AI vignettes/recognition/CPC items** — generated (existing pipeline), weak-area-weighted; fill coverage where school Qs are sparse.
 
 Predicted block score is calibrated against school-Q performance first, AI-item performance second.
+
+**SP-work here = port `genTopicVignettesWithContext`/`buildLectureContext` out of `App.jsx` into the new shell + Firestore, and surface the exam-bank upload in the cycle** — not rebuild generation.
 
 ---
 
