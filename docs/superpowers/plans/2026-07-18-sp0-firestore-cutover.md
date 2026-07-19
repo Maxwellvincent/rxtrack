@@ -92,8 +92,21 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    function owner(uid) { return request.auth != null && request.auth.uid == uid; }
+    // IMPORTANT: Firestore rules OR together — a recursive {document=**} write grant
+    // would re-enable writes to the server-only bank. So DON'T use a catch-all; enumerate
+    // client-writable collections, and give recognitionItems read-only (R3-finding 6).
+    match /users/{uid} {
+      allow read, write: if owner(uid);            // the user profile doc
+      match /state/{name}        { allow read, write: if owner(uid); }
+      match /objectives/{blockId}{ allow read, write: if owner(uid); }
+      match /lectures/{lecId}    { allow read, write: if owner(uid); }
+      match /kv/{key}            { allow read, write: if owner(uid); }
+      match /mcq/{id}            { allow read, write: if owner(uid); }
+      match /ankiCards/{id}      { allow read, write: if owner(uid); }
+      match /ungeneratedCards/{id}{ allow read, write: if owner(uid); } // client Anki-ingest writes; server marks generated
+      match /questionImages/{id} { allow read, write: if owner(uid); }
+      match /recognitionItems/{id}{ allow read: if owner(uid); allow write: if false; } // server-only (Admin bypasses)
     }
   }
 }
@@ -482,7 +495,48 @@ it("push writes state/terms, pull merges it back", async () => {
 
 - [ ] **Step 2: Run to verify it fails.** Run: `firebase emulators:exec --only auth,firestore "npx vitest run src/firestoreAdapter.test.js"` → Expected: FAIL.
 
-- [ ] **Step 3: Rewrite the push body.** Replace each Supabase `upsert(table, {user_id,data})` with `writeDoc(stateRef(userId, name), merged)` and each `fetchCloud(table)` with `readDoc(stateRef(userId, name))`. For objectives loop over `rxt-block-objectives` writing `writeDoc(doc(db,"users",userId,"objectives",blockId), merged)`. For lectures, `writeBatch` over `rxt-lec-meta` writing `doc(db,"users",userId,"lectures",l.id)` with `{ data: lecWithoutChunks, chunks, blockId, termId }`. For KV, loop `KV_KEYS` writing `kv/{key}`. Keep the merge-then-write-back-to-localStorage behavior and the `errors[]` return; drop the `networkDown`/`Failed to fetch` string checks (Firestore throws typed errors — catch and push `{ store, error }`).
+- [ ] **Step 3: Rewrite the push body — `mergeDoc` for state, `encodeDocId` + `commitInChunks` for collections (R3-findings 1).** Concrete:
+
+```js
+// 5 state stores: transactional merge, write merged back to localStorage
+for (const [lsKey, name, mergeFn] of [
+  ["rxt-terms","terms",mergeTerms], ["rxt-performance","performance",mergePerformance],
+  ["rxt-completion","completion",mergeCompletion], ["rxt-weak-concepts","weak_concepts",mergeWeakConcepts],
+  ["rxt-tracker-v2","tracker",mergeKvValue],
+]) {
+  const raw = localStorage.getItem(lsKey); if (!raw) continue;
+  try {
+    const merged = await mergeDoc(stateRef(userId, name), JSON.parse(raw), mergeFn);
+    localStorage.setItem(lsKey, JSON.stringify(merged));
+  } catch (e) { errors.push({ store: name, error: { message: e?.message || String(e) } }); }
+}
+// objectives per block — encode ids
+const objStore = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+for (const [blockId, local] of Object.entries(objStore)) {
+  try {
+    const merged = await mergeDoc(doc(db,"users",userId,"objectives",encodeDocId(blockId)), local, mergeBlockObjectives);
+    objStore[blockId] = merged;
+  } catch (e) { errors.push({ store: `objectives:${blockId}`, error: { message: e?.message } }); }
+}
+localStorage.setItem("rxt-block-objectives", JSON.stringify(objStore));
+// lectures — chunked batch, encoded ids, byte-guard each chunks blob
+const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+const lecOps = lecs.map((l) => (b) => {
+  const { chunks, ...meta } = l;
+  b.set(doc(db,"users",userId,"lectures",encodeDocId(l.id)),
+        { data: meta, chunks: chunks || [], blockId: l.blockId, termId: l.termId, updatedAt: serverTimestamp() }, { merge: true });
+});
+await commitInChunks(lecOps, errors);
+// KV — encode keys, merge each
+for (const key of KV_KEYS) {
+  const raw = localStorage.getItem(key); if (!raw) continue;
+  try {
+    const merged = await mergeDoc(doc(db,"users",userId,"kv",encodeDocId(key)), JSON.parse(raw), mergeKvValue);
+    localStorage.setItem(key, JSON.stringify(merged));
+  } catch (e) { errors.push({ store: `kv:${key}`, error: { message: e?.message } }); }
+}
+```
+Byte-guard (constraint): before any `set`, `if (JSON.stringify(v).length > 900_000)` split/shard and log. Drop the old `networkDown`/`Failed to fetch` string checks — Firestore throws typed errors; catch → `errors[]`.
 
 - [ ] **Step 4: Rewrite the pull body** symmetrically: `readDoc` each state ref, merge into localStorage using the same merge fns; `getDocs(collection(...,"objectives"))` and `...,"lectures")` for the per-doc collections; call `pullUserKvFromSupabase` (now reads `getDocs(collection(...,"kv"))`).
 
@@ -562,16 +616,24 @@ git commit -m "feat(sp0): mcq bank + question images + recognition tables on Fir
 
 ```js
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
+const { defineString } = require("firebase-functions/params");
 const admin = require("firebase-admin"); admin.initializeApp();
 const db = admin.firestore();
+const ALLOWED = defineString("ALLOWED_UIDS"); // R3-8: param, not process.env; set at deploy
+function assertAllowed(req) {
+  if (!req.auth) throw new HttpsError("unauthenticated", "sign in required");
+  const list = (ALLOWED.value() || "").split(",").filter(Boolean);
+  if (list.length && !list.includes(req.auth.uid)) throw new HttpsError("permission-denied", "not allowlisted");
+}
 
 exports.buildRecognitionBank = onCall({ secrets: [GEMINI] }, async (req) => {
-  if (!req.auth) throw new HttpsError("unauthenticated", "sign in required");
+  assertAllowed(req);
   const uid = req.auth.uid;
-  const { blockId, perCard = 2, batch = 20, weakSubjects = [] } = req.data || {};
-  // 1. select ungenerated cards for this block (Admin read of users/{uid}/ungeneratedCards, weak-weighted)
+  const { userId, blockId, perCard = 2, batch = 20, weakSubjects = [] } = req.data || {};
+  if (userId && userId !== uid) throw new HttpsError("permission-denied", "userId mismatch"); // R3-7
+  // 1. select ungenerated cards for this block (Admin read users/{uid}/ungeneratedCards, weak-weighted)
   // 2. call Gemini with GEMINI.value() (port prompt from the Deno fn verbatim)
-  // 3. write users/{uid}/recognitionItems/{deterministicId}; mark cards generated
+  // 3. write users/{uid}/recognitionItems/{deterministicId} (Admin bypasses read-only rule); mark cards generated
   return { generated, processed, remaining, provider: "gemini" };
 });
 ```
@@ -579,12 +641,7 @@ exports.buildRecognitionBank = onCall({ secrets: [GEMINI] }, async (req) => {
 - [ ] **Step 3: Write `aiComplete` gateway covering ALL call shapes (findings 5, R2-10/11/12).** Must cover every existing browser AI shape — plain text, JSON, **image/OCR** (`callAIWithImage`), system+user prompt pairs, `maxTokens`, and provider fallback. Restrict to the single user (R2-12) via a UID allowlist + require auth (R2-11):
 
 ```js
-const ALLOWED_UIDS = (process.env.ALLOWED_UIDS || "").split(",").filter(Boolean); // Louis's uid(s)
-function assertAllowed(req) {
-  if (!req.auth) throw new HttpsError("unauthenticated", "sign in required");
-  if (ALLOWED_UIDS.length && !ALLOWED_UIDS.includes(req.auth.uid))
-    throw new HttpsError("permission-denied", "not allowlisted");
-}
+// assertAllowed defined in Step 2 (shared).
 exports.aiComplete = onCall({ secrets: [GEMINI, ANTHROPIC] }, async (req) => {
   assertAllowed(req);
   const { system, prompt, images = [], json = false, maxTokens = 2048, model = "gemini" } = req.data || {};
@@ -596,19 +653,28 @@ exports.aiComplete = onCall({ secrets: [GEMINI, ANTHROPIC] }, async (req) => {
 });
 ```
 
-App Check is recommended before any public deploy; the UID allowlist is the MVP guard against quota abuse.
+`ALLOWED_UIDS` is set at deploy via `firebase deploy --only functions` after `firebase functions:params:set ALLOWED_UIDS="<louis-uid>"` (or a `.env` in `functions/`); the emulator reads it from `functions/.env.local`. App Check is recommended before any public deploy; the UID allowlist is the MVP guard against quota abuse.
 
 - [ ] **Step 4: Test the handlers IN-PROCESS with mocked fetch (R2-finding 13).** A Vitest `global.fetch` mock does NOT reach a separate emulator process, so unit-test the exported handler logic directly (import the handler module, inject a fake `req` with `auth.uid` + `data`, stub the provider `fetch`). Keep the emulator only for the auth/firestore integration bits. Run: `npx vitest run functions/handlers.test.js` — assert `buildRecognitionBank` returns `{ generated, processed, remaining, provider }` and writes `recognitionItems`; `aiComplete` returns `{ text }`/`{ data }` and enforces the allowlist → Expected: PASS.
 
-- [ ] **Step 5: Swap all callers to the callables.** `recognitionBank.triggerBankBuild()` → `httpsCallable(getFunctions(app), "buildRecognitionBank")({ userId, blockId, perCard, batch, weakSubjects })`, read `.data.{generated,processed,remaining,provider}` (unchanged downstream). Rewrite `aiClient.callAI/callAIJSON` to call `httpsCallable(getFunctions(app), "aiComplete")({ prompt, json })`. Delete `VITE_GEMINI_API_KEY` usage. Grep `generativelanguage.googleapis.com|api.anthropic.com|VITE_GEMINI_API_KEY` in `src/` → zero.
+- [ ] **Step 5: Swap all callers to the callables (explicit mapping, R3-9/10).** Route the whole `aiClient` surface through `aiComplete`, then confirm every direct-Gemini file goes through `aiClient`:
 
-- [ ] **Step 6: Deploy.** Run: `firebase deploy --only functions` → Expected: `buildRecognitionBank`, `aiComplete` deployed, no errors.
+```js
+// src/aiClient.js — all three shapes proxy to the one callable
+const call = httpsCallable(getFunctions(app), "aiComplete");
+export const callAI        = ({ system, prompt, maxTokens, model }) => call({ system, prompt, maxTokens, model }).then(r => r.data.text);
+export const callAIJSON    = ({ system, prompt, maxTokens, model }) => call({ system, prompt, json: true, maxTokens, model }).then(r => r.data.data);
+export const callAIWithImage = ({ system, prompt, images, maxTokens, model }) => call({ system, prompt, images, maxTokens, model }).then(r => r.data.text);
+```
+`recognitionBank.triggerBankBuild()` → `httpsCallable(getFunctions(app), "buildRecognitionBank")({ userId, blockId, perCard, batch, weakSubjects })`, read `.data.{generated,processed,remaining,provider}` (downstream unchanged). Then **rewrite every direct-Gemini caller** — `App.jsx`, `DeepLearn.jsx`, `examParser.js`, `HistoStudy.jsx`, `LearningModel.jsx` — to import from `aiClient` instead of hitting the API directly, and delete all `VITE_GEMINI_API_KEY` usage.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Zero-hit gate + deploy.** Run: `grep -rn "generativelanguage.googleapis.com\|api.anthropic.com\|VITE_GEMINI_API_KEY\|VITE_ANTHROPIC" src/` → Expected: **zero**. Then set the allowlist param and deploy: `firebase functions:params:set ALLOWED_UIDS="<louis-uid>"; firebase deploy --only functions` → Expected: `buildRecognitionBank`, `aiComplete` deployed, no errors.
+
+- [ ] **Step 7: Commit (all direct callers included)**
 
 ```bash
-git add functions src/recognitionBank.js src/aiClient.js src/App.jsx .env.example
-git commit -m "feat(sp0): all AI behind Cloud Functions v2 (defineSecret); preserve bank-build contract"
+git add functions src/recognitionBank.js src/aiClient.js src/App.jsx src/DeepLearn.jsx src/examParser.js src/HistoStudy.jsx src/LearningModel.jsx .env.example
+git commit -m "feat(sp0): all AI behind Cloud Functions v2 (defineSecret + allowlist); preserve bank-build contract"
 ```
 
 ---
@@ -627,6 +693,8 @@ git commit -m "feat(sp0): all AI behind Cloud Functions v2 (defineSecret); prese
 ```js
 import { createClient } from "@supabase/supabase-js";
 import admin from "firebase-admin";
+import crypto from "node:crypto";
+import { encodeDocId } from "../src/idCodec.js"; // pure module — safe in node (R3-finding 2)
 
 const sb = createClient(process.env.SB_URL, process.env.SB_SERVICE_KEY);
 admin.initializeApp({ credential: admin.credential.applicationDefault() });
@@ -634,32 +702,32 @@ const db = admin.firestore();
 
 const SB_UID = process.env.SB_UID;      // Supabase user id (source)
 const FB_UID = process.env.FB_UID;      // Firebase uid (target)
+const srcHash = (row) => crypto.createHash("sha1").update(JSON.stringify(row)).digest("hex"); // R3-finding 4
 
 const STATE = ["terms","performance","completion","weak_concepts","tracker"];
 for (const name of STATE) {
-  const { data } = await sb.from(name).select("data").eq("user_id", SB_UID).maybeSingle();
-  if (data?.data) await db.doc(`users/${FB_UID}/state/${name}`).set({ data: data.data, updatedAt: new Date() });
+  const { data } = await sb.from(name).select("data,updated_at").eq("user_id", SB_UID).maybeSingle();
+  if (data?.data) await db.doc(`users/${FB_UID}/state/${name}`).set({ data: data.data, srcHash: srcHash(data), srcUpdatedAt: data.updated_at ?? null, updatedAt: new Date() });
 }
-// objectives (per block)
-const { data: objs } = await sb.from("objectives").select("block_id,data").eq("user_id", SB_UID);
-for (const o of objs || []) await db.doc(`users/${FB_UID}/objectives/${o.block_id}`).set({ data: o.data, updatedAt: new Date() });
-// lectures
-const { data: lecs } = await sb.from("lectures").select("lecture_id,block_id,term_id,data,chunks").eq("user_id", SB_UID);
-for (const l of lecs || []) await db.doc(`users/${FB_UID}/lectures/${l.lecture_id}`).set({ data: l.data, chunks: l.chunks || [], blockId: l.block_id, termId: l.term_id, updatedAt: new Date() });
-// user_kv
-const { data: kv } = await sb.from("user_kv").select("key,data").eq("user_id", SB_UID);
-for (const r of kv || []) await db.doc(`users/${FB_UID}/kv/${r.key}`).set({ data: r.data, updatedAt: new Date() });
-import { encodeDocId } from "../src/supabase.js"; // reuse the SAME encoder
-// mcq_bank (deterministic id = idempotent on rerun)
-const { data: mcq } = await sb.from("mcq_bank").select("objective_id,round,data").eq("user_id", SB_UID);
-for (const m of mcq || []) await db.doc(`users/${FB_UID}/mcq/${encodeDocId(m.objective_id)}__r${m.round ?? 0}`).set({ objectiveId: m.objective_id, round: m.round ?? 0, data: m.data, updatedAt: new Date() });
+// objectives (per block) — encoded id + srcHash (R3-findings 3,4)
+const { data: objs } = await sb.from("objectives").select("block_id,data,updated_at").eq("user_id", SB_UID);
+for (const o of objs || []) await db.doc(`users/${FB_UID}/objectives/${encodeDocId(o.block_id)}`).set({ data: o.data, srcHash: srcHash(o), srcUpdatedAt: o.updated_at ?? null, updatedAt: new Date() });
+// lectures — encoded id + srcHash
+const { data: lecs } = await sb.from("lectures").select("lecture_id,block_id,term_id,data,chunks,updated_at").eq("user_id", SB_UID);
+for (const l of lecs || []) await db.doc(`users/${FB_UID}/lectures/${encodeDocId(l.lecture_id)}`).set({ data: l.data, chunks: l.chunks || [], blockId: l.block_id, termId: l.term_id, srcHash: srcHash(l), srcUpdatedAt: l.updated_at ?? null, updatedAt: new Date() });
+// user_kv — encoded key + srcHash
+const { data: kv } = await sb.from("user_kv").select("key,data,updated_at").eq("user_id", SB_UID);
+for (const r of kv || []) await db.doc(`users/${FB_UID}/kv/${encodeDocId(r.key)}`).set({ data: r.data, srcHash: srcHash(r), srcUpdatedAt: r.updated_at ?? null, updatedAt: new Date() });
+// mcq_bank (deterministic id = idempotent on rerun) — encodeDocId imported at top from idCodec
+const { data: mcq } = await sb.from("mcq_bank").select("objective_id,round,data,updated_at").eq("user_id", SB_UID);
+for (const m of mcq || []) await db.doc(`users/${FB_UID}/mcq/${encodeDocId(m.objective_id)}__r${m.round ?? 0}`).set({ objectiveId: m.objective_id, round: m.round ?? 0, data: m.data, srcHash: srcHash(m), srcUpdatedAt: m.updated_at ?? null, updatedAt: new Date() });
 
 // recognition tables (finding 16) — anki_cards, recognition_items, ungenerated_cards
 for (const [table, coll] of [["anki_cards","ankiCards"],["recognition_items","recognitionItems"],["ungenerated_cards","ungeneratedCards"]]) {
   const { data: rows } = await sb.from(table).select("*").eq("user_id", SB_UID);
   for (const r of rows || []) {
     const id = encodeDocId(r.id ?? r.card_id ?? `${r.deck||""}_${r.note_id||""}`); // deterministic from source PK
-    await db.doc(`users/${FB_UID}/${coll}/${id}`).set({ ...r, updatedAt: new Date() });
+    await db.doc(`users/${FB_UID}/${coll}/${id}`).set({ ...r, srcHash: srcHash(r), updatedAt: new Date() });
   }
 }
 
@@ -667,14 +735,14 @@ for (const [table, coll] of [["anki_cards","ankiCards"],["recognition_items","re
 const { data: imgs } = await sb.from("question_images").select("*").eq("user_id", SB_UID);
 for (const im of imgs || []) {
   const { data: file } = await sb.storage.from("question-images").download(im.storage_path);
-  // Rewrite path to the Firebase layout + FB_UID (R2-finding 6) so Storage rules + new upload code match.
-  const dest = `question-images/${FB_UID}/${encodeDocId(im.objective_id)}_r${im.round ?? 0}/${im.filename}`;
+  // Rewrite path to the Firebase layout + FB_UID (R2-finding 6); encode filename too (R3-finding 12).
+  const dest = `question-images/${FB_UID}/${encodeDocId(im.objective_id)}_r${im.round ?? 0}/${encodeDocId(im.filename)}`;
   if (file) {
     const buf = Buffer.from(await file.arrayBuffer());
     await admin.storage().bucket().file(dest).save(buf, { contentType: im.mime_type || "image/jpeg" });
   }
   const id = encodeDocId(dest); // deterministic from NEW path → idempotent
-  await db.doc(`users/${FB_UID}/questionImages/${id}`).set({ objectiveId: im.objective_id, round: im.round ?? 0, storagePath: dest, filename: im.filename, mimeType: im.mime_type, addedAt: im.added_at || new Date() });
+  await db.doc(`users/${FB_UID}/questionImages/${id}`).set({ objectiveId: im.objective_id, round: im.round ?? 0, storagePath: dest, filename: im.filename, mimeType: im.mime_type, srcHash: srcHash(im), addedAt: im.added_at || new Date() });
 }
 console.log("migration complete");
 ```
@@ -703,7 +771,7 @@ git commit -m "feat(sp0): one-time Supabase→Firestore data migration script"
 **Files:**
 - Create: `src/rules.test.js` (security-rule tests via `@firebase/rules-unit-testing`)
 
-- [ ] **Step 0: Security-rule + hardening tests (finding 19).** Install `@firebase/rules-unit-testing`. Assert against the emulator: (a) user A **cannot** read/write `users/{B}/...` (cross-user denial); (b) a write >900 KB is denied; (c) a Storage write with `contentType:"application/pdf"` is denied, `image/png` allowed; (d) `encodeDocId`/`decodeDocId` round-trips ids containing `/`, spaces, `.`, and a 200-char string; (e) a ~1 MiB-adjacent state doc write succeeds and a >1 MiB one fails loud (surfaces in `errors[]`). Run: `firebase emulators:exec --only firestore,storage,auth "npx vitest run src/rules.test.js"` → Expected: PASS.
+- [ ] **Step 0: Security-rule + hardening tests (findings 19, R3-5).** Install `@firebase/rules-unit-testing`. Assert against the emulator: (a) user A **cannot** read/write `users/{B}/...` (cross-user denial); (b) a client write to `users/{A}/recognitionItems` is **denied** (server-only, R3-6) while a read is allowed, and a client write to `users/{A}/ankiCards`/`ungeneratedCards` is **allowed** (client Anki ingest); (c) a Storage write with `contentType:"application/pdf"` is denied, `image/png` allowed, and a >10 MB image denied; (d) `encodeDocId`/`decodeDocId` round-trips ids containing `/`, spaces, `.`, and a 200-char string. **Byte-size is NOT a rules test** (R3-5): instead a plain unit test asserts the adapter's app-side guard splits/logs a >900 KB value and that a genuine >1 MiB Firestore write rejection is caught into `errors[]`. Run: `firebase emulators:exec --only firestore,storage,auth "npx vitest run src/rules.test.js"` → Expected: PASS.
 - [ ] **Step 1: Configure `.env`** with the real `VITE_FIREBASE_*` values.
 - [ ] **Step 2: Enable Google sign-in** in Firebase console (Auth → Sign-in method → Google) and add `localhost` to authorized domains.
 - [ ] **Step 3: Build + run.** Run: `npm run build` (Expected: clean) then `npm run dev`.
@@ -713,6 +781,45 @@ git commit -m "feat(sp0): one-time Supabase→Firestore data migration script"
 - [ ] **Step 7: Rollback criteria + post-cutover reversal (findings 20, R2-17).** Two distinct windows:
   - **Pre-first-write rollback (clean):** between merge and Louis's first real Firebase write, rollback = revert the branch; Supabase data is untouched. Do the Step 0-6 verification in THIS window so a failure reverts cleanly with zero data loss.
   - **Post-cutover reversal (lossy without a bridge):** once Louis studies on Firebase, reverting the branch loses those writes. So ALSO ship `scripts/export-firestore-to-supabase.mjs` (reverse of Task 8: read `users/{uid}/**`, upsert back into the Supabase tables) as the post-cutover escape hatch, and keep the Supabase project **read-write-capable for one term** (not just read-only) so the reverse replay can land. Only delete Supabase after a full term on Firebase with no rollback needed.
+
+---
+
+## Task 10: Reverse-migration escape hatch (`export-firestore-to-supabase.mjs`)
+
+**Files:** Create `scripts/export-firestore-to-supabase.mjs` (R3-finding 11 — the rollback plan references this; make it real).
+
+**Interfaces:** Consumes Firebase Admin (read) + Supabase service creds (write). Produces: Louis's Firebase data replayed back into Supabase tables (the post-cutover rollback path).
+
+- [ ] **Step 1: Write the reverse script** — the inverse of Task 8, using the SAME `decodeDocId` (from `src/idCodec.js`) to recover source keys:
+
+```js
+import admin from "firebase-admin";
+import { createClient } from "@supabase/supabase-js";
+import { decodeDocId } from "../src/idCodec.js";
+admin.initializeApp({ credential: admin.credential.applicationDefault() });
+const fdb = admin.firestore();
+const sb = createClient(process.env.SB_URL, process.env.SB_SERVICE_KEY);
+const FB_UID = process.env.FB_UID, SB_UID = process.env.SB_UID;
+
+// state -> single-row tables
+for (const name of ["terms","performance","completion","weak_concepts","tracker"]) {
+  const snap = await fdb.doc(`users/${FB_UID}/state/${name}`).get();
+  if (snap.exists) await sb.from(name).upsert({ user_id: SB_UID, data: snap.data().data, updated_at: new Date() }, { onConflict: "user_id" });
+}
+// objectives / lectures / kv / mcq -> decode ids back to source keys
+const objs = await fdb.collection(`users/${FB_UID}/objectives`).get();
+for (const d of objs.docs) await sb.from("objectives").upsert({ user_id: SB_UID, block_id: decodeDocId(d.id), data: d.data().data, updated_at: new Date() }, { onConflict: "user_id,block_id" });
+// ...lectures (decodeDocId(d.id) -> lecture_id), kv (decodeDocId -> key), mcq (split "__r"), question_images (reverse-copy Storage file back to Supabase bucket)...
+console.log("reverse export complete");
+```
+
+- [ ] **Step 2: Dry-run against the emulator** — seed the Firestore emulator, run with `--count`, confirm row counts match. Run: `FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/export-firestore-to-supabase.mjs --count`.
+- [ ] **Step 3: Commit (no creds).**
+
+```bash
+git add scripts/export-firestore-to-supabase.mjs
+git commit -m "feat(sp0): reverse Firestore->Supabase export (post-cutover rollback path)"
+```
 
 ---
 
