@@ -2886,8 +2886,6 @@ ${(extractedText || "").slice(0, 6000)}`;
   }
 }
 
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-
 // ─────────────────────────────────────────────
 // PERSISTENT STORAGE
 // ─────────────────────────────────────────────
@@ -3733,37 +3731,13 @@ async function readPDF(file) {
 }
 
 // ─────────────────────────────────────────────
-// GEMINI API (claude() kept for call-site compatibility)
+// GEMINI API (claude() kept for call-site compatibility) — Task 7b: routed
+// through aiClient.callAI (the aiComplete Cloud Function), no client-side key.
 // ─────────────────────────────────────────────
 const MAX_TOKENS_CAP = 4096;
 
 async function claude(prompt, maxTokens, systemPrompt) {
-  if (!GEMINI_KEY) throw new Error("No Gemini API key. Add VITE_GEMINI_API_KEY to .env");
-
-  const fullPrompt = systemPrompt ? systemPrompt + "\n\n" + prompt : prompt;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-        contents: [{ parts: [{ text: fullPrompt }] }],
-        generationConfig: {
-          maxOutputTokens: maxTokens || 1200,
-          temperature: 0.7,
-        },
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error("API " + res.status + " — " + err);
-  }
-
-  const d = await res.json();
-  return d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return callAI(systemPrompt || null, prompt, maxTokens || 1200);
 }
 
 const safeJSON = (raw) => {
@@ -5115,7 +5089,6 @@ async function genTopicVignettesWithContext(cfg, deps) {
     difficulty: cfg.difficulty,
     blockId: cfg.blockId,
   };
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
   const { lectures = [], getBlockObjectives, getTopicDifficulty, sessions = [], performanceHistory: perfHistory = {}, makeTopicKey: makeKey, stylePrefs } = deps || {};
   const { lectureContent, questionExamples, objectives, patterns, lec } = buildLectureContext(
     lectureId,
@@ -5270,25 +5243,7 @@ async function genTopicVignettesWithContext(cfg, deps) {
     `Return ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"...","topic":"${(subtopic || "").replace(/"/g, '\\"')}","difficulty":"${currentDiff}","type":"clinicalVignette"}]}`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 8000, temperature: 0.9 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        ],
-      }),
-    }
-  );
-  const d = await res.json();
-  const raw = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const raw = await callAI(null, prompt, 8000);
   const first = raw.indexOf("{");
   const last = raw.lastIndexOf("}");
   if (first === -1) return [];
@@ -5434,25 +5389,7 @@ async function genObjectiveQuestions(objectives, lectureTitle, difficulty = "med
     '  "difficulty": "medium",\n' +
     '  "type": "clinicalVignette"\n' +
     "}]}\n";
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 8000, temperature: 0.9 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        ],
-      }),
-    }
-  );
-  const d = await res.json();
-  const raw = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const raw = await callAI(null, prompt, 8000);
   const first = raw.indexOf("{");
   const last = raw.lastIndexOf("}");
   const data = first !== -1 && last !== -1 ? safeJSON(raw.slice(first, last + 1)) : { questions: [] };
@@ -16410,9 +16347,6 @@ function mapMergedObjectivesToAppShape(rows) {
 }
 
 async function parseObjectiveChunkWithGemini(chunk, chunkIndex, totalChunks) {
-  const key = import.meta.env.VITE_GEMINI_API_KEY || "";
-  if (!key) throw new Error("Missing VITE_GEMINI_API_KEY");
-
   const systemPrompt = `Extract learning objectives from this medical curriculum text.
 Return JSON only. No markdown.
 {"objectives":[{"code":"SOM.MKII.XXX","text":"objective text","lectureType":"LEC","lectureNumber":5,"activity":"Lec5","discipline":"BCHM","lectureTitle":"optional title"}]}
@@ -16424,25 +16358,7 @@ Extract EVERY objective in this section. Do not summarize or skip any.`;
 
   const userPrompt = `Extract all objectives from this section (part ${chunkIndex + 1} of ${totalChunks}):\n\n${chunk}`;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: systemPrompt + "\n\n" + userPrompt }] }],
-        generationConfig: { maxOutputTokens: 8192, temperature: 0 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        ],
-      }),
-    }
-  );
-  const d = await res.json();
-  const raw = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const raw = await callAI(systemPrompt, userPrompt, 8192);
   const parsed = tryParseObjectivesJSON(raw);
   const arr =
     parsed?.objectives ||
@@ -27054,43 +26970,17 @@ What is the clinical significance of this finding?`,
               const allText = (contentResult.chunks || []).map((c) => getChunkBody(c)).join("\n").slice(0, 8000);
 
               if (allText.length > 200) {
-                const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-                const res = await fetch(
-                  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      contents: [
-                        {
-                          parts: [
-                            {
-                              text:
-                                "Extract from this medical lecture:\n" +
-                                "- 5-8 subtopics (short phrases)\n" +
-                                "- 5-10 key terms\n" +
-                                "- lecture number and title\n\n" +
-                                "Return ONLY complete valid JSON:\n" +
-                                '{"subtopics":["Back anatomy","Vertebral column"],"keyTerms":["lamina","pedicle"],"lectureNumber":1,"lectureTitle":"The Back"}\n\n' +
-                                "TEXT:\n" +
-                                allText.slice(0, 4000),
-                            },
-                          ],
-                        },
-                      ],
-                      generationConfig: { maxOutputTokens: 1000, temperature: 0.1 },
-                      safetySettings: [
-                        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-                        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-                        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-                        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-                      ],
-                    }),
-                  }
-                );
+                const prompt =
+                  "Extract from this medical lecture:\n" +
+                  "- 5-8 subtopics (short phrases)\n" +
+                  "- 5-10 key terms\n" +
+                  "- lecture number and title\n\n" +
+                  "Return ONLY complete valid JSON:\n" +
+                  '{"subtopics":["Back anatomy","Vertebral column"],"keyTerms":["lamina","pedicle"],"lectureNumber":1,"lectureTitle":"The Back"}\n\n' +
+                  "TEXT:\n" +
+                  allText.slice(0, 4000);
 
-                const d = await res.json();
-                const raw = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+                const raw = (await callAI(null, prompt, 1000)).trim();
                 const cleaned = raw
                   .replace(/^```json\s*/i, "")
                   .replace(/^```\s*/i, "")
@@ -28215,12 +28105,6 @@ EXPLANATION: ${q.explanation}`).join("\n\n")}
     const streak = perfData?.streak || 0;
     const lastScore = perfData?.sessions?.slice(-1)[0]?.score ?? null;
     console.log(`Generating for ${topicKey} at difficulty: ${blockDiff}, streak: ${streak}, lastScore: ${lastScore}`);
-    const safetySettings = [
-      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-    ];
     const batchSize = 6;
     const batches = Math.ceil(questionCount / batchSize);
     const allQuestions = [];
@@ -28236,20 +28120,7 @@ EXPLANATION: ${q.explanation}`).join("\n\n")}
 
         const prompt = buildExamPromptFromContext(batchCount, batchObjs, { ...examContext, stylePrefs }, blockDiff);
 
-        const res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents: [{ parts: [{ text: prompt }] }],
-              generationConfig: { maxOutputTokens: 16000, temperature: 0.7 },
-              safetySettings,
-            }),
-          }
-        );
-        const d = await res.json();
-        const raw = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const raw = await callAI(null, prompt, 16000);
         const parsed = safeJSON(raw);
         const qs = (parsed.questions || []).map((q, i) => ({
           id: `blockexam_${Date.now()}_${allQuestions.length}_${i}`,
@@ -28269,20 +28140,7 @@ EXPLANATION: ${q.explanation}`).join("\n\n")}
           const retryCount = Math.min(batchSize - qs.length, questionCount - allQuestions.length);
           try {
             const retryPrompt = buildExamPromptFromContext(retryCount, batchObjs.slice(3), { ...examContext, stylePrefs }, blockDiff);
-            const retryRes = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: retryPrompt }] }],
-                  generationConfig: { maxOutputTokens: 16000, temperature: 0.8 },
-                  safetySettings,
-                }),
-              }
-            );
-            const retryD = await retryRes.json();
-            const retryRaw = retryD.candidates?.[0]?.content?.parts?.[0]?.text || "";
+            const retryRaw = await callAI(null, retryPrompt, 16000);
             const retryParsed = safeJSON(retryRaw);
             const retryQs = (retryParsed.questions || []).map((q, i) => ({
               id: `blockexam_retry_${Date.now()}_${i}`,

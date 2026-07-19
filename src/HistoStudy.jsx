@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useTheme } from "./theme";
+import { callAIWithImage } from "./aiClient";
 
 const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display',Georgia,serif";
@@ -56,9 +57,6 @@ function extractStructures(question) {
 }
 
 async function identifyHistoSlide(base64, filename) {
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-  if (!GEMINI_KEY) return {};
-
   const prompt =
     "You are a medical histology expert. Analyze this histological slide image.\n\n" +
     "Return ONLY valid JSON with no markdown:\n" +
@@ -82,30 +80,7 @@ async function identifyHistoSlide(base64, filename) {
     "For blindTopic: use a vague category (e.g. Connective Tissue Fiber, Nervous Tissue) not the specific name.";
 
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [
-              { inline_data: { mime_type: "image/png", data: base64 } },
-              { text: prompt },
-            ],
-          }],
-          generationConfig: { maxOutputTokens: 1000, temperature: 0.2 },
-          safetySettings: [
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          ],
-        }),
-      }
-    );
-    const d = await res.json();
-    const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const text = await callAIWithImage(null, prompt, base64, "image/png", 1000);
     const first = text.indexOf("{");
     const last = text.lastIndexOf("}");
     if (first === -1 || last === -1) return {};

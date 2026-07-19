@@ -48,9 +48,6 @@ async function extractPDFText(file) {
 }
 
 async function parseQuestionsWithAI(rawText, filename) {
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-  if (!GEMINI_KEY) throw new Error("No API key configured");
-
   const chunk = rawText.slice(0, 12000);
 
   const prompt =
@@ -77,31 +74,7 @@ async function parseQuestionsWithAI(rawText, filename) {
     "- type: clinicalVignette if it has a patient scenario, mechanismBased if it asks about mechanisms, pharmacology if about drugs, laboratory if about lab values\n\n" +
     "TEXT FROM " + filename + ":\n" + chunk;
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 12000, temperature: 0.1 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        ],
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error("API " + res.status + " — " + err);
-  }
-
-  const d = await res.json();
-  const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const text = await callAI(null, prompt, 12000);
   if (!text) throw new Error("Empty response from AI");
 
   const firstBrace = text.indexOf("{");

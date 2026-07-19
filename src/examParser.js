@@ -1,3 +1,5 @@
+import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
+
 function detectLectureNumber(text) {
   const m =
     (text || "").match(/lecture\s*(\d+)/i) ||
@@ -46,9 +48,6 @@ function detectFormat(pages, fullText) {
 }
 
 async function parseWithAI(fullText, format, onProgress, examTitle = "") {
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-  if (!GEMINI_KEY) throw new Error("No API key configured (VITE_GEMINI_API_KEY)");
-
   const chunkSize = 10000;
   const overlap = 500;
   const chunks = [];
@@ -81,26 +80,7 @@ async function parseWithAI(fullText, format, onProgress, examTitle = "") {
       chunks[ci];
 
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { maxOutputTokens: 8000, temperature: 0.1 },
-            safetySettings: [
-              { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-              { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-            ],
-          }),
-        }
-      );
-      if (!res.ok) throw new Error("API " + res.status);
-      const d = await res.json();
-      const text = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+      const text = (await callAI(null, prompt, 8000)).trim();
       const cleaned = text
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")
@@ -143,7 +123,6 @@ async function parseWithAI(fullText, format, onProgress, examTitle = "") {
 }
 
 async function parseGridFormat(pages, onProgress, options = {}) {
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
   const minChoiceCount = options.minChoiceCount ?? 6;
   const allQuestions = [];
   const seenStems = new Set();
@@ -224,46 +203,11 @@ async function parseGridFormat(pages, onProgress, options = {}) {
       combinedText.slice(0, 4000);
 
     try {
-      const requestBody = {
-        contents: [
-          {
-            parts: [
-              {
-                inline_data: {
-                  mime_type: "image/png",
-                  data: questionImg,
-                },
-              },
-              { text: prompt },
-            ],
-          },
-        ],
-        generationConfig: { maxOutputTokens: 6000, temperature: 0.1 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        ],
-      };
+      const images = [];
+      if (answerImg) images.push({ base64: answerImg, mimeType: "image/png" });
+      images.push({ base64: questionImg, mimeType: "image/png" });
 
-      if (answerImg) {
-        requestBody.contents[0].parts.unshift({
-          inline_data: { mime_type: "image/png", data: answerImg },
-        });
-      }
-
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(requestBody),
-        }
-      );
-
-      const d = await res.json();
-      const text = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+      const text = (await callAIWithImages(null, prompt, images, 6000)).trim();
       const cleaned = text
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")
@@ -458,9 +402,6 @@ async function parseSlidedeckFormat(pages, pdf, onProgress) {
 }
 
 export async function extractLectureObjectives(pdfFile, onProgress) {
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
-  if (!GEMINI_KEY) return [];
-
   await loadPDFJS();
   const arrayBuffer = await pdfFile.arrayBuffer();
   const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
@@ -511,31 +452,11 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
     combinedText.slice(0, 6000);
 
   try {
-    const parts = [{ text: prompt }];
-    if (pageImages[0]) {
-      parts.unshift({ inline_data: { mime_type: "image/png", data: pageImages[0] } });
-    }
-
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: { maxOutputTokens: 3000, temperature: 0.1 },
-          safetySettings: [
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          ],
-        }),
-      }
-    );
-
-    const d = await res.json();
-    const text = (d.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+    const text = (
+      pageImages[0]
+        ? await callAIWithImage(null, prompt, pageImages[0], "image/png", 3000)
+        : await callAI(null, prompt, 3000)
+    ).trim();
     const cleaned = text
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")

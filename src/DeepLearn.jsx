@@ -32,7 +32,6 @@ import {
 
 const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 const SERIF = "'Playfair Display', Georgia, serif";
-const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
 function objectivePlainText(o) {
   return String(o?.objective || o?.text || "").trim();
@@ -462,25 +461,7 @@ Generate Phase 2 Pathway Backtracking. Return JSON:
 }`,
   };
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompts[phaseNum] }] }],
-        generationConfig: { maxOutputTokens: 3000, temperature: 0.7 },
-        safetySettings: [
-          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        ],
-      }),
-    }
-  );
-  const d = await res.json();
-  const text = d.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const text = await callAI(null, prompts[phaseNum], 3000);
   const first = Math.min(
     text.indexOf("{") === -1 ? Infinity : text.indexOf("{"),
     text.indexOf("[") === -1 ? Infinity : text.indexOf("[")
@@ -1563,7 +1544,7 @@ Student answer: ${String(answer || "(no answer provided)").slice(0, 500)}`;
         const msg = err?.message?.trim?.() || "";
         const friendly =
           /api key|API key|no.*key set/i.test(msg)
-            ? "API key missing or invalid. Set VITE_GOOGLE_API_KEY or VITE_GEMINI_API_KEY in .env (or VITE_ANTHROPIC_API_KEY if using Claude)."
+            ? "AI service unavailable — sign in and try again, or contact support if this persists."
             : msg.length > 80
               ? msg.slice(0, 80) + "…"
               : msg || fallback.feedback;
@@ -2221,7 +2202,6 @@ function DeepLearnSession({
 }) {
   const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
   const SERIF = "'Playfair Display',Georgia,serif";
-  const GEMINI_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
 
   // Phase state machine
   // Phases: "prime" | "teach" | "patient" | "selftest" | "gaps" | "apply" | "summary"
@@ -2670,30 +2650,12 @@ function DeepLearnSession({
   }, [isCrossLecture, crossSystemPrefix]);
 
   const gemini = async (prompt, maxTokens = 2000) => {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { maxOutputTokens: maxTokens, temperature: 0.7 },
-          safetySettings: [
-            { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-            { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-          ],
-        }),
-      }
-    );
-    const d = await res.json();
-    const raw = (d.candidates?.[0]?.content?.parts?.[0]?.text || "")
+    const raw = await callAI(null, prompt, maxTokens);
+    return raw
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")
       .replace(/\s*```$/, "")
       .trim();
-    return raw;
   };
 
   const geminiJSON = async (prompt, maxTokens = 2000) => {
