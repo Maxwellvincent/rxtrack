@@ -16358,7 +16358,7 @@ Extract EVERY objective in this section. Do not summarize or skip any.`;
 
   const userPrompt = `Extract all objectives from this section (part ${chunkIndex + 1} of ${totalChunks}):\n\n${chunk}`;
 
-  const raw = await callAI(systemPrompt, userPrompt, 8192);
+  const raw = await callAI(systemPrompt, userPrompt, 8192, undefined, 0);
   const parsed = tryParseObjectivesJSON(raw);
   const arr =
     parsed?.objectives ||
@@ -26980,7 +26980,7 @@ What is the clinical significance of this finding?`,
                   "TEXT:\n" +
                   allText.slice(0, 4000);
 
-                const raw = (await callAI(null, prompt, 1000)).trim();
+                const raw = (await callAI(null, prompt, 1000, undefined, 0.1)).trim();
                 const cleaned = raw
                   .replace(/^```json\s*/i, "")
                   .replace(/^```\s*/i, "")

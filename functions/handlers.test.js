@@ -159,6 +159,51 @@ describe("aiComplete", () => {
     expect(result).toEqual({ data: { foo: "bar" } });
   });
 
+  it("forwards an explicit temperature into the gemini request body", async () => {
+    global.fetch.mockResolvedValueOnce(geminiTextResponse("hello"));
+
+    const req = {
+      auth: { uid: "u1" },
+      data: { prompt: "hi", model: "gemini", temperature: 0.1 },
+    };
+    await aiCompleteHandler(req);
+
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.generationConfig.temperature).toBe(0.1);
+  });
+
+  it("forwards an explicit temperature into the claude request body", async () => {
+    global.fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ content: [{ text: "hello from claude" }] }),
+      text: async () => "hello from claude",
+    });
+
+    const req = {
+      auth: { uid: "u1" },
+      data: { prompt: "hi", model: "claude", temperature: 0.2 },
+    };
+    await aiCompleteHandler(req);
+
+    const body = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(body.temperature).toBe(0.2);
+  });
+
+  it("falls back to json ? 0.1 : 0.7 when temperature is omitted", async () => {
+    global.fetch
+      .mockResolvedValueOnce(geminiTextResponse("plain text"))
+      .mockResolvedValueOnce(geminiTextResponse(JSON.stringify({ foo: "bar" })));
+
+    await aiCompleteHandler({ auth: { uid: "u1" }, data: { prompt: "hi", model: "gemini" } });
+    const plainBody = JSON.parse(global.fetch.mock.calls[0][1].body);
+    expect(plainBody.generationConfig.temperature).toBe(0.7);
+
+    await aiCompleteHandler({ auth: { uid: "u1" }, data: { prompt: "hi", model: "gemini", json: true } });
+    const jsonBody = JSON.parse(global.fetch.mock.calls[1][1].body);
+    expect(jsonBody.generationConfig.temperature).toBe(0.1);
+  });
+
   it("throws permission-denied for a non-allowlisted uid", async () => {
     const req = { auth: { uid: "intruder" }, data: { prompt: "hi" } };
     await expect(aiCompleteHandler(req)).rejects.toMatchObject({ code: "permission-denied" });

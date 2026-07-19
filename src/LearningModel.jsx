@@ -74,7 +74,7 @@ async function parseQuestionsWithAI(rawText, filename) {
     "- type: clinicalVignette if it has a patient scenario, mechanismBased if it asks about mechanisms, pharmacology if about drugs, laboratory if about lab values\n\n" +
     "TEXT FROM " + filename + ":\n" + chunk;
 
-  const text = await callAI(null, prompt, 12000);
+  const text = await callAI(null, prompt, 12000, undefined, 0.1);
   if (!text) throw new Error("Empty response from AI");
 
   const firstBrace = text.indexOf("{");

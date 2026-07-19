@@ -114,14 +114,14 @@ function providerToModel(provider) {
  * Plain text completion. 4th arg: explicit provider (gemini | anthropic),
  * or omit / null / undefined to use DEFAULT_PROVIDER.
  */
-export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explicitProvider) {
+export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explicitProvider, temperature) {
   const provider =
     explicitProvider !== undefined && explicitProvider !== null ? explicitProvider : DEFAULT_PROVIDER;
   const model = providerToModel(provider);
 
   try {
     const res = await withRetry(() =>
-      aiCompleteCall({ system: systemPrompt, prompt: userPrompt, maxTokens, model })
+      aiCompleteCall({ system: systemPrompt, prompt: userPrompt, maxTokens, model, temperature })
     );
     markProviderHealthy(provider);
     return res.data.text;
@@ -142,7 +142,8 @@ export async function callAIJSON(
   userPrompt,
   fallback = {},
   maxTokens = 1000,
-  explicitProvider
+  explicitProvider,
+  temperature
 ) {
   const safeFallback = fallback !== undefined && fallback !== null ? fallback : {};
   const provider =
@@ -151,7 +152,7 @@ export async function callAIJSON(
 
   try {
     const res = await withRetry(() =>
-      aiCompleteCall({ system: systemPrompt, prompt: userPrompt, json: true, maxTokens, model })
+      aiCompleteCall({ system: systemPrompt, prompt: userPrompt, json: true, maxTokens, model, temperature })
     );
     markProviderHealthy(provider);
     return res.data.data;
@@ -172,7 +173,7 @@ export async function callAIJSON(
  * callable (which already accepts an `images[]` array) via a second thin
  * wrapper instead of dropping the multi-image capability.
  */
-export async function callAIWithImages(systemPrompt, userPrompt, images, maxTokens = 2000) {
+export async function callAIWithImages(systemPrompt, userPrompt, images, maxTokens = 2000, temperature) {
   const res = await withRetry(() =>
     aiCompleteCall({
       system: systemPrompt,
@@ -182,6 +183,7 @@ export async function callAIWithImages(systemPrompt, userPrompt, images, maxToke
         data: img.base64,
       })),
       maxTokens,
+      temperature,
     })
   );
   markProviderHealthy(DEFAULT_PROVIDER);
@@ -197,7 +199,8 @@ export async function callAIWithImage(
   userPrompt,
   base64,
   mimeType = "image/png",
-  maxTokens = 2000
+  maxTokens = 2000,
+  temperature
 ) {
   const res = await withRetry(() =>
     aiCompleteCall({
@@ -205,6 +208,7 @@ export async function callAIWithImage(
       prompt: userPrompt,
       images: [{ mimeType, data: base64 }],
       maxTokens,
+      temperature,
     })
   );
   markProviderHealthy(DEFAULT_PROVIDER);

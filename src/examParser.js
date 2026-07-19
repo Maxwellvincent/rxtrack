@@ -80,7 +80,7 @@ async function parseWithAI(fullText, format, onProgress, examTitle = "") {
       chunks[ci];
 
     try {
-      const text = (await callAI(null, prompt, 8000)).trim();
+      const text = (await callAI(null, prompt, 8000, undefined, 0.1)).trim();
       const cleaned = text
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")
@@ -207,7 +207,7 @@ async function parseGridFormat(pages, onProgress, options = {}) {
       if (answerImg) images.push({ base64: answerImg, mimeType: "image/png" });
       images.push({ base64: questionImg, mimeType: "image/png" });
 
-      const text = (await callAIWithImages(null, prompt, images, 6000)).trim();
+      const text = (await callAIWithImages(null, prompt, images, 6000, 0.1)).trim();
       const cleaned = text
         .replace(/^```json\s*/i, "")
         .replace(/^```\s*/i, "")
@@ -454,8 +454,8 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
   try {
     const text = (
       pageImages[0]
-        ? await callAIWithImage(null, prompt, pageImages[0], "image/png", 3000)
-        : await callAI(null, prompt, 3000)
+        ? await callAIWithImage(null, prompt, pageImages[0], "image/png", 3000, 0.1)
+        : await callAI(null, prompt, 3000, undefined, 0.1)
     ).trim();
     const cleaned = text
       .replace(/^```json\s*/i, "")

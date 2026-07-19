@@ -83,7 +83,7 @@ function parseVignettes(txt) {
 }
 
 // ── Provider callers ────────────────────────────────────────────────────────
-async function callGeminiRaw({ system, prompt, images = [], apiKey, maxTokens = 2048, json = false }) {
+async function callGeminiRaw({ system, prompt, images = [], apiKey, maxTokens = 2048, json = false, temperature }) {
   if (!apiKey) throw new Error("No Gemini API key configured");
   const parts = [];
   for (const img of images) {
@@ -94,7 +94,7 @@ async function callGeminiRaw({ system, prompt, images = [], apiKey, maxTokens = 
 
   const generationConfig = {
     maxOutputTokens: maxTokens,
-    temperature: json ? 0.1 : 0.7,
+    temperature: temperature !== undefined && temperature !== null ? temperature : (json ? 0.1 : 0.7),
     thinkingConfig: { thinkingBudget: 0 },
   };
   if (json) generationConfig.responseMimeType = "application/json";
@@ -119,7 +119,7 @@ async function callGeminiRaw({ system, prompt, images = [], apiKey, maxTokens = 
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
-async function callClaudeRaw({ system, prompt, images = [], apiKey, maxTokens = 2048 }) {
+async function callClaudeRaw({ system, prompt, images = [], apiKey, maxTokens = 2048, json = false, temperature }) {
   if (!apiKey) throw new Error("No Anthropic API key configured");
   const content = [];
   for (const img of images) {
@@ -142,6 +142,7 @@ async function callClaudeRaw({ system, prompt, images = [], apiKey, maxTokens = 
       max_tokens: maxTokens,
       system: system || undefined,
       messages: [{ role: "user", content }],
+      temperature: temperature !== undefined && temperature !== null ? temperature : (json ? 0.1 : 0.7),
     }),
   });
   if (!res.ok) throw new Error(`Anthropic ${res.status}: ${await res.text()}`);
@@ -255,7 +256,7 @@ async function buildRecognitionBankHandler(req) {
 // ── aiComplete ────────────────────────────────────────────────────────────
 async function aiCompleteHandler(req) {
   assertAllowed(req);
-  const { system, prompt, images = [], json = false, maxTokens = 2048, model = "gemini" } = req.data || {};
+  const { system, prompt, images = [], json = false, maxTokens = 2048, model = "gemini", temperature } = req.data || {};
 
   const geminiKey = GEMINI.value();
   const anthropicKey = ANTHROPIC.value();
@@ -265,9 +266,9 @@ async function aiCompleteHandler(req) {
 
   async function runProvider(p) {
     if (p === "gemini") {
-      return callGeminiRaw({ system, prompt, images, apiKey: geminiKey, maxTokens, json });
+      return callGeminiRaw({ system, prompt, images, apiKey: geminiKey, maxTokens, json, temperature });
     }
-    return callClaudeRaw({ system, prompt, images, apiKey: anthropicKey, maxTokens });
+    return callClaudeRaw({ system, prompt, images, apiKey: anthropicKey, maxTokens, json, temperature });
   }
 
   let raw;

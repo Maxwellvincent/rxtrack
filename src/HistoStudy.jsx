@@ -80,7 +80,7 @@ async function identifyHistoSlide(base64, filename) {
     "For blindTopic: use a vague category (e.g. Connective Tissue Fiber, Nervous Tissue) not the specific name.";
 
   try {
-    const text = await callAIWithImage(null, prompt, base64, "image/png", 1000);
+    const text = await callAIWithImage(null, prompt, base64, "image/png", 1000, 0.2);
     const first = text.indexOf("{");
     const last = text.lastIndexOf("}");
     if (first === -1 || last === -1) return {};
