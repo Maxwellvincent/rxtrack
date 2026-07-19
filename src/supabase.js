@@ -1,8 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
-// Firebase Auth + Firestore (Task 3: auth cutover). `db` is used here only for
-// checkCloudHasData; the remaining imports (setDoc/where/writeBatch/runTransaction/
-// serverTimestamp) are unused until Tasks 4-6 migrate the data functions below —
-// kept here per the SP0 plan's import list so those tasks don't need to touch this line.
+// Firebase Auth + Firestore (Task 3: auth cutover; Task 4: JSON-doc primitives).
+// `db` backs checkCloudHasData and the stateRef/readDoc/writeDoc/mergeDoc/
+// commitInChunks primitives below; the still-Supabase data functions further
+// down are migrated in Tasks 5-6.
 import { auth, db, isFirebaseConfigured } from "./firebase";
 import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
@@ -10,7 +10,9 @@ import {
 } from "firebase/auth";
 import {
   doc, getDoc, collection, getDocs, query, limit,
+  setDoc, runTransaction, writeBatch, serverTimestamp,
 } from "firebase/firestore";
+import { encodeDocId, decodeDocId } from "./idCodec";
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
@@ -127,6 +129,41 @@ export async function checkCloudHasData(userId) {
     return false;
   }
 }
+
+// ─── FIRESTORE JSON-DOC PRIMITIVES (Task 4) ─────────────────────────────
+// Every per-user state store (terms, objectives index, etc.) is a single
+// JSON blob under users/{uid}/state/{name}. These primitives are the only
+// way Tasks 5-6 touch that shape.
+const stateRef = (uid, name) => doc(db, "users", uid, "state", name);
+async function readDoc(ref) {
+  const snap = await getDoc(ref);
+  return snap.exists() ? (snap.data()?.data ?? null) : null;
+}
+async function writeDoc(ref, dataObj) {
+  await setDoc(ref, { data: dataObj, updatedAt: serverTimestamp() }, { merge: true });
+}
+// Transactional read-merge-write for the shared state docs (finding 11).
+// Returns the merged value so callers can write it back to localStorage (R2-finding 15).
+async function mergeDoc(ref, localVal, mergeFn) {
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const cloud = snap.exists() ? (snap.data()?.data ?? null) : null;
+    const merged = mergeFn(cloud, localVal);
+    tx.set(ref, { data: merged, updatedAt: serverTimestamp() }, { merge: true });
+    return merged;
+  });
+}
+// Chunked batch commit (finding 14): Firestore batch limit is 500; chunk 400.
+async function commitInChunks(writeOps, errors, chunk = 400) {
+  for (let i = 0; i < writeOps.length; i += chunk) {
+    const batch = writeBatch(db);
+    writeOps.slice(i, i + chunk).forEach((op) => op(batch));
+    try { await batch.commit(); }
+    catch (e) { errors.push({ store: "batch", error: { message: e?.message || String(e) } }); }
+  }
+}
+
+export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 
 // ─── MERGE HELPERS ───────────────────────────────────
 // Every push is read-merge-write: fetch cloud first, merge local ON TOP additively,
