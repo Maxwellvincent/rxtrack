@@ -3,7 +3,8 @@
 // environment doesn't provide; jsdom is scoped to just this file.)
 import { describe, it, expect, beforeAll } from "vitest";
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "./firebase";
+import { doc } from "firebase/firestore";
+import { auth, db } from "./firebase";
 import { __test } from "./supabase"; // export the primitives under __test
 
 describe("firestore doc primitives", () => {
@@ -27,5 +28,28 @@ describe("firestore doc primitives", () => {
     localStorage.removeItem("rxt-terms");
     await pullAllDataFromSupabase(uid);
     expect(JSON.parse(localStorage.getItem("rxt-terms"))[0].id).toBe("t1");
+  });
+
+  it("pull is not empty for a kv-only account (no state/objectives/lectures)", async () => {
+    // Fresh user so no state/terms/objectives/lectures docs exist at all —
+    // the ONLY cloud data for this account is a single kv doc. This is the
+    // exact shape that used to trip the early `{ empty: true }` return and
+    // silently skip pullUserKvFromSupabase.
+    try { await createUserWithEmailAndPassword(auth, "kvonly@d.com", "pw1234"); } catch {}
+    const cred = await signInWithEmailAndPassword(auth, "kvonly@d.com", "pw1234");
+    const kvUid = cred.user.uid;
+
+    const kvRef = doc(db, "users", kvUid, "kv", __test.encodeDocId("rxt-question-notes"));
+    await __test.writeDoc(kvRef, { note: "hello" });
+
+    localStorage.clear();
+    const { pullAllDataFromSupabase } = await import("./supabase");
+    const result = await pullAllDataFromSupabase(kvUid);
+    expect(result).not.toEqual({ empty: true });
+
+    // pullUserKvFromSupabase runs in the background (fire-and-forget) off the
+    // non-empty path — give it a tick to land in localStorage.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(JSON.parse(localStorage.getItem("rxt-question-notes"))).toEqual({ note: "hello" });
   });
 });

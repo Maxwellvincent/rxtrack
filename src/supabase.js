@@ -490,10 +490,13 @@ export async function pullAllDataFromSupabase(userId) {
 
   const objsSnap = await getDocs(collection(db, "users", userId, "objectives"));
   const lecsSnap = await getDocs(collection(db, "users", userId, "lectures"));
+  // kv is a canonical store too (e.g. rxt-question-notes, rxt-calibration-log) —
+  // a kv-only account must not hit the empty-return below. Cheap presence check.
+  const kvSnap = await getDocs(query(collection(db, "users", userId, "kv"), limit(1)));
 
   if (
     terms == null && perf == null && comp == null && weak == null && tracker == null &&
-    objsSnap.empty && lecsSnap.empty
+    objsSnap.empty && lecsSnap.empty && kvSnap.empty
   ) {
     console.log("No cloud data found — skipping pull");
     return { empty: true };
