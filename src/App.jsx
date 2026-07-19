@@ -31252,7 +31252,7 @@ Current student level: ${tierLabel}`;
                           color: "var(--color-text-primary, " + t.text1 + ")",
                         }}
                       >
-                        {currentUser.user_metadata?.full_name || "Student"}
+                        {currentUser.displayName || "Student"}
                       </div>
                       <div
                         style={{
