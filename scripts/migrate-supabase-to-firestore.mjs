@@ -74,7 +74,8 @@ const STATE = ["terms", "performance", "completion", "weak_concepts", "tracker"]
 const RECOGNITION_TABLES = [
   ["anki_cards", "ankiCards"],
   ["recognition_items", "recognitionItems"],
-  ["ungenerated_cards", "ungeneratedCards"],
+  // NOTE: ungenerated_cards is NOT a Supabase table (it's derived) — buildRecognitionBank
+  // recomputes the ungenerated set from ankiCards at run time, so nothing to migrate.
 ];
 
 // ---------------------------------------------------------------------------
@@ -354,7 +355,6 @@ async function runVerify() {
     ["question_images", `users/${FB_UID}/questionImages`],
     ["anki_cards", `users/${FB_UID}/ankiCards`],
     ["recognition_items", `users/${FB_UID}/recognitionItems`],
-    ["ungenerated_cards", `users/${FB_UID}/ungeneratedCards`],
   ];
   for (const [table, path] of pairs) {
     const sbCount = await sbTableCount(table);
