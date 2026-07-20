@@ -14892,11 +14892,11 @@ function ObjectivesImporter({
               ) : importStatus === "error" ? (
                 <span style={{ color: "#A32D2D" }}>⚠ Import failed</span>
               ) : (
-                "Import objectives PDF"
+                "Import objectives (PDF / MD)"
               )}
               <input
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.md,.markdown,.txt"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) handleFile(f);
@@ -15016,11 +15016,11 @@ function ObjectivesImporter({
               Processing...
             </span>
           ) : (
-            "📥 Import PDF"
+            "📥 Import PDF / MD"
           )}
           <input
             type="file"
-            accept=".pdf"
+            accept=".pdf,.md,.markdown,.txt"
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) handleFile(f);
@@ -16395,6 +16395,23 @@ async function parseObjectivesFromPDFText(pdfText, onProgress) {
 }
 
 async function extractObjectivesPdfText(file, onProgress) {
+  // Markdown/text upload (e.g. pre-verified marker OCR output) — skip PDF parse + OCR
+  // entirely so known-good text feeds the objective parser directly (no Mistral fallback risk).
+  const _name = (file?.name || "").toLowerCase();
+  const _isText =
+    _name.endsWith(".md") ||
+    _name.endsWith(".markdown") ||
+    _name.endsWith(".txt") ||
+    file?.type === "text/markdown" ||
+    file?.type === "text/plain";
+  if (_isText) {
+    onProgress?.("Reading markdown/text…");
+    const text = await file.text();
+    if (!text || text.trim().length < 100) {
+      throw new Error("Markdown/text file is empty or too short (< 100 chars)");
+    }
+    return text;
+  }
   onProgress?.("Extracting text from PDF...");
   let pdfText = await extractPdfTextFast(file);
   if (!pdfText || pdfText.trim().length < 100) {
