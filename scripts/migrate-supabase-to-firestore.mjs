@@ -246,22 +246,34 @@ async function runMigration() {
     );
   }
 
-  // recognition tables (finding 16) — anki_cards, recognition_items, ungenerated_cards
+  // recognition tables (finding 16) — anki_cards, recognition_items.
+  // PostgREST caps select() at 1000 rows by default, so PAGINATE with .range()
+  // (anki_cards has ~27k rows — without paging only the first 1000 migrate).
+  const PAGE = 1000;
   for (const [table, coll] of RECOGNITION_TABLES) {
-    const { data: rows, error: rowsError } = await sb.from(table).select("*").eq("user_id", SB_UID);
-    if (rowsError) {
-      console.error(`  ${table}: READ ERROR ${rowsError.message}`);
-      throw rowsError;
+    const orderCol = table === "anki_cards" ? "card_id" : "id"; // stable unique PK per table for paging
+    let from = 0, migrated = 0;
+    for (;;) {
+      const { data: rows, error: rowsError } = await sb
+        .from(table).select("*").eq("user_id", SB_UID)
+        .order(orderCol, { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (rowsError) { console.error(`  ${table}: READ ERROR ${rowsError.message}`); throw rowsError; }
+      const batch = rows || [];
+      for (const r of batch) {
+        const id = encodeDocId(r.id ?? r.card_id ?? `${r.deck || ""}_${r.note_id || ""}`); // deterministic from source PK
+        const hash = srcHash(r);
+        await setDoc(
+          db.doc(`users/${FB_UID}/${coll}/${id}`),
+          { ...r, srcHash: hash, srcUpdatedAt: r.updated_at ?? r.created_at ?? null, updatedAt: new Date() },
+          hash
+        );
+      }
+      migrated += batch.length;
+      if (batch.length < PAGE) break; // last page
+      from += PAGE;
     }
-    for (const r of rows || []) {
-      const id = encodeDocId(r.id ?? r.card_id ?? `${r.deck || ""}_${r.note_id || ""}`); // deterministic from source PK
-      const hash = srcHash(r);
-      await setDoc(
-        db.doc(`users/${FB_UID}/${coll}/${id}`),
-        { ...r, srcHash: hash, srcUpdatedAt: r.updated_at ?? r.created_at ?? null, updatedAt: new Date() },
-        hash
-      );
-    }
+    console.log(`  ${table} -> ${coll}: ${migrated} migrated`);
   }
 
   // question_images (finding 15/16) — copy Storage file + meta, deterministic id from storage_path.
