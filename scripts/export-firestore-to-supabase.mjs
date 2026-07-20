@@ -16,6 +16,9 @@
 //   (optional) GOOGLE_APPLICATION_CREDENTIALS — Firebase Admin creds
 //   (optional) FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 — read from the emulator
 //              instead of live Firestore (dry-run)
+//   FB_STORAGE_BUCKET  Firebase Storage bucket name (e.g. rxtrack-med.firebasestorage.app).
+//                       REQUIRED for the question_images step — Louis must set this, or
+//                       admin.storage().bucket() has no default bucket to resolve and throws.
 //
 // Flags:
 //   --count    Print Firestore doc counts per collection for FB_UID. No writes.
@@ -55,7 +58,10 @@ const SB_UID = NEEDS_SUPABASE ? requireEnv("SB_UID") : process.env.SB_UID || "";
 const SB_URL = NEEDS_SUPABASE ? requireEnv("SB_URL") : process.env.SB_URL || "";
 const SB_SERVICE_KEY = NEEDS_SUPABASE ? requireEnv("SB_SERVICE_KEY") : process.env.SB_SERVICE_KEY || "";
 
-admin.initializeApp({ credential: admin.credential.applicationDefault() });
+admin.initializeApp({
+  credential: admin.credential.applicationDefault(),
+  storageBucket: process.env.FB_STORAGE_BUCKET,
+});
 const fdb = admin.firestore();
 
 let sb = null;
@@ -202,6 +208,9 @@ async function runExport() {
 
   // question_images — reverse-copy the Storage object back to the Supabase
   // bucket, then upsert the meta row (onConflict: user_id,storage_path).
+  // Destination basename MUST come from the Firestore storagePath (already globally
+  // unique — it's the encoded unique Supabase storage_path basename Task 8 preserved),
+  // NOT the display filename, so the reverse copy can't collide either.
   for (const d of (await fdb.collection(`users/${FB_UID}/questionImages`).get()).docs) {
     const v = d.data();
     const [file] = await admin
@@ -210,7 +219,8 @@ async function runExport() {
       .file(v.storagePath)
       .download()
       .catch(() => [null]);
-    const sbPath = `${SB_UID}/${encodeURIComponent(v.objectiveId)}_r${v.round ?? 0}/${v.filename}`;
+    const uniqueBase = v.storageFilename || v.storagePath.split("/").pop();
+    const sbPath = `${SB_UID}/${encodeURIComponent(v.objectiveId)}_r${v.round ?? 0}/${uniqueBase}`;
     if (file) {
       const { error: uploadError } = await sb.storage
         .from("question-images")

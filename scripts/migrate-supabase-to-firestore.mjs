@@ -9,6 +9,9 @@
 //   FB_UID           Destination Firebase auth uid
 //   (optional) GOOGLE_APPLICATION_CREDENTIALS — Firebase Admin creds
 //   (optional) FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 — target the emulator instead of live
+//   FB_STORAGE_BUCKET  Firebase Storage bucket name (e.g. rxtrack-med.firebasestorage.app).
+//                       REQUIRED for the question_images step — Louis must set this, or
+//                       admin.storage().bucket() has no default bucket to resolve and throws.
 //
 // Flags:
 //   --count    Print Supabase row counts per table for SB_UID. No writes. No Firestore needed.
@@ -58,7 +61,10 @@ const sb = createClient(SB_URL, SB_SERVICE_KEY);
 
 let db = null;
 if (NEEDS_FIRESTORE) {
-  admin.initializeApp({ credential: admin.credential.applicationDefault() });
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+    storageBucket: process.env.FB_STORAGE_BUCKET,
+  });
   db = admin.firestore();
 }
 
@@ -143,7 +149,11 @@ async function runMigration() {
 
   // state (terms/performance/completion/weak_concepts/tracker)
   for (const name of STATE) {
-    const { data } = await sb.from(name).select("data,updated_at").eq("user_id", SB_UID).maybeSingle();
+    const { data, error } = await sb.from(name).select("data,updated_at").eq("user_id", SB_UID).maybeSingle();
+    if (error) {
+      console.error(`  state/${name}: READ ERROR ${error.message}`);
+      throw error;
+    }
     if (data?.data) {
       const hash = srcHash(data);
       await setDoc(
@@ -155,7 +165,11 @@ async function runMigration() {
   }
 
   // objectives (per block) — encoded id + srcHash (R3-findings 3,4)
-  const { data: objs } = await sb.from("objectives").select("block_id,data,updated_at").eq("user_id", SB_UID);
+  const { data: objs, error: objsError } = await sb.from("objectives").select("block_id,data,updated_at").eq("user_id", SB_UID);
+  if (objsError) {
+    console.error(`  objectives: READ ERROR ${objsError.message}`);
+    throw objsError;
+  }
   for (const o of objs || []) {
     const hash = srcHash(o);
     await setDoc(
@@ -166,7 +180,14 @@ async function runMigration() {
   }
 
   // lectures — encoded id + srcHash
-  const { data: lecs } = await sb.from("lectures").select("lecture_id,block_id,term_id,data,chunks,updated_at").eq("user_id", SB_UID);
+  const { data: lecs, error: lecsError } = await sb
+    .from("lectures")
+    .select("lecture_id,block_id,term_id,data,chunks,updated_at")
+    .eq("user_id", SB_UID);
+  if (lecsError) {
+    console.error(`  lectures: READ ERROR ${lecsError.message}`);
+    throw lecsError;
+  }
   for (const l of lecs || []) {
     const hash = srcHash(l);
     await setDoc(
@@ -185,7 +206,11 @@ async function runMigration() {
   }
 
   // user_kv — encoded key + srcHash
-  const { data: kv } = await sb.from("user_kv").select("key,data,updated_at").eq("user_id", SB_UID);
+  const { data: kv, error: kvError } = await sb.from("user_kv").select("key,data,updated_at").eq("user_id", SB_UID);
+  if (kvError) {
+    console.error(`  user_kv: READ ERROR ${kvError.message}`);
+    throw kvError;
+  }
   for (const r of kv || []) {
     const hash = srcHash(r);
     await setDoc(
@@ -196,7 +221,14 @@ async function runMigration() {
   }
 
   // mcq_bank (deterministic id = idempotent on rerun) — encodeDocId imported at top from idCodec
-  const { data: mcq } = await sb.from("mcq_bank").select("objective_id,round,data,updated_at").eq("user_id", SB_UID);
+  const { data: mcq, error: mcqError } = await sb
+    .from("mcq_bank")
+    .select("objective_id,round,data,updated_at")
+    .eq("user_id", SB_UID);
+  if (mcqError) {
+    console.error(`  mcq_bank: READ ERROR ${mcqError.message}`);
+    throw mcqError;
+  }
   for (const m of mcq || []) {
     const hash = srcHash(m);
     await setDoc(
@@ -215,7 +247,11 @@ async function runMigration() {
 
   // recognition tables (finding 16) — anki_cards, recognition_items, ungenerated_cards
   for (const [table, coll] of RECOGNITION_TABLES) {
-    const { data: rows } = await sb.from(table).select("*").eq("user_id", SB_UID);
+    const { data: rows, error: rowsError } = await sb.from(table).select("*").eq("user_id", SB_UID);
+    if (rowsError) {
+      console.error(`  ${table}: READ ERROR ${rowsError.message}`);
+      throw rowsError;
+    }
     for (const r of rows || []) {
       const id = encodeDocId(r.id ?? r.card_id ?? `${r.deck || ""}_${r.note_id || ""}`); // deterministic from source PK
       const hash = srcHash(r);
@@ -227,11 +263,19 @@ async function runMigration() {
     }
   }
 
-  // question_images (finding 15/16) — copy Storage file + meta, deterministic id from storage_path
-  const { data: imgs } = await sb.from("question_images").select("*").eq("user_id", SB_UID);
+  // question_images (finding 15/16) — copy Storage file + meta, deterministic id from storage_path.
+  // Destination basename MUST come from the Supabase storage_path (already globally unique,
+  // client-randomized), NOT the display filename — two images can share the same original
+  // filename on the same objective+round, which would collide and silently overwrite.
+  const { data: imgs, error: imgsError } = await sb.from("question_images").select("*").eq("user_id", SB_UID);
+  if (imgsError) {
+    console.error(`  question_images: READ ERROR ${imgsError.message}`);
+    throw imgsError;
+  }
   for (const im of imgs || []) {
-    const dest = `question-images/${FB_UID}/${encodeDocId(im.objective_id)}_r${im.round ?? 0}/${encodeDocId(im.filename)}`;
-    const id = encodeDocId(dest); // deterministic from NEW path → idempotent
+    const srcBase = im.storage_path.split("/").pop();
+    const dest = `question-images/${FB_UID}/${encodeDocId(im.objective_id)}_r${im.round ?? 0}/${encodeDocId(srcBase)}`;
+    const id = encodeDocId(dest); // deterministic from NEW (unique) path → idempotent
     const hash = srcHash(im);
 
     if (FLAG_RESUME) {
@@ -242,19 +286,24 @@ async function runMigration() {
       }
     }
 
-    const { data: file } = await sb.storage.from("question-images").download(im.storage_path);
-    if (file) {
-      const buf = Buffer.from(await file.arrayBuffer());
-      await admin.storage().bucket().file(dest).save(buf, { contentType: im.mime_type || "image/jpeg" });
+    const { data: file, error: downloadError } = await sb.storage.from("question-images").download(im.storage_path);
+    if (!file) {
+      console.warn(
+        `  question_images: SKIPPING metadata doc for missing Storage object at ${im.storage_path}` +
+          (downloadError ? ` (${downloadError.message})` : "")
+      );
+      continue; // do not write a ghost metadata doc with no backing Storage object
     }
-    // Store BOTH the original filename and the encoded storage basename (R4-finding 4) so
+    const buf = Buffer.from(await file.arrayBuffer());
+    await admin.storage().bucket().file(dest).save(buf, { contentType: im.mime_type || "image/jpeg" });
+    // Store BOTH the original filename and the encoded unique storage basename (R4-finding 4) so
     // reverse-export knows what to restore vs how to locate the object.
     await db.doc(`users/${FB_UID}/questionImages/${id}`).set({
       objectiveId: im.objective_id,
       round: im.round ?? 0,
       storagePath: dest,
       filename: im.filename,
-      storageFilename: encodeDocId(im.filename),
+      storageFilename: encodeDocId(srcBase),
       mimeType: im.mime_type,
       srcHash: hash,
       srcUpdatedAt: im.added_at ?? null,
