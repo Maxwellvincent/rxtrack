@@ -36,8 +36,12 @@ const GEMINI = defineSecret("GEMINI_API_KEY");
 const ANTHROPIC = defineSecret("ANTHROPIC_API_KEY");
 const ALLOWED_UIDS = defineString("ALLOWED_UIDS", { default: "" });
 
-const GEMINI_MODEL = "gemini-2.5-flash";
-const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
+// Model ids are env-overridable (set GEMINI_MODEL / ANTHROPIC_MODEL in functions/.env
+// to change without a code edit). Defaults use current, new-key-available ids:
+//  - gemini-flash-latest: rolling alias (bare gemini-2.5-flash is closed to NEW API keys)
+//  - claude-sonnet-5: current Sonnet (claude-sonnet-4-20250514 is retired)
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 
 // ── Auth guard (shared) ─────────────────────────────────────────────────────
 function assertAllowed(req) {
