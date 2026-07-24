@@ -8,6 +8,18 @@
 import { isLocalMarkerUp, extractWithLocalMarker } from "./markerLocal";
 import { hasDatalabKey, extractWithDatalab } from "./markerDatalab";
 import { extractTextWithMistral, extractPDFWithMistral } from "./mistralOCR";
+import { normalizeMarkerResult } from "./ocrShared";
+
+const isTextUpload = (file) => {
+  const n = (file?.name || "").toLowerCase();
+  return (
+    n.endsWith(".md") ||
+    n.endsWith(".markdown") ||
+    n.endsWith(".txt") ||
+    file?.type === "text/markdown" ||
+    file?.type === "text/plain"
+  );
+};
 
 const hasMistral = () => !!import.meta.env.VITE_MISTRAL_API_KEY;
 
@@ -19,6 +31,18 @@ const hasMistral = () => !!import.meta.env.VITE_MISTRAL_API_KEY;
 export async function runOcrChain(file, opts = {}) {
   const { onProgress, forceOcr = true, useLlm = false } = opts;
   const errors = [];
+
+  // 0) Markdown/text upload (e.g. pre-verified marker OCR output) — no OCR needed.
+  //    Reuses the same md→pages→chunks normalizer as marker, so every caller
+  //    (lecture, exam, question bank) gets identical chunk/slideImage shapes.
+  if (isTextUpload(file)) {
+    onProgress?.("📄 Reading markdown/text…");
+    const text = await file.text();
+    if (!text || text.trim().length < 100) {
+      throw new Error("Markdown/text file is empty or too short (< 100 chars)");
+    }
+    return normalizeMarkerResult(text, {}, { method: "md-upload" });
+  }
 
   // 1) Local marker (only if the server answers a fast health probe).
   try {
