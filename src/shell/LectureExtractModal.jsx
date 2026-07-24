@@ -50,7 +50,14 @@ export function LectureExtractModal({ onClose }) {
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
 
-        {atoms && !error && (
+        {atoms && atoms.length === 0 && !error && (
+          <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-2">
+            No atoms returned. Either the lecture had no extractable signal, or the AI backend is unavailable
+            (e.g. Firebase billing disabled / model unreachable). Check the console + function logs if this persists.
+          </div>
+        )}
+
+        {atoms && atoms.length > 0 && !error && (
           <div className="space-y-4">
             <div className="font-mono text-[10px] uppercase tracking-wider text-text-3">{atoms.length} high-yield atoms</div>
             {HY_TYPES.map((t) => {
