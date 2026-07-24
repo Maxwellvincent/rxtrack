@@ -1,4 +1,4 @@
-export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRecognize, onImportSchedule, onExtractLecture, onSignOut }) {
+export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRecognize, onImportSchedule, onExtractLecture, onGenMcq, onSignOut }) {
   return (
     <header className="flex h-11 items-center justify-between border-b border-border bg-bg px-4 text-sm">
       <span className="font-mono text-xs text-text-3">
@@ -16,6 +16,9 @@ export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRe
         )}
         {onExtractLecture && (
           <button onClick={onExtractLecture} className="text-text-2 hover:text-text-1" title="Extract lecture signal (.md)">🔬 Extract</button>
+        )}
+        {onGenMcq && (
+          <button onClick={onGenMcq} className="text-text-2 hover:text-text-1" title="Generate Step 1 questions from a lecture">❓ Quiz</button>
         )}
         <button onClick={onToggleTheme} className="text-text-2 hover:text-text-1" aria-label="Toggle theme">
           {theme === "dark" ? "◑ light" : "◐ dark"}
