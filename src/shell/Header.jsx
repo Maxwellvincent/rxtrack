@@ -1,4 +1,4 @@
-export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRecognize, onSignOut }) {
+export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRecognize, onImportSchedule, onSignOut }) {
   return (
     <header className="flex h-11 items-center justify-between border-b border-border bg-bg px-4 text-sm">
       <span className="font-mono text-xs text-text-3">
@@ -10,6 +10,9 @@ export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRe
         )}
         {onRecognize && (
           <button onClick={onRecognize} className="text-text-2 hover:text-text-1" title="Patient Recognition">🩺 Recognize</button>
+        )}
+        {onImportSchedule && (
+          <button onClick={onImportSchedule} className="text-text-2 hover:text-text-1" title="Import term schedule (.md)">📅 Schedule</button>
         )}
         <button onClick={onToggleTheme} className="text-text-2 hover:text-text-1" aria-label="Toggle theme">
           {theme === "dark" ? "◑ light" : "◐ dark"}

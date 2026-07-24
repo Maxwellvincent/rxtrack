@@ -12,6 +12,7 @@ import { Button } from "../ui/Button.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
 import PatientRecognition from "../PatientRecognition.jsx";
+import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { themes } from "../theme.js";
 
 /**
@@ -84,6 +85,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [inSession, setInSession] = useState(false);
   const [showAnki, setShowAnki] = useState(false);
   const [showRecognize, setShowRecognize] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
   const legacyTheme = themes[theme] || themes.dark;
 
@@ -117,6 +119,7 @@ function ShellMain({ theme, toggle, userId }) {
           onToggleTheme={toggle}
           onAnki={() => setShowAnki(true)}
           onRecognize={() => setShowRecognize(true)}
+          onImportSchedule={() => setShowImport(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         <main className="flex-1 overflow-y-auto">
@@ -143,6 +146,7 @@ function ShellMain({ theme, toggle, userId }) {
       />
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
       {showRecognize && <PatientRecognition T={legacyTheme} onClose={() => setShowRecognize(false)} />}
+      {showImport && <ScheduleImportModal userId={userId} onClose={() => setShowImport(false)} />}
     </div>
   );
 }
