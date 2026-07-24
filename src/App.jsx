@@ -16589,7 +16589,7 @@ function ExamResultModal({
           }}
         >
           📄 Upload exam breakdown PDF (AI extracts weak areas)
-          <input type="file" accept=".pdf,application/pdf" style={{ display: "none" }} onChange={onExamPdfUpload} />
+          <input type="file" accept=".pdf,application/pdf,.md,.markdown,.txt" style={{ display: "none" }} onChange={onExamPdfUpload} />
         </label>
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
           <button
@@ -29949,7 +29949,7 @@ Current student level: ${tierLabel}`;
             </div>
             <input
               type="file"
-              accept=".pdf"
+              accept=".pdf,.md,.markdown,.txt"
               multiple
               style={{ display: "none" }}
               onChange={(e) => {
@@ -30031,7 +30031,7 @@ Current student level: ${tierLabel}`;
               {qbankUploading ? "Processing…" : "Choose PDF file(s)"}
               <input
                 type="file"
-                accept=".pdf"
+                accept=".pdf,.md,.markdown,.txt"
                 multiple
                 disabled={qbankUploading}
                 style={{ display: "none" }}
@@ -30242,7 +30242,7 @@ Current student level: ${tierLabel}`;
             </div>
             <input
               type="file"
-              accept=".pdf"
+              accept=".pdf,.md,.markdown,.txt"
               id="block-objectives-file-input"
               style={{ display: "none" }}
               onChange={(e) => {
