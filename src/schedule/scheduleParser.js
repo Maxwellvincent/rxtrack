@@ -68,9 +68,10 @@ export function parseEventLine(line) {
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 // Master scan: a weekday+month+day date header OR a time (range) anchoring an event.
+// End time may be joined by a dash OR just whitespace (marker/OCR often drops the "-").
 const SCAN = new RegExp(
   "(?<date>(?:sun|mon|tue|wed|thu|fri|sat)[a-z]*,?\\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?\\s+\\d{1,2})" +
-  "|(?<time>\\d{1,2}:\\d{2}(?:am|pm)(?:\\s*[-–]\\s*\\d{1,2}:\\d{2}(?:am|pm))?)",
+  "|(?<time>\\d{1,2}:\\d{2}(?:am|pm)(?:\\s*[-–]?\\s+\\d{1,2}:\\d{2}(?:am|pm))?)",
   "gi"
 );
 
