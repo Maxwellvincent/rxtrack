@@ -8,6 +8,7 @@ import { Header } from "./Header.jsx";
 import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
 import { EngineSession } from "../engine/EngineSession.jsx";
+import { CalibrationSession } from "../engine/CalibrationSession.jsx";
 import { Button } from "../ui/Button.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
@@ -81,7 +82,7 @@ function ShellMain({ theme, toggle, userId }) {
   const blocks = useMemo(() => flattenBlocks(readTerms(), readLectures()), []);
   const [activeBlockId, setActiveBlockId] = useState(() => blocks[0]?.id ?? null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [inSession, setInSession] = useState(false);
+  const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);
   const [showRecognize, setShowRecognize] = useState(false);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
@@ -100,13 +101,14 @@ function ShellMain({ theme, toggle, userId }) {
     [blocks]
   );
 
-  const onContinue = useCallback(() => setInSession(true), []);
+  const onContinue = useCallback(() => setSessionMode("engine"), []);
+  const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
 
   return (
     <div className={`theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
       <Sidebar
         activeBlockId={activeBlockId}
-        onSelectBlock={(id) => { setActiveBlockId(id); setInSession(false); }}
+        onSelectBlock={(id) => { setActiveBlockId(id); setSessionMode(null); }}
         onOpenPalette={() => setPaletteOpen(true)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -122,16 +124,26 @@ function ShellMain({ theme, toggle, userId }) {
         <main className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">No terms found in your account yet. Add them in the current app (?shell=old), then reload.</div>
-          ) : inSession && activeBlockId ? (
-            <EngineSession
-              userId={userId}
-              blockId={activeBlockId}
-              blockName={active?.name}
-              newPool={[]}
-              onExit={() => setInSession(false)}
-            />
+          ) : sessionMode && activeBlockId ? (
+            sessionMode === "calibrate" ? (
+              <CalibrationSession
+                userId={userId}
+                blockId={activeBlockId}
+                blockName={active?.name}
+                newPool={[]}
+                onExit={() => setSessionMode(null)}
+              />
+            ) : (
+              <EngineSession
+                userId={userId}
+                blockId={activeBlockId}
+                blockName={active?.name}
+                newPool={[]}
+                onExit={() => setSessionMode(null)}
+              />
+            )
           ) : (
-            <BlockHome blockId={activeBlockId} onContinue={onContinue} />
+            <BlockHome blockId={activeBlockId} onContinue={onContinue} onCalibrate={onCalibrate} />
           )}
         </main>
       </div>
@@ -139,7 +151,7 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setActiveBlockId(it.id); setInSession(false); }}
+        onPick={(it) => { setActiveBlockId(it.id); setSessionMode(null); }}
       />
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
       {showRecognize && <PatientRecognition T={legacyTheme} onClose={() => setShowRecognize(false)} />}
