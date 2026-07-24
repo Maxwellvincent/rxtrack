@@ -26,3 +26,9 @@ dist-ssr
 
 # brainstorm visual companion
 .superpowers/
+
+# Firebase functions params/secrets
+functions/.env
+functions/.env.*
+
+scripts/run-migrate.ps1

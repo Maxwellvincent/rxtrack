@@ -512,39 +512,62 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
 }
 
 export async function parseExamPDF(file, onProgress) {
-  await loadPDFJS();
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
+  // Markdown/text upload (e.g. pre-verified marker OCR output) — skip pdfjs entirely.
+  // No per-page images, so force the standard AI-parse path (grid/slidedeck need PDF pages).
+  const _n = (file?.name || "").toLowerCase();
+  const _isText =
+    _n.endsWith(".md") ||
+    _n.endsWith(".markdown") ||
+    _n.endsWith(".txt") ||
+    file?.type === "text/markdown" ||
+    file?.type === "text/plain";
 
-  onProgress?.("📄 Reading " + pdf.numPages + " pages...");
+  let pages = [];
+  let pdf = null;
+  let fullText = "";
 
-  const pages = [];
-  const OPS = window.pdfjsLib.OPS || {};
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const text = content.items
-      .map((x) => x.str + (x.hasEOL ? "\n" : " "))
-      .join("")
-      .trim();
-    let imgCount = 0;
-    try {
-      const ops = await page.getOperatorList();
-      if (ops && ops.fnArray) {
-        imgCount = ops.fnArray.filter(
-          (fn) =>
-            fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject
-        ).length;
-      }
-    } catch (e) {
-      // ignore
+  if (_isText) {
+    onProgress?.("📄 Reading markdown/text…");
+    const text = await file.text();
+    if (!text || text.trim().length < 50) {
+      throw new Error("Markdown/text file is empty or too short (< 50 chars)");
     }
-    pages.push({ num: i, text, imgCount, pdfPage: page });
+    pages = [{ num: 1, text, imgCount: 0, pdfPage: null }];
+    fullText = text;
+  } else {
+    await loadPDFJS();
+    const arrayBuffer = await file.arrayBuffer();
+    pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
+
+    onProgress?.("📄 Reading " + pdf.numPages + " pages...");
+
+    const OPS = window.pdfjsLib.OPS || {};
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      const text = content.items
+        .map((x) => x.str + (x.hasEOL ? "\n" : " "))
+        .join("")
+        .trim();
+      let imgCount = 0;
+      try {
+        const ops = await page.getOperatorList();
+        if (ops && ops.fnArray) {
+          imgCount = ops.fnArray.filter(
+            (fn) =>
+              fn === OPS.paintImageXObject || fn === OPS.paintJpegXObject
+          ).length;
+        }
+      } catch (e) {
+        // ignore
+      }
+      pages.push({ num: i, text, imgCount, pdfPage: page });
+    }
+
+    fullText = pages.map((p) => p.text).join("\n\n[PAGE_BREAK]\n\n");
   }
 
-  const fullText = pages.map((p) => p.text).join("\n\n[PAGE_BREAK]\n\n");
-
-  const format = detectFormat(pages, fullText);
+  const format = _isText ? "standard" : detectFormat(pages, fullText);
   const formatLabels = {
     grid: "Grid/table slide format",
     slidedeck: "Slide deck format",
@@ -553,7 +576,7 @@ export async function parseExamPDF(file, onProgress) {
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
 
-  const examTitle = file.name.replace(/\.pdf$/i, "");
+  const examTitle = file.name.replace(/\.(pdf|md|markdown|txt)$/i, "");
   let questions = [];
 
   if (format === "grid") {
