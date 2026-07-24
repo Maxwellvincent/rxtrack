@@ -99,8 +99,11 @@ async function callGeminiRaw({ system, prompt, images = [], apiKey, maxTokens = 
   const generationConfig = {
     maxOutputTokens: maxTokens,
     temperature: temperature !== undefined && temperature !== null ? temperature : (json ? 0.1 : 0.7),
-    thinkingConfig: { thinkingBudget: 0 },
   };
+  // thinkingConfig is only valid on gemini-2.5 thinking models; sending it to a
+  // model that lacks thinking support returns 400 INVALID_ARGUMENT. Only include
+  // it when the model id clearly targets 2.5 (rolling aliases may not).
+  if (/2\.5/.test(GEMINI_MODEL)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
   if (json) generationConfig.responseMimeType = "application/json";
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`;
@@ -322,5 +325,14 @@ exports.assertAllowed = assertAllowed;
 exports.parseVignettes = parseVignettes;
 exports.__setFirestoreForTests = __setFirestoreForTests;
 
-exports.buildRecognitionBank = onCall({ secrets: [GEMINI] }, buildRecognitionBankHandler);
-exports.aiComplete = onCall({ secrets: [GEMINI, ANTHROPIC] }, aiCompleteHandler);
+// minInstances:1 keeps one instance warm so callers don't hit Cloud Run
+// cold-start "no available instance" aborts (seen after re-enabling billing).
+// memory 512MiB + 120s timeout give the AI provider calls headroom.
+exports.buildRecognitionBank = onCall(
+  { secrets: [GEMINI], memory: "512MiB", timeoutSeconds: 120 },
+  buildRecognitionBankHandler
+);
+exports.aiComplete = onCall(
+  { secrets: [GEMINI, ANTHROPIC], memory: "512MiB", timeoutSeconds: 120 },
+  aiCompleteHandler
+);
