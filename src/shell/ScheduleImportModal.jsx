@@ -4,7 +4,18 @@ import { readTerms, readLectures } from "./data.js";
 import { parseSchedule } from "../schedule/scheduleParser.js";
 import { scheduleToBlocks } from "../schedule/scheduleToBlocks.js";
 import { mergeScheduleIntoStores } from "../schedule/mergeSchedule.js";
+import { scheduleToIcs } from "../schedule/scheduleToIcs.js";
 import { pushAllLocalDataToSupabase } from "../supabase.js";
+
+function downloadIcs(events, name) {
+  const ics = scheduleToIcs(events, { calName: name });
+  const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = (name || "schedule").replace(/[^\w.-]+/g, "-") + ".ics";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const readExamDates = () => {
   try { return JSON.parse(localStorage.getItem("rxt-exam-dates") || "{}"); }
@@ -95,10 +106,14 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
                 ))}
               </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={confirm} disabled={busy}>{busy ? "Writing…" : "Confirm & import"}</Button>
+              <Button variant="outline" onClick={() => downloadIcs(preview.events, fileName.replace(/\.[^.]+$/, ""))} disabled={busy}>
+                ⬇ Download .ics
+              </Button>
               <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
             </div>
+            <div className="mt-2 text-[10px] text-text-3">.ics → Google Calendar: Settings › Import &amp; export › Import.</div>
           </>
         )}
 
