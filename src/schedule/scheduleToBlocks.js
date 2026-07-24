@@ -6,7 +6,7 @@
 const SYSTEM_NAMES = {
   ER: "Endocrine & Reproductive",
   DM: "Diabetes & Metabolism",
-  NB: "Neuroscience & Behavior",
+  NB: "Nervous System & Behavior",
 };
 
 export function scheduleToBlocks(events = []) {
