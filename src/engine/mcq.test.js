@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -74,6 +74,35 @@ describe("generateMcqs", () => {
   it("errors without an AI call when lecture text is too short", async () => {
     const callAIJSON = vi.fn();
     const r = await generateMcqs({ lectureText: "short" }, { callAIJSON });
+    expect(callAIJSON).not.toHaveBeenCalled();
+    expect(r.error).toBeTruthy();
+  });
+});
+
+describe("parseExemplarsFromMd", () => {
+  const md = "1. A patient presents...?\nA) foo B) bar C) baz D) qux\nAnswer: B\n".repeat(4);
+
+  it("prompt embeds the source text and asks for the questions JSON shape", () => {
+    const p = buildExemplarParsePrompt("QUESTION ONE stem here");
+    expect(p).toContain("QUESTION ONE stem here");
+    expect(p).toMatch(/"questions"/);
+    expect(p).toMatch(/choices/);
+  });
+  it("parses the AI output through normalizeQuestions", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({
+      questions: [
+        { stem: "A patient with X?", choices: { A: "a", B: "b", C: "c", D: "d" }, correct: "B", explanation: "e" },
+        { stem: "", choices: { A: "a", B: "b" }, correct: "A" }, // invalid, dropped
+      ],
+    });
+    const r = await parseExemplarsFromMd(md, { callAIJSON });
+    expect(callAIJSON).toHaveBeenCalledOnce();
+    expect(r.questions).toHaveLength(1);
+    expect(r.questions[0].correct).toBe("B");
+  });
+  it("errors (no AI call) on too-short input", async () => {
+    const callAIJSON = vi.fn();
+    const r = await parseExemplarsFromMd("nope", { callAIJSON });
     expect(callAIJSON).not.toHaveBeenCalled();
     expect(r.error).toBeTruthy();
   });

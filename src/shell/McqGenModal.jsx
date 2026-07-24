@@ -1,15 +1,24 @@
 import { useState, useCallback } from "react";
 import { Button } from "../ui/Button.jsx";
 import { callAIJSON } from "../aiClient.js";
-import { generateMcqs } from "../engine/mcq.js";
+import { generateMcqs, parseExemplarsFromMd } from "../engine/mcq.js";
 
 // Pull any exam-bank questions the student already uploaded (rxt-question-banks)
 // to use as few-shot STYLE exemplars.
 function readExemplars() {
   try {
     const banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
-    return Object.values(banks).flat().filter((q) => q && q.stem && q.choices).slice(0, 5);
+    return Object.values(banks).flat().filter((q) => q && q.stem && q.choices);
   } catch { return []; }
+}
+
+// Persist parsed exam-bank questions so future sessions reuse them as exemplars.
+function persistExemplars(name, questions) {
+  try {
+    const banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    banks[name] = questions;
+    localStorage.setItem("rxt-question-banks", JSON.stringify(banks));
+  } catch { /* ignore quota */ }
 }
 
 const DIFFS = ["easy", "medium", "hard", "expert"];
@@ -23,12 +32,28 @@ export function McqGenModal({ onClose }) {
   const [reveal, setReveal] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const exemplars = readExemplars();
+  const [exemplars, setExemplars] = useState(() => readExemplars());
+  const [exemplarStatus, setExemplarStatus] = useState("");
 
   const onFile = useCallback(async (file) => {
     setError(""); setQuestions(null); setFileName(file?.name || "");
     if (!file) return;
     setLectureText(await file.text());
+  }, []);
+
+  // Upload an exam-bank .md → AI-parse its MCQs → use (and persist) as exemplars.
+  const onExemplarFile = useCallback(async (file) => {
+    if (!file) return;
+    setExemplarStatus("Parsing questions…"); setError("");
+    try {
+      const md = await file.text();
+      const r = await parseExemplarsFromMd(md, { callAIJSON });
+      if (r.error) { setExemplarStatus("Couldn't parse: " + r.error); return; }
+      if (!r.questions.length) { setExemplarStatus("No questions found in that file."); return; }
+      setExemplars(r.questions);
+      persistExemplars(file.name.replace(/\.[^.]+$/, ""), r.questions);
+      setExemplarStatus(`${r.questions.length} exam-bank questions loaded as style exemplars.`);
+    } catch (e) { setExemplarStatus("Error: " + (e?.message || String(e))); }
   }, []);
 
   const generate = useCallback(async () => {
@@ -37,7 +62,7 @@ export function McqGenModal({ onClose }) {
     try {
       const subject = fileName.replace(/\.[^.]+$/, "") || "this lecture";
       const r = await generateMcqs(
-        { lectureText, subject, difficulty, count: Number(count), examples: exemplars },
+        { lectureText, subject, difficulty, count: Number(count), examples: exemplars.slice(0, 5) },
         { callAIJSON }
       );
       if (r.error) setError(r.error);
@@ -62,7 +87,15 @@ export function McqGenModal({ onClose }) {
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onFile(f); }} />
         </label>
 
-        <div className="mb-4 flex flex-wrap items-center gap-3 text-xs">
+        <label className="mb-1 flex cursor-pointer items-center justify-between rounded-lg border border-dashed border-border px-4 py-2 text-xs hover:border-border-strong">
+          <span className="text-text-3">＋ Exam-bank questions .md (optional — matches your school's style)</span>
+          <span className="font-mono text-[10px] text-text-3">browse</span>
+          <input type="file" accept=".md,.markdown,.txt" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onExemplarFile(f); }} />
+        </label>
+        {exemplarStatus && <div className="mb-3 text-[10px] text-text-3">{exemplarStatus}</div>}
+
+        <div className="mt-3 mb-4 flex flex-wrap items-center gap-3 text-xs">
           <label className="flex items-center gap-1.5 text-text-2">Difficulty
             <select value={difficulty} onChange={(e) => setDifficulty(e.target.value)}
               className="rounded-md border border-border bg-bg-elevated px-2 py-1 text-text-1">

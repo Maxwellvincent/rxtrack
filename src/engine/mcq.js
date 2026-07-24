@@ -47,6 +47,35 @@ export function normalizeQuestions(raw) {
   return out;
 }
 
+// ── Exemplar parsing ─────────────────────────────────────────────────────
+// Extract MCQs verbatim from an uploaded exam-bank .md so they can seed style.
+export function buildExemplarParsePrompt(md) {
+  return (
+    `Extract EVERY multiple-choice question from the text below, verbatim.\n` +
+    `For each: the full stem, options A-D, the correct answer letter, and any explanation given.\n` +
+    `Do not invent questions or answers; if the answer key is absent, infer the best-supported letter.\n\n` +
+    `Return ONLY valid JSON:\n` +
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"A","explanation":"..."}]}\n\n` +
+    `TEXT:\n${String(md || "").slice(0, 14000)}`
+  );
+}
+
+export async function parseExemplarsFromMd(md, deps = {}) {
+  const { callAIJSON, maxTokens = 4000 } = deps;
+  if (String(md || "").trim().length < 100) return { error: "Too short to hold questions.", questions: [] };
+  try {
+    const r = await callAIJSON(
+      "You extract multiple-choice questions verbatim from text. Return ONLY JSON.",
+      buildExemplarParsePrompt(md),
+      { questions: [] },
+      maxTokens
+    );
+    return { questions: normalizeQuestions(r) };
+  } catch (e) {
+    return { error: e?.message || String(e), questions: [] };
+  }
+}
+
 const DIFF_LINE = {
   easy: "Straightforward single-concept questions, direct recall.",
   medium: "USMLE Step 1 standard — 2-step clinical reasoning.",
