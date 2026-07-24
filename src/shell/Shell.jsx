@@ -15,6 +15,7 @@ import AnkiSyncModal from "../AnkiSyncModal.jsx";
 import PatientRecognition from "../PatientRecognition.jsx";
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { LectureExtractModal } from "./LectureExtractModal.jsx";
+import { McqGenModal } from "./McqGenModal.jsx";
 import { themes } from "../theme.js";
 
 /**
@@ -89,6 +90,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showRecognize, setShowRecognize] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showExtract, setShowExtract] = useState(false);
+  const [showMcq, setShowMcq] = useState(false);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
   const legacyTheme = themes[theme] || themes.dark;
 
@@ -125,6 +127,7 @@ function ShellMain({ theme, toggle, userId }) {
           onRecognize={() => setShowRecognize(true)}
           onImportSchedule={() => setShowImport(true)}
           onExtractLecture={() => setShowExtract(true)}
+          onGenMcq={() => setShowMcq(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         <main className="flex-1 overflow-y-auto">
@@ -163,6 +166,7 @@ function ShellMain({ theme, toggle, userId }) {
       {showRecognize && <PatientRecognition T={legacyTheme} onClose={() => setShowRecognize(false)} />}
       {showImport && <ScheduleImportModal userId={userId} onClose={() => setShowImport(false)} />}
       {showExtract && <LectureExtractModal onClose={() => setShowExtract(false)} />}
+      {showMcq && <McqGenModal onClose={() => setShowMcq(false)} />}
     </div>
   );
 }
