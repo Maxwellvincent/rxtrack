@@ -3,7 +3,7 @@ import { readTerms, readLectures, flattenBlocks, blockCoverage } from "./data.js
 import { Button } from "../ui/Button.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
 
-export function BlockHome({ blockId, onContinue }) {
+export function BlockHome({ blockId, onContinue, onCalibrate }) {
   const block = useMemo(() => {
     const blocks = flattenBlocks(readTerms(), readLectures());
     return blocks.find((b) => b.id === blockId) || null;
@@ -21,11 +21,21 @@ export function BlockHome({ blockId, onContinue }) {
         {block.lectureCount} lectures{cov != null ? ` · ${cov}% covered` : ""}
       </div>
 
-      <div className="my-4">
-        <Button onClick={onContinue}>▸ Continue learning</Button>
-        <div className="mt-1.5 font-mono text-[10px] text-text-3">
-          adaptive session — teaches, shows a case, then checks you
+      <div className="my-4 flex flex-col gap-3">
+        <div>
+          <Button onClick={onContinue}>▸ Continue learning</Button>
+          <div className="mt-1.5 font-mono text-[10px] text-text-3">
+            adaptive session — teaches, shows a case, then checks you
+          </div>
         </div>
+        {onCalibrate && (
+          <div>
+            <Button variant="outline" onClick={onCalibrate}>◎ Calibrate</Button>
+            <div className="mt-1.5 font-mono text-[10px] text-text-3">
+              rate your confidence before each answer — surfaces sure-but-wrong gaps
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mt-2">
