@@ -93,6 +93,7 @@ import {
   OBJECTIVE_AI_MAX_SECTION,
 } from "./objectiveTextForAi.js";
 import { findRelevantMcqLectureChunk, mcqLectureSnippetPreview } from "./drillLectureSnippet";
+import { storeForKey } from "./stores/index.js";
 
 const STUDY_MODES = {
   DEEP_LEARN: {
@@ -2047,7 +2048,7 @@ function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
     const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
     stored[blockId] = blockConcepts;
     stored.lifetime = lifetimeConcepts;
-    localStorage.setItem("rxt-weak-concepts", JSON.stringify(stored));
+    safeSetItem("rxt-weak-concepts", stored);
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
     getCurrentUser().then((user) => {
       if (user?.id) scheduleDebouncedCloudPush(user.id);
@@ -2145,7 +2146,7 @@ function syncStrugglingToWeakConcepts(blockId) {
     });
     wcStored["lifetime"] = lifetime;
 
-    localStorage.setItem("rxt-weak-concepts", JSON.stringify(wcStored));
+    safeSetItem("rxt-weak-concepts", wcStored);
 
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
 
@@ -2889,20 +2890,35 @@ ${(extractedText || "").slice(0, 6000)}`;
 // ─────────────────────────────────────────────
 // PERSISTENT STORAGE
 // ─────────────────────────────────────────────
+// SP1 T0.3: shared-data keys are owned by src/stores/*, so their writes go
+// through the store module (one codec, one change notification) while every
+// other key keeps the raw localStorage path. userId is intentionally null
+// everywhere in T0.3: the app writes non-namespaced keys today, and namespacing
+// only some call sites would split the data. Namespacing lands with the hooks
+// in T0.4 (docs/sp1/T0.3-spec.md §4).
+function persistItem(key, value) {
+  const store = storeForKey(key);
+  if (store) {
+    store.write(null, typeof value === "string" ? JSON.parse(value) : value);
+    return;
+  }
+
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+
+  const currentSize = serialized.length * 2;
+  if (currentSize > 1024 * 1024) {
+    console.warn(
+      `Large write to ${key}:`,
+      (currentSize / 1024 / 1024).toFixed(2) + "MB"
+    );
+  }
+
+  localStorage.setItem(key, serialized);
+}
+
 function safeSetItem(key, value) {
   try {
-    const serialized =
-      typeof value === "string" ? value : JSON.stringify(value);
-
-    const currentSize = serialized.length * 2;
-    if (currentSize > 1024 * 1024) {
-      console.warn(
-        `Large write to ${key}:`,
-        (currentSize / 1024 / 1024).toFixed(2) + "MB"
-      );
-    }
-
-    localStorage.setItem(key, serialized);
+    persistItem(key, value);
     return true;
   } catch (e) {
     if (e?.name === "QuotaExceededError") {
@@ -2915,9 +2931,7 @@ function safeSetItem(key, value) {
       } catch {}
 
       try {
-        const serialized =
-          typeof value === "string" ? value : JSON.stringify(value);
-        localStorage.setItem(key, serialized);
+        persistItem(key, value);
         return true;
       } catch (e2) {
         console.error("Still failed after clearing:", e2);
@@ -3255,7 +3269,7 @@ function migrateOrphanedRecords(newLec, setPerformanceHistory) {
         lectureId: newId,
       };
       delete perf[oldPerfKey];
-      localStorage.setItem("rxt-performance", JSON.stringify(perf));
+      safeSetItem("rxt-performance", perf);
       console.log(`Migrated performance: ${oldId} → ${newId}`);
       if (typeof setPerformanceHistory === "function") {
         try {
@@ -3272,7 +3286,7 @@ function migrateOrphanedRecords(newLec, setPerformanceHistory) {
         lectureId: newId,
       };
       delete completion[oldCompKey];
-      localStorage.setItem("rxt-completion", JSON.stringify(completion));
+      safeSetItem("rxt-completion", completion);
       console.log(`Migrated completion: ${oldId} → ${newId}`);
       try {
         window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
@@ -3525,7 +3539,7 @@ async function loadLectures() {
       if (changed) { updatedObjs[wk] = { ...data, imported: remapped }; anyChanged = true; }
     });
     if (anyChanged) {
-      localStorage.setItem("rxt-block-objectives", JSON.stringify(updatedObjs));
+      safeSetItem("rxt-block-objectives", updatedObjs);
       console.log(`Remapped ${remappedCount} orphaned objective linkedLecIds to surviving lectures`);
     }
 
@@ -5456,7 +5470,7 @@ function syncSessionToTracker(session, studyCfg) {
     existing.push(newRow);
   }
 
-  localStorage.setItem("rxt-tracker-v2", JSON.stringify(existing));
+  safeSetItem("rxt-tracker-v2", existing);
 }
 
 function getScore(sessions, fn) {
@@ -18534,7 +18548,7 @@ export default function App() {
           rec.sessionCount = rec.sessions?.length || 1;
         }
       });
-      localStorage.setItem("rxt-completion", JSON.stringify(stored));
+      safeSetItem("rxt-completion", stored);
       localStorage.setItem("rxt-completion-migrated-v1", "true");
     } catch (e) {
       console.warn("rxt-completion migration v1:", e);
@@ -18946,7 +18960,7 @@ export default function App() {
       const snapshot = next;
       queueMicrotask(() => {
         try {
-          localStorage.setItem("rxt-tracker-v2", JSON.stringify(snapshot));
+          safeSetItem("rxt-tracker-v2", snapshot);
         } catch {}
       });
       return next;
@@ -18964,7 +18978,7 @@ export default function App() {
   const saveExamDate = (blockId, date) => {
     setExamDates((prev) => {
       const updated = { ...prev, [blockId]: date };
-      localStorage.setItem("rxt-exam-dates", JSON.stringify(updated));
+      safeSetItem("rxt-exam-dates", updated);
       return updated;
     });
   };
@@ -20571,7 +20585,7 @@ export default function App() {
 
         const updatedLecs = allLecs.filter((l) => l.id !== partBId).map((l) => (l.id === partAId ? mergedLec : l));
         try {
-          localStorage.setItem("rxt-lec-meta", JSON.stringify(updatedLecs));
+          safeSetItem("rxt-lec-meta", updatedLecs);
         } catch (e) {
           console.error("mergeSplitLectures persist failed:", e);
         }
@@ -20618,7 +20632,7 @@ export default function App() {
             const fi = fresh.findIndex((l) => l.id === mergedLec.id);
             if (fi >= 0) {
               fresh[fi] = { ...fresh[fi], teachingMap, teachingMapDate: mergedLec.teachingMapDate };
-              localStorage.setItem("rxt-lec-meta", JSON.stringify(fresh));
+              safeSetItem("rxt-lec-meta", fresh);
             }
           } catch (e) {
             console.warn("mergeSplitLectures teaching map persist:", e);
@@ -23746,7 +23760,7 @@ ${levelConfig.name} difficulty. Write 1 MCQ about: ${objText.slice(0, 150)}
 
         perfStored[perfKey] = perfExisting;
       });
-      localStorage.setItem("rxt-performance", JSON.stringify(perfStored));
+      safeSetItem("rxt-performance", perfStored);
 
       window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
       window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
@@ -25199,7 +25213,7 @@ What is the clinical significance of this finding?`,
           });
           if (newStubs.length > 0) {
             const merged = [...metaArr, ...newStubs];
-            localStorage.setItem("rxt-lec-meta", JSON.stringify(merged));
+            safeSetItem("rxt-lec-meta", merged);
             console.log(`Auto-recovered ${newStubs.length} lecture stubs from objectives`);
           }
         } catch (e) {
@@ -25479,7 +25493,7 @@ What is the clinical significance of this finding?`,
     );
     const fullBlock = flat.find((b) => b.id === bid);
     try {
-      localStorage.setItem("rxt-terms", JSON.stringify(nextTerms));
+      safeSetItem("rxt-terms", nextTerms);
     } catch (e) {
       console.error("Failed to update term status:", e);
     }
@@ -26694,7 +26708,7 @@ What is the clinical significance of this finding?`,
 
       allLecs[idx] = mergedLec;
       try {
-        localStorage.setItem("rxt-lec-meta", JSON.stringify(allLecs));
+        safeSetItem("rxt-lec-meta", allLecs);
       } catch (e) {
         console.error("mergePartBIntoPartA persist failed:", e);
       }
@@ -26737,7 +26751,7 @@ What is the clinical significance of this finding?`,
           const fi = fresh.findIndex((l) => l.id === mergedLec.id);
           if (fi >= 0) {
             fresh[fi] = { ...fresh[fi], teachingMap, teachingMapDate: mergedLec.teachingMapDate };
-            localStorage.setItem("rxt-lec-meta", JSON.stringify(fresh));
+            safeSetItem("rxt-lec-meta", fresh);
           }
         } catch (e) {
           console.warn("merge teaching map persist:", e);
@@ -30343,14 +30357,16 @@ Current student level: ${tierLabel}`;
                           const existing = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
                           const existingIds = new Set(existing.map((l) => l.id));
                           const merged = [...existing, ...parsed.filter((l) => !existingIds.has(l.id))];
-                          localStorage.setItem("rxt-lec-meta", JSON.stringify(merged));
+                          safeSetItem("rxt-lec-meta", merged);
                         } else if (key === "rxt-block-objectives" && typeof parsed === "object" && !Array.isArray(parsed)) {
                           // Merge: keep existing blocks, add/overwrite only imported block keys
                           const existing = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
                           const merged = { ...existing, ...parsed };
-                          localStorage.setItem("rxt-block-objectives", JSON.stringify(merged));
+                          safeSetItem("rxt-block-objectives", merged);
                         } else {
-                          localStorage.setItem(key, typeof val === "string" ? val : JSON.stringify(val));
+                          // Dynamic key — safeSetItem routes it to a store module when
+                          // one owns it, otherwise writes raw exactly as before.
+                          safeSetItem(key, val);
                         }
                       } catch (_) {}
                     });
@@ -30396,7 +30412,7 @@ Current student level: ${tierLabel}`;
                           // Re-write localStorage keys with the correct block id
                           try {
                             const remappedLecs = lecMeta.map((l) => ({ ...l, blockId: finalBlockId }));
-                            localStorage.setItem("rxt-lec-meta", (() => {
+                            safeSetItem("rxt-lec-meta", (() => {
                               const existing = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
                               const existingIds = new Set(existing.map((l) => l.id));
                               const merged = [...existing, ...remappedLecs.filter((l) => !existingIds.has(l.id))];
@@ -30405,7 +30421,7 @@ Current student level: ${tierLabel}`;
                             const remappedObjs = { [finalBlockId]: blockObjs[importedBlockId] };
                             const existingObjs = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
                             existingObjs[finalBlockId] = remappedObjs[finalBlockId];
-                            localStorage.setItem("rxt-block-objectives", JSON.stringify(existingObjs));
+                            safeSetItem("rxt-block-objectives", existingObjs);
                           } catch (_) {}
                         } else {
                           // No match — add new block entry to first term
@@ -30440,7 +30456,7 @@ Current student level: ${tierLabel}`;
                               }],
                             }];
                           }
-                          localStorage.setItem("rxt-terms", JSON.stringify(updatedTerms));
+                          safeSetItem("rxt-terms", updatedTerms);
                         }
                         localStorage.setItem("rxt-current-block", finalBlockId);
                       }
@@ -32252,7 +32268,7 @@ Current student level: ${tierLabel}`;
                       if (lecId === 'block' || allLecIds.has(lecId)) cleaned[key] = entry;
                       else console.log(`🗑 Removed orphaned key: ${key}`);
                     });
-                    try { localStorage.setItem('rxt-performance', JSON.stringify(cleaned)); } catch {}
+                    try { safeSetItem("rxt-performance", cleaned); } catch {}
                     return cleaned;
                   });
                 };

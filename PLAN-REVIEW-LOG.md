@@ -89,3 +89,48 @@ Built src/stores/ (base.js namespacing+merge+notify+storage-bridge, merge.js ext
 - DEVIATIONS (Codex skipped; Claude completed): (1) T0.1 docs/sp1/store-inventory.md written from a repo audit — the T0.3 redirect work order; (2) T0.5 ESLint no-restricted-imports for src/shell/features/** vs App.jsx + legacy components; (3) src/shell/features/README.md placeholder.
 - lint clean, build clean after additions.
 - NOT done (as scoped): T0.3 write-redirect (next build), legacy-adapter move. App.jsx/Tracker.jsx untouched this build (invariant held).
+
+## Act 3 — Build (SP1 T0.3)
+
+### Round 1 — Codex build: ABORTED (tooling unavailable)
+`codex exec` started thread `019f9aeb-a08f-7580-a176-eacbd7b19d3f`, returned zero
+model output in 17s, `task_complete` with `last_agent_message: null`, and wrote
+no report and no diff. Probe run surfaced the cause:
+
+```
+ERROR: You've hit your usage limit. To continue using Codex and get access to
+GPT-5.3-Codex, start a free trial of Plus today, or try again at Aug 6th, 2026 11:54 AM.
+```
+
+Codex CLI (0.142.5, ChatGPT-account auth) is unusable until 2026-08-06. Per the
+project rule "if a model CLI is unavailable, say so and fall back to normal
+implementation", Claude implemented `docs/sp1/T0.3-spec.md` directly.
+
+### Round 1 — Claude build + self-verify
+Spec-fidelity notes:
+- §2 store API split landed first; `write()` = authoritative replace,
+  `merge()` = conflict policy. 22 new tests in `src/stores/replaceSemantics.test.js`
+  prove a removed entry stays removed for all 10 modules.
+- §3 redirects went through `safeSetItem` (App), `sSet` (Tracker) and a new
+  `persistLocal` (supabase.js), plus direct store calls in 6 leaf modules.
+- Three in-scope writes hid behind key constants and were NOT in the T0.1
+  inventory: `src/calibration.js` (`STORAGE_KEY`), `src/engine/masteryStore.js`
+  (`KEY` = `rxt-weak-concepts`), `src/ankiConnect.js` (`OBJ_KEY` =
+  `rxt-block-objectives`). All three redirected.
+- Two dynamic-key writes also redirected: App's import/restore branch and
+  supabase's `pullUserKvFromSupabase`.
+
+Self-review caught one regression in the first cut: routing store keys early in
+`safeSetItem` skipped its QuotaExceededError cache-clear-and-retry path — the
+key that actually blows quota is `rxt-lec-meta`. Refactored into `persistItem`
+so the store path is inside the same try/catch and keeps the recovery.
+
+### Claude's verdict — PASS
+- `npm test`: 186 passed, 17 skipped. The 2 failing suites (`authAdapter`,
+  `firestoreAdapter`) fail identically on clean HEAD — they need the Firebase
+  emulator/network. Pre-existing, not caused by this change.
+- `npm run build`: green (14.8s).
+- `npx eslint src/App.jsx`: 4 problems, byte-identical to clean HEAD.
+- Spec §7 grep: no production rows remain; only `src/firestoreAdapter.test.js`
+  (test fixture) touches an in-scope key directly.
+- NOT yet done: live browser smoke that the running app is unchanged.

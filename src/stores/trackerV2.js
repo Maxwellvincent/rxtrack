@@ -1,20 +1,20 @@
-// rxt-calibration-log conflict policy: append-only array union by JSON fingerprint, preserving existing order before incoming records.
+// rxt-tracker-v2 conflict policy: additive KV merge â€” matches the tracker pull in supabase.js.
 import { readJson, writeJson, subscribeToStore } from "./base.js";
 import { mergeKvValue } from "./merge.js";
 
-export const key = "rxt-calibration-log";
-const fallback = [];
+export const key = "rxt-tracker-v2";
+const fallback = null;
 
 export function read(userId) {
   return readJson(userId, key, fallback);
 }
 
-// Authoritative replace — what a local UI write means (a delete must stay deleted).
+// Authoritative replace â€” what a local UI write means (a delete must stay deleted).
 export function write(userId, value) {
   return writeJson(userId, key, value);
 }
 
-// Merge incoming into stored under this key's conflict policy — the sync path.
+// Merge incoming into stored under this key's conflict policy â€” the sync path.
 export function merge(userId, incoming) {
   return writeJson(userId, key, incoming, { fallback, merge: mergeKvValue });
 }

@@ -6,6 +6,9 @@ import { scheduleToBlocks } from "../schedule/scheduleToBlocks.js";
 import { mergeScheduleIntoStores } from "../schedule/mergeSchedule.js";
 import { scheduleToIcs } from "../schedule/scheduleToIcs.js";
 import { pushAllLocalDataToSupabase } from "../supabase.js";
+import * as termsStore from "../stores/terms.js";
+import * as examDatesStore from "../stores/examDates.js";
+import * as lecturesStore from "../stores/lectures.js";
 
 function downloadIcs(events, name) {
   const ics = scheduleToIcs(events, { calName: name });
@@ -55,9 +58,9 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
     setBusy(true); setError("");
     try {
       const { terms, examDates, lectures } = preview.merged;
-      localStorage.setItem("rxt-terms", JSON.stringify(terms));
-      localStorage.setItem("rxt-exam-dates", JSON.stringify(examDates));
-      localStorage.setItem("rxt-lec-meta", JSON.stringify(lectures));
+      termsStore.write(null, terms);
+      examDatesStore.write(null, examDates);
+      lecturesStore.write(null, lectures);
       if (userId) await pushAllLocalDataToSupabase(userId);
       setDone(true);
     } catch (e) { setError("Write failed: " + (e?.message || String(e))); }

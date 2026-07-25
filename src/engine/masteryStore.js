@@ -1,3 +1,5 @@
+import * as weakConceptsStore from "../stores/weakConcepts.js";
+
 const KEY = "rxt-weak-concepts";
 
 function readAll() {
@@ -21,6 +23,6 @@ export function writeConcept(blockId, concept) {
   if (idx === -1) list.push(concept);
   else list[idx] = concept;
   all[blockId] = list;
-  try { localStorage.setItem(KEY, JSON.stringify(all)); } catch {}
+  try { weakConceptsStore.write(null, all); } catch {}
   try { window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated")); } catch {}
 }

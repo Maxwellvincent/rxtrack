@@ -10,7 +10,7 @@ describe("store base", () => {
     localStorage.setItem("rxt-terms", JSON.stringify([{ id: "legacy" }]));
     expect(terms.read("u1")).toEqual([{ id: "legacy" }]);
 
-    terms.write("u1", [{ id: "new" }]);
+    terms.merge("u1", [{ id: "new" }]);
     expect(localStorage.getItem("rxt-terms")).toBe(JSON.stringify([{ id: "legacy" }]));
     expect(JSON.parse(localStorage.getItem(physicalKey("u1", "rxt-terms")))).toEqual([{ id: "legacy" }, { id: "new" }]);
     expect(terms.read("u2")).toEqual([{ id: "legacy" }]);

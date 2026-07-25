@@ -25,6 +25,14 @@ work order for **T0.3** (redirect every shared write through its store module).
 `rxt-reviewed-lecs`, `rxt-supplemental-resources`, `rxt-style-prefs`,
 `rxt-question-notes`, `rxt-histo-bookmarks`, `rxt-histo-conf`, `rxt-histo-manual`.
 
+**T0.3 outcome:** `rxt-tracker-v2` (`stores/trackerV2.js`, `mergeKvValue`) and
+`rxt-mcq-bank` (`stores/mcqBank.js`, `mergeKvValue`) were built, because
+`supabase.js` sync hydration writes both. The other 13 stay on raw localStorage
+and are **deferred** — each needs a conflict policy decided, and none is touched
+by the sync path today. Pick them up with the feature that ports them
+(`rxt-histo-*` with Phase 3, `rxt-question-banks`/`rxt-question-notes` with the
+quiz surfaces, the rest as needed).
+
 ## Local-preference keys (NOT store-managed)
 
 `rxt-new-shell` (→ replaced by the T5.1 resolver), `rxt-shell-theme`,

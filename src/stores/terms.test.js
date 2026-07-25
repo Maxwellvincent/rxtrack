@@ -12,8 +12,8 @@ describe("terms store", () => {
   });
 
   it("merges by term id and preserves distinct blocks", () => {
-    terms.write("u1", [{ id: "t1", name: "Old", blocks: [{ id: "b1" }] }]);
-    terms.write("u1", [{ id: "t1", name: "New", blocks: [{ id: "b2" }] }]);
+    terms.merge("u1", [{ id: "t1", name: "Old", blocks: [{ id: "b1" }] }]);
+    terms.merge("u1", [{ id: "t1", name: "New", blocks: [{ id: "b2" }] }]);
 
     expect(terms.read("u1")).toEqual([{ id: "t1", name: "New", blocks: [{ id: "b1" }, { id: "b2" }] }]);
   });
