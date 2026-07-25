@@ -134,3 +134,26 @@ so the store path is inside the same try/catch and keeps the recovery.
 - Spec §7 grep: no production rows remain; only `src/firestoreAdapter.test.js`
   (test fixture) touches an in-scope key directly.
 - NOT yet done: live browser smoke that the running app is unchanged.
+
+### Live smoke (2026-07-25, :5174, real local data)
+- App boots on the branch, renders terms/blocks + FTM 2 with 350 objectives read
+  from the 163KB `rxt-block-objectives` — reads unaffected.
+- No app console errors (only Chrome-extension message-channel noise).
+- Real write path: Tracker "+ Add Row" persisted `rxt-tracker-v2` AND emitted two
+  `rxt-store-changed` events — the notification seam T0.4's hooks subscribe to.
+  Test row removed afterwards (key back to null, its pre-smoke state).
+- Objectives "By Status" shows 0 under every filter — verified **identical on
+  baseline main**; the view is lecture-scoped and the block has 0 lectures.
+- `rxt-block-objectives` grew 162,967 → 283,411 bytes and 366 → 364 imported
+  during the session: load-time guide enrichment (`pre/post_lecture_guide`,
+  `dla_guide`, `sg_guide` now on all 364) plus dedupe of 2 duplicate ids. It then
+  held stable across reloads, and **baseline main lands on the identical
+  283,411 / 364 / 0-duplicate state**, so this is app load behavior, not the
+  redirect. Worth noting it is exactly what the merge-on-write bug would have
+  masked: under the old merging `write()` the 2 deduped entries would have come
+  back.
+- NOT proven live: the delete-stays-deleted leg. With 0 lectures the tracker row
+  has no UI surface to delete from, so replace semantics rest on the 22 unit
+  tests in `replaceSemantics.test.js`.
+
+**Merged to main** as f732c6f.
