@@ -76,6 +76,46 @@ export async function parseExemplarsFromMd(md, deps = {}) {
   }
 }
 
+// ── Atom-targeted generation ─────────────────────────────────────────────
+// Turn the extracted lecture atoms (the curriculum) into questions that test
+// EACH atom specifically — this is the study/calibration unit.
+export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], subject = "this lecture" } = {}) {
+  const diff = String(difficulty).toLowerCase();
+  const factList = atoms
+    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}`)
+    .join("\n");
+
+  const examplesSection = examples.length
+    ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
+      examples.slice(0, 5).map((q, i) =>
+        `EXAMPLE ${i + 1}:\nQ: ${q.stem}\nA: ${q.choices?.A}  B: ${q.choices?.B}  C: ${q.choices?.C}  D: ${q.choices?.D}\nCorrect: ${q.correct}`
+      ).join("\n\n")
+    : "";
+
+  return (
+    `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
+    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark; 4 options A-D; explanation states the tested fact.\n\n` +
+    `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
+    `FACTS TO TEST (from "${subject}"):\n${factList}` +
+    examplesSection +
+    `\n\nReturn ONLY valid JSON:\n` +
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"A","explanation":"...","topic":"the fact's term","difficulty":"${diff}"}]}`
+  );
+}
+
+export async function generateFromAtoms(cfg = {}, deps = {}) {
+  const { callAIJSON, maxTokens = 6000 } = deps;
+  const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
+  if (!atoms.length) return { error: "No atoms to quiz — extract a lecture first.", questions: [] };
+  try {
+    const prompt = buildAtomQuestionsPrompt(cfg);
+    const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
+    return { questions: normalizeQuestions(result) };
+  } catch (e) {
+    return { error: e?.message || String(e), questions: [] };
+  }
+}
+
 const DIFF_LINE = {
   easy: "Straightforward single-concept questions, direct recall.",
   medium: "USMLE Step 1 standard — 2-step clinical reasoning.",

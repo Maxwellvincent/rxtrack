@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -103,6 +103,34 @@ describe("parseExemplarsFromMd", () => {
   it("errors (no AI call) on too-short input", async () => {
     const callAIJSON = vi.fn();
     const r = await parseExemplarsFromMd("nope", { callAIJSON });
+    expect(callAIJSON).not.toHaveBeenCalled();
+    expect(r.error).toBeTruthy();
+  });
+});
+
+describe("generateFromAtoms", () => {
+  const atoms = [
+    { type: "definition", term: "Herring bodies", content: "Axonal dilations storing hormone+neurophysin." },
+    { type: "relationship", term: "Prolactin", content: "Dopamine inhibits its secretion." },
+  ];
+
+  it("prompt lists each atom as a fact to test, one question per fact", () => {
+    const p = buildAtomQuestionsPrompt({ atoms, subject: "Endocrine" });
+    expect(p).toContain("Herring bodies");
+    expect(p).toContain("Dopamine inhibits");
+    expect(p).toMatch(/one question per fact/i);
+  });
+  it("generates + normalizes questions from atoms", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({
+      questions: [{ stem: "A slide shows dilated axon terminals...?", choices: { A: "Herring bodies", B: "x", C: "y", D: "z" }, correct: "A", explanation: "e" }],
+    });
+    const r = await generateFromAtoms({ atoms }, { callAIJSON });
+    expect(callAIJSON).toHaveBeenCalledOnce();
+    expect(r.questions).toHaveLength(1);
+  });
+  it("errors without an AI call when there are no atoms", async () => {
+    const callAIJSON = vi.fn();
+    const r = await generateFromAtoms({ atoms: [] }, { callAIJSON });
     expect(callAIJSON).not.toHaveBeenCalled();
     expect(r.error).toBeTruthy();
   });
