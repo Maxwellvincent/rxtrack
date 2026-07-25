@@ -1,10 +1,19 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useTheme } from "./theme";
 import { recordWrongAnswer } from "./weakConcepts";
+import { storeForKey } from "./stores/index.js";
 
 // ── Storage ───────────────────────────────────────────────
 function sGet(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } }
-function sSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+// SP1 T0.3: shared-data keys are owned by src/stores/*. userId is null here on
+// purpose — namespacing lands with the hooks in T0.4 (see docs/sp1/T0.3-spec.md).
+function sSet(k, v) {
+  const store = storeForKey(k);
+  try {
+    if (store) store.write(null, v);
+    else localStorage.setItem(k, JSON.stringify(v));
+  } catch {}
+}
 
 /** Spacing for next review after a log (used when syncing `rxt-tracker-v2`). */
 function getNextReviewDate(sessionCount, rating) {
@@ -347,7 +356,7 @@ function cleanOrphanPerfAndCompletion() {
     });
     if (localChanged) {
       changed = true;
-      localStorage.setItem(storeKey, JSON.stringify(stored));
+      sSet(storeKey, stored);
       if (storeKey === "rxt-completion") completionChanged = true;
     }
   });
@@ -559,7 +568,7 @@ export function addLectureToTodayReview(lec, blockId) {
       lectureId: lec.id,
       blockId,
     };
-    localStorage.setItem(completionKey, JSON.stringify(stored));
+    sSet(completionKey, stored);
     window.dispatchEvent(new CustomEvent("rxt-completion-updated"));
     return true;
   } catch (e) {
@@ -5502,7 +5511,7 @@ export default function Tracker({
                         },
                       ];
                     }
-                    localStorage.setItem("rxt-tracker-v2", JSON.stringify(n));
+                    sSet("rxt-tracker-v2", n);
                     setRows(() => n);
                     persist(n);
                     try {

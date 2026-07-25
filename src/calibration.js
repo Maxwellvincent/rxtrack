@@ -7,6 +7,7 @@
  */
 
 import { getCurrentUser, scheduleDebouncedCloudPush } from "./supabase";
+import * as calibrationStore from "./stores/calibration.js";
 
 const STORAGE_KEY = "rxt-calibration-log";
 const MAX_ENTRIES = 5000;
@@ -27,7 +28,7 @@ function loadLog() {
 function saveLog(log) {
   try {
     const trimmed = log.length > MAX_ENTRIES ? log.slice(-MAX_ENTRIES) : log;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+    calibrationStore.write(null, trimmed);
     window.dispatchEvent(new CustomEvent("rxt-calibration-updated"));
     getCurrentUser().then((user) => {
       if (user?.id) scheduleDebouncedCloudPush(user.id);

@@ -4,6 +4,7 @@
  */
 import { callAI } from "./aiClient";
 import { getCurrentUser, scheduleDebouncedCloudPush } from "./supabase";
+import * as weakConceptsStore from "./stores/weakConcepts.js";
 
 /**
  * A lecture is "available" (i.e. it has happened) when it has no scheduled
@@ -91,7 +92,7 @@ function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
     const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
     stored[blockId] = blockConcepts;
     stored.lifetime = lifetimeConcepts;
-    localStorage.setItem("rxt-weak-concepts", JSON.stringify(stored));
+    weakConceptsStore.write(null, stored);
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
     triggerWeakConceptPush();
   } catch (e) {
@@ -328,7 +329,7 @@ export function backfillObjectiveLinks(objectives) {
   }
 
   try {
-    localStorage.setItem("rxt-weak-concepts", JSON.stringify(next));
+    weakConceptsStore.write(null, next);
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
     triggerWeakConceptPush();
   } catch (e) {

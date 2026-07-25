@@ -23,6 +23,8 @@ import {
 import { renderAnnotatableStemNodes } from "./stemAnnotationUtils";
 import { recordWrongAnswer } from "./weakConcepts";
 import { recordCalibration, CALIBRATION_BUCKETS } from "./calibration";
+import * as completionStore from "./stores/completion.js";
+import * as performanceStore from "./stores/performance.js";
 import {
   computeDifficultyTier,
   computeDifficultyLabel,
@@ -143,7 +145,7 @@ function dlLogDeepLearnActivityToCompletion(lectureId, blockId, confidenceLevel)
       reviewDates,
       activityLog,
     };
-    localStorage.setItem("rxt-completion", JSON.stringify(store));
+    completionStore.write(null, store);
   } catch (e) {
     console.warn("dlLogDeepLearnActivityToCompletion failed:", e);
   }
@@ -7668,7 +7670,7 @@ export default function DeepLearn({
         lectureName: rfSessionRecord.lectureName ?? existing.lectureName,
         currentDifficulty: existing.currentDifficulty || "rapid_fire",
       };
-      localStorage.setItem("rxt-performance", JSON.stringify(allPerf));
+      performanceStore.write(null, allPerf);
     } catch (e) {
       console.warn("Rapid Fire performance save failed:", e);
     }

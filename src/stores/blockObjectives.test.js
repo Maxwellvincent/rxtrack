@@ -12,8 +12,8 @@ describe("block objectives store", () => {
   });
 
   it("merges per block and prefers the objective with more drill evidence", () => {
-    objectives.write("u1", { b1: { imported: [{ id: "o1", score: 20, drillCount: 1 }], extracted: [{ id: "e1" }] } });
-    objectives.write("u1", { b1: { imported: [{ id: "o1", score: 90, drillCount: 3 }], extracted: [{ id: "e2" }] } });
+    objectives.merge("u1", { b1: { imported: [{ id: "o1", score: 20, drillCount: 1 }], extracted: [{ id: "e1" }] } });
+    objectives.merge("u1", { b1: { imported: [{ id: "o1", score: 90, drillCount: 3 }], extracted: [{ id: "e2" }] } });
 
     expect(objectives.read("u1").b1).toEqual({
       imported: [{ id: "o1", score: 90, drillCount: 3 }],

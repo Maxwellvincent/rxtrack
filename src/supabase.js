@@ -13,6 +13,18 @@ import {
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { encodeDocId, decodeDocId } from "./idCodec";
+import { storeForKey } from "./stores/index.js";
+
+// SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
+// ALREADY merged by this module's own merge fns — whose argument order differs
+// from the stores' conflict policies — so this is an authoritative replace, not
+// a store merge(). userId stays null: the app writes non-namespaced keys today
+// and namespacing lands with the hooks in T0.4 (docs/sp1/T0.3-spec.md §4).
+function persistLocal(key, value) {
+  const store = storeForKey(key);
+  if (store) store.write(null, value);
+  else localStorage.setItem(key, JSON.stringify(value));
+}
 
 // Auth (and data) gate on Firebase config — name preserved for callers that
 // still check it before showing cloud-dependent UI.
@@ -337,7 +349,7 @@ export async function pushAllLocalDataToSupabase(userId) {
         continue;
       }
       const merged = await mergeDoc(stateRef(userId, name), parsed, mergeFn);
-      localStorage.setItem(lsKey, JSON.stringify(merged));
+      persistLocal(lsKey, merged);
     } catch (e) {
       errors.push({ store: name, error: { message: e?.message || String(e) } });
     }
@@ -361,7 +373,7 @@ export async function pushAllLocalDataToSupabase(userId) {
       errors.push({ store: `objectives:${blockId}`, error: { message: e?.message || String(e) } });
     }
   }
-  try { localStorage.setItem("rxt-block-objectives", JSON.stringify(objStore)); } catch {}
+  try { persistLocal("rxt-block-objectives", objStore); } catch {}
 
   // ── 7. LECTURES (chunked batch, encoded ids, never delete) ──────────────────
   const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
@@ -398,7 +410,7 @@ export async function pushAllLocalDataToSupabase(userId) {
         continue;
       }
       const merged = await mergeDoc(doc(db, "users", userId, "kv", encodeDocId(key)), parsed, mergeKvValue);
-      localStorage.setItem(key, JSON.stringify(merged));
+      persistLocal(key, merged);
     } catch (e) {
       errors.push({ store: `kv:${key}`, error: { message: e?.message || String(e) } });
     }
@@ -457,7 +469,7 @@ export async function pullAllDataFromSupabase(userId) {
   if (terms != null) {
     const localTermsRaw = localStorage.getItem("rxt-terms");
     const mergedTerms = mergeTerms(localTermsRaw ? JSON.parse(localTermsRaw) : null, terms);
-    localStorage.setItem("rxt-terms", JSON.stringify(mergedTerms));
+    persistLocal("rxt-terms", mergedTerms);
   }
 
   // Lectures: cloud adds to local, local stubs preserved.
@@ -477,7 +489,7 @@ export async function pullAllDataFromSupabase(userId) {
     const local = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
     const cloudIds = new Set(fromCloud.map((l) => l.id));
     const localOnly = local.filter((l) => !cloudIds.has(l.id));
-    localStorage.setItem("rxt-lec-meta", JSON.stringify([...fromCloud, ...localOnly]));
+    persistLocal("rxt-lec-meta", [...fromCloud, ...localOnly]);
   }
 
   // Objectives: merge per block using same merge function as push
@@ -488,35 +500,35 @@ export async function pullAllDataFromSupabase(userId) {
       const blockId = decodeDocId(d.id);
       objMap[blockId] = mergeBlockObjectives(local[blockId] ?? null, d.data()?.data ?? null);
     });
-    localStorage.setItem("rxt-block-objectives", JSON.stringify(objMap));
+    persistLocal("rxt-block-objectives", objMap);
   }
 
   // Performance: merge sessions — never lose local sessions
   if (perf != null) {
     const localPerf = localStorage.getItem("rxt-performance");
     const merged = mergePerformance(perf, localPerf ? JSON.parse(localPerf) : {});
-    localStorage.setItem("rxt-performance", JSON.stringify(merged));
+    persistLocal("rxt-performance", merged);
   }
 
   // Completion: merge, take max completionLevel
   if (comp != null) {
     const localComp = localStorage.getItem("rxt-completion");
     const merged = mergeCompletion(comp, localComp ? JSON.parse(localComp) : {});
-    localStorage.setItem("rxt-completion", JSON.stringify(merged));
+    persistLocal("rxt-completion", merged);
   }
 
   // Weak concepts: union
   if (weak != null) {
     const localWeak = localStorage.getItem("rxt-weak-concepts");
     const merged = mergeWeakConcepts(weak, localWeak ? JSON.parse(localWeak) : {});
-    localStorage.setItem("rxt-weak-concepts", JSON.stringify(merged));
+    persistLocal("rxt-weak-concepts", merged);
   }
 
   // Tracker: additive merge
   if (tracker != null) {
     const localTracker = localStorage.getItem("rxt-tracker-v2");
     const merged = mergeKvValue(tracker, localTracker ? JSON.parse(localTracker) : null);
-    localStorage.setItem("rxt-tracker-v2", JSON.stringify(merged));
+    persistLocal("rxt-tracker-v2", merged);
   }
 
   // Pull user_kv in background — non-blocking
@@ -544,7 +556,7 @@ export async function pullUserKvFromSupabase(userId) {
       if (val == null) return;
       const key = decodeDocId(d.id);
       try {
-        localStorage.setItem(key, JSON.stringify(val));
+        persistLocal(key, val);
         count++;
       } catch (e) {
         console.warn("user_kv restore failed for", key, e?.message);
@@ -568,7 +580,7 @@ export async function saveMcqBankEntry(userId, objectiveId, round, data) {
   try {
     const bank = JSON.parse(localStorage.getItem("rxt-mcq-bank") || "{}");
     bank[`${objectiveId}_r${round ?? 0}`] = { ...data, _savedAt: Date.now() };
-    localStorage.setItem("rxt-mcq-bank", JSON.stringify(bank));
+    persistLocal("rxt-mcq-bank", bank);
   } catch { /* storage full — ignore */ }
 
   try {
@@ -594,7 +606,7 @@ export async function pullMcqBankFromSupabase(userId) {
       // Rebuild the local cache key from the doc's own fields, not the encoded doc id.
       bank[`${v.objectiveId}_r${v.round ?? 0}`] = v.data;
     });
-    localStorage.setItem("rxt-mcq-bank", JSON.stringify(bank));
+    persistLocal("rxt-mcq-bank", bank);
     console.log(`mcq: pulled ${snap.docs.length} questions from Firestore`);
   } catch (e) {
     console.warn("mcq pull exception:", e?.message);

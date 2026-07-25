@@ -15,6 +15,7 @@
 // (mixed-content block), so this runs only in local dev / a local build.
 
 import { cardToRow } from "./ankiCards.js";
+import * as blockObjectivesStore from "./stores/blockObjectives.js";
 
 export const ANKI_URL = "http://localhost:8765";
 export const ANKICONNECT_ADDON_CODE = "2055492159";
@@ -249,7 +250,7 @@ export function saveObjectivesToStore(objectives) {
     store[block] = Array.from(merged.values());
     total += incoming.length;
   }
-  localStorage.setItem(OBJ_KEY, JSON.stringify(store));
+  blockObjectivesStore.write(null, store);
   try {
     window.dispatchEvent(new CustomEvent("rxt-objectives-updated"));
   } catch {}
