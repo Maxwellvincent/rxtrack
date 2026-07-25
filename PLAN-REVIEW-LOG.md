@@ -76,3 +76,16 @@ Polish (3):
 "No material blockers remain. Store-first, repo-wide persistence redirect, enforceable shell import boundary, pure schedule extraction as a flip blocker, real Today action-path parity, rollback-able shell defaulting." One trivial consistency polish: safety bullet should mention the T4.1 dev-only fixture-probe exception. → Patched.
 
 CONVERGED in 4 rounds. Plan sound enough to implement.
+
+## Act 3 — Build (Codex writes, Claude verifies)
+
+### Round 1 — Codex build (Phase 0 foundation: T0.1/T0.2/T0.4/T0.5, T0.3 deferred)
+Built src/stores/ (base.js namespacing+merge+notify+storage-bridge, merge.js extracted sync semantics, 8 store modules: terms/lectures/blockObjectives/weakConcepts/performance/completion/examDates/calibration) + src/shell/hooks/ (useStoreResource on useSyncExternalStore, currentUser scope, 8 hooks) + store tests. Report file came back empty (Codex -o didn't capture); verified from diff.
+
+### Claude's verdict — ACCEPT with fixes
+- Quality: HIGH + spec-faithful. base.js = rxt:<uid>:<key> namespacing + legacy read-through fallback + cross-tab window-storage bridge + in-process notify. useStoreResource = stable JSON snapshot + {data,loading,error,mutate}. Stores document conflict policy + reuse real merge semantics.
+- Proof: `npm run build` ✓. New store/hook tests pass. Full suite 164 pass; only pre-existing authAdapter/firestoreAdapter (Firebase-network) fail — unrelated.
+- BUG FIXED by Claude: useTerms.test.js used JSX in a .js file → Rollup parse error. Renamed → .jsx. Now parses/passes.
+- DEVIATIONS (Codex skipped; Claude completed): (1) T0.1 docs/sp1/store-inventory.md written from a repo audit — the T0.3 redirect work order; (2) T0.5 ESLint no-restricted-imports for src/shell/features/** vs App.jsx + legacy components; (3) src/shell/features/README.md placeholder.
+- lint clean, build clean after additions.
+- NOT done (as scoped): T0.3 write-redirect (next build), legacy-adapter move. App.jsx/Tracker.jsx untouched this build (invariant held).

@@ -71,4 +71,17 @@ export default defineConfig([
       'no-unused-vars': 'off',
     },
   },
+  {
+    // SP1 boundary (T0.5): ported shell features must not reach back into the
+    // monolith. They read the store hooks + pure logic modules instead.
+    files: ['src/shell/features/**/*.{js,jsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/App', '**/App.jsx'], message: 'SP1: shell features must not import the App.jsx monolith — use src/shell/hooks + src/shell/logic.' },
+          { group: ['**/Tracker.jsx', '**/DeepLearn.jsx', '**/ObjectiveTracker.jsx', '**/HistoStudy.jsx', '**/PatientRecognition.jsx', '**/LearningModel.jsx'], message: 'SP1: shell features must not import legacy top-level feature components — port them or use a bounded legacy adapter.' },
+        ],
+      }],
+    },
+  },
 ])
