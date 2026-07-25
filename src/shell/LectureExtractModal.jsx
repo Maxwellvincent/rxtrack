@@ -3,6 +3,14 @@ import { Button } from "../ui/Button.jsx";
 import { callAIJSON } from "../aiClient.js";
 import { extractTypedHighYield } from "../engine/extractHighYield.js";
 import { HY_TYPES } from "../engine/highYield.js";
+import { generateFromAtoms } from "../engine/mcq.js";
+
+function readExemplars() {
+  try {
+    const banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    return Object.values(banks).flat().filter((q) => q && q.stem && q.choices).slice(0, 5);
+  } catch { return []; }
+}
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -16,9 +24,12 @@ export function LectureExtractModal({ onClose }) {
   const [atoms, setAtoms] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [quiz, setQuiz] = useState(null); // generated questions from atoms
+  const [quizzing, setQuizzing] = useState(false);
+  const [reveal, setReveal] = useState({});
 
   const run = useCallback(async (file) => {
-    setError(""); setAtoms(null); setFileName(file?.name || "");
+    setError(""); setAtoms(null); setQuiz(null); setReveal({}); setFileName(file?.name || "");
     if (!file) return;
     setBusy(true);
     try {
@@ -30,6 +41,21 @@ export function LectureExtractModal({ onClose }) {
     } catch (e) { setError(e?.message || String(e)); }
     finally { setBusy(false); }
   }, []);
+
+  const quizMe = useCallback(async () => {
+    if (!atoms?.length) return;
+    setQuizzing(true); setError(""); setQuiz(null); setReveal({});
+    try {
+      const subject = fileName.replace(/\.[^.]+$/, "") || "this lecture";
+      const r = await generateFromAtoms(
+        { atoms, subject, difficulty: "medium", examples: readExemplars() },
+        { callAIJSON }
+      );
+      if (r.error) setError(r.error);
+      setQuiz(r.questions || []);
+    } catch (e) { setError(e?.message || String(e)); }
+    finally { setQuizzing(false); }
+  }, [atoms, fileName]);
 
   const byType = (t) => (atoms || []).filter((a) => a.type === t);
 
@@ -54,6 +80,35 @@ export function LectureExtractModal({ onClose }) {
           <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-2">
             No atoms returned. Either the lecture had no extractable signal, or the AI backend is unavailable
             (e.g. Firebase billing disabled / model unreachable). Check the console + function logs if this persists.
+          </div>
+        )}
+
+        {atoms && atoms.length > 0 && (
+          <div className="mb-4 flex items-center gap-3">
+            <Button onClick={quizMe} disabled={quizzing}>{quizzing ? "Writing questions…" : "▸ Quiz me on these"}</Button>
+            <span className="text-[10px] text-text-3">one Step-1 question per atom — this is what you learn</span>
+          </div>
+        )}
+
+        {quiz && quiz.length > 0 && (
+          <div className="mb-5 space-y-3">
+            <div className="font-mono text-[10px] uppercase tracking-wider text-accent-text">{quiz.length} questions from your atoms</div>
+            {quiz.map((q, i) => (
+              <div key={i} className="rounded-lg border border-border bg-bg-elevated p-3">
+                <div className="mb-2 text-sm text-text-1">{i + 1}. {q.stem}</div>
+                <div className="flex flex-col gap-1">
+                  {Object.entries(q.choices).map(([letter, txt]) => {
+                    const shown = reveal[i]; const ok = letter === q.correct;
+                    return <div key={letter} className={"text-xs " + (shown ? (ok ? "text-good font-semibold" : "text-text-3") : "text-text-2")}><span className="font-mono">{letter}.</span> {txt}{shown && ok ? "  ✓" : ""}</div>;
+                  })}
+                </div>
+                {!reveal[i] ? (
+                  <button onClick={() => setReveal((r) => ({ ...r, [i]: true }))} className="mt-2 text-[11px] text-accent-text hover:underline">Show answer</button>
+                ) : (
+                  q.explanation && <div className="mt-2 rounded border-l-2 border-accent bg-panel p-2 text-[11px] leading-relaxed text-text-2">{q.explanation}</div>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
