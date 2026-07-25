@@ -134,4 +134,10 @@ describe("generateFromAtoms", () => {
     expect(callAIJSON).not.toHaveBeenCalled();
     expect(r.error).toBeTruthy();
   });
+  it("caps the fact list so the response JSON can't overflow", () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({ type: "definition", term: "T" + i, content: "c" }));
+    const p = buildAtomQuestionsPrompt({ atoms: many });
+    expect(p).toContain("T9");       // 10th (index 9) present
+    expect(p).not.toContain("T10");  // 11th capped out
+  });
 });

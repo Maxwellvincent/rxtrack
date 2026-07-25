@@ -79,9 +79,14 @@ export async function parseExemplarsFromMd(md, deps = {}) {
 // ── Atom-targeted generation ─────────────────────────────────────────────
 // Turn the extracted lecture atoms (the curriculum) into questions that test
 // EACH atom specifically — this is the study/calibration unit.
+// Cap questions per call — too many overflow the model's output budget and
+// truncate the JSON. 10 keeps one response well within limits.
+export const ATOM_QUIZ_CAP = 10;
+
 export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], subject = "this lecture" } = {}) {
   const diff = String(difficulty).toLowerCase();
   const factList = atoms
+    .slice(0, ATOM_QUIZ_CAP)
     .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}`)
     .join("\n");
 
@@ -104,7 +109,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
 }
 
 export async function generateFromAtoms(cfg = {}, deps = {}) {
-  const { callAIJSON, maxTokens = 6000 } = deps;
+  const { callAIJSON, maxTokens = 8000 } = deps;
   const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
   if (!atoms.length) return { error: "No atoms to quiz — extract a lecture first.", questions: [] };
   try {
