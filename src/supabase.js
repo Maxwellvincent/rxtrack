@@ -368,7 +368,11 @@ export async function pushAllLocalDataToSupabase(userId) {
   const lecOps = [];
   for (const l of lecs) {
     const { chunks, ...meta } = l;
-    const payload = { data: meta, chunks: chunks || [], blockId: l.blockId, termId: l.termId };
+    const payload = { data: meta, blockId: l.blockId, termId: l.termId };
+    // Only write chunks when we actually hold them. Omitting the field lets
+    // Firestore's merge PRESERVE the existing cloud chunks — so lectures we
+    // keep chunk-light in localStorage (older terms) don't get wiped on sync.
+    if (chunks && chunks.length) payload.chunks = chunks;
     if (JSON.stringify(payload).length > MAX_DOC_BYTES) {
       errors.push({ store: `lectures:${l.id}`, error: { message: "oversized, skipped" } });
       continue;
@@ -456,11 +460,19 @@ export async function pullAllDataFromSupabase(userId) {
     localStorage.setItem("rxt-terms", JSON.stringify(mergedTerms));
   }
 
-  // Lectures: cloud adds to local, local stubs preserved
+  // Lectures: cloud adds to local, local stubs preserved.
+  // Heavy per-page `chunks` are hydrated into localStorage ONLY for the active
+  // (most recent) term — older terms stay chunk-light so localStorage doesn't
+  // blow the ~5MB quota. Their chunks live in Firestore, fetched on demand.
   if (!lecsSnap.empty) {
+    const termsArr = (() => { try { return JSON.parse(localStorage.getItem("rxt-terms") || "[]"); } catch { return []; } })();
+    const activeTerm = termsArr[termsArr.length - 1];
+    const activeBlockIds = new Set((activeTerm?.blocks || []).map((b) => b.id));
     const fromCloud = lecsSnap.docs.map((d) => {
       const v = d.data();
-      return { ...(v.data || {}), chunks: v.chunks || [], id: decodeDocId(d.id) };
+      const lec = { ...(v.data || {}), id: decodeDocId(d.id) };
+      lec.chunks = activeBlockIds.has(lec.blockId) ? (v.chunks || []) : [];
+      return lec;
     });
     const local = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
     const cloudIds = new Set(fromCloud.map((l) => l.id));
