@@ -1,0 +1,5440 @@
+{
+  "context": {
+    "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+    "now": "2026-07-27T16:07:24.801Z",
+    "terms": [
+      {
+        "id": "term1",
+        "blocks": [
+          {
+            "id": "ftm1",
+            "startDate": null
+          },
+          {
+            "id": "ftm2",
+            "startDate": null
+          },
+          {
+            "id": "msk",
+            "startDate": "2026-02-27"
+          },
+          {
+            "id": "cpr1",
+            "startDate": "2026-03-26"
+          },
+          {
+            "id": "CPR2",
+            "startDate": null
+          },
+          {
+            "id": "mnc34p13tyl",
+            "startDate": null
+          },
+          {
+            "id": "cpr2",
+            "startDate": null
+          }
+        ]
+      },
+      {
+        "id": "mrsphtea28y",
+        "blocks": [
+          {
+            "id": "mrspx2sg9go",
+            "startDate": null
+          },
+          {
+            "id": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+            "startDate": "2026-09-01"
+          },
+          {
+            "id": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
+            "startDate": "2026-10-01"
+          }
+        ]
+      }
+    ],
+    "blockMeta": {
+      "id": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+      "name": "Diabetes & Metabolism",
+      "type": "standard",
+      "status": "upcoming",
+      "startDate": "2026-09-01",
+      "createdAt": "2026-07-24T19:07:42.173Z"
+    },
+    "lectures": [
+      {
+        "id": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 01",
+        "lectureType": "LEC",
+        "lectureNumber": 1,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 02",
+        "lectureType": "LEC",
+        "lectureNumber": 2,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 03",
+        "lectureType": "LEC",
+        "lectureNumber": 3,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "0794b697-7477-4b63-9007-5ac89d1b2408",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 04",
+        "lectureType": "LEC",
+        "lectureNumber": 4,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 05",
+        "lectureType": "LEC",
+        "lectureNumber": 5,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 06",
+        "lectureType": "LEC",
+        "lectureNumber": 6,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "92407e16-be8d-4d0e-b61d-c913c06fa47d",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 07",
+        "lectureType": "LEC",
+        "lectureNumber": 7,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "2851cd6e-55f9-4589-9786-827ed1d2fc07",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 08",
+        "lectureType": "LEC",
+        "lectureNumber": 8,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "7f7ec95a-6823-4dc7-a7e0-d8f0e3b8e154",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 09",
+        "lectureType": "LEC",
+        "lectureNumber": 9,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "b49ad0f1-1ab9-4a06-ab22-5dbf66b67dd4",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 10",
+        "lectureType": "LEC",
+        "lectureNumber": 10,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "9fa79790-b39f-4521-b702-d8a10d1cebe4",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 11",
+        "lectureType": "LEC",
+        "lectureNumber": 11,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "4f7107d1-8cb1-492b-a90c-d99a7c19bac1",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 12",
+        "lectureType": "LEC",
+        "lectureNumber": 12,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "16833be7-cb6e-41a7-a93c-d060678f0317",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 13",
+        "lectureType": "LEC",
+        "lectureNumber": 13,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "f4a7b70f-1be0-4dbd-8b48-86f52e7b9aaf",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 14",
+        "lectureType": "LEC",
+        "lectureNumber": 14,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "1fdb5b86-98f4-4a35-bc7b-a4cc11c4fcd6",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 15",
+        "lectureType": "LEC",
+        "lectureNumber": 15,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "9d0c6f9c-c32f-4184-aaa8-e614ff9e62ff",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 16",
+        "lectureType": "LEC",
+        "lectureNumber": 16,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "ee8232ab-fa62-40c3-8a98-1bdfcc4f2774",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 17",
+        "lectureType": "LEC",
+        "lectureNumber": 17,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "9e5b442f-649b-4034-9b86-19d7371d67c0",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 18",
+        "lectureType": "LEC",
+        "lectureNumber": 18,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "5afd0e36-e52a-4063-8e04-cf7390da6169",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 19",
+        "lectureType": "LEC",
+        "lectureNumber": 19,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "fb1674e7-8a9d-48ba-a86e-2aebf6dbc597",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 20",
+        "lectureType": "LEC",
+        "lectureNumber": 20,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "fb4f3307-e2ea-4dd9-88f2-93f278a22b2e",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 21",
+        "lectureType": "LEC",
+        "lectureNumber": 21,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "5efa5c43-ebd1-4bfd-8d35-87612fe7c869",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 22",
+        "lectureType": "LEC",
+        "lectureNumber": 22,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "f7cd532d-27bf-4545-8222-999b3b04b565",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 23",
+        "lectureType": "LEC",
+        "lectureNumber": 23,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "4e4a8f46-dda0-41f1-8fd9-6f2689e4b302",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 24",
+        "lectureType": "LEC",
+        "lectureNumber": 24,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "3de8113a-f8ff-4d8b-a946-353dfed6d527",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 25",
+        "lectureType": "LEC",
+        "lectureNumber": 25,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "27078704-b627-406d-a6f3-44912125b321",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 26",
+        "lectureType": "LEC",
+        "lectureNumber": 26,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "b7b6a913-d98c-4770-af58-76b622b35aa7",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 27",
+        "lectureType": "LEC",
+        "lectureNumber": 27,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "12c9c39c-cd7a-46da-bca6-1708b0ad8ae6",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 28",
+        "lectureType": "LEC",
+        "lectureNumber": 28,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "1b1e156e-fa26-4209-b587-0ab648c1d036",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 29",
+        "lectureType": "LEC",
+        "lectureNumber": 29,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "6c100875-c870-4201-a45d-e3d1c9e76490",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 30",
+        "lectureType": "LEC",
+        "lectureNumber": 30,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "305b1804-5614-4bee-b1ac-728fdd475805",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 31",
+        "lectureType": "LEC",
+        "lectureNumber": 31,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "4bff0af0-19e5-4b98-93e3-a8293bd5109f",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 32",
+        "lectureType": "LEC",
+        "lectureNumber": 32,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "054d33f8-08c0-4c69-b41a-f7b26bb77c95",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 33",
+        "lectureType": "LEC",
+        "lectureNumber": 33,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "eed2f9d1-d768-4e5e-8358-df06ab13ebcc",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 34",
+        "lectureType": "LEC",
+        "lectureNumber": 34,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "92894adb-0146-4581-bbb5-f0f414a1cc69",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 35",
+        "lectureType": "LEC",
+        "lectureNumber": 35,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "4948ef60-e8b7-4069-8f2d-18b54983f099",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 36",
+        "lectureType": "LEC",
+        "lectureNumber": 36,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "1c6ebeda-ccee-4697-acd2-88928306e9fe",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 37",
+        "lectureType": "LEC",
+        "lectureNumber": 37,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "cbde0355-ea9b-47b5-8cd8-5f9d7ccb4792",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 38",
+        "lectureType": "LEC",
+        "lectureNumber": 38,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "e7933138-f397-4e95-bdb7-b3bacb14b443",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 39",
+        "lectureType": "LEC",
+        "lectureNumber": 39,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "84462978-dd57-45a0-9933-47f28fc17c04",
+        "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+        "lectureTitle": null,
+        "fileName": "DM LEC 40",
+        "lectureType": "LEC",
+        "lectureNumber": 40,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      }
+    ],
+    "objectives": [],
+    "examDates": {
+      "mrspx2sg9go": "2026-08-31",
+      "CPR2": "2026-05-12",
+      "msk": "2026-03-25",
+      "52edb3b6-f115-4139-80a5-c6637a6465cc": "2026-09-30",
+      "cpr1": "2026-04-16",
+      "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6": "2026-10-23"
+    },
+    "examDate": "2026-09-30",
+    "performance": {
+      "cpr2-dla13__CPR2": {
+        "lastScore": 86,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 57
+          },
+          {
+            "score": 86
+          }
+        ]
+      },
+      "cpr2-dla15__CPR2": {
+        "lastScore": 40,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 40
+          }
+        ]
+      },
+      "cpr2-dla16__CPR2": {
+        "lastScore": 40,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 63
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 40
+          }
+        ]
+      },
+      "cpr2-dla17__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 57
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec25__CPR2": {
+        "lastScore": 64,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 64
+          },
+          {
+            "score": 64
+          }
+        ]
+      },
+      "cpr2-lec26__CPR2": {
+        "lastScore": 71,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 78
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 56
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 71
+          }
+        ]
+      },
+      "cpr2-lec27__CPR2": {
+        "lastScore": 60,
+        "confidenceLevel": "Medium",
+        "nextReview": "2026-04-25T02:03:00.516Z",
+        "sessions": [
+          {
+            "score": 65
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 90
+          },
+          {
+            "score": 60
+          }
+        ]
+      },
+      "cpr2-lec28__CPR2": {
+        "lastScore": 91,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 80
+          },
+          {
+            "score": 88
+          },
+          {
+            "score": 91
+          },
+          {
+            "score": 91
+          }
+        ]
+      },
+      "cpr2-lec29__CPR2": {
+        "lastScore": 100,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 33
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 64
+          },
+          {
+            "score": 69
+          },
+          {
+            "score": 69
+          },
+          {
+            "score": 100
+          }
+        ]
+      },
+      "cpr2-lec30__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec31__CPR2": {
+        "lastScore": 70,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 78
+          },
+          {
+            "score": 80
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 77
+          },
+          {
+            "score": 77
+          },
+          {
+            "score": 70
+          }
+        ]
+      },
+      "cpr2-lec32__CPR2": {
+        "lastScore": 60,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 83
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 60
+          }
+        ]
+      },
+      "cpr2-lec33__CPR2": {
+        "lastScore": 90,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 80
+          },
+          {
+            "score": 90
+          }
+        ]
+      },
+      "cpr2-lec34__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec35__CPR2": {
+        "lastScore": 50,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 67
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 50
+          }
+        ]
+      },
+      "cpr2-lec36__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 71
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-dla14a__CPR2": {
+        "lastScore": 70,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 70
+          }
+        ]
+      }
+    },
+    "lecturePerformance": {
+      "048baae3-b61e-4122-92a3-2a4708c6f29a": null,
+      "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5": null,
+      "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576": null,
+      "0794b697-7477-4b63-9007-5ac89d1b2408": null,
+      "a10c8945-44a1-40c8-927f-23b9c5f64c24": null,
+      "1c58aaf6-38f7-4e91-af67-e6459b214a3f": null,
+      "92407e16-be8d-4d0e-b61d-c913c06fa47d": null,
+      "2851cd6e-55f9-4589-9786-827ed1d2fc07": null,
+      "7f7ec95a-6823-4dc7-a7e0-d8f0e3b8e154": null,
+      "b49ad0f1-1ab9-4a06-ab22-5dbf66b67dd4": null,
+      "9fa79790-b39f-4521-b702-d8a10d1cebe4": null,
+      "4f7107d1-8cb1-492b-a90c-d99a7c19bac1": null,
+      "16833be7-cb6e-41a7-a93c-d060678f0317": null,
+      "f4a7b70f-1be0-4dbd-8b48-86f52e7b9aaf": null,
+      "1fdb5b86-98f4-4a35-bc7b-a4cc11c4fcd6": null,
+      "9d0c6f9c-c32f-4184-aaa8-e614ff9e62ff": null,
+      "ee8232ab-fa62-40c3-8a98-1bdfcc4f2774": null,
+      "9e5b442f-649b-4034-9b86-19d7371d67c0": null,
+      "5afd0e36-e52a-4063-8e04-cf7390da6169": null,
+      "fb1674e7-8a9d-48ba-a86e-2aebf6dbc597": null,
+      "fb4f3307-e2ea-4dd9-88f2-93f278a22b2e": null,
+      "5efa5c43-ebd1-4bfd-8d35-87612fe7c869": null,
+      "f7cd532d-27bf-4545-8222-999b3b04b565": null,
+      "4e4a8f46-dda0-41f1-8fd9-6f2689e4b302": null,
+      "3de8113a-f8ff-4d8b-a946-353dfed6d527": null,
+      "27078704-b627-406d-a6f3-44912125b321": null,
+      "b7b6a913-d98c-4770-af58-76b622b35aa7": null,
+      "12c9c39c-cd7a-46da-bca6-1708b0ad8ae6": null,
+      "1b1e156e-fa26-4209-b587-0ab648c1d036": null,
+      "6c100875-c870-4201-a45d-e3d1c9e76490": null,
+      "305b1804-5614-4bee-b1ac-728fdd475805": null,
+      "4bff0af0-19e5-4b98-93e3-a8293bd5109f": null,
+      "054d33f8-08c0-4c69-b41a-f7b26bb77c95": null,
+      "eed2f9d1-d768-4e5e-8358-df06ab13ebcc": null,
+      "92894adb-0146-4581-bbb5-f0f414a1cc69": null,
+      "4948ef60-e8b7-4069-8f2d-18b54983f099": null,
+      "1c6ebeda-ccee-4697-acd2-88928306e9fe": null,
+      "cbde0355-ea9b-47b5-8cd8-5f9d7ccb4792": null,
+      "e7933138-f397-4e95-bdb7-b3bacb14b443": null,
+      "84462978-dd57-45a0-9933-47f28fc17c04": null
+    },
+    "completion": {
+      "cpr2-dla15__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-28T23:16:25.706Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-28",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:58:20.768Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:43:20.821Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla16__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T00:50:05.120Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T00:33:19.020Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T07:14:16.679Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla17__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-26T06:12:28.210Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T04:07:41.256Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec25__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-25T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-23T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-18T20:53:53.704Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-17",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-17",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec26__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-25T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T23:38:42.908Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-23T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-19T18:40:42.499Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-19T18:30:31.022Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-17",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec27__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-05-02T04:23:43.528Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-02",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-01T21:58:44.310Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-01",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29T23:38:05.254Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T23:43:52.790Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T03:25:48.590Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-22",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-20T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec28__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-20T20:02:19.833Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-20T19:50:42.818Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec29__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-24T06:56:47.476Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-20T20:42:20.964Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec30__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T23:33:14.321Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29T00:54:01.088Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T02:38:16.954Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-22T03:00:24.101Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec31__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T00:33:46.287Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T01:54:46.579Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T01:26:36.489Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec32__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T22:26:59.202Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T06:31:36.797Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T03:11:14.266Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec33__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T22:45:11.280Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-27T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T04:12:08.625Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec34__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-26T21:28:27.022Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T07:01:45.213Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec35__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T23:12:16.920Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T21:50:38.694Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T22:40:08.071Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec36__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-26T06:04:02.353Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T23:09:18.011Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla14a__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-05-01T04:42:12.029Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-01",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T06:49:49.458Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla13__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-25T02:43:26.211Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:33:26.946Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:22:21.903Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      }
+    },
+    "reviewedLectures": {
+      "50af8058-8f25-40dd-812e-5373a36c2249__msk": {
+        "date": "2026-03-04T03:22:44.638Z",
+        "method": "manual"
+      },
+      "mm8h25j00tv__msk": {
+        "date": "2026-03-04T03:39:03.175Z",
+        "method": "manual"
+      },
+      "mm8h9rnbz67__msk": {
+        "method": "manual",
+        "date": "2026-03-04T03:31:52.587Z"
+      },
+      "mm8h7xx2y2n__msk": {
+        "date": "2026-03-04T03:31:40.522Z",
+        "method": "manual"
+      },
+      "mm8h2qf0oxx__msk": {
+        "date": "2026-03-04T03:22:21.557Z",
+        "method": "manual"
+      },
+      "cc105283-c14b-4af3-a17b-efd5367fd53b__msk": {
+        "date": "2026-03-04T03:39:14.079Z",
+        "method": "manual"
+      },
+      "mm8h30ba2lj__msk": {
+        "method": "manual",
+        "date": "2026-03-04T03:22:29.146Z"
+      }
+    },
+    "weakConcepts": {
+      "_summary": {
+        "msk": 187,
+        "CPR2": 71,
+        "cpr1": 122,
+        "lifetime": 379
+      }
+    },
+    "studyModeByLecture": {
+      "048baae3-b61e-4122-92a3-2a4708c6f29a": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "0794b697-7477-4b63-9007-5ac89d1b2408": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "a10c8945-44a1-40c8-927f-23b9c5f64c24": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "1c58aaf6-38f7-4e91-af67-e6459b214a3f": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "92407e16-be8d-4d0e-b61d-c913c06fa47d": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "2851cd6e-55f9-4589-9786-827ed1d2fc07": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "7f7ec95a-6823-4dc7-a7e0-d8f0e3b8e154": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "b49ad0f1-1ab9-4a06-ab22-5dbf66b67dd4": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "9fa79790-b39f-4521-b702-d8a10d1cebe4": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "4f7107d1-8cb1-492b-a90c-d99a7c19bac1": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "16833be7-cb6e-41a7-a93c-d060678f0317": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "f4a7b70f-1be0-4dbd-8b48-86f52e7b9aaf": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "1fdb5b86-98f4-4a35-bc7b-a4cc11c4fcd6": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "9d0c6f9c-c32f-4184-aaa8-e614ff9e62ff": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "ee8232ab-fa62-40c3-8a98-1bdfcc4f2774": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "9e5b442f-649b-4034-9b86-19d7371d67c0": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "5afd0e36-e52a-4063-8e04-cf7390da6169": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "fb1674e7-8a9d-48ba-a86e-2aebf6dbc597": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "fb4f3307-e2ea-4dd9-88f2-93f278a22b2e": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "5efa5c43-ebd1-4bfd-8d35-87612fe7c869": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "f7cd532d-27bf-4545-8222-999b3b04b565": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "4e4a8f46-dda0-41f1-8fd9-6f2689e4b302": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "3de8113a-f8ff-4d8b-a946-353dfed6d527": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "27078704-b627-406d-a6f3-44912125b321": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "b7b6a913-d98c-4770-af58-76b622b35aa7": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "12c9c39c-cd7a-46da-bca6-1708b0ad8ae6": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "1b1e156e-fa26-4209-b587-0ab648c1d036": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "6c100875-c870-4201-a45d-e3d1c9e76490": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "305b1804-5614-4bee-b1ac-728fdd475805": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "4bff0af0-19e5-4b98-93e3-a8293bd5109f": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "054d33f8-08c0-4c69-b41a-f7b26bb77c95": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "eed2f9d1-d768-4e5e-8358-df06ab13ebcc": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "92894adb-0146-4581-bbb5-f0f414a1cc69": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "4948ef60-e8b7-4069-8f2d-18b54983f099": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "1c6ebeda-ccee-4697-acd2-88928306e9fe": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "cbde0355-ea9b-47b5-8cd8-5f9d7ccb4792": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "e7933138-f397-4e95-bdb7-b3bacb14b443": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      },
+      "84462978-dd57-45a0-9933-47f28fc17c04": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      }
+    }
+  },
+  "output": {
+    "studySchedule": {
+      "examDate": "2026-09-30",
+      "daysLeft": 65,
+      "totalSessions": 24,
+      "criticalCount": 0,
+      "lecturePlans": [
+        {
+          "lectureId": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "0794b697-7477-4b63-9007-5ac89d1b2408",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "92407e16-be8d-4d0e-b61d-c913c06fa47d",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "2851cd6e-55f9-4589-9786-827ed1d2fc07",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "7f7ec95a-6823-4dc7-a7e0-d8f0e3b8e154",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "b49ad0f1-1ab9-4a06-ab22-5dbf66b67dd4",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "9fa79790-b39f-4521-b702-d8a10d1cebe4",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "4f7107d1-8cb1-492b-a90c-d99a7c19bac1",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "16833be7-cb6e-41a7-a93c-d060678f0317",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "f4a7b70f-1be0-4dbd-8b48-86f52e7b9aaf",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "1fdb5b86-98f4-4a35-bc7b-a4cc11c4fcd6",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "9d0c6f9c-c32f-4184-aaa8-e614ff9e62ff",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "ee8232ab-fa62-40c3-8a98-1bdfcc4f2774",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "9e5b442f-649b-4034-9b86-19d7371d67c0",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "5afd0e36-e52a-4063-8e04-cf7390da6169",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "fb1674e7-8a9d-48ba-a86e-2aebf6dbc597",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "fb4f3307-e2ea-4dd9-88f2-93f278a22b2e",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "5efa5c43-ebd1-4bfd-8d35-87612fe7c869",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "f7cd532d-27bf-4545-8222-999b3b04b565",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "4e4a8f46-dda0-41f1-8fd9-6f2689e4b302",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "3de8113a-f8ff-4d8b-a946-353dfed6d527",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "27078704-b627-406d-a6f3-44912125b321",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "b7b6a913-d98c-4770-af58-76b622b35aa7",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "12c9c39c-cd7a-46da-bca6-1708b0ad8ae6",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "1b1e156e-fa26-4209-b587-0ab648c1d036",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "6c100875-c870-4201-a45d-e3d1c9e76490",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "305b1804-5614-4bee-b1ac-728fdd475805",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "4bff0af0-19e5-4b98-93e3-a8293bd5109f",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "054d33f8-08c0-4c69-b41a-f7b26bb77c95",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "eed2f9d1-d768-4e5e-8358-df06ab13ebcc",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "92894adb-0146-4581-bbb5-f0f414a1cc69",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "4948ef60-e8b7-4069-8f2d-18b54983f099",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "1c6ebeda-ccee-4697-acd2-88928306e9fe",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "cbde0355-ea9b-47b5-8cd8-5f9d7ccb4792",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "e7933138-f397-4e95-bdb7-b3bacb14b443",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        },
+        {
+          "lectureId": "84462978-dd57-45a0-9933-47f28fc17c04",
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "lastScore": null,
+          "sessionsDone": 0,
+          "confidence": "Low",
+          "isStruggling": false,
+          "requiredReps": 4,
+          "repsRemaining": 4,
+          "baseIntervals": [
+            1,
+            3,
+            7,
+            14,
+            21
+          ],
+          "studyMode": {
+            "mode": "clinical",
+            "label": "Clinical Sciences",
+            "icon": "🏥",
+            "recommended": [
+              "deepLearn",
+              "mcq"
+            ],
+            "avoid": [],
+            "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+            "color": "#60a5fa"
+          },
+          "priority": "high",
+          "objectiveIds": []
+        }
+      ],
+      "schedule": [
+        [
+          "2026-07-28",
+          [
+            {
+              "lectureId": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+              "lectureType": "LEC",
+              "lectureNum": 1,
+              "repNumber": 1,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+              "lectureType": "LEC",
+              "lectureNum": 2,
+              "repNumber": 1,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+              "lectureType": "LEC",
+              "lectureNum": 3,
+              "repNumber": 1,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-07-29",
+          [
+            {
+              "lectureId": "0794b697-7477-4b63-9007-5ac89d1b2408",
+              "lectureType": "LEC",
+              "lectureNum": 4,
+              "repNumber": 1,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+              "lectureType": "LEC",
+              "lectureNum": 5,
+              "repNumber": 1,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+              "lectureType": "LEC",
+              "lectureNum": 6,
+              "repNumber": 1,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-07-30",
+          [
+            {
+              "lectureId": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+              "lectureType": "LEC",
+              "lectureNum": 1,
+              "repNumber": 2,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+              "lectureType": "LEC",
+              "lectureNum": 2,
+              "repNumber": 2,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+              "lectureType": "LEC",
+              "lectureNum": 3,
+              "repNumber": 2,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-07-31",
+          [
+            {
+              "lectureId": "0794b697-7477-4b63-9007-5ac89d1b2408",
+              "lectureType": "LEC",
+              "lectureNum": 4,
+              "repNumber": 2,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+              "lectureType": "LEC",
+              "lectureNum": 5,
+              "repNumber": 2,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+              "lectureType": "LEC",
+              "lectureNum": 6,
+              "repNumber": 2,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-08-03",
+          [
+            {
+              "lectureId": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+              "lectureType": "LEC",
+              "lectureNum": 1,
+              "repNumber": 3,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+              "lectureType": "LEC",
+              "lectureNum": 2,
+              "repNumber": 3,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+              "lectureType": "LEC",
+              "lectureNum": 3,
+              "repNumber": 3,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-08-04",
+          [
+            {
+              "lectureId": "0794b697-7477-4b63-9007-5ac89d1b2408",
+              "lectureType": "LEC",
+              "lectureNum": 4,
+              "repNumber": 3,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+              "lectureType": "LEC",
+              "lectureNum": 5,
+              "repNumber": 3,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+              "lectureType": "LEC",
+              "lectureNum": 6,
+              "repNumber": 3,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-08-10",
+          [
+            {
+              "lectureId": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+              "lectureType": "LEC",
+              "lectureNum": 1,
+              "repNumber": 4,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+              "lectureType": "LEC",
+              "lectureNum": 2,
+              "repNumber": 4,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+              "lectureType": "LEC",
+              "lectureNum": 3,
+              "repNumber": 4,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ],
+        [
+          "2026-08-11",
+          [
+            {
+              "lectureId": "0794b697-7477-4b63-9007-5ac89d1b2408",
+              "lectureType": "LEC",
+              "lectureNum": 4,
+              "repNumber": 4,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+              "lectureType": "LEC",
+              "lectureNum": 5,
+              "repNumber": 4,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            },
+            {
+              "lectureId": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+              "lectureType": "LEC",
+              "lectureNum": 6,
+              "repNumber": 4,
+              "totalReps": 4,
+              "isStruggling": false,
+              "priority": "high",
+              "studyMode": {
+                "mode": "clinical",
+                "label": "Clinical Sciences",
+                "icon": "🏥",
+                "recommended": [
+                  "deepLearn",
+                  "mcq"
+                ],
+                "avoid": [],
+                "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+                "color": "#60a5fa"
+              },
+              "blockId": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+              "objectiveIds": []
+            }
+          ]
+        ]
+      ]
+    },
+    "dailySchedule": {
+      "daysLeft": 64,
+      "needsBlockStart": false,
+      "schedule": [],
+      "lecScores": [
+        {
+          "lectureId": "048baae3-b61e-4122-92a3-2a4708c6f29a",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "0794b697-7477-4b63-9007-5ac89d1b2408",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "92407e16-be8d-4d0e-b61d-c913c06fa47d",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "2851cd6e-55f9-4589-9786-827ed1d2fc07",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "7f7ec95a-6823-4dc7-a7e0-d8f0e3b8e154",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "b49ad0f1-1ab9-4a06-ab22-5dbf66b67dd4",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "9fa79790-b39f-4521-b702-d8a10d1cebe4",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "4f7107d1-8cb1-492b-a90c-d99a7c19bac1",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "16833be7-cb6e-41a7-a93c-d060678f0317",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "f4a7b70f-1be0-4dbd-8b48-86f52e7b9aaf",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "1fdb5b86-98f4-4a35-bc7b-a4cc11c4fcd6",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "9d0c6f9c-c32f-4184-aaa8-e614ff9e62ff",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "ee8232ab-fa62-40c3-8a98-1bdfcc4f2774",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "9e5b442f-649b-4034-9b86-19d7371d67c0",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "5afd0e36-e52a-4063-8e04-cf7390da6169",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "fb1674e7-8a9d-48ba-a86e-2aebf6dbc597",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "fb4f3307-e2ea-4dd9-88f2-93f278a22b2e",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "5efa5c43-ebd1-4bfd-8d35-87612fe7c869",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "f7cd532d-27bf-4545-8222-999b3b04b565",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "4e4a8f46-dda0-41f1-8fd9-6f2689e4b302",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "3de8113a-f8ff-4d8b-a946-353dfed6d527",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "27078704-b627-406d-a6f3-44912125b321",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "b7b6a913-d98c-4770-af58-76b622b35aa7",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "12c9c39c-cd7a-46da-bca6-1708b0ad8ae6",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "1b1e156e-fa26-4209-b587-0ab648c1d036",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "6c100875-c870-4201-a45d-e3d1c9e76490",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "305b1804-5614-4bee-b1ac-728fdd475805",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "4bff0af0-19e5-4b98-93e3-a8293bd5109f",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "054d33f8-08c0-4c69-b41a-f7b26bb77c95",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "eed2f9d1-d768-4e5e-8358-df06ab13ebcc",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "92894adb-0146-4581-bbb5-f0f414a1cc69",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "4948ef60-e8b7-4069-8f2d-18b54983f099",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "1c6ebeda-ccee-4697-acd2-88928306e9fe",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "cbde0355-ea9b-47b5-8cd8-5f9d7ccb4792",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "e7933138-f397-4e95-bdb7-b3bacb14b443",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        },
+        {
+          "lectureId": "84462978-dd57-45a0-9933-47f28fc17c04",
+          "urgency": 24,
+          "struggling": 0,
+          "untested": 0,
+          "mastered": 0,
+          "total": 0,
+          "avgBloom": 2,
+          "lastScore": null,
+          "confidence": "Low",
+          "nextReview": null,
+          "sessions": 0,
+          "availableDate": null,
+          "isAvailableToday": null,
+          "isFuture": null,
+          "daysUntilAvailable": null,
+          "hasNoDate": true,
+          "recommendedSessions": [
+            {
+              "type": "deepLearn",
+              "label": "🧠 First Deep Learn",
+              "reason": "Never studied",
+              "duration": 45
+            },
+            {
+              "type": "anki",
+              "label": "📇 Unsuspend Anki Cards",
+              "reason": "First pass — unsuspend and review",
+              "duration": 20
+            }
+          ]
+        }
+      ],
+      "upcoming": [],
+      "undated": [
+        "048baae3-b61e-4122-92a3-2a4708c6f29a",
+        "bf3c7c9b-c3bc-4ebe-a4e7-33ff594ea7b5",
+        "24cb3e81-a8c7-40ca-a72d-2cf0f41ca576",
+        "0794b697-7477-4b63-9007-5ac89d1b2408",
+        "a10c8945-44a1-40c8-927f-23b9c5f64c24",
+        "1c58aaf6-38f7-4e91-af67-e6459b214a3f",
+        "92407e16-be8d-4d0e-b61d-c913c06fa47d",
+        "2851cd6e-55f9-4589-9786-827ed1d2fc07",
+        "7f7ec95a-6823-4dc7-a7e0-d8f0e3b8e154",
+        "b49ad0f1-1ab9-4a06-ab22-5dbf66b67dd4",
+        "9fa79790-b39f-4521-b702-d8a10d1cebe4",
+        "4f7107d1-8cb1-492b-a90c-d99a7c19bac1",
+        "16833be7-cb6e-41a7-a93c-d060678f0317",
+        "f4a7b70f-1be0-4dbd-8b48-86f52e7b9aaf",
+        "1fdb5b86-98f4-4a35-bc7b-a4cc11c4fcd6",
+        "9d0c6f9c-c32f-4184-aaa8-e614ff9e62ff",
+        "ee8232ab-fa62-40c3-8a98-1bdfcc4f2774",
+        "9e5b442f-649b-4034-9b86-19d7371d67c0",
+        "5afd0e36-e52a-4063-8e04-cf7390da6169",
+        "fb1674e7-8a9d-48ba-a86e-2aebf6dbc597",
+        "fb4f3307-e2ea-4dd9-88f2-93f278a22b2e",
+        "5efa5c43-ebd1-4bfd-8d35-87612fe7c869",
+        "f7cd532d-27bf-4545-8222-999b3b04b565",
+        "4e4a8f46-dda0-41f1-8fd9-6f2689e4b302",
+        "3de8113a-f8ff-4d8b-a946-353dfed6d527",
+        "27078704-b627-406d-a6f3-44912125b321",
+        "b7b6a913-d98c-4770-af58-76b622b35aa7",
+        "12c9c39c-cd7a-46da-bca6-1708b0ad8ae6",
+        "1b1e156e-fa26-4209-b587-0ab648c1d036",
+        "6c100875-c870-4201-a45d-e3d1c9e76490",
+        "305b1804-5614-4bee-b1ac-728fdd475805",
+        "4bff0af0-19e5-4b98-93e3-a8293bd5109f",
+        "054d33f8-08c0-4c69-b41a-f7b26bb77c95",
+        "eed2f9d1-d768-4e5e-8358-df06ab13ebcc",
+        "92894adb-0146-4581-bbb5-f0f414a1cc69",
+        "4948ef60-e8b7-4069-8f2d-18b54983f099",
+        "1c6ebeda-ccee-4697-acd2-88928306e9fe",
+        "cbde0355-ea9b-47b5-8cd8-5f9d7ccb4792",
+        "e7933138-f397-4e95-bdb7-b3bacb14b443",
+        "84462978-dd57-45a0-9933-47f28fc17c04"
+      ]
+    }
+  },
+  "errors": {}
+}

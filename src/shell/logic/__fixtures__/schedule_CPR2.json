@@ -1,0 +1,4585 @@
+{
+  "context": {
+    "blockId": "CPR2",
+    "now": "2026-07-27T16:07:24.608Z",
+    "terms": [
+      {
+        "id": "term1",
+        "blocks": [
+          {
+            "id": "ftm1",
+            "startDate": null
+          },
+          {
+            "id": "ftm2",
+            "startDate": null
+          },
+          {
+            "id": "msk",
+            "startDate": "2026-02-27"
+          },
+          {
+            "id": "cpr1",
+            "startDate": "2026-03-26"
+          },
+          {
+            "id": "CPR2",
+            "startDate": null
+          },
+          {
+            "id": "mnc34p13tyl",
+            "startDate": null
+          },
+          {
+            "id": "cpr2",
+            "startDate": null
+          }
+        ]
+      },
+      {
+        "id": "mrsphtea28y",
+        "blocks": [
+          {
+            "id": "mrspx2sg9go",
+            "startDate": null
+          },
+          {
+            "id": "52edb3b6-f115-4139-80a5-c6637a6465cc",
+            "startDate": "2026-09-01"
+          },
+          {
+            "id": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
+            "startDate": "2026-10-01"
+          }
+        ]
+      }
+    ],
+    "blockMeta": {
+      "id": "CPR2",
+      "name": "CPR 2",
+      "type": "standard",
+      "status": "active",
+      "createdAt": "2026-04-17T23:09:23.183Z",
+      "termId": "term1",
+      "termName": "Term 1"
+    },
+    "lectures": [
+      {
+        "id": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 50 - Acid Base Balance_Buffers and Respiratory System",
+        "fileName": "CPR Lecture 50 - Acid Base Balance_Buffers and Respiratory System.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 50,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 49 - Renal Clearance",
+        "fileName": "CPR Lecture 49 - Renal Clearance.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 49,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 48 - Concentration and Dilution of Urine",
+        "fileName": "CPR Lecture 48 - Concentration and Dilution of Urine.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 48,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 47 - Serum Proteins and Disorders",
+        "fileName": "CPR Lecture 47 - Serum Proteins and Disorders.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 47,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "62b0d499-e099-4dc3-a427-3a806acbb89a",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 46 - Distribution of Body Fluids",
+        "fileName": "CPR Lecture 46 - Distribution of Body Fluids.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 46,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 45 - Tubular Mechanisms",
+        "fileName": "CPR Lecture 45 - Tubular Mechanisms.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 45,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture  51 - Acid Base Balance_Role of Kidney",
+        "fileName": "CPR Lecture  51 - Acid Base Balance_Role of Kidney.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 51,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "6c546a4b-7672-417a-a539-c3fce842cf5a",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR 53 - Flipped Class_ Interpreting Acid Base Disorders_Pre Session",
+        "fileName": "CPR 53 - Flipped Class_ Interpreting Acid Base Disorders_Pre Session.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 53,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 44  - Glomerular Mechanisms",
+        "fileName": "CPR Lecture 44  - Glomerular Mechanisms.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 44,
+        "lectureDate": null,
+        "weekNumber": 4,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "blockId": "CPR2",
+        "lectureTitle": "CPR Lecture 52 - Acid Base Disorders",
+        "fileName": "CPR Lecture 52 - Acid Base Disorders.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 52,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla13",
+        "blockId": "CPR2",
+        "lectureTitle": "Histology of the Respiratory System",
+        "fileName": "DLA 13 - Histology of the Respiratory System.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 13,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Mon",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla14a",
+        "blockId": "CPR2",
+        "lectureTitle": "Lung Function and Respiratory Gases",
+        "fileName": "Lung Function and Respiratory Gases (Parts A+B)",
+        "lectureType": "LEC",
+        "lectureNumber": 1,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Mon",
+        "mergedFrom": [
+          {
+            "id": "cpr2-dla14a"
+          },
+          {
+            "id": "cpr2-dla14b"
+          }
+        ]
+      },
+      {
+        "id": "cpr2-dla14b",
+        "blockId": "CPR2",
+        "lectureTitle": "Lung Function and Respiratory Gases - Part 2",
+        "fileName": "DLA 14 - Lung Function - Part 2.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 14.2,
+        "lectureDate": null,
+        "weekNumber": null,
+        "dayOfWeek": null,
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla14c",
+        "blockId": "CPR2",
+        "lectureTitle": "Lung Function and Respiratory Gases - Part 3",
+        "fileName": "DLA 14 - Lung Function - Part 3.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 14.3,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Tue",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla15",
+        "blockId": "CPR2",
+        "lectureTitle": "Airway and Airflow",
+        "fileName": "DLA 15 - Airway and Air flow.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 15,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Wed",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla16",
+        "blockId": "CPR2",
+        "lectureTitle": "Pulmonary Circulation",
+        "fileName": "DLA 16 - Pulmonary Circulation.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 16,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Wed",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla17",
+        "blockId": "CPR2",
+        "lectureTitle": "Regulation of Breathing",
+        "fileName": "DLA 17 - Control of Breathing.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 17,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Thu",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-dla18",
+        "blockId": "CPR2",
+        "lectureTitle": "Clinical Anatomy of the Urinary System - Upper Urinary Tract",
+        "fileName": "DLA 18 - Clinical Anatomy of the Urinary System_Upper Urinary Tract.pdf",
+        "lectureType": "DLA",
+        "lectureNumber": 18,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Tue",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec25",
+        "blockId": "CPR2",
+        "lectureTitle": "Histology of Lymphatic Tissues and Organs",
+        "fileName": "CPR Lecture 25 -  Histology of Lymphatic Tissues and Organs.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 25,
+        "lectureDate": null,
+        "weekNumber": 1,
+        "dayOfWeek": "Fri",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec26",
+        "blockId": "CPR2",
+        "lectureTitle": "Clinical Anatomy of the Respiratory System",
+        "fileName": "CPR Lecture 26 - Clinical Anatomy of the Respiratory System.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 26,
+        "lectureDate": null,
+        "weekNumber": 1,
+        "dayOfWeek": "Fri",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec27",
+        "blockId": "CPR2",
+        "lectureTitle": "Histology of the Respiratory System",
+        "fileName": "CPR Lecture 27  - Histology of the Respiratory System.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 27,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Mon",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec28",
+        "blockId": "CPR2",
+        "lectureTitle": "Development and Clinical Embryology of the Respiratory System",
+        "fileName": "CPR Lecture 28 - Development and Clinical Embryology of the Respiratory System.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 28,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Mon",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec29",
+        "blockId": "CPR2",
+        "lectureTitle": "Inflammation",
+        "fileName": "CPR Lecture 29 - Inflammation _Pre Sesssion.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 29,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Tue",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec30",
+        "blockId": "CPR2",
+        "lectureTitle": "Respiratory Muscles and Breathing Cycle",
+        "fileName": "CPR Lecture 30 - Respiratory Muscles and Breathing Cycle.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 30,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Tue",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec31",
+        "blockId": "CPR2",
+        "lectureTitle": "Spirometry",
+        "fileName": "CPR Lecture 31 - Spirometry.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 31,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Wed",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec32",
+        "blockId": "CPR2",
+        "lectureTitle": "Hemoglobin and Gas Transport",
+        "fileName": "CPR Lecture 32 - Hemoglobin and Gas Transport.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 32,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Wed",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec33",
+        "blockId": "CPR2",
+        "lectureTitle": "Hemoglobinopathies",
+        "fileName": "CPR Lecture 33 - Hemoglobinopathies.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 33,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Thu",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec34",
+        "blockId": "CPR2",
+        "lectureTitle": "Mechanics of Lung and Chest",
+        "fileName": "CPR Lecture 34 - Mechanics of Lung Chest.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 34,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Thu",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec35",
+        "blockId": "CPR2",
+        "lectureTitle": "Ventilation",
+        "fileName": "CPR Lecture 35 - Ventilation.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 35,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Fri",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec36",
+        "blockId": "CPR2",
+        "lectureTitle": "Glycolysis and Hemolysis",
+        "fileName": "CPR Lecture 36 - Flipped Class _ Glycolysis and Hemolysis _ Pre Session.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 36,
+        "lectureDate": null,
+        "weekNumber": 2,
+        "dayOfWeek": "Fri",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec37",
+        "blockId": "CPR2",
+        "lectureTitle": "Ventilation Perfusion Inequality and Hypoxemia",
+        "fileName": "CPR Lecture 37 - Ventilation Perfusion Inequality and Hypoxaemia.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 37,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Mon",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec38",
+        "blockId": "CPR2",
+        "lectureTitle": "Gas Transport",
+        "fileName": "CPR Lecture 38 - Gas Transport.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 38,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Mon",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec39",
+        "blockId": "CPR2",
+        "lectureTitle": "Respiratory Case Analyses",
+        "fileName": "CPR Lecture 39 - Respiratory Case Analyses - Pre Session.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 39,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Tue",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec40",
+        "blockId": "CPR2",
+        "lectureTitle": "Clinical Anatomy of the Urinary System - Flipped Class",
+        "fileName": "CPR Lecture 40 - Flipped Class Clinical Anatomy of Lower Urinary Tract and Clinical Correlates_ Pre Session.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 40,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Tue",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec41",
+        "blockId": "CPR2",
+        "lectureTitle": "Histology of the Nephron and Blood Pressure Control Mechanisms",
+        "fileName": "CPR Lecture 41 - Histology of the Nepheon _ Blood Pressure Control Mechanisms.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 41,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Wed",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec42",
+        "blockId": "CPR2",
+        "lectureTitle": "Histology of the Excretory Part of the Renal System",
+        "fileName": "CPR Lecture 42 - Histology of the Excretory Part of the Renal System.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 42,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Wed",
+        "mergedFrom": []
+      },
+      {
+        "id": "cpr2-lec43",
+        "blockId": "CPR2",
+        "lectureTitle": "Development and Clinical Embryology of the Urinary System",
+        "fileName": "CPR Lecture 43 - Development and Clinical Embryology of the Urinary System.pdf",
+        "lectureType": "LEC",
+        "lectureNumber": 43,
+        "lectureDate": null,
+        "weekNumber": 3,
+        "dayOfWeek": "Thu",
+        "mergedFrom": []
+      }
+    ],
+    "objectives": [
+      {
+        "id": "cpr2-lec25-obj010",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec25-obj011",
+        "linkedLecId": "cpr2-lec25",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj012",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec25-obj013",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj014",
+        "linkedLecId": "cpr2-lec25",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj015",
+        "linkedLecId": "cpr2-lec25",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj016",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj017",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec25-obj018",
+        "linkedLecId": "cpr2-lec25",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj019",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj020",
+        "linkedLecId": "cpr2-lec25",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj021",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec25-obj022",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj023",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec25-obj024",
+        "linkedLecId": "cpr2-lec25",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj025",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj026",
+        "linkedLecId": "cpr2-lec25",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec25-obj027",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec25-obj028",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec25-obj029",
+        "linkedLecId": "cpr2-lec25",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj001",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj002",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec26-obj003",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec26-obj004",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj005",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec26-obj006",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj007",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec26-obj008",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj009",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj010",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec26-obj011",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj012",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj013",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj014",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec26-obj015",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec26-obj016",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj017",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj018",
+        "linkedLecId": "cpr2-lec26",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec26-obj019",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj020",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj021",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj022",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec26-obj023",
+        "linkedLecId": "cpr2-lec26",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec27-obj001",
+        "linkedLecId": "cpr2-lec27",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec27-obj002",
+        "linkedLecId": "cpr2-lec27",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec27-obj003",
+        "linkedLecId": "cpr2-lec27",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec27-obj004",
+        "linkedLecId": "cpr2-lec27",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec27-obj005",
+        "linkedLecId": "cpr2-lec27",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec27-obj006",
+        "linkedLecId": "cpr2-lec27",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec27-obj007",
+        "linkedLecId": "cpr2-lec27",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj001",
+        "linkedLecId": "cpr2-lec28",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec28-obj002",
+        "linkedLecId": "cpr2-lec28",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj003",
+        "linkedLecId": "cpr2-lec28",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj004",
+        "linkedLecId": "cpr2-lec28",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec28-obj005",
+        "linkedLecId": "cpr2-lec28",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj006",
+        "linkedLecId": "cpr2-lec28",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj007",
+        "linkedLecId": "cpr2-lec28",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj008",
+        "linkedLecId": "cpr2-lec28",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec28-obj009",
+        "linkedLecId": "cpr2-lec28",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec29-obj001",
+        "linkedLecId": "cpr2-lec29",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec29-obj002",
+        "linkedLecId": "cpr2-lec29",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec29-obj003",
+        "linkedLecId": "cpr2-lec29",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec29-obj004",
+        "linkedLecId": "cpr2-lec29",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec30-obj001",
+        "linkedLecId": "cpr2-lec30",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec30-obj002",
+        "linkedLecId": "cpr2-lec30",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec30-obj003",
+        "linkedLecId": "cpr2-lec30",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec30-obj004",
+        "linkedLecId": "cpr2-lec30",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec30-obj005",
+        "linkedLecId": "cpr2-lec30",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec30-obj006",
+        "linkedLecId": "cpr2-lec30",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec31-obj001",
+        "linkedLecId": "cpr2-lec31",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec31-obj002",
+        "linkedLecId": "cpr2-lec31",
+        "status": "inprogress",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec31-obj003",
+        "linkedLecId": "cpr2-lec31",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec31-obj004",
+        "linkedLecId": "cpr2-lec31",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec31-obj005",
+        "linkedLecId": "cpr2-lec31",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec31-obj006",
+        "linkedLecId": "cpr2-lec31",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec32-obj001",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec32-obj002",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec32-obj003",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec32-obj004",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec32-obj005",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec32-obj006",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec32-obj007",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec32-obj008",
+        "linkedLecId": "cpr2-lec32",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec32-obj009",
+        "linkedLecId": "cpr2-lec32",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec32-obj010",
+        "linkedLecId": "cpr2-lec32",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec32-obj011",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec32-obj012",
+        "linkedLecId": "cpr2-lec32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec33-obj001",
+        "linkedLecId": "cpr2-lec33",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec33-obj002",
+        "linkedLecId": "cpr2-lec33",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec33-obj003",
+        "linkedLecId": "cpr2-lec33",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec33-obj004",
+        "linkedLecId": "cpr2-lec33",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec34-obj001",
+        "linkedLecId": "cpr2-lec34",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec34-obj002",
+        "linkedLecId": "cpr2-lec34",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec34-obj003",
+        "linkedLecId": "cpr2-lec34",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec34-obj004",
+        "linkedLecId": "cpr2-lec34",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec35-obj001",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec35-obj002",
+        "linkedLecId": "cpr2-lec35",
+        "status": "inprogress",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec35-obj003",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec35-obj004",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec35-obj005",
+        "linkedLecId": "cpr2-lec35",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec35-obj006",
+        "linkedLecId": "cpr2-lec35",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec35-obj007",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec35-obj008",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec35-obj009",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec35-obj010",
+        "linkedLecId": "cpr2-lec35",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec35-obj011",
+        "linkedLecId": "cpr2-lec35",
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec36-obj001",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj002",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec36-obj003",
+        "linkedLecId": "cpr2-lec36",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj004",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj005",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj006",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec36-obj007",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec36-obj008",
+        "linkedLecId": "cpr2-lec36",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec36-obj009",
+        "linkedLecId": "cpr2-lec36",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj010",
+        "linkedLecId": "cpr2-lec36",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec36-obj011",
+        "linkedLecId": "cpr2-lec36",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj012",
+        "linkedLecId": "cpr2-lec36",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec36-obj013",
+        "linkedLecId": "cpr2-lec36",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec36-obj014",
+        "linkedLecId": "cpr2-lec36",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec37-obj001",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec37-obj002",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec37-obj003",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec37-obj004",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec37-obj005",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec37-obj006",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec37-obj007",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec37-obj008",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec37-obj009",
+        "linkedLecId": "cpr2-lec37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj001",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec38-obj002",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj003",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec38-obj004",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj005",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec38-obj006",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj007",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj008",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec38-obj009",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj010",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj011",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec38-obj012",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj013",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj014",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj015",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec38-obj016",
+        "linkedLecId": "cpr2-lec38",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec39-obj001",
+        "linkedLecId": "cpr2-lec39",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj001",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj002",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj003",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj004",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj005",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec40-obj006",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec40-obj007",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj008",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj009",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj010",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj011",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj012",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj013",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj014",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec40-obj015",
+        "linkedLecId": "cpr2-lec40",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj001",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec41-obj002",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec41-obj003",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec41-obj004",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj005",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj006",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj007",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec41-obj008",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj009",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec41-obj010",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec41-obj011",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj012",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj013",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj014",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj015",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec41-obj016",
+        "linkedLecId": "cpr2-lec41",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj001",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj002",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj003",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj004",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj005",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj006",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj007",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj008",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj009",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj010",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj011",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj012",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj013",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj014",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj015",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj016",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj017",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj018",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj019",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj020",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj021",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec42-obj022",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj023",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj024",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj025",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj026",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj027",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj028",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj029",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj030",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec42-obj031",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj032",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec42-obj033",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj034",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec42-obj037",
+        "linkedLecId": "cpr2-lec42",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec43-obj001",
+        "linkedLecId": "cpr2-lec43",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec43-obj002",
+        "linkedLecId": "cpr2-lec43",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec43-obj003",
+        "linkedLecId": "cpr2-lec43",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec44-obj001",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec44-obj002",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec44-obj003",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec44-obj004",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec44-obj005",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-lec44-obj006",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec44-obj007",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-lec44-obj008",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-lec44-obj009",
+        "linkedLecId": "718e6c42-8641-4662-ae05-b6b687b6d116",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla13-obj001",
+        "linkedLecId": "cpr2-dla13",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-dla13-obj002",
+        "linkedLecId": "cpr2-dla13",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla13-obj003",
+        "linkedLecId": "cpr2-dla13",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla13-obj004",
+        "linkedLecId": "cpr2-dla13",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-dla13-obj005",
+        "linkedLecId": "cpr2-dla13",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla13-obj006",
+        "linkedLecId": "cpr2-dla13",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla13-obj007",
+        "linkedLecId": "cpr2-dla13",
+        "status": "inprogress",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-dla14a-obj001",
+        "linkedLecId": "cpr2-dla14a",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla14a-obj002",
+        "linkedLecId": "cpr2-dla14a",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla14a-obj003",
+        "linkedLecId": "cpr2-dla14a",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla14a-obj004",
+        "linkedLecId": "cpr2-dla14a",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla14a-obj005",
+        "linkedLecId": "cpr2-dla14a",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla14a-obj006",
+        "linkedLecId": "cpr2-dla14c",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-dla14a-obj007",
+        "linkedLecId": "cpr2-dla14c",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla14a-obj008",
+        "linkedLecId": "cpr2-dla14c",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla15-obj001",
+        "linkedLecId": "cpr2-dla15",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla15-obj002",
+        "linkedLecId": "cpr2-dla15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla15-obj003",
+        "linkedLecId": "cpr2-dla15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla15-obj004",
+        "linkedLecId": "cpr2-dla15",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla15-obj005",
+        "linkedLecId": "cpr2-dla15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla15-obj006",
+        "linkedLecId": "cpr2-dla15",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla16-obj001",
+        "linkedLecId": "cpr2-dla16",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-dla16-obj002",
+        "linkedLecId": "cpr2-dla16",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla16-obj003",
+        "linkedLecId": "cpr2-dla16",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla16-obj004",
+        "linkedLecId": "cpr2-dla16",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla16-obj005",
+        "linkedLecId": "cpr2-dla16",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla16-obj006",
+        "linkedLecId": "cpr2-dla16",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla16-obj007",
+        "linkedLecId": "cpr2-dla16",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-dla16-obj008",
+        "linkedLecId": "cpr2-dla16",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla17-obj001",
+        "linkedLecId": "cpr2-dla17",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla17-obj002",
+        "linkedLecId": "cpr2-dla17",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla17-obj003",
+        "linkedLecId": "cpr2-dla17",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "cpr2-dla17-obj004",
+        "linkedLecId": "cpr2-dla17",
+        "status": "mastered",
+        "bloom_level": 3
+      },
+      {
+        "id": "cpr2-dla17-obj005",
+        "linkedLecId": "cpr2-dla17",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla17-obj006",
+        "linkedLecId": "cpr2-dla17",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla17-obj007",
+        "linkedLecId": "cpr2-dla17",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj001",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj002",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj003",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj004",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj005",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj006",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj007",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cpr2-dla18-obj008",
+        "linkedLecId": "cpr2-dla18",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "5054ecaf-5b9c-4343-bf1c-537491248546",
+        "linkedLecId": "6c546a4b-7672-417a-a539-c3fce842cf5a",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "a2a92334-af1d-4653-b96b-05599366c6e0",
+        "linkedLecId": "6c546a4b-7672-417a-a539-c3fce842cf5a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "06c8a761-c641-45cb-8590-2270cfe06b64",
+        "linkedLecId": "6c546a4b-7672-417a-a539-c3fce842cf5a",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "a84bc637-c34d-40e8-844e-95d3e664d83b",
+        "linkedLecId": "6c546a4b-7672-417a-a539-c3fce842cf5a",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "5f32b0ab-716d-4f2f-aacd-292d5940e6d5",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "7af9fb91-5645-42cf-8e84-d5de2ff7cb42",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "7a8b38c8-f394-4b79-b1d1-c98b17e26800",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "c24749df-0c3b-47fa-8730-683dd7f29571",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "71aae7b1-2e73-40a6-9187-52b722b87304",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "b83ff925-b0ff-4e63-9620-3387d81d6bcf",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "83ce4d08-4f8b-4c71-9921-49be50abb820",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "9d80fdd8-ef5e-4d2d-97c4-2f34171d0c1c",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "b43c3063-f496-4b3d-ad57-dfca003369d1",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "ce875cd9-91ec-4272-b87d-858074bef700",
+        "linkedLecId": "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "22646101-68c6-46da-abf0-c821279665d9",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "5653228f-50f0-40e2-b023-7acc59673214",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "37520d4a-5645-4947-9443-4a251acdef20",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "cd95416d-f83c-4e6e-803e-e2cbc0b3b841",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "73e94f39-a67d-4e3e-8aa2-1ec6118755ab",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "885b048c-ae64-44a5-be89-463fb14b50b5",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "fe7cbbc0-5956-4e07-908a-0ed9acbd11ee",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "41749194-eae1-41c4-a8c3-fb1bcdae4128",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "2c3b95f1-b934-4589-b7ee-4f174fc2eea9",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "54b34ba0-aade-42bd-8a2c-d0d2590dacc3",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "37117f6a-7da7-4334-acea-c19e81aaf710",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "a0c5673b-e99c-4012-947e-1b9af1d30dbb",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "d9f2aac2-7beb-439a-8eef-d32c23d2f689",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "638be3ed-b43e-49d1-8a24-d87ea83d348a",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "e16f5c69-2ed8-405a-b460-d89a3fc788f1",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "a2bb21da-3ed5-4714-b393-d8cfa830995f",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "bfedc205-663e-4f38-b4d0-b65c91b02585",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "3f7d6ffd-1238-4d78-96ae-dfe0d8a96d0c",
+        "linkedLecId": "e50e2ead-a194-4699-9ef4-2869a4a4b2ae",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "23c1ea79-1917-4394-a8c5-25e6b87c971d",
+        "linkedLecId": "62b0d499-e099-4dc3-a427-3a806acbb89a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "2a334a51-8abb-4bea-96cd-0df25598aede",
+        "linkedLecId": "62b0d499-e099-4dc3-a427-3a806acbb89a",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "bd7279be-0b6d-4689-999c-5ea58ccaa5be",
+        "linkedLecId": "62b0d499-e099-4dc3-a427-3a806acbb89a",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "ec4ca5a6-2688-46bd-b1bf-097d12ad1a8b",
+        "linkedLecId": "62b0d499-e099-4dc3-a427-3a806acbb89a",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "01c1d205-210e-4adf-bf64-f1f432d8a3f4",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "b4b4c159-6749-492b-b94a-929c11a85e72",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "d38c0bc8-938b-4e25-8677-72df9ce6603b",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "e1295163-712e-467e-b90d-ceed0f71a955",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "998b1c87-b442-4978-8b63-2204781e0041",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "91e9f7be-aa2b-4b8a-bf66-066dfbbd1684",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "86840edd-853e-4d94-8bff-a48d504c3768",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "84015193-da8c-4ac1-b765-f75808b9dc6f",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "0d185d7f-3417-47b3-bd4d-55a07beccbaf",
+        "linkedLecId": "7772ca78-7939-4e99-a382-f3ab520d724b",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "3ea8c466-8927-47c9-9a56-edc8717a4a5a",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "44e0ce63-9898-4ba8-8f0e-80b7d04db269",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "86ce4442-ce44-4a05-b88b-74b59f85bfa0",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "051d19d4-c0ee-4479-832c-3c0db5d88489",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "042a73c0-8939-4d5d-b6ff-b8d34a1730e3",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "94f7d277-dd43-4142-8535-cac80ca0b21a",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "b8af0231-d2db-4b52-9c05-d1351363207b",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "6ad3e668-6f99-4e4b-86b9-92bbb9ed672e",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "c5fe44b0-182a-453e-b1fc-60f194cf07cf",
+        "linkedLecId": "2d611b5b-5e00-4180-9543-4340715aed2e",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "3734c17a-453f-4ee2-95c0-ab10e8976c89",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "f8ca34f9-c757-43eb-a4f5-1df17f3ea81f",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "d9442286-0ced-48ac-a00b-88be51cf1589",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 3
+      },
+      {
+        "id": "eb166d8c-8645-4caa-9f3b-2385ffa2bb0d",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "1f701799-9678-47d5-9049-1ccce13e338e",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "ee772d5c-d399-4eed-832b-ed5b888c6a4e",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "039488c9-12c8-4acf-a139-4ec0e4907f1d",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "70037fbd-05e6-495b-812a-ae2e52f0f777",
+        "linkedLecId": "e414e6cf-a0b5-46e0-946e-07d18efb2929",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "e74a9d96-eadb-4af6-9ec0-01505fd44742",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "3522aab2-aa24-4a72-998b-34ea45bedaa2",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "e961602f-cbd4-4699-b5c0-fafc52a8d6cd",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "cff8d9f7-b6c1-46ae-b48d-66ca858af81d",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "b530048d-0dab-4f6f-a91f-a387255c1fc6",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "c3758a7b-1193-4c9b-959f-126aee695a33",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "2bd02821-3095-40bf-853c-274c93b5cc5b",
+        "linkedLecId": "557baedd-0f4a-423b-a359-e45902d9616a",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "b0e6ed8a-675c-4f10-af81-a9440de897d2",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "df151da6-7eb7-4d6f-88f0-f4d6e375f86a",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "dd053c21-633b-4421-8ef0-67304877a4cc",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "74864fdc-921b-42a3-97d8-2ac85e0dd1f2",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 4
+      },
+      {
+        "id": "ab8d8897-de2a-4b4e-b521-81fb109f1fc3",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 1
+      },
+      {
+        "id": "9d0fa7f1-6e7e-4a61-87cb-2e4c63baacb4",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "add8b797-34e5-40f0-b02e-006bd7b89125",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 2
+      },
+      {
+        "id": "2b30dfe2-f114-4373-b64f-f5e1fcdc1526",
+        "linkedLecId": "592e3111-2537-46ad-ad54-b6fc1e1ddd98",
+        "status": "untested",
+        "bloom_level": 2
+      }
+    ],
+    "examDates": {
+      "mrspx2sg9go": "2026-08-31",
+      "CPR2": "2026-05-12",
+      "msk": "2026-03-25",
+      "52edb3b6-f115-4139-80a5-c6637a6465cc": "2026-09-30",
+      "cpr1": "2026-04-16",
+      "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6": "2026-10-23"
+    },
+    "examDate": "2026-05-12",
+    "performance": {
+      "cpr2-dla13__CPR2": {
+        "lastScore": 86,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 57
+          },
+          {
+            "score": 86
+          }
+        ]
+      },
+      "cpr2-dla15__CPR2": {
+        "lastScore": 40,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 40
+          }
+        ]
+      },
+      "cpr2-dla16__CPR2": {
+        "lastScore": 40,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 63
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 40
+          }
+        ]
+      },
+      "cpr2-dla17__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 57
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec25__CPR2": {
+        "lastScore": 64,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 64
+          },
+          {
+            "score": 64
+          }
+        ]
+      },
+      "cpr2-lec26__CPR2": {
+        "lastScore": 71,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 78
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 56
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 71
+          }
+        ]
+      },
+      "cpr2-lec27__CPR2": {
+        "lastScore": 60,
+        "confidenceLevel": "Medium",
+        "nextReview": "2026-04-25T02:03:00.516Z",
+        "sessions": [
+          {
+            "score": 65
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 90
+          },
+          {
+            "score": 60
+          }
+        ]
+      },
+      "cpr2-lec28__CPR2": {
+        "lastScore": 91,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 80
+          },
+          {
+            "score": 88
+          },
+          {
+            "score": 91
+          },
+          {
+            "score": 91
+          }
+        ]
+      },
+      "cpr2-lec29__CPR2": {
+        "lastScore": 100,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 33
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 64
+          },
+          {
+            "score": 69
+          },
+          {
+            "score": 69
+          },
+          {
+            "score": 100
+          }
+        ]
+      },
+      "cpr2-lec30__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec31__CPR2": {
+        "lastScore": 70,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 78
+          },
+          {
+            "score": 80
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 77
+          },
+          {
+            "score": 77
+          },
+          {
+            "score": 70
+          }
+        ]
+      },
+      "cpr2-lec32__CPR2": {
+        "lastScore": 60,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 83
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 60
+          }
+        ]
+      },
+      "cpr2-lec33__CPR2": {
+        "lastScore": 90,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 80
+          },
+          {
+            "score": 90
+          }
+        ]
+      },
+      "cpr2-lec34__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec35__CPR2": {
+        "lastScore": 50,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 67
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 50
+          }
+        ]
+      },
+      "cpr2-lec36__CPR2": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 71
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-dla14a__CPR2": {
+        "lastScore": 70,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 70
+          }
+        ]
+      }
+    },
+    "lecturePerformance": {
+      "592e3111-2537-46ad-ad54-b6fc1e1ddd98": null,
+      "e414e6cf-a0b5-46e0-946e-07d18efb2929": null,
+      "2d611b5b-5e00-4180-9543-4340715aed2e": null,
+      "7772ca78-7939-4e99-a382-f3ab520d724b": null,
+      "62b0d499-e099-4dc3-a427-3a806acbb89a": null,
+      "e50e2ead-a194-4699-9ef4-2869a4a4b2ae": null,
+      "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37": null,
+      "6c546a4b-7672-417a-a539-c3fce842cf5a": null,
+      "718e6c42-8641-4662-ae05-b6b687b6d116": null,
+      "557baedd-0f4a-423b-a359-e45902d9616a": null,
+      "cpr2-dla13": {
+        "lastScore": 86,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 57
+          },
+          {
+            "score": 86
+          }
+        ]
+      },
+      "cpr2-dla14a": {
+        "lastScore": 70,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 70
+          }
+        ]
+      },
+      "cpr2-dla14b": null,
+      "cpr2-dla14c": null,
+      "cpr2-dla15": {
+        "lastScore": 40,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 40
+          }
+        ]
+      },
+      "cpr2-dla16": {
+        "lastScore": 40,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 63
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 40
+          }
+        ]
+      },
+      "cpr2-dla17": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 57
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-dla18": null,
+      "cpr2-lec25": {
+        "lastScore": 64,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 64
+          },
+          {
+            "score": 64
+          }
+        ]
+      },
+      "cpr2-lec26": {
+        "lastScore": 71,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 78
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 56
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 71
+          }
+        ]
+      },
+      "cpr2-lec27": {
+        "lastScore": 60,
+        "confidenceLevel": "Medium",
+        "nextReview": "2026-04-25T02:03:00.516Z",
+        "sessions": [
+          {
+            "score": 65
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 90
+          },
+          {
+            "score": 60
+          }
+        ]
+      },
+      "cpr2-lec28": {
+        "lastScore": 91,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 100
+          },
+          {
+            "score": 80
+          },
+          {
+            "score": 88
+          },
+          {
+            "score": 91
+          },
+          {
+            "score": 91
+          }
+        ]
+      },
+      "cpr2-lec29": {
+        "lastScore": 100,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 100
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 33
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 64
+          },
+          {
+            "score": 69
+          },
+          {
+            "score": 69
+          },
+          {
+            "score": 100
+          }
+        ]
+      },
+      "cpr2-lec30": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 67
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec31": {
+        "lastScore": 70,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 0
+          },
+          {
+            "score": 60
+          },
+          {
+            "score": 71
+          },
+          {
+            "score": 78
+          },
+          {
+            "score": 80
+          },
+          {
+            "score": 75
+          },
+          {
+            "score": 77
+          },
+          {
+            "score": 77
+          },
+          {
+            "score": 70
+          }
+        ]
+      },
+      "cpr2-lec32": {
+        "lastScore": 60,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 83
+          },
+          {
+            "score": 50
+          },
+          {
+            "score": 60
+          }
+        ]
+      },
+      "cpr2-lec33": {
+        "lastScore": 90,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 80
+          },
+          {
+            "score": 90
+          }
+        ]
+      },
+      "cpr2-lec34": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 50
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec35": {
+        "lastScore": 50,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 67
+          },
+          {
+            "score": 70
+          },
+          {
+            "score": 50
+          }
+        ]
+      },
+      "cpr2-lec36": {
+        "lastScore": 80,
+        "confidenceLevel": null,
+        "nextReview": null,
+        "sessions": [
+          {
+            "score": 71
+          },
+          {
+            "score": 80
+          }
+        ]
+      },
+      "cpr2-lec37": null,
+      "cpr2-lec38": null,
+      "cpr2-lec39": null,
+      "cpr2-lec40": null,
+      "cpr2-lec41": null,
+      "cpr2-lec42": null,
+      "cpr2-lec43": null
+    },
+    "completion": {
+      "cpr2-dla15__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-28T23:16:25.706Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-28",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:58:20.768Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:43:20.821Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla16__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T00:50:05.120Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T00:33:19.020Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T07:14:16.679Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla17__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-26T06:12:28.210Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T04:07:41.256Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec25__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-25T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-23T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-18T20:53:53.704Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-17",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-17",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec26__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-25T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T23:38:42.908Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-23T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-19T18:40:42.499Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-19T18:30:31.022Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-17",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec27__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-05-02T04:23:43.528Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-02",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-01T21:58:44.310Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-01",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29T23:38:05.254Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T23:43:52.790Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T03:25:48.590Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-22",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-20T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec28__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-20T20:02:19.833Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-20T19:50:42.818Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec29__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-24T06:56:47.476Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-20T20:42:20.964Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec30__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T23:33:14.321Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29T00:54:01.088Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-29",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T02:38:16.954Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-22T03:00:24.101Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec31__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T00:33:46.287Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T01:54:46.579Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T01:26:36.489Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec32__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T22:26:59.202Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T06:31:36.797Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T03:11:14.266Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec33__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T22:45:11.280Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-27T00:00:00.000Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26T04:12:08.625Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec34__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-26T21:28:27.022Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T07:01:45.213Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec35__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-30T23:12:16.920Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-30",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-25T21:50:38.694Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T22:40:08.071Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-lec36__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-26T06:04:02.353Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-26",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T23:09:18.011Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla14a__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-05-01T04:42:12.029Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-05-01",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-24T06:49:49.458Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      },
+      "cpr2-dla13__CPR2": {
+        "ankiCardsOverdue": 0,
+        "ankiCardCount": 0,
+        "lastAnkiLogDate": null,
+        "activityLog": [
+          {
+            "date": "2026-04-25T02:43:26.211Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:33:26.946Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          },
+          {
+            "date": "2026-04-21T23:22:21.903Z",
+            "type": null,
+            "score": null,
+            "confidence": null
+          }
+        ]
+      }
+    },
+    "reviewedLectures": {
+      "50af8058-8f25-40dd-812e-5373a36c2249__msk": {
+        "date": "2026-03-04T03:22:44.638Z",
+        "method": "manual"
+      },
+      "mm8h25j00tv__msk": {
+        "date": "2026-03-04T03:39:03.175Z",
+        "method": "manual"
+      },
+      "mm8h9rnbz67__msk": {
+        "method": "manual",
+        "date": "2026-03-04T03:31:52.587Z"
+      },
+      "mm8h7xx2y2n__msk": {
+        "date": "2026-03-04T03:31:40.522Z",
+        "method": "manual"
+      },
+      "mm8h2qf0oxx__msk": {
+        "date": "2026-03-04T03:22:21.557Z",
+        "method": "manual"
+      },
+      "cc105283-c14b-4af3-a17b-efd5367fd53b__msk": {
+        "date": "2026-03-04T03:39:14.079Z",
+        "method": "manual"
+      },
+      "mm8h30ba2lj__msk": {
+        "method": "manual",
+        "date": "2026-03-04T03:22:29.146Z"
+      }
+    },
+    "weakConcepts": {
+      "_summary": {
+        "msk": 187,
+        "CPR2": 71,
+        "cpr1": 122,
+        "lifetime": 379
+      }
+    },
+    "studyModeByLecture": {
+      "592e3111-2537-46ad-ad54-b6fc1e1ddd98": {
+        "mode": "biochemistry",
+        "label": "Biochemistry & Pathways",
+        "icon": "⚗️",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Biochemistry pathways benefit from Deep Learn, spaced recall, and application questions.",
+        "color": "#f59e0b"
+      },
+      "e414e6cf-a0b5-46e0-946e-07d18efb2929": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "2d611b5b-5e00-4180-9543-4340715aed2e": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "7772ca78-7939-4e99-a382-f3ab520d724b": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "62b0d499-e099-4dc3-a427-3a806acbb89a": {
+        "mode": "physiology",
+        "label": "Physiology",
+        "icon": "❤️",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Physiology needs clinical reasoning and mechanism-based deep learning.",
+        "color": "#ef4444"
+      },
+      "e50e2ead-a194-4699-9ef4-2869a4a4b2ae": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "0e98cde7-05c6-404f-a3c6-9eb9d9dc0d37": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "6c546a4b-7672-417a-a539-c3fce842cf5a": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "718e6c42-8641-4662-ae05-b6b687b6d116": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "557baedd-0f4a-423b-a359-e45902d9616a": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "cpr2-dla13": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-dla14a": {
+        "mode": "physiology",
+        "label": "Physiology",
+        "icon": "❤️",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Physiology needs clinical reasoning and mechanism-based deep learning.",
+        "color": "#ef4444"
+      },
+      "cpr2-dla14b": {
+        "mode": "physiology",
+        "label": "Physiology",
+        "icon": "❤️",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Physiology needs clinical reasoning and mechanism-based deep learning.",
+        "color": "#ef4444"
+      },
+      "cpr2-dla14c": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-dla15": {
+        "mode": "physiology",
+        "label": "Physiology",
+        "icon": "❤️",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Physiology needs clinical reasoning and mechanism-based deep learning.",
+        "color": "#ef4444"
+      },
+      "cpr2-dla16": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-dla17": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-dla18": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-lec25": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-lec26": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-lec27": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-lec28": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "cpr2-lec29": {
+        "mode": "biochemistry",
+        "label": "Biochemistry & Pathways",
+        "icon": "⚗️",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Biochemistry pathways benefit from Deep Learn, spaced recall, and application questions.",
+        "color": "#f59e0b"
+      },
+      "cpr2-lec30": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-lec31": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "cpr2-lec32": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-lec33": {
+        "mode": "pharmacology",
+        "label": "Pharmacology",
+        "icon": "💊",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Pharmacology requires understanding mechanisms and drug class patterns — Deep Learn + flashcards work well together.",
+        "color": "#10b981"
+      },
+      "cpr2-lec34": {
+        "mode": "biochemistry",
+        "label": "Biochemistry & Pathways",
+        "icon": "⚗️",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Biochemistry pathways benefit from Deep Learn, spaced recall, and application questions.",
+        "color": "#f59e0b"
+      },
+      "cpr2-lec35": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-lec36": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-lec37": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-lec38": {
+        "mode": "biochemistry",
+        "label": "Biochemistry & Pathways",
+        "icon": "⚗️",
+        "recommended": [
+          "deepLearn",
+          "flashcards",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Biochemistry pathways benefit from Deep Learn, spaced recall, and application questions.",
+        "color": "#f59e0b"
+      },
+      "cpr2-lec39": {
+        "mode": "physiology",
+        "label": "Physiology",
+        "icon": "❤️",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Physiology needs clinical reasoning and mechanism-based deep learning.",
+        "color": "#ef4444"
+      },
+      "cpr2-lec40": {
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
+      },
+      "cpr2-lec41": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-lec42": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
+      },
+      "cpr2-lec43": {
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
+        "recommended": [
+          "deepLearn",
+          "mcq"
+        ],
+        "avoid": [],
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
+      }
+    }
+  },
+  "output": {
+    "studySchedule": null,
+    "dailySchedule": {
+      "daysLeft": 0,
+      "needsBlockStart": false,
+      "schedule": [],
+      "lecScores": [],
+      "upcoming": [],
+      "undated": []
+    }
+  },
+  "errors": {}
+}

@@ -1,0 +1,12 @@
+{
+  "capturedAt": "2026-07-27T16:07:24.892Z",
+  "blocks": [
+    "mrspx2sg9go",
+    "CPR2",
+    "msk",
+    "52edb3b6-f115-4139-80a5-c6637a6465cc",
+    "cpr1",
+    "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6"
+  ],
+  "note": "SP1 T4.1 — recorded from App.jsx; T4.2's pure schedule.js must reproduce these outputs."
+}
