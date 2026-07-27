@@ -2,7 +2,8 @@ import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useTheme } from "./useTheme";
-import { readTerms, readLectures, flattenBlocks } from "./data.js";
+import { readLectures } from "./data.js";
+import { useBlocks } from "./hooks/useBlocks.js";
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { BlockHome } from "./BlockHome.jsx";
@@ -88,9 +89,18 @@ export default function Shell() {
 }
 
 function ShellMain({ theme, toggle, userId }) {
-  // Computed once, AFTER the cloud pull populated localStorage.
-  const blocks = useMemo(() => flattenBlocks(readTerms(), readLectures()), []);
-  const [activeBlockId, setActiveBlockId] = useState(() => blocks[0]?.id ?? null);
+  // Reactive via the store hooks — no longer a one-shot read that goes stale
+  // the moment a schedule is imported or a lecture uploaded.
+  const blocks = useBlocks(userId);
+  // Derived, not synced in an effect: the selection is what the user picked,
+  // and it falls back to the first block until they pick — or if the block they
+  // were on disappears (a deleted term used to leave the shell pointing at
+  // nothing).
+  const [selectedBlockId, setSelectedBlockId] = useState(null);
+  const activeBlockId =
+    selectedBlockId && blocks.some((b) => b.id === selectedBlockId)
+      ? selectedBlockId
+      : blocks[0]?.id ?? null;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);
@@ -162,9 +172,10 @@ function ShellMain({ theme, toggle, userId }) {
   return (
     <div className={`theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
       <Sidebar
+        userId={userId}
         activeBlockId={activeBlockId}
         onSelectBlock={(id) => {
-          setActiveBlockId(id);
+          setSelectedBlockId(id);
           setSessionMode(null);
           setView("home");
           setQuiz(null);
@@ -269,7 +280,7 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setActiveBlockId(it.id); setSessionMode(null); setView("home"); setQuiz(null); setStudyLecture(null); }}
+        onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setView("home"); setQuiz(null); setStudyLecture(null); }}
       />
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
       {showRecognize && (

@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import { readTerms, readLectures, flattenBlocks, blockCoverage } from "./data.js";
+import { blockCoverage } from "./data.js";
+import { useBlocks } from "./hooks/useBlocks.js";
 import { StatusGlyph } from "../ui/Badge.jsx";
 
-export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette }) {
-  const terms = useMemo(() => readTerms(), []);
-  const lectures = useMemo(() => readLectures(), []);
-  const blocks = useMemo(() => flattenBlocks(terms, lectures), [terms, lectures]);
+export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = null }) {
+  // Reactive: a schedule import or lecture upload updates the nav without a reload.
+  const blocks = useBlocks(userId);
   const byTerm = useMemo(() => {
     const m = new Map();
     for (const b of blocks) {

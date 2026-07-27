@@ -120,6 +120,45 @@ async function commitInChunks(writeOps, errors, chunk = 400) {
 export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 
 /**
+ * SP1 T5.1 — the remote shell flag: the rollback switch for the shell flip.
+ *
+ * Stored per user at `kv/rxt-shell-flag` so it can be flipped from the Firebase
+ * console without a deploy. Returns "new" | "old" | null (null = no opinion,
+ * fall through to the local choice). Never throws: a boot must not hang or die
+ * because a flag lookup failed.
+ */
+export async function fetchShellFlag(userId) {
+  if (!userId) return null;
+  try {
+    const snap = await getDoc(doc(db, "users", userId, "kv", encodeDocId("rxt-shell-flag")));
+    const value = snap.exists() ? snap.data()?.data ?? snap.data()?.value : null;
+    const flag = typeof value === "string" ? value : value?.shell;
+    return flag === "new" || flag === "old" ? flag : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Set (or clear) the remote shell flag — the rollback control.
+ *
+ * `setShellFlag(uid, "old")` forces every device of that user back to the old
+ * shell on next boot and wipes their sticky local choice; `null` removes the
+ * flag and hands the decision back to the local choice / default.
+ */
+export async function setShellFlag(userId, flag) {
+  if (!userId) return { ok: false };
+  const ref = doc(db, "users", userId, "kv", encodeDocId("rxt-shell-flag"));
+  if (flag == null) {
+    await deleteDoc(ref);
+    return { ok: true, flag: null };
+  }
+  if (flag !== "new" && flag !== "old") throw new Error(`shell flag must be "new", "old" or null`);
+  await setDoc(ref, { data: flag, updatedAt: serverTimestamp() }, { merge: true });
+  return { ok: true, flag };
+}
+
+/**
  * Lecture ids App has deleted or replaced locally (`rxt-id-tombstones`).
  *
  * App has written this list since forever; nothing ever read it on the sync
