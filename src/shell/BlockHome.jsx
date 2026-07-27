@@ -3,7 +3,7 @@ import { readTerms, readLectures, flattenBlocks, blockCoverage } from "./data.js
 import { Button } from "../ui/Button.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
 
-export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives }) {
+export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, today = null }) {
   const block = useMemo(() => {
     const blocks = flattenBlocks(readTerms(), readLectures());
     return blocks.find((b) => b.id === blockId) || null;
@@ -20,6 +20,8 @@ export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives }) {
       <div className="mt-1 font-mono text-[11px] text-text-3">
         {block.lectureCount} lectures{cov != null ? ` · ${cov}% covered` : ""}
       </div>
+
+      {today && <div className="my-4 border-y border-border py-4">{today}</div>}
 
       <div className="my-4 flex flex-col gap-3">
         <div>

@@ -17,6 +17,7 @@ import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
+import { Today } from "./features/today/Today.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
 import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
@@ -201,6 +202,15 @@ function ShellMain({ theme, toggle, userId }) {
                 onExit={() => setSessionMode(null)}
               />
             )
+          ) : quiz?.questions?.length ? (
+            // Hoisted above the views: a quiz can be launched from Today or from
+            // the objectives tracker, and it takes over the pane either way.
+            <div className="p-5">
+              <button onClick={() => setQuiz(null)} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
+                ← back
+              </button>
+              <AtomQuiz questions={quiz.questions} blockId={activeBlockId} />
+            </div>
           ) : studyLecture ? (
             <LectureStudyFlow
               key={studyLecture.id}
@@ -227,6 +237,15 @@ function ShellMain({ theme, toggle, userId }) {
               onContinue={onContinue}
               onCalibrate={onCalibrate}
               onObjectives={() => setView("objectives")}
+              today={
+                <Today
+                  blockId={activeBlockId}
+                  userId={userId}
+                  quizBusyLectureId={quiz?.loading ? quiz.lectureId : null}
+                  onStudyLecture={onStudyLecture}
+                  onStartObjectiveQuiz={onStartObjectiveQuiz}
+                />
+              }
             />
           )}
         </main>
@@ -252,22 +271,11 @@ function ShellMain({ theme, toggle, userId }) {
 }
 
 /**
- * Objectives surface: the ported tracker. A generated quiz takes over the whole
- * pane — it is a full-attention surface, and its results are logged against the
- * block by AtomQuiz itself.
+ * Objectives surface: the ported tracker. A generated quiz renders one level up
+ * (ShellMain) so it behaves the same whether it was launched from here or from
+ * Today.
  */
-function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onCloseQuiz, onStartObjectiveQuiz, onStudyLecture }) {
-  if (quiz?.questions?.length) {
-    return (
-      <div className="p-5">
-        <button onClick={onCloseQuiz} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
-          ← back to objectives
-        </button>
-        <AtomQuiz questions={quiz.questions} blockId={blockId} />
-      </div>
-    );
-  }
-
+function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartObjectiveQuiz, onStudyLecture }) {
   return (
     <div className="p-2">
       <ObjectivesContainer
