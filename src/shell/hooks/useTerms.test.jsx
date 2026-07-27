@@ -6,6 +6,9 @@ import { installDomStorage } from "../../stores/testEnv.js";
 import { useTerms } from "./useTerms.js";
 import { setStoreHookUserId } from "./currentUser.js";
 
+// Tells React that act() is legitimate here; without it every act warns.
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
 describe("useTerms", () => {
   beforeEach(() => {
     installDomStorage();

@@ -12,6 +12,7 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.js'],
+    // .jsx too: hook tests render with react-dom into the jsdom from testEnv.js.
+    include: ['src/**/*.test.{js,jsx}'],
   },
 })

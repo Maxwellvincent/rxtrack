@@ -16,6 +16,11 @@ import PatientRecognition from "../PatientRecognition.jsx";
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { LectureExtractModal } from "./LectureExtractModal.jsx";
 import { McqGenModal } from "./McqGenModal.jsx";
+import { AtomQuiz } from "./AtomQuiz.jsx";
+import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
+import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
+import { callAIJSON } from "../aiClient.js";
+import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { themes } from "../theme.js";
 
 /**
@@ -91,8 +96,14 @@ function ShellMain({ theme, toggle, userId }) {
   const [showImport, setShowImport] = useState(false);
   const [showExtract, setShowExtract] = useState(false);
   const [showMcq, setShowMcq] = useState(false);
+  const [view, setView] = useState("home"); // home | objectives
+  // Objective quiz: { lectureId, loading, error, questions, title }
+  const [quiz, setQuiz] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
   const legacyTheme = themes[theme] || themes.dark;
+
+  // Store hooks read this when no explicit userId is passed.
+  useEffect(() => { setStoreHookUserId(userId ?? null); }, [userId]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -110,11 +121,40 @@ function ShellMain({ theme, toggle, userId }) {
   const onContinue = useCallback(() => setSessionMode("engine"), []);
   const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
 
+  // The real objective-quiz launch: ObjectiveTracker's callback → MCQ engine →
+  // the calibrated AtomQuiz runner, logging confidence against this block.
+  const onStartObjectiveQuiz = useCallback(
+    async (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
+      const bid = optionalBlockId ?? activeBlockId;
+      const lectureId =
+        extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
+      setQuiz({ lectureId, loading: true, title: lectureTitle });
+      const result = await startObjectiveQuiz(
+        {
+          objectives,
+          lectureTitle,
+          blockId: bid,
+          lectures: readLectures(),
+          exemplars: readExemplars(),
+          questionCount: extraMeta?.questionCount,
+          difficulty: extraMeta?.difficulty ?? "medium",
+        },
+        { callAIJSON }
+      );
+      if (result.error || !result.questions?.length) {
+        setQuiz({ lectureId, error: result.error || "No questions came back.", title: lectureTitle });
+        return;
+      }
+      setQuiz({ lectureId, questions: result.questions, title: lectureTitle });
+    },
+    [activeBlockId]
+  );
+
   return (
     <div className={`theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
       <Sidebar
         activeBlockId={activeBlockId}
-        onSelectBlock={(id) => { setActiveBlockId(id); setSessionMode(null); }}
+        onSelectBlock={(id) => { setActiveBlockId(id); setSessionMode(null); setView("home"); setQuiz(null); }}
         onOpenPalette={() => setPaletteOpen(true)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -151,8 +191,24 @@ function ShellMain({ theme, toggle, userId }) {
                 onExit={() => setSessionMode(null)}
               />
             )
+          ) : view === "objectives" && activeBlockId ? (
+            <ObjectivesView
+              blockId={activeBlockId}
+              userId={userId}
+              termColor={active?.termColor}
+              T={legacyTheme}
+              quiz={quiz}
+              onBack={() => { setView("home"); setQuiz(null); }}
+              onCloseQuiz={() => setQuiz(null)}
+              onStartObjectiveQuiz={onStartObjectiveQuiz}
+            />
           ) : (
-            <BlockHome blockId={activeBlockId} onContinue={onContinue} onCalibrate={onCalibrate} />
+            <BlockHome
+              blockId={activeBlockId}
+              onContinue={onContinue}
+              onCalibrate={onCalibrate}
+              onObjectives={() => setView("objectives")}
+            />
           )}
         </main>
       </div>
@@ -167,6 +223,48 @@ function ShellMain({ theme, toggle, userId }) {
       {showImport && <ScheduleImportModal userId={userId} onClose={() => setShowImport(false)} />}
       {showExtract && <LectureExtractModal onClose={() => setShowExtract(false)} />}
       {showMcq && <McqGenModal onClose={() => setShowMcq(false)} />}
+    </div>
+  );
+}
+
+/**
+ * Objectives surface: the ported tracker. A generated quiz takes over the whole
+ * pane — it is a full-attention surface, and its results are logged against the
+ * block by AtomQuiz itself.
+ */
+function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onCloseQuiz, onStartObjectiveQuiz }) {
+  if (quiz?.questions?.length) {
+    return (
+      <div className="p-5">
+        <button onClick={onCloseQuiz} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
+          ← back to objectives
+        </button>
+        <AtomQuiz questions={quiz.questions} blockId={blockId} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-2">
+      <ObjectivesContainer
+        blockId={blockId}
+        userId={userId}
+        termColor={termColor}
+        T={T}
+        quizLoadingId={quiz?.loading ? quiz.lectureId : null}
+        quizErrorId={quiz?.error ? quiz.lectureId : null}
+        onStartObjectiveQuiz={onStartObjectiveQuiz}
+        headerActions={
+          <button onClick={onBack} className="font-mono text-xs text-text-3 hover:text-text-1">
+            ← block
+          </button>
+        }
+      />
+      {quiz?.error && (
+        <div className="mx-3 mt-2 rounded border border-border px-3 py-2 text-xs text-bad">
+          Quiz failed: {quiz.error}
+        </div>
+      )}
     </div>
   );
 }

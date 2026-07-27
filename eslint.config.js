@@ -63,7 +63,8 @@ export default defineConfig([
       'src/DeepLearn.jsx',
       'src/LearningModel.jsx',
       'src/HistoStudy.jsx',
-      'src/ObjectiveTracker.jsx',
+      // Ported in SP1 T1.3 but still the legacy tree — same relaxations apply.
+      'src/shell/features/objectives/ObjectiveTracker.jsx',
     ],
     rules: {
       'react-hooks/exhaustive-deps': 'off',
@@ -80,6 +81,20 @@ export default defineConfig([
         patterns: [
           { group: ['**/App', '**/App.jsx'], message: 'SP1: shell features must not import the App.jsx monolith — use src/shell/hooks + src/shell/logic.' },
           { group: ['**/Tracker.jsx', '**/DeepLearn.jsx', '**/ObjectiveTracker.jsx', '**/HistoStudy.jsx', '**/PatientRecognition.jsx', '**/LearningModel.jsx'], message: 'SP1: shell features must not import legacy top-level feature components — port them or use a bounded legacy adapter.' },
+        ],
+      }],
+    },
+  },
+  {
+    // T1.3: the objectives tree now LIVES in this folder, so importing the
+    // sibling is not reaching back into the monolith. Everything else — App and
+    // the still-unported legacy components — stays blocked.
+    files: ['src/shell/features/objectives/**/*.{js,jsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/App', '**/App.jsx'], message: 'SP1: shell features must not import the App.jsx monolith — use src/shell/hooks + src/shell/logic.' },
+          { group: ['**/Tracker.jsx', '**/DeepLearn.jsx', '**/HistoStudy.jsx', '**/PatientRecognition.jsx', '**/LearningModel.jsx'], message: 'SP1: shell features must not import legacy top-level feature components — port them or use a bounded legacy adapter.' },
         ],
       }],
     },

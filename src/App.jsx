@@ -23,7 +23,7 @@ import Tracker, {
 } from "./Tracker";
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
-import ObjectiveTracker from "./ObjectiveTracker";
+import ObjectiveTracker from "./shell/features/objectives/ObjectiveTracker.jsx";
 import { loadPDFJS, parseExamPDF } from "./examParser";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
 import { DIFFICULTY_TIERS, buildDifficultyInstruction } from "./difficultyEngine";
