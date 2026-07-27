@@ -18,6 +18,7 @@ import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { appendActivity } from "../../logic/completionLog.js";
 import { buildStudySchedule, generateDailySchedule, objectivesForLecture } from "../../logic/schedule.js";
 import { buildScheduleContext } from "./scheduleContext.js";
+import { todayTasks as todayTasks_ } from "./fallback.js";
 
 /** App fired this so other surfaces re-read completion; keep the contract. */
 function emitCompletionUpdated() {
@@ -54,12 +55,9 @@ export function useToday(blockId, userId, { now } = {}) {
   const daily = useMemo(() => generateDailySchedule(context), [context]);
   const study = useMemo(() => buildStudySchedule(context), [context]);
 
-  // The first day of the plan is "today" only when it is day 0 — a schedule
-  // whose first entry is further out has nothing due right now.
-  const todayTasks = useMemo(() => {
-    const first = daily?.schedule?.[0];
-    return first && first.daysFromNow === 0 ? first.tasks : [];
-  }, [daily]);
+  // Day 0 if the planner placed anything there, else the urgency fallback —
+  // see fallback.js for why that is needed at all.
+  const { tasks: todayTasks, reason: todayReason } = useMemo(() => todayTasks_(daily), [daily]);
 
   const mutateCompletion = completion.mutate;
   const logActivity = useCallback(
@@ -98,6 +96,7 @@ export function useToday(blockId, userId, { now } = {}) {
     daily,
     study,
     todayTasks,
+    todayReason,
     examDate: context.examDate,
     daysLeft: daily?.daysLeft ?? null,
     logActivity,

@@ -33,7 +33,9 @@ function TaskCard({ task, onQuiz, onStudy, onLog, busy }) {
               ? "on today's timetable"
               : task.matchReason === "spaced-rep-due"
                 ? "spaced repetition due"
-                : "highest urgency"}
+                : task.matchReason === "urgency-fallback"
+                  ? "no date — picked by urgency"
+                  : "highest urgency"}
             {" · "}urgency {Math.round(task.urgency)}
             {task.total > 0 && ` · ${task.mastered}/${task.total} mastered`}
             {task.struggling > 0 && ` · ${task.struggling} struggling`}
@@ -90,7 +92,8 @@ function TaskCard({ task, onQuiz, onStudy, onLog, busy }) {
 }
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
-  const { todayTasks, daily, study, examDate, daysLeft, logActivity, objectivesForTask } = useToday(blockId, userId);
+  const { todayTasks, todayReason, study, examDate, daysLeft, logActivity, objectivesForTask } =
+    useToday(blockId, userId);
   const [logged, setLogged] = useState(null);
 
   const onLog = useCallback(
@@ -129,15 +132,16 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
 
       {logged && <div className="mb-2 font-mono text-[10px] text-good">{logged}</div>}
 
+      {todayReason === "urgency-fallback" && (
+        <div className="mb-2 font-mono text-[10px] text-text-3">
+          No lecture in this block has a date, so nothing can be placed on a calendar — showing the highest-urgency
+          lectures instead. Add a block start date and week numbers for a real day plan.
+        </div>
+      )}
+
       {todayTasks.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">
-          Nothing scheduled for today.
-          {daily?.lecScores?.length > 0 && daily.schedule.length === 0 && (
-            <>
-              {" "}All {daily.lecScores.length} lectures in this block are undated, and the day planner only places
-              lectures that have a date — add dates or a block start to see them here.
-            </>
-          )}
+          Nothing to do in this block yet — every lecture is either mastered or not yet available.
         </div>
       ) : (
         <div className="flex flex-col gap-2">

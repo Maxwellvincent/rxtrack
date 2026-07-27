@@ -3,6 +3,7 @@ import { installDomStorage } from "../../../stores/testEnv.js";
 import { detectStudyMode, hasUploadedContent } from "../../logic/studyMode.js";
 import { appendActivity, computeReviewDates, getNextSaturday } from "../../logic/completionLog.js";
 import { buildScheduleContext, resolveBlockMeta, lecturePerformanceFor } from "./scheduleContext.js";
+import { todayTasks } from "./fallback.js";
 import { generateDailySchedule, buildStudySchedule } from "../../logic/schedule.js";
 
 describe("detectStudyMode", () => {
@@ -133,6 +134,64 @@ describe("buildScheduleContext", () => {
     const terms = [{ id: "t1", blocks: [{ id: "x" }] }, { id: "t2", blocks: [{ id: "b1", startDate: "d" }] }];
     expect(resolveBlockMeta(terms, "b1")).toMatchObject({ id: "b1" });
     expect(resolveBlockMeta(terms, "missing")).toBeNull();
+  });
+});
+
+describe("today's task list", () => {
+  const score = (id, urgency, over = {}) => ({
+    lec: { id },
+    urgency,
+    recommendedSessions: [{ type: "quiz", label: "Quiz", duration: 15 }],
+    isFuture: false,
+    ...over,
+  });
+
+  it("uses the planner's day 0 when it placed anything there", () => {
+    const daily = {
+      schedule: [{ daysFromNow: 0, tasks: [score("a", 50)] }],
+      lecScores: [score("b", 99)],
+    };
+    const result = todayTasks(daily);
+    expect(result.reason).toBe("scheduled");
+    expect(result.tasks.map((t) => t.lec.id)).toEqual(["a"]);
+  });
+
+  it("ignores a plan whose first day is not today", () => {
+    const daily = {
+      schedule: [{ daysFromNow: 3, tasks: [score("a", 50)] }],
+      lecScores: [score("b", 99)],
+    };
+    expect(todayTasks(daily).reason).toBe("urgency-fallback");
+  });
+
+  it("falls back to the urgency ranking, capped", () => {
+    const daily = {
+      schedule: [],
+      lecScores: Array.from({ length: 10 }, (_, i) => score(`l${i}`, 100 - i)),
+    };
+    const result = todayTasks(daily, { limit: 6, todayStr: "2026-07-27" });
+
+    expect(result.reason).toBe("urgency-fallback");
+    expect(result.tasks).toHaveLength(6);
+    expect(result.tasks[0].lec.id).toBe("l0");
+    expect(result.tasks[0]).toMatchObject({ matchReason: "urgency-fallback", dateStr: "2026-07-27" });
+  });
+
+  it("skips lectures with nothing to do and ones not yet available", () => {
+    const daily = {
+      schedule: [],
+      lecScores: [
+        score("done", 90, { recommendedSessions: [] }),
+        score("future", 80, { isFuture: true }),
+        score("real", 70),
+      ],
+    };
+    expect(todayTasks(daily).tasks.map((t) => t.lec.id)).toEqual(["real"]);
+  });
+
+  it("says so when there is genuinely nothing", () => {
+    expect(todayTasks({ schedule: [], lecScores: [] })).toEqual({ tasks: [], reason: "none" });
+    expect(todayTasks(null).reason).toBe("none");
   });
 });
 
