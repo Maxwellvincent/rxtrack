@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { useTheme, getObjStatusColor } from "./theme";
-import { LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
+import { useTheme, getObjStatusColor } from "../../../theme";
+import { LEVEL_COLORS, LEVEL_BG } from "../../../bloomsTaxonomy";
 
 const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 

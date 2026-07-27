@@ -1,15 +1,12 @@
 /**
- * SP1 T1.2 — shell entry point for objectives.
+ * SP1 T1.2/T1.3 — shell entry point for objectives.
  *
- * Bounded legacy adapter: the presentational tree is still `ObjectiveTracker`,
- * but every prop it used to get from App.jsx now comes from
- * `useObjectivesController` (store hooks + pure commands). T1.3 moves the tree
- * itself under this folder; until then this file is the only place in
- * `src/shell/features` allowed to import it.
+ * The presentational tree (`ObjectiveTracker`, moved into this folder in T1.3)
+ * gets everything it used to get from App.jsx from `useObjectivesController`
+ * instead — store hooks + the pure commands in shell/logic.
  */
 import { useState } from "react";
-// eslint-disable-next-line no-restricted-imports -- bounded legacy adapter (SP1 T1.2); the tree moves here in T1.3.
-import ObjectiveTracker from "../../../ObjectiveTracker.jsx";
+import ObjectiveTracker from "./ObjectiveTracker.jsx";
 import { useObjectivesController } from "./useObjectivesController.js";
 
 export function ObjectivesContainer({
