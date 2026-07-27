@@ -26418,16 +26418,21 @@ What is the clinical significance of this finding?`,
         await new Promise((resolve) => {
           setLecs((prev) => {
             const hasNum = lectureToSave.lectureNumber != null && String(lectureToSave.lectureNumber).trim() !== "";
-            const filtered = prev.filter((l) => {
+            const supersedes = (l) => {
               if (hasNum) {
-                return !(
+                return (
                   l.blockId === bid &&
                   (l.lectureType || "LEC").trim() === (lectureToSave.lectureType || "LEC").trim() &&
                   String(l.lectureNumber).trim() === String(lectureToSave.lectureNumber).trim()
                 );
               }
-              return !(l.blockId === bid && l.filename === file.name);
-            });
+              return l.blockId === bid && (l.filename === file.name || l.fileName === file.name);
+            };
+            // Tombstone what this upload replaces: the row leaves localStorage
+            // either way, but without a tombstone its cloud doc survives and the
+            // next pull re-adds it as a duplicate.
+            prev.filter(supersedes).forEach((l) => saveLectureIdTombstone(l));
+            const filtered = prev.filter((l) => !supersedes(l));
             const updated = [...filtered, lectureToSave];
             saveLectures(updated)
               .then(() => {

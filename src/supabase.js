@@ -120,6 +120,29 @@ async function commitInChunks(writeOps, errors, chunk = 400) {
 export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 
 /**
+ * Lecture ids App has deleted or replaced locally (`rxt-id-tombstones`).
+ *
+ * App has written this list since forever; nothing ever read it on the sync
+ * side, which is why a re-uploaded lecture came back: the local row was
+ * replaced, but its cloud doc survived and the next pull re-added it.
+ */
+export function readLectureTombstoneIds() {
+  try {
+    const list = JSON.parse(localStorage.getItem("rxt-id-tombstones") || "[]");
+    return new Set((Array.isArray(list) ? list : []).map((t) => t?.oldId).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Delete a lecture's cloud doc. The one exception to "lectures are never deleted". */
+export async function deleteLectureFromCloud(userId, lecId) {
+  if (!userId || !lecId) return false;
+  await deleteDoc(doc(db, "users", userId, "lectures", encodeDocId(lecId)));
+  return true;
+}
+
+/**
  * Lecture content on demand.
  *
  * `pullAllDataFromSupabase` hydrates `chunks` into localStorage for the active
@@ -462,8 +485,22 @@ export async function pushAllLocalDataToSupabase(userId) {
   }
   try { persistLocal("rxt-block-objectives", objStore); } catch {}
 
-  // ── 7. LECTURES (chunked batch, encoded ids, never delete) ──────────────────
+  // ── 7. LECTURES (chunked batch, encoded ids) ──────────────────
+  // Tombstoned ids are the ONE thing that gets deleted up here: without this a
+  // locally-replaced lecture is resurrected by the next pull, and re-uploading
+  // a lecture leaves a permanent duplicate behind.
   const lecs = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");
+  const tombstoned = readLectureTombstoneIds();
+  const liveIds = new Set(lecs.map((l) => l?.id));
+  for (const deadId of tombstoned) {
+    if (liveIds.has(deadId)) continue; // re-created since; leave it alone
+    try {
+      await deleteLectureFromCloud(userId, deadId);
+    } catch (e) {
+      errors.push({ store: `lectures:${deadId}`, error: { message: e?.message || String(e) } });
+    }
+  }
+
   const lecOps = [];
   for (const l of lecs) {
     const { chunks, ...meta } = l;
@@ -567,7 +604,10 @@ export async function pullAllDataFromSupabase(userId) {
     const termsArr = (() => { try { return JSON.parse(localStorage.getItem("rxt-terms") || "[]"); } catch { return []; } })();
     const activeTerm = termsArr[termsArr.length - 1];
     const activeBlockIds = new Set((activeTerm?.blocks || []).map((b) => b.id));
-    const fromCloud = lecsSnap.docs.map((d) => {
+    // Belt and braces with the tombstone deletes on push: a doc this device
+    // already buried must not walk back in from a stale cloud copy.
+    const buried = readLectureTombstoneIds();
+    const fromCloud = lecsSnap.docs.filter((d) => !buried.has(decodeDocId(d.id))).map((d) => {
       const v = d.data();
       const lec = { ...(v.data || {}), id: decodeDocId(d.id) };
       lec.chunks = activeBlockIds.has(lec.blockId) ? (v.chunks || []) : [];
