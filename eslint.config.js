@@ -51,14 +51,6 @@ export default defineConfig([
     },
   },
   {
-    files: ['src/Tracker.jsx'],
-    rules: {
-      // Large surface: unused bindings and stale hook deps are common; keep other rules strict.
-      'react-hooks/exhaustive-deps': 'off',
-      'no-unused-vars': 'off',
-    },
-  },
-  {
     files: [
       'src/DeepLearn.jsx',
       'src/LearningModel.jsx',

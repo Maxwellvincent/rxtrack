@@ -92,8 +92,13 @@ function TaskCard({ task, onQuiz, onStudy, onLog, busy }) {
 }
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, nextDay, study, examDate, daysLeft, logActivity, objectivesForTask } =
+  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, objectivesForTask } =
     useToday(blockId, userId);
+
+  // Two very different reasons to fall back, and saying the wrong one is worse
+  // than saying nothing: the block may have no dates at all, or simply have
+  // nothing scheduled for today.
+  const allUndated = (daily?.lecScores || []).length > 0 && daily.lecScores.every((ls) => ls.hasNoDate);
   const [logged, setLogged] = useState(null);
 
   const onLog = useCallback(
@@ -134,8 +139,19 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
 
       {todayReason === "urgency-fallback" && (
         <div className="mb-2 font-mono text-[10px] text-text-3">
-          No lecture in this block has a date, so nothing can be placed on a calendar — showing the highest-urgency
-          lectures instead. Add a block start date and week numbers for a real day plan.
+          {allUndated ? (
+            <>
+              No lecture in this block has a date, so nothing can be placed on a calendar — showing the
+              highest-urgency lectures instead. Import the schedule, or add a block start date and week numbers.
+            </>
+          ) : nextDay ? (
+            <>
+              Nothing scheduled for today — next session {nextDay.dateStr}, in {nextDay.daysFromNow} days. Getting
+              ahead on the highest-urgency lectures:
+            </>
+          ) : (
+            <>Nothing scheduled for today — showing the highest-urgency lectures instead.</>
+          )}
         </div>
       )}
 

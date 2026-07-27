@@ -16,11 +16,11 @@ import {
   fetchQuestionImages,
   deleteQuestionImage,
 } from "./supabase";
-import Tracker, {
+import {
   getConfidenceTrend,
   addLectureToTodayReview as addLectureToTodayReviewFromTracker,
   getDerivedLectureDate,
-} from "./Tracker";
+} from "./studyHelpers.js";
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import { guideFor } from "./objectiveGuides.js";
