@@ -90,6 +90,25 @@ export function toEntry(existingEntry, nextFlat) {
   return deduped;
 }
 
+/**
+ * The de-dupe the UI list uses (App's `getBlockObjectives` /
+ * `readBlockObjectivesDedupedFromStorage`): same first-60-chars of text after
+ * lowercasing and stripping non-word chars = same objective. Text-less rows are
+ * dropped, exactly as App dropped them.
+ */
+export function dedupeByText(objectives) {
+  const seen = new Set();
+  return (objectives || []).filter((obj) => {
+    const key = (obj?.objective || obj?.text || "")
+      .slice(0, 60)
+      .toLowerCase()
+      .replace(/\W/g, "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Flat objective list for a block, straight off a store map. */
 export function selectBlockObjectives(store, blockId) {
   return flattenEntry(readEntry(store, blockId));

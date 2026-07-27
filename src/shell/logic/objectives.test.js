@@ -5,6 +5,7 @@ import {
   flattenEntry,
   dedupeById,
   toEntry,
+  dedupeByText,
   selectBlockObjectives,
   updateObjective,
   setStatus,
@@ -67,6 +68,17 @@ describe("storage shape", () => {
 
   it("keeps a legacy flat array flat", () => {
     expect(toEntry([{ id: "o1" }], [{ id: "o1" }, { id: "o2" }])).toEqual([{ id: "o1" }, { id: "o2" }]);
+  });
+
+  it("dedupes the display list by objective text and drops text-less rows", () => {
+    expect(
+      dedupeByText([
+        { id: "a", objective: "Describe the brachial plexus." },
+        { id: "b", objective: "describe the BRACHIAL plexus!" },
+        { id: "c", text: "Name the rotator cuff muscles." },
+        { id: "d" },
+      ]).map((o) => o.id)
+    ).toEqual(["a", "c"]);
   });
 
   it("selects a block's flat list off a store map", () => {
