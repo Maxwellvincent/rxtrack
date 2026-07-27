@@ -22,6 +22,7 @@ import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { Today } from "./features/today/Today.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
+import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
 import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
@@ -242,6 +243,13 @@ function ShellMain({ theme, toggle, userId }) {
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onBack={() => setView("home")}
             />
+          ) : view === "deeplearn" && activeBlockId ? (
+            <DeepLearnContainer
+              blockId={activeBlockId}
+              userId={userId}
+              termColor={active?.termColor}
+              onBack={() => setView("home")}
+            />
           ) : view === "weak" && activeBlockId ? (
             <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setView("home")} />
           ) : view === "objectives" && activeBlockId ? (
@@ -264,6 +272,7 @@ function ShellMain({ theme, toggle, userId }) {
               onObjectives={() => setView("objectives")}
               onLectures={() => setView("lectures")}
               onWeakConcepts={() => setView("weak")}
+              onDeepLearn={() => setView("deeplearn")}
               today={
                 <Today
                   blockId={activeBlockId}

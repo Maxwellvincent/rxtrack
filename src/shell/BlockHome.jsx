@@ -3,7 +3,7 @@ import { readTerms, readLectures, flattenBlocks, blockCoverage } from "./data.js
 import { Button } from "../ui/Button.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
 
-export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, today = null }) {
+export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, onDeepLearn, today = null }) {
   const block = useMemo(() => {
     const blocks = flattenBlocks(readTerms(), readLectures());
     return blocks.find((b) => b.id === blockId) || null;
@@ -59,6 +59,14 @@ export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, onLe
             <Button variant="outline" onClick={onWeakConcepts}>⚠ Weak concepts</Button>
             <div className="mt-1.5 font-mono text-[10px] text-text-3">
               what you keep missing, landmines first
+            </div>
+          </div>
+        )}
+        {onDeepLearn && (
+          <div>
+            <Button variant="outline" onClick={onDeepLearn}>🧬 Deep Learn</Button>
+            <div className="mt-1.5 font-mono text-[10px] text-text-3">
+              teach-then-test on one lecture, with drills and rapid fire
             </div>
           </div>
         )}
