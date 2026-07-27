@@ -42,7 +42,7 @@ import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
 import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from "./calibration";
 import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
 import StudyRoutineModal from "./StudyRoutineModal";
-import PatientRecognition from "./PatientRecognition";
+import RecognitionContainer from "./shell/features/recognition/RecognitionContainer.jsx";
 import AnkiSyncModal from "./AnkiSyncModal";
 import { evaluateToday as evaluateRoutineToday, getSuggestions as getRoutineSuggestions } from "./studyRoutine";
 import {
@@ -30674,7 +30674,11 @@ Current student level: ${tierLabel}`;
       />
     )}
     {showPatientRecognition && (
-      <PatientRecognition T={t} onClose={() => setShowPatientRecognition(false)} />
+      <RecognitionContainer
+        T={t}
+        blockId={activeBlock?.id ?? blockId}
+        onClose={() => setShowPatientRecognition(false)}
+      />
     )}
     {showAnkiSync && (
       <AnkiSyncModal T={t} onClose={() => setShowAnkiSync(false)} />

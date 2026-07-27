@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { callAIJSON } from "./aiClient";
-import { fetchRecognitionItems, pickWeightedItems } from "./recognitionBank";
-import { getCurrentUser } from "./supabase";
+import { callAIJSON } from "../../../aiClient";
+import { fetchRecognitionItems, pickWeightedItems } from "../../../recognitionBank";
+import { buildUserPrompt, isUsableCase, pickAnchors, SYSTEM_PROMPT } from "./recognition.js";
 
 // ── Patient Recognition ────────────────────────────────────────────────────
 // Vignette → diagnosis mode. Shows a USMLE Step 1-style clinical vignette built
@@ -12,109 +12,19 @@ import { getCurrentUser } from "./supabase";
 // Tutoring is a STYLE here, not a chat: every answer teaches mechanism-first,
 // and "Teach me deeper" pulls a richer mechanism explanation on demand.
 //
-// Self-contained: reads objectives from localStorage (rxt-block-objectives) so
-// it needs no prop plumbing. Props: T (theme), onClose.
+// SP1 T3.1: no longer self-contained. The objective pool, the weak-concept
+// names and the user id arrive as props from RecognitionContainer, which reads
+// them through the store hooks; prompt/pool/anchor logic lives in recognition.js.
+// Props: T (theme), onClose, pool, weakConcepts, userId, blockId.
 
-const OBJ_KEY = "rxt-block-objectives";
-
-// Flatten the objectives store into a pool of {text, block} anchors.
-function readObjectivePool() {
-  try {
-    const raw = localStorage.getItem(OBJ_KEY);
-    if (!raw) return [];
-    const store = JSON.parse(raw);
-    if (!store || typeof store !== "object") return [];
-    const pool = [];
-    for (const [block, bucket] of Object.entries(store)) {
-      const list = Array.isArray(bucket)
-        ? bucket
-        : bucket && typeof bucket === "object"
-        ? [...(bucket.imported || []), ...(bucket.extracted || [])]
-        : [];
-      for (const o of list) {
-        const text = (o && (o.objective || o.text || o.term)) || "";
-        if (typeof text === "string" && text.trim().length > 8) {
-          pool.push({ text: text.trim(), block });
-        }
-      }
-    }
-    return pool;
-  } catch {
-    return [];
-  }
-}
-
-function readWeakConcepts() {
-  try {
-    const w = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
-    return Object.values(w)
-      .flat()
-      .map((c) => c?.concept || c?.subject)
-      .filter(Boolean);
-  } catch { return []; }
-}
-
-function pickAnchors(pool, n = 2) {
-  if (pool.length === 0) return [];
-  const out = [];
-  const used = new Set();
-  for (let i = 0; i < n && i < pool.length; i++) {
-    let idx;
-    do {
-      idx = Math.floor(Math.random() * pool.length);
-    } while (used.has(idx) && used.size < pool.length);
-    used.add(idx);
-    out.push(pool[idx]);
-  }
-  return out;
-}
-
-const SYSTEM_PROMPT =
-  "You are an expert USMLE Step 1 item-writer and clinical educator. You write " +
-  "high-yield patient vignettes that test DISEASE RECOGNITION — the student must " +
-  "identify the underlying disease from the clinical picture, not just recall a term. " +
-  "You teach in a Socratic, mechanism-first style. Always respond with valid JSON only.";
-
-function buildUserPrompt(anchors, topicHint) {
-  const anchorText = anchors.length
-    ? anchors.map((a, i) => `${i + 1}. ${a.text}`).join("\n")
-    : topicHint || "general high-yield preclinical medicine";
-  return `Write ONE Step 1-style patient vignette that tests recognition of the disease
-underlying these study-guide objective(s):
-
-${anchorText}
-
-Requirements:
-- The vignette is a realistic clinical case (age/sex, presentation, relevant history,
-  exam findings, and key labs/imaging where appropriate). Do NOT name the disease in the stem.
-- The lead-in asks for the MOST LIKELY DIAGNOSIS (recognition), not a fact recall.
-- Provide 5 answer options that are plausible diseases/diagnoses (realistic look-alikes),
-  exactly one correct.
-- For EACH wrong option, give a one-sentence "whyWrong" that contrasts it with the correct
-  disease on a distinguishing feature (teach the differential).
-- Teach the MECHANISM of the correct disease (pathophysiology that explains the findings),
-  in 2-4 sentences, mechanism-first.
-- Give one "keyDifferentiator": the single highest-yield feature that nails this diagnosis.
-
-Respond with JSON exactly in this shape:
-{
-  "vignette": "string (the clinical case, no diagnosis named)",
-  "leadIn": "What is the most likely diagnosis?",
-  "correctDiagnosis": "string",
-  "options": [
-    {"letter":"A","text":"disease name","isCorrect":false,"whyWrong":"..."},
-    {"letter":"B","text":"disease name","isCorrect":true,"whyWrong":""},
-    {"letter":"C","text":"disease name","isCorrect":false,"whyWrong":"..."},
-    {"letter":"D","text":"disease name","isCorrect":false,"whyWrong":"..."},
-    {"letter":"E","text":"disease name","isCorrect":false,"whyWrong":"..."}
-  ],
-  "mechanism": "string (pathophysiology that explains the vignette findings)",
-  "keyDifferentiator": "string"
-}`;
-}
-
-export default function PatientRecognition({ T, onClose }) {
-  const [pool] = useState(() => readObjectivePool());
+export default function PatientRecognition({
+  T,
+  onClose,
+  pool = [],
+  weakConcepts = [],
+  userId = null,
+  blockId = null,
+}) {
   const [topicHint, setTopicHint] = useState("");
   const [q, setQ] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -141,20 +51,19 @@ export default function PatientRecognition({ T, onClose }) {
     setQ(null);
     const chosen = pickAnchors(pool, 2);
     setAnchors(chosen);
-    // Prefer the pre-generated bank (instant, no live AI call).
+    // Prefer the pre-generated bank (instant, no live AI call). The active block
+    // is a prop now — it used to come from a stray `rxt-current-block` read that
+    // nothing in the shell ever set.
     try {
-      const user = await getCurrentUser();
-      if (myReq !== reqIdRef.current) return; // superseded
-      if (user) {
-        const activeBlock = localStorage.getItem("rxt-current-block") || null;
-        const blocks = activeBlock ? [activeBlock] : Array.from(new Set(pool.map((p) => p.block)));
+      if (userId) {
+        const blocks = blockId ? [blockId] : Array.from(new Set(pool.map((p) => p.block)));
         let items = [];
         for (const b of blocks) {
-          items = items.concat(await fetchRecognitionItems(user.id, b));
+          items = items.concat(await fetchRecognitionItems(userId, b));
         }
         if (myReq !== reqIdRef.current) return; // superseded
         if (items.length > 0) {
-          const [pickItem] = pickWeightedItems(items, readWeakConcepts(), 1);
+          const [pickItem] = pickWeightedItems(items, weakConcepts, 1);
           if (pickItem?.data) {
             setQ(pickItem.data);
             setLoading(false);
@@ -164,15 +73,18 @@ export default function PatientRecognition({ T, onClose }) {
       }
     } catch { /* fall through to live generation */ }
     try {
+      // 4000, not 2600: a five-option case with a whyWrong per option plus the
+      // mechanism does not fit in 2600, and a truncated response comes back as
+      // an empty object — which is what made this reliably fail.
       const data = await callAIJSON(
         SYSTEM_PROMPT,
         buildUserPrompt(chosen, topicHint),
         null,
-        2600
+        4000
       );
       if (myReq !== reqIdRef.current) return; // superseded
-      if (!data || !Array.isArray(data.options) || !data.vignette) {
-        setError("Could not generate a case. Check your AI key, then retry.");
+      if (!isUsableCase(data)) {
+        setError("The model returned an unusable case (often a truncated response). Retry.");
       } else {
         setQ(data);
       }
@@ -182,12 +94,16 @@ export default function PatientRecognition({ T, onClose }) {
     } finally {
       if (myReq === reqIdRef.current) setLoading(false);
     }
-  }, [pool, topicHint]);
+  }, [pool, topicHint, userId, blockId, weakConcepts]);
 
+  // First case on open only — `generate` changes with the pool, and re-running
+  // it on every change would throw away the case being answered.
+  const startedRef = useRef(false);
   useEffect(() => {
+    if (startedRef.current) return;
+    startedRef.current = true;
     generate();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [generate]);
 
   const answered = picked != null && q;
   const correctLetter = q?.options?.find((o) => o.isCorrect)?.letter;

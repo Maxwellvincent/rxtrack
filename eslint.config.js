@@ -63,8 +63,9 @@ export default defineConfig([
       'src/DeepLearn.jsx',
       'src/LearningModel.jsx',
       'src/HistoStudy.jsx',
-      // Ported in SP1 T1.3 but still the legacy tree — same relaxations apply.
+      // Ported in SP1 T1.3/T3.1 but still the legacy trees — same relaxations.
       'src/shell/features/objectives/ObjectiveTracker.jsx',
+      'src/shell/features/recognition/PatientRecognition.jsx',
     ],
     rules: {
       'react-hooks/exhaustive-deps': 'off',
@@ -95,6 +96,18 @@ export default defineConfig([
         patterns: [
           { group: ['**/App', '**/App.jsx'], message: 'SP1: shell features must not import the App.jsx monolith — use src/shell/hooks + src/shell/logic.' },
           { group: ['**/Tracker.jsx', '**/DeepLearn.jsx', '**/HistoStudy.jsx', '**/PatientRecognition.jsx', '**/LearningModel.jsx'], message: 'SP1: shell features must not import legacy top-level feature components — port them or use a bounded legacy adapter.' },
+        ],
+      }],
+    },
+  },
+  {
+    // T3.1: same deal for the recognition tree, now that it lives here.
+    files: ['src/shell/features/recognition/**/*.{js,jsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/App', '**/App.jsx'], message: 'SP1: shell features must not import the App.jsx monolith — use src/shell/hooks + src/shell/logic.' },
+          { group: ['**/Tracker.jsx', '**/DeepLearn.jsx', '**/HistoStudy.jsx', '**/LearningModel.jsx'], message: 'SP1: shell features must not import legacy top-level feature components — port them or use a bounded legacy adapter.' },
         ],
       }],
     },

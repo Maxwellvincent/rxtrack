@@ -12,7 +12,7 @@ import { CalibrationSession } from "../engine/CalibrationSession.jsx";
 import { Button } from "../ui/Button.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
-import PatientRecognition from "../PatientRecognition.jsx";
+import { RecognitionContainer } from "./features/recognition/RecognitionContainer.jsx";
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
@@ -238,7 +238,14 @@ function ShellMain({ theme, toggle, userId }) {
         onPick={(it) => { setActiveBlockId(it.id); setSessionMode(null); setView("home"); setQuiz(null); setStudyLecture(null); }}
       />
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
-      {showRecognize && <PatientRecognition T={legacyTheme} onClose={() => setShowRecognize(false)} />}
+      {showRecognize && (
+        <RecognitionContainer
+          T={legacyTheme}
+          userId={userId}
+          blockId={activeBlockId}
+          onClose={() => setShowRecognize(false)}
+        />
+      )}
       {showImport && <ScheduleImportModal userId={userId} onClose={() => setShowImport(false)} />}
     </div>
   );
