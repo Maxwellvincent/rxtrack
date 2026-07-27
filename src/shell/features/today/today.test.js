@@ -35,18 +35,23 @@ describe("detectStudyMode", () => {
 });
 
 describe("completion logging", () => {
-  it("spaces the first review by confidence", () => {
-    // Day-deltas, not absolute dates: the ported function normalises a date
-    // string to LOCAL midnight, so absolute expectations flip by timezone.
-    const dayDelta = (rating) => {
-      const base = new Date("2026-07-01");
-      base.setHours(0, 0, 0, 0);
-      const first = computeReviewDates("2026-07-01", rating, null)[0];
-      return Math.round((first - base) / 86400000);
-    };
-    expect(dayDelta("good")).toBe(2);
-    expect(dayDelta("okay")).toBe(1);
-    expect(dayDelta("struggling")).toBe(0);
+  it("spaces the first review by confidence, on the right calendar day", () => {
+    // Absolute dates now: a YYYY-MM-DD is treated as a local calendar date, so
+    // logging on Jul 1 schedules from Jul 1 in every timezone.
+    const first = (rating) => computeReviewDates("2026-07-01", rating, null)[0];
+    const asDate = (d) => [d.getFullYear(), d.getMonth() + 1, d.getDate()];
+
+    expect(asDate(first("good"))).toEqual([2026, 7, 3]);
+    expect(asDate(first("okay"))).toEqual([2026, 7, 2]);
+    expect(asDate(first("struggling"))).toEqual([2026, 7, 1]);
+  });
+
+  it("does not shift the logged day west of Greenwich", () => {
+    // The bug this replaced: "2026-07-01" parsed as UTC then normalised to local
+    // midnight became Jun 30, and every review landed a day early.
+    const dates = computeReviewDates("2026-07-01", "struggling", null);
+    expect(dates[0].getMonth() + 1).toBe(7);
+    expect(dates[0].getDate()).toBe(1);
   });
 
   it("includes the weekend sweep and drops anything past the exam", () => {

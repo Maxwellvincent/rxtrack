@@ -12,8 +12,20 @@
  * is a product decision, not a porting one.
  */
 
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Local midnight — reconciled with schedule.js (2026-07-27).
+ *
+ * This used to reproduce App's bug: a "YYYY-MM-DD" parsed as UTC and then
+ * normalised to local midnight lands a day early west of Greenwich, so every
+ * review was scheduled one day before it was meant to be. A calendar date is
+ * built in local time now. Review dates already stored keep whatever App wrote;
+ * only new activity is spaced correctly, and the drift is at most a day.
+ */
 const startOfDay = (value) => {
-  const d = new Date(value);
+  const iso = typeof value === "string" ? value.match(DATE_ONLY) : null;
+  const d = iso ? new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])) : new Date(value);
   d.setHours(0, 0, 0, 0);
   return d;
 };
@@ -31,15 +43,7 @@ export function getNextSaturday(fromDate) {
   return d;
 }
 
-/**
- * Review schedule after an activity: first pass, weekend sweep, then spacing.
- *
- * Timezone quirk, ported deliberately: a "YYYY-MM-DD" string parses as UTC
- * midnight, and `setHours(0,0,0,0)` then moves it to LOCAL midnight — which is
- * the previous day west of Greenwich. App has always done this, so every
- * existing record is spaced this way; changing it here would silently reschedule
- * reviews. Assert in day-deltas, not absolute dates.
- */
+/** Review schedule after an activity: first pass, weekend sweep, then spacing. */
 export function computeReviewDates(completedDate, confidenceRating, examDate) {
   const base = startOfDay(completedDate);
   const exam = examDate ? startOfDay(examDate) : null;

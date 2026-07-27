@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useTheme } from "./useTheme";
 import { readLectures } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
+import { defaultBlockId, readCollapsedTerms } from "./navPrefs.js";
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { BlockHome } from "./BlockHome.jsx";
@@ -100,7 +101,7 @@ function ShellMain({ theme, toggle, userId }) {
   const activeBlockId =
     selectedBlockId && blocks.some((b) => b.id === selectedBlockId)
       ? selectedBlockId
-      : blocks[0]?.id ?? null;
+      : defaultBlockId(blocks, readCollapsedTerms());
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);
