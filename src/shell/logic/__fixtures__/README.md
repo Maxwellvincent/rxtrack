@@ -1,12 +1,26 @@
-# Schedule fixtures (SP1 T4.1)
+# Schedule fixtures (SP1 T4.1/T4.2)
 
-Recorded from the **live App.jsx** on 2026-07-27 by the dev-flag-gated probe in
-`src/devtools/scheduleProbe.js`:
+Recorded from the **live App.jsx** on 2026-07-27 by a dev-flag-gated probe,
+which the plan required be deleted once these fixtures were captured and
+asserted (T4.2). `src/shell/logic/schedule.fixtures.test.js` now reproduces
+every one of them from the pure module.
+
+## Re-capturing (if App's schedulers ever change on purpose)
+
+The probe and its dev-only vite sink were removed in the T4.2 commit; restore
+them from git and re-run:
 
 ```
-http://localhost:5173/?shell=old&probe=schedule
+git show <T4.1 commit>:src/devtools/scheduleProbe.js > src/devtools/scheduleProbe.js
+git show <T4.1 commit>:vite-plugin-fixture-sink.js  > vite-plugin-fixture-sink.js
+# re-add fixtureSink() to vite.config.js and the installScheduleProbe() effect to App.jsx
+
+http://localhost:5173/?shell=old&probe=schedule    # ?shell=new is sticky — App won't mount without shell=old
 > await __rxtScheduleProbe.captureAll()
 ```
+
+Both sides project through `src/shell/logic/scheduleFixtureShape.js`, so a
+re-capture stays comparable to the pure module's output.
 
 One file per block that has an exam date. Each holds:
 

@@ -25,8 +25,6 @@ import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import ObjectiveTracker from "./shell/features/objectives/ObjectiveTracker.jsx";
 import { guideFor } from "./objectiveGuides.js";
-// SP1 T4.1: dev-flag-gated fixture probe. Temporary — delete with T4.2.
-import { installScheduleProbe } from "./devtools/scheduleProbe.js";
 import { loadPDFJS, parseExamPDF } from "./examParser";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
 import { DIFFICULTY_TIERS, buildDifficultyInstruction } from "./difficultyEngine";
@@ -21364,29 +21362,7 @@ export default function App() {
     return { schedule, daysLeft, lecScores, upcoming, undated, needsBlockStart };
   };
 
-  // ── SP1 T4.1 fixture probe — TEMPORARY, TEST-ONLY, DELETE AFTER T4.2 ──────
-  // The plan's one sanctioned App edit outside the persistence redirect. Runs
-  // only with ?probe=schedule; installs nothing on any production path. It
-  // exists so the pure schedule.js can be proven to reproduce these two
-  // functions before Today flips over to it.
-  useEffect(() => {
-    installScheduleProbe({
-      terms,
-      lectures,
-      examDates,
-      performanceHistory,
-      reviewedLectures,
-      getBlockObjectives,
-      getBlockLecs,
-      resolveBlockMeta,
-      detectStudyMode,
-      getLecPerf,
-      buildStudySchedule,
-      generateDailySchedule,
-    });
-  });
-
-  const buildQuestionContext = (blockId, lectureId, questionBanksByFileArg, mode = "quiz", options = {}) => {
+  const buildQuestionContext =(blockId, lectureId, questionBanksByFileArg, mode = "quiz", options = {}) => {
     const blockLecs = getBlockLecs(lectures, resolveBlockMeta(blockId));
     const blockObjs = getBlockObjectives(blockId) || [];
     const allUploaded = Object.entries(questionBanksByFileArg || {});

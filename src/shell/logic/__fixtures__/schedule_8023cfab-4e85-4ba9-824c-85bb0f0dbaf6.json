@@ -1,7 +1,7 @@
 {
   "context": {
     "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
-    "now": "2026-07-27T16:07:24.851Z",
+    "now": "2026-07-27T17:15:51.824Z",
     "terms": [
       {
         "id": "term1",
@@ -67,7 +67,8 @@
         "id": "a4a0477a-f890-44f5-8564-d9340932426f",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 01",
+        "fileName": null,
+        "filename": "NB LEC 01",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -79,7 +80,8 @@
         "id": "718f99fe-0d0a-4a58-bcec-25c6c979aa04",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 02",
+        "fileName": null,
+        "filename": "NB LEC 02",
         "lectureType": "LEC",
         "lectureNumber": 2,
         "lectureDate": null,
@@ -91,7 +93,8 @@
         "id": "8f6fd1db-1af2-48ae-aae9-80288cb915cf",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 03",
+        "fileName": null,
+        "filename": "NB LEC 03",
         "lectureType": "LEC",
         "lectureNumber": 3,
         "lectureDate": null,
@@ -103,7 +106,8 @@
         "id": "212996ba-8fea-4742-9595-7cd33964e68a",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 04",
+        "fileName": null,
+        "filename": "NB LEC 04",
         "lectureType": "LEC",
         "lectureNumber": 4,
         "lectureDate": null,
@@ -115,7 +119,8 @@
         "id": "74cb4876-a0e8-46d2-a027-6096b2917f01",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 05",
+        "fileName": null,
+        "filename": "NB LEC 05",
         "lectureType": "LEC",
         "lectureNumber": 5,
         "lectureDate": null,
@@ -127,7 +132,8 @@
         "id": "b470a4c4-8f40-4cfc-9269-01dc6d5ae1f5",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 06",
+        "fileName": null,
+        "filename": "NB LEC 06",
         "lectureType": "LEC",
         "lectureNumber": 6,
         "lectureDate": null,
@@ -139,7 +145,8 @@
         "id": "c51c878a-7457-43e5-b377-7436e0d59c7d",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 07",
+        "fileName": null,
+        "filename": "NB LEC 07",
         "lectureType": "LEC",
         "lectureNumber": 7,
         "lectureDate": null,
@@ -151,7 +158,8 @@
         "id": "e3396fed-298a-4ab0-8668-cd9b9311fd75",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 08",
+        "fileName": null,
+        "filename": "NB LEC 08",
         "lectureType": "LEC",
         "lectureNumber": 8,
         "lectureDate": null,
@@ -163,7 +171,8 @@
         "id": "4e3ece46-38a2-4ba5-be4d-675ac9be46ab",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 09",
+        "fileName": null,
+        "filename": "NB LEC 09",
         "lectureType": "LEC",
         "lectureNumber": 9,
         "lectureDate": null,
@@ -175,7 +184,8 @@
         "id": "57b00fb0-c97c-4862-a4be-8132317718f1",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 10",
+        "fileName": null,
+        "filename": "NB LEC 10",
         "lectureType": "LEC",
         "lectureNumber": 10,
         "lectureDate": null,
@@ -187,7 +197,8 @@
         "id": "24ca8000-d31d-4c83-a4cc-8394ed2da603",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 11",
+        "fileName": null,
+        "filename": "NB LEC 11",
         "lectureType": "LEC",
         "lectureNumber": 11,
         "lectureDate": null,
@@ -199,7 +210,8 @@
         "id": "5edb9857-4daa-4f0a-b222-9b1a83c9d63d",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 12",
+        "fileName": null,
+        "filename": "NB LEC 12",
         "lectureType": "LEC",
         "lectureNumber": 12,
         "lectureDate": null,
@@ -211,7 +223,8 @@
         "id": "acbc9d0b-b120-4772-8da0-c0482f5f5232",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 13",
+        "fileName": null,
+        "filename": "NB LEC 13",
         "lectureType": "LEC",
         "lectureNumber": 13,
         "lectureDate": null,
@@ -223,7 +236,8 @@
         "id": "a16658f5-ee87-421d-8fd8-6efbbb88c111",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 14",
+        "fileName": null,
+        "filename": "NB LEC 14",
         "lectureType": "LEC",
         "lectureNumber": 14,
         "lectureDate": null,
@@ -235,7 +249,8 @@
         "id": "562da147-62de-4439-a5e5-b0d538818bd5",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 15",
+        "fileName": null,
+        "filename": "NB LEC 15",
         "lectureType": "LEC",
         "lectureNumber": 15,
         "lectureDate": null,
@@ -247,7 +262,8 @@
         "id": "4709d344-a5d5-48fa-a2c7-2e5bf6028d96",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 16",
+        "fileName": null,
+        "filename": "NB LEC 16",
         "lectureType": "LEC",
         "lectureNumber": 16,
         "lectureDate": null,
@@ -259,7 +275,8 @@
         "id": "96b919c2-e21a-43c1-a31d-1e38d2a2f8e2",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 17",
+        "fileName": null,
+        "filename": "NB LEC 17",
         "lectureType": "LEC",
         "lectureNumber": 17,
         "lectureDate": null,
@@ -271,7 +288,8 @@
         "id": "73d6150a-3929-4432-9d38-49cbeca3f26d",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 18",
+        "fileName": null,
+        "filename": "NB LEC 18",
         "lectureType": "LEC",
         "lectureNumber": 18,
         "lectureDate": null,
@@ -283,7 +301,8 @@
         "id": "9b224b0b-3d90-4768-9a71-b21b28476319",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 19",
+        "fileName": null,
+        "filename": "NB LEC 19",
         "lectureType": "LEC",
         "lectureNumber": 19,
         "lectureDate": null,
@@ -295,7 +314,8 @@
         "id": "1537956b-7c2c-4fed-9f58-165854d4bb4d",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 20",
+        "fileName": null,
+        "filename": "NB LEC 20",
         "lectureType": "LEC",
         "lectureNumber": 20,
         "lectureDate": null,
@@ -307,7 +327,8 @@
         "id": "c8065a3f-b577-44cd-a3fa-4d1bda56e3ea",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 21",
+        "fileName": null,
+        "filename": "NB LEC 21",
         "lectureType": "LEC",
         "lectureNumber": 21,
         "lectureDate": null,
@@ -319,7 +340,8 @@
         "id": "87f29ae2-1905-4380-a6f3-1e05c4ea18ff",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 22",
+        "fileName": null,
+        "filename": "NB LEC 22",
         "lectureType": "LEC",
         "lectureNumber": 22,
         "lectureDate": null,
@@ -331,7 +353,8 @@
         "id": "27973cee-f218-424c-8132-24f43860c77e",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 23",
+        "fileName": null,
+        "filename": "NB LEC 23",
         "lectureType": "LEC",
         "lectureNumber": 23,
         "lectureDate": null,
@@ -343,7 +366,8 @@
         "id": "15d59a14-9c8c-40f8-990f-061e77b91e57",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 24",
+        "fileName": null,
+        "filename": "NB LEC 24",
         "lectureType": "LEC",
         "lectureNumber": 24,
         "lectureDate": null,
@@ -355,7 +379,8 @@
         "id": "ce8b8f86-3904-465e-92ec-f3bec35e6e50",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 25",
+        "fileName": null,
+        "filename": "NB LEC 25",
         "lectureType": "LEC",
         "lectureNumber": 25,
         "lectureDate": null,
@@ -367,7 +392,8 @@
         "id": "e78164ae-30a1-40ca-b389-2766424725d2",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 26",
+        "fileName": null,
+        "filename": "NB LEC 26",
         "lectureType": "LEC",
         "lectureNumber": 26,
         "lectureDate": null,
@@ -379,7 +405,8 @@
         "id": "465a3470-c3f3-4803-8277-15c3d2a132bf",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 27",
+        "fileName": null,
+        "filename": "NB LEC 27",
         "lectureType": "LEC",
         "lectureNumber": 27,
         "lectureDate": null,
@@ -391,7 +418,8 @@
         "id": "23f90c5b-5010-4e30-aa6b-d947e82756aa",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 28",
+        "fileName": null,
+        "filename": "NB LEC 28",
         "lectureType": "LEC",
         "lectureNumber": 28,
         "lectureDate": null,
@@ -403,7 +431,8 @@
         "id": "f51a5ce7-00f7-4f28-ac26-2b99860c49ee",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 29",
+        "fileName": null,
+        "filename": "NB LEC 29",
         "lectureType": "LEC",
         "lectureNumber": 29,
         "lectureDate": null,
@@ -415,7 +444,8 @@
         "id": "59d8c78b-4ddd-4aac-9443-d18d862d7df7",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 30",
+        "fileName": null,
+        "filename": "NB LEC 30",
         "lectureType": "LEC",
         "lectureNumber": 30,
         "lectureDate": null,
@@ -427,7 +457,8 @@
         "id": "59ce4ec4-1e2c-4e11-9980-e656ee5edb75",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 31",
+        "fileName": null,
+        "filename": "NB LEC 31",
         "lectureType": "LEC",
         "lectureNumber": 31,
         "lectureDate": null,
@@ -439,7 +470,8 @@
         "id": "677258ca-7f41-4525-b406-733b2267fac5",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 32",
+        "fileName": null,
+        "filename": "NB LEC 32",
         "lectureType": "LEC",
         "lectureNumber": 32,
         "lectureDate": null,
@@ -451,7 +483,8 @@
         "id": "ddf6f217-969a-420d-a4ea-02b1442b0d22",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 33",
+        "fileName": null,
+        "filename": "NB LEC 33",
         "lectureType": "LEC",
         "lectureNumber": 33,
         "lectureDate": null,
@@ -463,7 +496,8 @@
         "id": "319f776f-873a-460a-aede-1eddbe99ab95",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 34",
+        "fileName": null,
+        "filename": "NB LEC 34",
         "lectureType": "LEC",
         "lectureNumber": 34,
         "lectureDate": null,
@@ -475,7 +509,8 @@
         "id": "2fd1294b-cafc-4719-81cb-a1867552f81c",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 35",
+        "fileName": null,
+        "filename": "NB LEC 35",
         "lectureType": "LEC",
         "lectureNumber": 35,
         "lectureDate": null,
@@ -487,7 +522,8 @@
         "id": "c3d05390-946c-4a06-8092-f61dc2e15590",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 36",
+        "fileName": null,
+        "filename": "NB LEC 36",
         "lectureType": "LEC",
         "lectureNumber": 36,
         "lectureDate": null,
@@ -499,7 +535,8 @@
         "id": "3111a5c6-9de4-4c53-8de3-8e0d23803b76",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 37",
+        "fileName": null,
+        "filename": "NB LEC 37",
         "lectureType": "LEC",
         "lectureNumber": 37,
         "lectureDate": null,
@@ -511,7 +548,8 @@
         "id": "cda80b92-4cc2-4542-a773-4f152e2d7308",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 38",
+        "fileName": null,
+        "filename": "NB LEC 38",
         "lectureType": "LEC",
         "lectureNumber": 38,
         "lectureDate": null,
@@ -523,7 +561,8 @@
         "id": "7f156966-96fd-470b-a567-c1a97786e0c3",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 39",
+        "fileName": null,
+        "filename": "NB LEC 39",
         "lectureType": "LEC",
         "lectureNumber": 39,
         "lectureDate": null,
@@ -535,7 +574,8 @@
         "id": "fd4d5903-daed-4982-8194-d38741ab358a",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 40",
+        "fileName": null,
+        "filename": "NB LEC 40",
         "lectureType": "LEC",
         "lectureNumber": 40,
         "lectureDate": null,
@@ -547,7 +587,8 @@
         "id": "d910bada-16d0-47a1-8d01-1eb0243da563",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 41",
+        "fileName": null,
+        "filename": "NB LEC 41",
         "lectureType": "LEC",
         "lectureNumber": 41,
         "lectureDate": null,
@@ -559,7 +600,8 @@
         "id": "edde1820-3386-45bb-aefa-78431c0cc776",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 42",
+        "fileName": null,
+        "filename": "NB LEC 42",
         "lectureType": "LEC",
         "lectureNumber": 42,
         "lectureDate": null,
@@ -571,7 +613,8 @@
         "id": "c6018366-2a00-4cd5-af4c-1fd91b86343c",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 43",
+        "fileName": null,
+        "filename": "NB LEC 43",
         "lectureType": "LEC",
         "lectureNumber": 43,
         "lectureDate": null,
@@ -583,7 +626,8 @@
         "id": "4c07d245-1f9d-406b-a8f7-ffbd291b5418",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 44",
+        "fileName": null,
+        "filename": "NB LEC 44",
         "lectureType": "LEC",
         "lectureNumber": 44,
         "lectureDate": null,
@@ -595,7 +639,8 @@
         "id": "b089f5f7-d7ce-4cef-b4b9-33d6f095d61c",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 45",
+        "fileName": null,
+        "filename": "NB LEC 45",
         "lectureType": "LEC",
         "lectureNumber": 45,
         "lectureDate": null,
@@ -607,7 +652,8 @@
         "id": "d44c9d72-58b2-4e66-ba6d-55aca0d4e371",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 46",
+        "fileName": null,
+        "filename": "NB LEC 46",
         "lectureType": "LEC",
         "lectureNumber": 46,
         "lectureDate": null,
@@ -619,7 +665,8 @@
         "id": "82026757-9a46-4c60-abeb-c836ab62bb89",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 47",
+        "fileName": null,
+        "filename": "NB LEC 47",
         "lectureType": "LEC",
         "lectureNumber": 47,
         "lectureDate": null,
@@ -631,7 +678,8 @@
         "id": "e30e832b-ae1c-4c8e-ade6-b3533bee8fe9",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 48",
+        "fileName": null,
+        "filename": "NB LEC 48",
         "lectureType": "LEC",
         "lectureNumber": 48,
         "lectureDate": null,
@@ -643,7 +691,8 @@
         "id": "abf694dc-592f-462d-b4d7-f0003d2d2e14",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 49",
+        "fileName": null,
+        "filename": "NB LEC 49",
         "lectureType": "LEC",
         "lectureNumber": 49,
         "lectureDate": null,
@@ -655,7 +704,8 @@
         "id": "c0aa0c0d-3534-4375-8d4a-749129aef93e",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 50",
+        "fileName": null,
+        "filename": "NB LEC 50",
         "lectureType": "LEC",
         "lectureNumber": 50,
         "lectureDate": null,
@@ -667,7 +717,8 @@
         "id": "ac17d80d-4831-48ae-96cc-8962a5cc9599",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 51",
+        "fileName": null,
+        "filename": "NB LEC 51",
         "lectureType": "LEC",
         "lectureNumber": 51,
         "lectureDate": null,
@@ -679,7 +730,8 @@
         "id": "ac355701-014c-4480-a888-d1afa83f2bb6",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 52",
+        "fileName": null,
+        "filename": "NB LEC 52",
         "lectureType": "LEC",
         "lectureNumber": 52,
         "lectureDate": null,
@@ -691,7 +743,8 @@
         "id": "1106a9ca-78d4-425c-8568-d80cff221e34",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 53",
+        "fileName": null,
+        "filename": "NB LEC 53",
         "lectureType": "LEC",
         "lectureNumber": 53,
         "lectureDate": null,
@@ -703,7 +756,8 @@
         "id": "da2e4985-65e3-4295-a9f6-bf82b24f1096",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 54",
+        "fileName": null,
+        "filename": "NB LEC 54",
         "lectureType": "LEC",
         "lectureNumber": 54,
         "lectureDate": null,
@@ -715,7 +769,8 @@
         "id": "e87d7f57-e0e0-461c-8802-0443e11f6ab0",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 55",
+        "fileName": null,
+        "filename": "NB LEC 55",
         "lectureType": "LEC",
         "lectureNumber": 55,
         "lectureDate": null,
@@ -727,7 +782,8 @@
         "id": "127d6463-81c8-4602-b8e8-62b963d9fa32",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 56",
+        "fileName": null,
+        "filename": "NB LEC 56",
         "lectureType": "LEC",
         "lectureNumber": 56,
         "lectureDate": null,
@@ -739,7 +795,8 @@
         "id": "7780453c-8436-4854-b396-da7501604e7a",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 57",
+        "fileName": null,
+        "filename": "NB LEC 57",
         "lectureType": "LEC",
         "lectureNumber": 57,
         "lectureDate": null,
@@ -751,7 +808,8 @@
         "id": "7b40a4ec-f418-44b6-b8e7-29728c1a3109",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 58",
+        "fileName": null,
+        "filename": "NB LEC 58",
         "lectureType": "LEC",
         "lectureNumber": 58,
         "lectureDate": null,
@@ -763,7 +821,8 @@
         "id": "e399c39b-65a7-4f31-893c-5b111743c03c",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 59",
+        "fileName": null,
+        "filename": "NB LEC 59",
         "lectureType": "LEC",
         "lectureNumber": 59,
         "lectureDate": null,
@@ -775,7 +834,8 @@
         "id": "5d345674-ebb2-489a-8b92-0aefd6571e71",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 60",
+        "fileName": null,
+        "filename": "NB LEC 60",
         "lectureType": "LEC",
         "lectureNumber": 60,
         "lectureDate": null,
@@ -787,7 +847,8 @@
         "id": "b3345adb-6ffa-4231-b367-71bbcdc66b62",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 61",
+        "fileName": null,
+        "filename": "NB LEC 61",
         "lectureType": "LEC",
         "lectureNumber": 61,
         "lectureDate": null,
@@ -799,7 +860,8 @@
         "id": "d12d512f-a24e-4917-83ce-0f1381abd1b4",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 62",
+        "fileName": null,
+        "filename": "NB LEC 62",
         "lectureType": "LEC",
         "lectureNumber": 62,
         "lectureDate": null,
@@ -811,7 +873,8 @@
         "id": "830a85c7-afc9-4618-b915-eb2349de0fc3",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 63",
+        "fileName": null,
+        "filename": "NB LEC 63",
         "lectureType": "LEC",
         "lectureNumber": 63,
         "lectureDate": null,
@@ -823,7 +886,8 @@
         "id": "032e1996-4248-49c2-88dd-b31848ec9979",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 64",
+        "fileName": null,
+        "filename": "NB LEC 64",
         "lectureType": "LEC",
         "lectureNumber": 64,
         "lectureDate": null,
@@ -835,7 +899,8 @@
         "id": "ea7bb95d-6ad9-4f43-abdb-87aa81291f62",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 65",
+        "fileName": null,
+        "filename": "NB LEC 65",
         "lectureType": "LEC",
         "lectureNumber": 65,
         "lectureDate": null,
@@ -847,7 +912,8 @@
         "id": "cd4db7fa-517a-4b9a-9790-796924d7559a",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 66",
+        "fileName": null,
+        "filename": "NB LEC 66",
         "lectureType": "LEC",
         "lectureNumber": 66,
         "lectureDate": null,
@@ -859,7 +925,8 @@
         "id": "e752b722-bcd4-4c3d-9b01-bd4351dd48d3",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 67",
+        "fileName": null,
+        "filename": "NB LEC 67",
         "lectureType": "LEC",
         "lectureNumber": 67,
         "lectureDate": null,
@@ -871,7 +938,8 @@
         "id": "bdaffa85-5305-4a94-915d-59c145b6cde2",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 68",
+        "fileName": null,
+        "filename": "NB LEC 68",
         "lectureType": "LEC",
         "lectureNumber": 68,
         "lectureDate": null,
@@ -883,7 +951,8 @@
         "id": "abaa9d33-1509-4ef7-871e-fbca335c91ce",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 69",
+        "fileName": null,
+        "filename": "NB LEC 69",
         "lectureType": "LEC",
         "lectureNumber": 69,
         "lectureDate": null,
@@ -895,7 +964,8 @@
         "id": "3da14e25-833b-4d20-8444-6188e1a2ca6c",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 70",
+        "fileName": null,
+        "filename": "NB LEC 70",
         "lectureType": "LEC",
         "lectureNumber": 70,
         "lectureDate": null,
@@ -907,7 +977,8 @@
         "id": "71189179-aaf1-4699-938b-ecd1cb0809de",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 71",
+        "fileName": null,
+        "filename": "NB LEC 71",
         "lectureType": "LEC",
         "lectureNumber": 71,
         "lectureDate": null,
@@ -919,7 +990,8 @@
         "id": "d13fe897-d9b6-4f5f-af61-9496be6a2be7",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 72",
+        "fileName": null,
+        "filename": "NB LEC 72",
         "lectureType": "LEC",
         "lectureNumber": 72,
         "lectureDate": null,
@@ -931,7 +1003,8 @@
         "id": "214e783e-d476-4f3c-9fdf-feba20ef3b1d",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 73",
+        "fileName": null,
+        "filename": "NB LEC 73",
         "lectureType": "LEC",
         "lectureNumber": 73,
         "lectureDate": null,
@@ -943,7 +1016,8 @@
         "id": "f8ba8aff-d435-43a0-a9bd-27adab8e9866",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 74",
+        "fileName": null,
+        "filename": "NB LEC 74",
         "lectureType": "LEC",
         "lectureNumber": 74,
         "lectureDate": null,
@@ -955,7 +1029,8 @@
         "id": "b1932d01-29d1-463e-8347-46e095c54720",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 75",
+        "fileName": null,
+        "filename": "NB LEC 75",
         "lectureType": "LEC",
         "lectureNumber": 75,
         "lectureDate": null,
@@ -967,7 +1042,8 @@
         "id": "0b7e3495-95ff-4d72-a7d9-41832122f90a",
         "blockId": "8023cfab-4e85-4ba9-824c-85bb0f0dbaf6",
         "lectureTitle": null,
-        "fileName": "NB LEC 76",
+        "fileName": null,
+        "filename": "NB LEC 76",
         "lectureType": "LEC",
         "lectureNumber": 76,
         "lectureDate": null,
@@ -1484,27 +1560,31 @@
         "activityLog": [
           {
             "date": "2026-04-28T23:16:25.706Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-28",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:58:20.768Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:43:20.821Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1515,39 +1595,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T00:50:05.120Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:33:19.020Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T07:14:16.679Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1558,21 +1644,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T06:12:28.210Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T04:07:41.256Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1583,33 +1672,38 @@
         "activityLog": [
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-23T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-18T20:53:53.704Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "video",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1620,63 +1714,73 @@
         "activityLog": [
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T23:38:42.908Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-23T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-19T18:40:42.499Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-19T18:30:31.022Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1687,69 +1791,80 @@
         "activityLog": [
           {
             "date": "2026-05-02T04:23:43.528Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-02",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01T21:58:44.310Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29T23:38:05.254Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T23:43:52.790Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T03:25:48.590Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-22",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "anki",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1760,15 +1875,17 @@
         "activityLog": [
           {
             "date": "2026-04-20T20:02:19.833Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T19:50:42.818Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           }
         ]
       },
@@ -1779,15 +1896,17 @@
         "activityLog": [
           {
             "date": "2026-04-24T06:56:47.476Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T20:42:20.964Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           }
         ]
       },
@@ -1798,39 +1917,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T23:33:14.321Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29T00:54:01.088Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T02:38:16.954Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-22T03:00:24.101Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1841,39 +1966,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T00:33:46.287Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T01:54:46.579Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T01:26:36.489Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1884,39 +2015,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T22:26:59.202Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T06:31:36.797Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": 80,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T03:11:14.266Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1927,33 +2064,38 @@
         "activityLog": [
           {
             "date": "2026-04-30T22:45:11.280Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-27T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T04:12:08.625Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1964,21 +2106,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T21:28:27.022Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T07:01:45.213Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1989,27 +2134,31 @@
         "activityLog": [
           {
             "date": "2026-04-30T23:12:16.920Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T21:50:38.694Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T22:40:08.071Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -2020,21 +2169,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T06:04:02.353Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T23:09:18.011Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -2045,21 +2197,24 @@
         "activityLog": [
           {
             "date": "2026-05-01T04:42:12.029Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T06:49:49.458Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -2070,21 +2225,24 @@
         "activityLog": [
           {
             "date": "2026-04-25T02:43:26.211Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:33:26.946Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:22:21.903Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       }
@@ -5640,6 +5798,7 @@
           [
             {
               "lectureId": "a4a0477a-f890-44f5-8564-d9340932426f",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 1,
               "repNumber": 1,
@@ -5663,6 +5822,7 @@
             },
             {
               "lectureId": "718f99fe-0d0a-4a58-bcec-25c6c979aa04",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 2,
               "repNumber": 1,
@@ -5686,6 +5846,7 @@
             },
             {
               "lectureId": "8f6fd1db-1af2-48ae-aae9-80288cb915cf",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 3,
               "repNumber": 1,
@@ -5714,6 +5875,7 @@
           [
             {
               "lectureId": "212996ba-8fea-4742-9595-7cd33964e68a",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 4,
               "repNumber": 1,
@@ -5737,6 +5899,7 @@
             },
             {
               "lectureId": "74cb4876-a0e8-46d2-a027-6096b2917f01",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 5,
               "repNumber": 1,
@@ -5760,6 +5923,7 @@
             },
             {
               "lectureId": "b470a4c4-8f40-4cfc-9269-01dc6d5ae1f5",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 6,
               "repNumber": 1,
@@ -5788,6 +5952,7 @@
           [
             {
               "lectureId": "a4a0477a-f890-44f5-8564-d9340932426f",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 1,
               "repNumber": 2,
@@ -5811,6 +5976,7 @@
             },
             {
               "lectureId": "718f99fe-0d0a-4a58-bcec-25c6c979aa04",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 2,
               "repNumber": 2,
@@ -5834,6 +6000,7 @@
             },
             {
               "lectureId": "8f6fd1db-1af2-48ae-aae9-80288cb915cf",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 3,
               "repNumber": 2,
@@ -5862,6 +6029,7 @@
           [
             {
               "lectureId": "212996ba-8fea-4742-9595-7cd33964e68a",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 4,
               "repNumber": 2,
@@ -5885,6 +6053,7 @@
             },
             {
               "lectureId": "74cb4876-a0e8-46d2-a027-6096b2917f01",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 5,
               "repNumber": 2,
@@ -5908,6 +6077,7 @@
             },
             {
               "lectureId": "b470a4c4-8f40-4cfc-9269-01dc6d5ae1f5",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 6,
               "repNumber": 2,
@@ -5936,6 +6106,7 @@
           [
             {
               "lectureId": "a4a0477a-f890-44f5-8564-d9340932426f",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 1,
               "repNumber": 3,
@@ -5959,6 +6130,7 @@
             },
             {
               "lectureId": "718f99fe-0d0a-4a58-bcec-25c6c979aa04",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 2,
               "repNumber": 3,
@@ -5982,6 +6154,7 @@
             },
             {
               "lectureId": "8f6fd1db-1af2-48ae-aae9-80288cb915cf",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 3,
               "repNumber": 3,
@@ -6010,6 +6183,7 @@
           [
             {
               "lectureId": "212996ba-8fea-4742-9595-7cd33964e68a",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 4,
               "repNumber": 3,
@@ -6033,6 +6207,7 @@
             },
             {
               "lectureId": "74cb4876-a0e8-46d2-a027-6096b2917f01",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 5,
               "repNumber": 3,
@@ -6056,6 +6231,7 @@
             },
             {
               "lectureId": "b470a4c4-8f40-4cfc-9269-01dc6d5ae1f5",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 6,
               "repNumber": 3,
@@ -6084,6 +6260,7 @@
           [
             {
               "lectureId": "a4a0477a-f890-44f5-8564-d9340932426f",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 1,
               "repNumber": 4,
@@ -6107,6 +6284,7 @@
             },
             {
               "lectureId": "718f99fe-0d0a-4a58-bcec-25c6c979aa04",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 2,
               "repNumber": 4,
@@ -6130,6 +6308,7 @@
             },
             {
               "lectureId": "8f6fd1db-1af2-48ae-aae9-80288cb915cf",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 3,
               "repNumber": 4,
@@ -6158,6 +6337,7 @@
           [
             {
               "lectureId": "212996ba-8fea-4742-9595-7cd33964e68a",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 4,
               "repNumber": 4,
@@ -6181,6 +6361,7 @@
             },
             {
               "lectureId": "74cb4876-a0e8-46d2-a027-6096b2917f01",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 5,
               "repNumber": 4,
@@ -6204,6 +6385,7 @@
             },
             {
               "lectureId": "b470a4c4-8f40-4cfc-9269-01dc6d5ae1f5",
+              "lectureTitle": null,
               "lectureType": "LEC",
               "lectureNum": 6,
               "repNumber": 4,

@@ -1,7 +1,7 @@
 {
   "context": {
     "blockId": "cpr1",
-    "now": "2026-07-27T16:07:24.830Z",
+    "now": "2026-07-27T17:15:51.809Z",
     "terms": [
       {
         "id": "term1",
@@ -65,7 +65,8 @@
         "id": "d50e5943-5ed0-45ff-bae5-e674e133c6d4",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 04 - Cardiac Cycle",
-        "fileName": "CPR Lecture 04 - Cardiac Cycle.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 04 - Cardiac Cycle.pdf",
         "lectureType": "LEC",
         "lectureNumber": 4,
         "lectureDate": null,
@@ -77,7 +78,8 @@
         "id": "7f46bf3d-ff40-44af-a933-d0b36a081fe9",
         "blockId": "cpr1",
         "lectureTitle": "DLA 01 - Introduction to the Cardiovascular System _Part A_",
-        "fileName": "DLA 01 - Introduction to the Cardiovascular System _Part A_.pdf",
+        "fileName": null,
+        "filename": "DLA 01 - Introduction to the Cardiovascular System _Part A_.pdf",
         "lectureType": "DLA",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -89,7 +91,8 @@
         "id": "e253872f-4d29-417f-8212-1955bec0f294",
         "blockId": "cpr1",
         "lectureTitle": "DLA 07 - Applied ECG",
-        "fileName": "DLA 07 - Applied ECG.pdf",
+        "fileName": null,
+        "filename": "DLA 07 - Applied ECG.pdf",
         "lectureType": "DLA",
         "lectureNumber": 7,
         "lectureDate": null,
@@ -101,7 +104,8 @@
         "id": "0dc53c7c-5836-48c5-8076-f56bff4d1380",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 15 - Chylomicrons, VLDL and LDL Metabolism",
-        "fileName": "CPR Lecture 15 - Chylomicrons, VLDL and LDL Metabolism.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 15 - Chylomicrons, VLDL and LDL Metabolism.pdf",
         "lectureType": "LEC",
         "lectureNumber": 15,
         "lectureDate": null,
@@ -113,7 +117,8 @@
         "id": "537da4ef-653a-4dcc-9059-e8af54dd9681",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture - 19, 20, 21 Histology of Blood Cell Formation,Function _ Cell Activation",
-        "fileName": "CPR Lecture - 19, 20, 21 Histology of Blood Cell Formation,Function _ Cell Activation.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture - 19, 20, 21 Histology of Blood Cell Formation,Function _ Cell Activation.pdf",
         "lectureType": "LEC",
         "lectureNumber": 19,
         "lectureDate": null,
@@ -125,7 +130,8 @@
         "id": "c8c44908-f96f-4768-a00d-6f58125a57e7",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 18 - Fibrinolysis and Disorders of Hemostasis",
-        "fileName": "CPR Lecture 18 - Fibrinolysis and Disorders of Hemostasis.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 18 - Fibrinolysis and Disorders of Hemostasis.pdf",
         "lectureType": "LEC",
         "lectureNumber": 18,
         "lectureDate": null,
@@ -137,7 +143,8 @@
         "id": "540710e1-e6d9-4e8c-b9e2-4d8cd0d72b65",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 17 - Primary and Secondary Hemostasis",
-        "fileName": "CPR Lecture 17 - Primary and Secondary Hemostasis.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 17 - Primary and Secondary Hemostasis.pdf",
         "lectureType": "LEC",
         "lectureNumber": 17,
         "lectureDate": null,
@@ -149,7 +156,8 @@
         "id": "9ba858f6-dac6-4a40-be59-420fc6e3d594",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 16 -  HDL and Lipoprotein Disorders",
-        "fileName": "CPR Lecture 16 -  HDL and Lipoprotein Disorders.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 16 -  HDL and Lipoprotein Disorders.pdf",
         "lectureType": "LEC",
         "lectureNumber": 16,
         "lectureDate": null,
@@ -161,7 +169,8 @@
         "id": "d9ad503f-8116-43a4-939a-0e79f3af811a",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 14 - ECG Leads, Mean Electrical Axis and Interpretationu update",
-        "fileName": "CPR Lecture 14 - ECG Leads, Mean Electrical Axis and Interpretationu update.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 14 - ECG Leads, Mean Electrical Axis and Interpretationu update.pdf",
         "lectureType": "LEC",
         "lectureNumber": 14,
         "lectureDate": null,
@@ -173,7 +182,8 @@
         "id": "b5561851-556e-45d6-bf52-44278dee3aea",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 13 - Origin and Components of ECG",
-        "fileName": "CPR Lecture 13 - Origin and Components of ECG.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 13 - Origin and Components of ECG.pdf",
         "lectureType": "LEC",
         "lectureNumber": 13,
         "lectureDate": null,
@@ -185,7 +195,8 @@
         "id": "071eb8ab-9b01-4de0-87a4-ac04a51c9309",
         "blockId": "cpr1",
         "lectureTitle": "DLA 09 - Eicosanoids",
-        "fileName": "DLA 09 - Eicosanoids.pdf",
+        "fileName": null,
+        "filename": "DLA 09 - Eicosanoids.pdf",
         "lectureType": "DLA",
         "lectureNumber": 9,
         "lectureDate": null,
@@ -197,7 +208,8 @@
         "id": "e6d43f42-0211-4c1a-a2b5-a02f2bceaec0",
         "blockId": "cpr1",
         "lectureTitle": "DLA 08 - Nutritional Aspects of Cardiovascular Disease",
-        "fileName": "DLA 08 - Nutritional Aspects of Cardiovascular Disease.pdf",
+        "fileName": null,
+        "filename": "DLA 08 - Nutritional Aspects of Cardiovascular Disease.pdf",
         "lectureType": "DLA",
         "lectureNumber": 8,
         "lectureDate": null,
@@ -209,7 +221,8 @@
         "id": "4f448c21-d999-4264-a06d-40630d2271ce",
         "blockId": "cpr1",
         "lectureTitle": "DLA 04 - Local Control of Blood Flow",
-        "fileName": "DLA 04 - Local Control of Blood Flow.pdf",
+        "fileName": null,
+        "filename": "DLA 04 - Local Control of Blood Flow.pdf",
         "lectureType": "DLA",
         "lectureNumber": 4,
         "lectureDate": null,
@@ -221,7 +234,8 @@
         "id": "752e4e05-21f3-49da-8b87-cbb5b8d0a6b8",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 05 - Imaging of the Heart and Mediastinum",
-        "fileName": "CPR Lecture 05 - Imaging of the Heart and Mediastinum.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 05 - Imaging of the Heart and Mediastinum.pdf",
         "lectureType": "LEC",
         "lectureNumber": 5,
         "lectureDate": null,
@@ -233,7 +247,8 @@
         "id": "43e2337e-f399-40a6-8b65-fe43ad1c490f",
         "blockId": "cpr1",
         "lectureTitle": "DLA 03 - Aortic Arches",
-        "fileName": "DLA 03 - Aortic Arches.pdf",
+        "fileName": null,
+        "filename": "DLA 03 - Aortic Arches.pdf",
         "lectureType": "DLA",
         "lectureNumber": 3,
         "lectureDate": null,
@@ -245,7 +260,8 @@
         "id": "d43c8d98-7b96-447b-8f25-4ba09d824b8c",
         "blockId": "cpr1",
         "lectureTitle": "DLA 06 - Special Circulations",
-        "fileName": "DLA 06 - Special Circulations.pdf",
+        "fileName": null,
+        "filename": "DLA 06 - Special Circulations.pdf",
         "lectureType": "DLA",
         "lectureNumber": 6,
         "lectureDate": null,
@@ -257,7 +273,8 @@
         "id": "914ad272-5ff3-49a7-8fc2-eb05fbc0a86e",
         "blockId": "cpr1",
         "lectureTitle": "DLA 05 - Microcirculation",
-        "fileName": "DLA 05 - Microcirculation.pdf",
+        "fileName": null,
+        "filename": "DLA 05 - Microcirculation.pdf",
         "lectureType": "DLA",
         "lectureNumber": 5,
         "lectureDate": null,
@@ -269,7 +286,8 @@
         "id": "5e2a158a-5e82-4425-8b8f-72184f71d13c",
         "blockId": "cpr1",
         "lectureTitle": "DLA 02 - Development of the Heart",
-        "fileName": "DLA 02 - Development of the Heart.pdf",
+        "fileName": null,
+        "filename": "DLA 02 - Development of the Heart.pdf",
         "lectureType": "DLA",
         "lectureNumber": 2,
         "lectureDate": null,
@@ -281,7 +299,8 @@
         "id": "5df8a232-b80c-4806-99f0-dddab0c5d2bf",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 12 - Cardiac Action Potential-1",
-        "fileName": "CPR Lecture 12 - Cardiac Action Potential-1.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 12 - Cardiac Action Potential-1.pdf",
         "lectureType": "LEC",
         "lectureNumber": 12,
         "lectureDate": null,
@@ -293,7 +312,8 @@
         "id": "535007ae-0242-49f3-b1ef-195e244fec1a",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 11 Cardiac Output",
-        "fileName": "CPR Lecture 11 Cardiac Output.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 11 Cardiac Output.pdf",
         "lectureType": "LEC",
         "lectureNumber": 11,
         "lectureDate": null,
@@ -305,7 +325,8 @@
         "id": "d9377756-c39d-4cff-a29d-c143fc935366",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 10 - Hemodynamics of Systemic Circulation",
-        "fileName": "CPR Lecture 10 - Hemodynamics of Systemic Circulation.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 10 - Hemodynamics of Systemic Circulation.pdf",
         "lectureType": "LEC",
         "lectureNumber": 10,
         "lectureDate": null,
@@ -317,7 +338,8 @@
         "id": "b65cb279-ff4e-45a3-a9f0-5593ab7bf055",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 09 - Hemodynamics of Pressure Flow and Resistance",
-        "fileName": "CPR Lecture 09 - Hemodynamics of Pressure Flow and Resistance.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 09 - Hemodynamics of Pressure Flow and Resistance.pdf",
         "lectureType": "LEC",
         "lectureNumber": 9,
         "lectureDate": null,
@@ -329,7 +351,8 @@
         "id": "ee23e8b6-97e6-4b55-b403-5debcd3de8a1",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 08 - Determinants of Myocardial Performance",
-        "fileName": "CPR Lecture 08 - Determinants of Myocardial Performance.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 08 - Determinants of Myocardial Performance.pdf",
         "lectureType": "LEC",
         "lectureNumber": 8,
         "lectureDate": null,
@@ -341,7 +364,8 @@
         "id": "315820d2-5eb0-48fb-905b-236e8ac92735",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 07 - Mechanics of the Cardiac Pump update",
-        "fileName": "CPR Lecture 07 - Mechanics of the Cardiac Pump update.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 07 - Mechanics of the Cardiac Pump update.pdf",
         "lectureType": "LEC",
         "lectureNumber": 7,
         "lectureDate": null,
@@ -353,7 +377,8 @@
         "id": "d68373ba-2312-4036-aec1-426a9483cab5",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 06 - Clinical Embryology of the Heart",
-        "fileName": "CPR Lecture 06 - Clinical Embryology of the Heart.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 06 - Clinical Embryology of the Heart.pdf",
         "lectureType": "LEC",
         "lectureNumber": 6,
         "lectureDate": null,
@@ -365,7 +390,8 @@
         "id": "4ffb452e-048d-4bd6-bd9b-f297f5cd1936",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 01 - Mediastinum",
-        "fileName": "CPR Lecture 01 - Mediastinum.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 01 - Mediastinum.pdf",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -377,7 +403,8 @@
         "id": "f38f60ad-d2ac-4407-aea7-0d01779d595f",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 03 - Histology of the Cardiovascular System UPDATE",
-        "fileName": "CPR Lecture 03 - Histology of the Cardiovascular System UPDATE.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 03 - Histology of the Cardiovascular System UPDATE.pdf",
         "lectureType": "LEC",
         "lectureNumber": 3,
         "lectureDate": null,
@@ -389,7 +416,8 @@
         "id": "213832b1-f255-4f34-92dd-15da2996aa68",
         "blockId": "cpr1",
         "lectureTitle": "CPR Lecture 02 - Clinical Anatomy of the Heart",
-        "fileName": "CPR Lecture 02 - Clinical Anatomy of the Heart.pdf",
+        "fileName": null,
+        "filename": "CPR Lecture 02 - Clinical Anatomy of the Heart.pdf",
         "lectureType": "LEC",
         "lectureNumber": 2,
         "lectureDate": null,
@@ -1477,27 +1505,31 @@
         "activityLog": [
           {
             "date": "2026-04-28T23:16:25.706Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-28",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:58:20.768Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:43:20.821Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1508,39 +1540,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T00:50:05.120Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:33:19.020Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T07:14:16.679Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1551,21 +1589,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T06:12:28.210Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T04:07:41.256Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1576,33 +1617,38 @@
         "activityLog": [
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-23T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-18T20:53:53.704Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "video",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1613,63 +1659,73 @@
         "activityLog": [
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T23:38:42.908Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-23T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-19T18:40:42.499Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-19T18:30:31.022Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1680,69 +1736,80 @@
         "activityLog": [
           {
             "date": "2026-05-02T04:23:43.528Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-02",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01T21:58:44.310Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29T23:38:05.254Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T23:43:52.790Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T03:25:48.590Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-22",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "anki",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1753,15 +1820,17 @@
         "activityLog": [
           {
             "date": "2026-04-20T20:02:19.833Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T19:50:42.818Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           }
         ]
       },
@@ -1772,15 +1841,17 @@
         "activityLog": [
           {
             "date": "2026-04-24T06:56:47.476Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T20:42:20.964Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           }
         ]
       },
@@ -1791,39 +1862,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T23:33:14.321Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29T00:54:01.088Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T02:38:16.954Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-22T03:00:24.101Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1834,39 +1911,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T00:33:46.287Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T01:54:46.579Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T01:26:36.489Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1877,39 +1960,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T22:26:59.202Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T06:31:36.797Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": 80,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T03:11:14.266Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1920,33 +2009,38 @@
         "activityLog": [
           {
             "date": "2026-04-30T22:45:11.280Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-27T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T04:12:08.625Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1957,21 +2051,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T21:28:27.022Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T07:01:45.213Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -1982,27 +2079,31 @@
         "activityLog": [
           {
             "date": "2026-04-30T23:12:16.920Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T21:50:38.694Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T22:40:08.071Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -2013,21 +2114,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T06:04:02.353Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T23:09:18.011Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -2038,21 +2142,24 @@
         "activityLog": [
           {
             "date": "2026-05-01T04:42:12.029Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T06:49:49.458Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -2063,21 +2170,24 @@
         "activityLog": [
           {
             "date": "2026-04-25T02:43:26.211Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:33:26.946Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:22:21.903Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       }

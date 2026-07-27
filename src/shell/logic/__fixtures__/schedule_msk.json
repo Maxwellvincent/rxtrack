@@ -1,7 +1,7 @@
 {
   "context": {
     "blockId": "msk",
-    "now": "2026-07-27T16:07:24.631Z",
+    "now": "2026-07-27T17:15:51.763Z",
     "terms": [
       {
         "id": "term1",
@@ -65,7 +65,8 @@
         "id": "09bfea50-85d2-41bf-b096-a2eb0b2937be",
         "blockId": "msk",
         "lectureTitle": "DLA 07 - Development of the body cavities and diaphragm",
-        "fileName": "DLA 07 - Development of the body cavities and diaphragm.pdf",
+        "fileName": null,
+        "filename": "DLA 07 - Development of the body cavities and diaphragm.pdf",
         "lectureType": "DLA",
         "lectureNumber": 7,
         "lectureDate": null,
@@ -77,7 +78,8 @@
         "id": "115588db-c2c1-4701-852d-112b614125fa",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 27 - Histology of the Skin",
-        "fileName": "MSK Lecture 27 - Histology of the Skin.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 27 - Histology of the Skin.pdf",
         "lectureType": "LEC",
         "lectureNumber": 27,
         "lectureDate": null,
@@ -89,7 +91,8 @@
         "id": "32175cf1-f455-4bbc-971d-803098f11109",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 25 - Physiology of Cardiac and Smooth Muscles",
-        "fileName": "MSK Lecture 25 - Physiology of Cardiac and Smooth Muscles.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 25 - Physiology of Cardiac and Smooth Muscles.pdf",
         "lectureType": "LEC",
         "lectureNumber": 25,
         "lectureDate": null,
@@ -101,7 +104,8 @@
         "id": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 21 - Calcium, Phosphate _ Vitamin D in Bone Health",
-        "fileName": "MSK Lecture 21 - Calcium, Phosphate _ Vitamin D in Bone Health.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 21 - Calcium, Phosphate _ Vitamin D in Bone Health.pdf",
         "lectureType": "LEC",
         "lectureNumber": 21,
         "lectureDate": null,
@@ -113,7 +117,8 @@
         "id": "175921c0-52fd-438e-a510-a3078e20b06a",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 20 - Histology of Cartilage Pre-read Material",
-        "fileName": "MSK Lecture 20 - Histology of Cartilage Pre-read Material.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 20 - Histology of Cartilage Pre-read Material.pdf",
         "lectureType": "LEC",
         "lectureNumber": 20,
         "lectureDate": null,
@@ -125,7 +130,8 @@
         "id": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 19 - Histology of Bone Formation, Maintenance and Repair",
-        "fileName": "MSK Lecture 19 - Histology of Bone Formation, Maintenance and Repair.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 19 - Histology of Bone Formation, Maintenance and Repair.pdf",
         "lectureType": "LEC",
         "lectureNumber": 19,
         "lectureDate": null,
@@ -137,7 +143,8 @@
         "id": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 18 - Histological Classification and Organization of Bone",
-        "fileName": "MSK Lecture 18 - Histological Classification and Organization of Bone.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 18 - Histological Classification and Organization of Bone.pdf",
         "lectureType": "LEC",
         "lectureNumber": 18,
         "lectureDate": null,
@@ -149,7 +156,8 @@
         "id": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 16 - Clinical Anatomy of the Lower Limb 2",
-        "fileName": "MSK Lecture 16 - Clinical Anatomy of the Lower Limb 2.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 16 - Clinical Anatomy of the Lower Limb 2.pdf",
         "lectureType": "LEC",
         "lectureNumber": 16,
         "lectureDate": null,
@@ -161,7 +169,8 @@
         "id": "33469023-1d35-4eca-9e9b-b90834c7011f",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 15 - Clinical Anatomy of the Lower Limb 1",
-        "fileName": "MSK Lecture 15 - Clinical Anatomy of the Lower Limb 1.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 15 - Clinical Anatomy of the Lower Limb 1.pdf",
         "lectureType": "LEC",
         "lectureNumber": 15,
         "lectureDate": null,
@@ -173,7 +182,8 @@
         "id": "30b70ef7-553c-4593-9476-d916cbe104d5",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 17 - Clinical and Imaging of the Lower Limb (1)",
-        "fileName": "MSK Lecture 17 - Clinical and Imaging of the Lower Limb (1).pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 17 - Clinical and Imaging of the Lower Limb (1).pdf",
         "lectureType": "LEC",
         "lectureNumber": 17,
         "lectureDate": null,
@@ -185,7 +195,8 @@
         "id": "b9658720-ee0b-43b5-bcfb-bca47580937d",
         "blockId": "msk",
         "lectureTitle": "DLA 13 - Histopathological Aspects of Skin",
-        "fileName": "DLA 13 - Histopathological Aspects of Skin.pdf",
+        "fileName": null,
+        "filename": "DLA 13 - Histopathological Aspects of Skin.pdf",
         "lectureType": "DLA",
         "lectureNumber": 13,
         "lectureDate": null,
@@ -197,7 +208,8 @@
         "id": "7db8c1b1-5983-4d07-9399-c6e28a0d9c86",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 14 - Imaging of Abdomen and Pelvis",
-        "fileName": "MSK Lecture 14 - Imaging of Abdomen and Pelvis.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 14 - Imaging of Abdomen and Pelvis.pdf",
         "lectureType": "LEC",
         "lectureNumber": 14,
         "lectureDate": null,
@@ -209,7 +221,8 @@
         "id": "6a7aaebb-a9bb-43ca-8178-2834445c7443",
         "blockId": "msk",
         "lectureTitle": "DLA 8 - Clinical Anatomy of the Ankle and Foot",
-        "fileName": "DLA 8 - Clinical Anatomy of the Ankle and Foot.pdf",
+        "fileName": null,
+        "filename": "DLA 8 - Clinical Anatomy of the Ankle and Foot.pdf",
         "lectureType": "DLA",
         "lectureNumber": 8,
         "lectureDate": null,
@@ -221,7 +234,8 @@
         "id": "fb7b2f1f-06e3-45e6-bf3b-eec6ae97becb",
         "blockId": "msk",
         "lectureTitle": "DLA 9 - Limb Development Clinical - Part 2",
-        "fileName": "DLA 9 - Limb Development Clinical - Part 2.pdf",
+        "fileName": null,
+        "filename": "DLA 9 - Limb Development Clinical - Part 2.pdf",
         "lectureType": "DLA",
         "lectureNumber": 9.2,
         "lectureDate": null,
@@ -233,7 +247,8 @@
         "id": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
         "blockId": "msk",
         "lectureTitle": "DLA 10 - Vitamin D _ Fat Soluble Vitamin",
-        "fileName": "DLA 10 - Vitamin D _ Fat Soluble Vitamin.pdf",
+        "fileName": null,
+        "filename": "DLA 10 - Vitamin D _ Fat Soluble Vitamin.pdf",
         "lectureType": "DLA",
         "lectureNumber": 10,
         "lectureDate": null,
@@ -245,7 +260,8 @@
         "id": "7a1cd320-3c08-4045-8d1f-514fef9645d5",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 12 - Posterior Abdominal Wall",
-        "fileName": "MSK Lecture 12 - Posterior Abdominal Wall.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 12 - Posterior Abdominal Wall.pdf",
         "lectureType": "LEC",
         "lectureNumber": 12,
         "lectureDate": null,
@@ -257,7 +273,8 @@
         "id": "a7488191-9772-4356-82ce-fb73ff952ce3",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 11 -  Anterior Abdominal  Wall _ Inguinal Region",
-        "fileName": "MSK Lecture 11 -  Anterior Abdominal  Wall _ Inguinal Region.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 11 -  Anterior Abdominal  Wall _ Inguinal Region.pdf",
         "lectureType": "LEC",
         "lectureNumber": 11,
         "lectureDate": null,
@@ -269,7 +286,8 @@
         "id": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 10 - Clinical Anatomy of the Thorax",
-        "fileName": "MSK Lecture 10 - Clinical Anatomy of the Thorax.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 10 - Clinical Anatomy of the Thorax.pdf",
         "lectureType": "LEC",
         "lectureNumber": 10,
         "lectureDate": null,
@@ -281,7 +299,8 @@
         "id": "b136d9d7-d1eb-4598-8951-edf651961bd1",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 9 - Imaging of the Thorax",
-        "fileName": "MSK Lecture 9 - Imaging of the Thorax.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 9 - Imaging of the Thorax.pdf",
         "lectureType": "LEC",
         "lectureNumber": 9,
         "lectureDate": null,
@@ -293,7 +312,8 @@
         "id": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 8 - Flipped Classroom - Upper Limb Clinical Cases PreRead Material",
-        "fileName": "MSK Lecture 8 - Flipped Classroom - Upper Limb Clinical Cases PreRead Material.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 8 - Flipped Classroom - Upper Limb Clinical Cases PreRead Material.pdf",
         "lectureType": "LEC",
         "lectureNumber": 8,
         "lectureDate": null,
@@ -305,7 +325,8 @@
         "id": "90975097-b749-4852-8eaa-5acc6c3c4cef",
         "blockId": "msk",
         "lectureTitle": "MSK lecture 7 - Imaging of the Upper Limb",
-        "fileName": "MSK lecture 7 - Imaging of the Upper Limb.pdf",
+        "fileName": null,
+        "filename": "MSK lecture 7 - Imaging of the Upper Limb.pdf",
         "lectureType": "LEC",
         "lectureNumber": 7,
         "lectureDate": null,
@@ -317,7 +338,8 @@
         "id": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 5 - Clinical Anatomy of Arm and Forearm",
-        "fileName": "MSK Lecture 5 - Clinical Anatomy of Arm and Forearm.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 5 - Clinical Anatomy of Arm and Forearm.pdf",
         "lectureType": "LEC",
         "lectureNumber": 5,
         "lectureDate": null,
@@ -329,7 +351,8 @@
         "id": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
         "blockId": "msk",
         "lectureTitle": "DLA 5 - Clinical Anatomy of the Shoulder",
-        "fileName": "DLA 5 - Clinical Anatomy of the Shoulder.pdf",
+        "fileName": null,
+        "filename": "DLA 5 - Clinical Anatomy of the Shoulder.pdf",
         "lectureType": "DLA",
         "lectureNumber": 5,
         "lectureDate": null,
@@ -341,7 +364,8 @@
         "id": "mm5ceyov4br",
         "blockId": "msk",
         "lectureTitle": "MSK Lecture 2 - Introduction to Clinical Imaging Imaging of Back",
-        "fileName": "MSK Lecture 2 - Introduction to Clinical Imaging _ Imaging of Back.pdf",
+        "fileName": null,
+        "filename": "MSK Lecture 2 - Introduction to Clinical Imaging _ Imaging of Back.pdf",
         "lectureType": "LEC",
         "lectureNumber": 2,
         "lectureDate": null,
@@ -350,10 +374,11 @@
         "mergedFrom": []
       },
       {
-        "id": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "id": "mm5go6rks76",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -362,10 +387,11 @@
         "mergedFrom": []
       },
       {
-        "id": "mm5go6rks76",
+        "id": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -377,7 +403,8 @@
         "id": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -389,7 +416,8 @@
         "id": "mm5gn8vv4p7",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -401,7 +429,8 @@
         "id": "6f8f3cf8-5ec2-4c2b-aa2f-fc26c8ac44c1",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -413,7 +442,8 @@
         "id": "mm4f38e1k82",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -425,7 +455,8 @@
         "id": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -437,7 +468,8 @@
         "id": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -449,7 +481,8 @@
         "id": "196978ab-cbb5-4232-8d77-3c3022b34d89",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -461,7 +494,8 @@
         "id": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -473,7 +507,8 @@
         "id": "7155594f-f991-4140-8160-ebaaeffbc923",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -485,7 +520,8 @@
         "id": "bca4fa3a-47d9-4da0-a5b8-608fc559145a",
         "blockId": "msk",
         "lectureTitle": "Flipped Class: Mechanics of Skeletal Muscle Contraction",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -497,7 +533,8 @@
         "id": "9db2c1f8-b652-41b9-a529-cf656f349d32",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -509,7 +546,8 @@
         "id": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
         "blockId": "msk",
         "lectureTitle": "",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -521,7 +559,8 @@
         "id": "f2876be7-7f03-4810-b9aa-3dc5c3f1c5fc",
         "blockId": "msk",
         "lectureTitle": "Histology of the Skin Appendages",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -533,7 +572,8 @@
         "id": "1e68f096-133a-4826-ba26-45604f397eb9",
         "blockId": "msk",
         "lectureTitle": "Integument",
-        "fileName": "",
+        "fileName": null,
+        "filename": "",
         "lectureType": "LEC",
         "lectureNumber": 1,
         "lectureDate": null,
@@ -543,6 +583,1584 @@
       }
     ],
     "objectives": [
+      {
+        "id": "extracted_1772945556111_0",
+        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945556111_1",
+        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945556111_2",
+        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_0",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_1",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945590201_2",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_3",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_4",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_5",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_6",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945590201_7",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_8",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_9",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_10",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945590201_11",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_12",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945590201_13",
+        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945609572_0",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_1",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_2",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945609572_3",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_4",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945609572_5",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_6",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_7",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_8",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "inprogress",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945609572_9",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_10",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945609572_11",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_12",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945609572_13",
+        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_0",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_1",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_2",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_3",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_5",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_6",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_7",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_8",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945704592_9",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_10",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945704592_11",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945704592_12",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945704592_13",
+        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_0",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 3
+      },
+      {
+        "id": "extracted_1772945736142_1",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_2",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_3",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_4",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945736142_5",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_6",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_7",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945736142_8",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_9",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_10",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_11",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_12",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_14",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_15",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_16",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_17",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_19",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_20",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945736142_21",
+        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_0",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_1",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_2",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_3",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_4",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_5",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945773926_6",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945773926_7",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_8",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_9",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_10",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_11",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_12",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_13",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945773926_14",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_15",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_16",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_17",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_18",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_19",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945773926_20",
+        "linkedLecId": "mm4f38e1k82",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_2",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_5",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_6",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945801226_7",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_8",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_9",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_10",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945801226_11",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_12",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945801226_13",
+        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945962241_0",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_1",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_2",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_3",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_4",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_5",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_6",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_7",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_8",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_11",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945962241_12",
+        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772945981593_0",
+        "linkedLecId": "b136d9d7-d1eb-4598-8951-edf651961bd1",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945981593_1",
+        "linkedLecId": "b136d9d7-d1eb-4598-8951-edf651961bd1",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945981593_2",
+        "linkedLecId": "b136d9d7-d1eb-4598-8951-edf651961bd1",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772945981593_3",
+        "linkedLecId": "b136d9d7-d1eb-4598-8951-edf651961bd1",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_0",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_1",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_2",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_3",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_4",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_5",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_6",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946078132_7",
+        "linkedLecId": "7f0b84f4-6d7c-47a0-ad4d-19949d996c15",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946101931_4",
+        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946136683_3",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772946136683_4",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946136683_5",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946136683_6",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772946136683_7",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1772946136683_8",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946136683_9",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1772946136683_10",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_0",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_1",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774051526900_2",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_3",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_4",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_5",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_6",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_7",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_8",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_9",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_10",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_11",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_12",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_13",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_14",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774051526900_15",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_16",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774051526900_17",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059387285_0",
+        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059387285_1",
+        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059387285_2",
+        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059387285_4",
+        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774059387285_5",
+        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774059387285_8",
+        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059392149_2",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_3",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059392149_4",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059392149_5",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_6",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_7",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_8",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_9",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_10",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_11",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059392149_12",
+        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059422970_0",
+        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059422970_1",
+        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059422970_2",
+        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059422970_3",
+        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059422970_4",
+        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
+        "status": "inprogress",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059422970_5",
+        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059431923_4",
+        "linkedLecId": "175921c0-52fd-438e-a510-a3078e20b06a",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059431923_10",
+        "linkedLecId": "175921c0-52fd-438e-a510-a3078e20b06a",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059457190_0",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059457190_1",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059457190_2",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059457190_3",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059457190_4",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059457190_5",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059457190_6",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059457190_7",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774059457190_8",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059457190_9",
+        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059495649_0",
+        "linkedLecId": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059495649_1",
+        "linkedLecId": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774059495649_2",
+        "linkedLecId": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774059495649_3",
+        "linkedLecId": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774059526562_1",
+        "linkedLecId": "32175cf1-f455-4bbc-971d-803098f11109",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774059536704_0",
+        "linkedLecId": "bca4fa3a-47d9-4da0-a5b8-608fc559145a",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774192909881_0",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_1",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_2",
+        "linkedLecId": null,
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192909881_3",
+        "linkedLecId": null,
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_4",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_5",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_6",
+        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_7",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_8",
+        "linkedLecId": null,
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192909881_9",
+        "linkedLecId": null,
+        "status": "struggling",
+        "bloom_level": 3
+      },
+      {
+        "id": "extracted_1774192906087_0",
+        "linkedLecId": "fb7b2f1f-06e3-45e6-bf3b-eec6ae97becb",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192906087_1",
+        "linkedLecId": "fb7b2f1f-06e3-45e6-bf3b-eec6ae97becb",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192905791_0",
+        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192905791_1",
+        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192905791_2",
+        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192905791_3",
+        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192905791_4",
+        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192932566_8",
+        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774192932566_9",
+        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192932269_7",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192958731_2",
+        "linkedLecId": "7db8c1b1-5983-4d07-9399-c6e28a0d9c86",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192958731_3",
+        "linkedLecId": "7db8c1b1-5983-4d07-9399-c6e28a0d9c86",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_0",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192961096_1",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_2",
+        "linkedLecId": "115588db-c2c1-4701-852d-112b614125fa",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192961096_3",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_4",
+        "linkedLecId": "115588db-c2c1-4701-852d-112b614125fa",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192961096_5",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_6",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_7",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_8",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_9",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_10",
+        "linkedLecId": "115588db-c2c1-4701-852d-112b614125fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_11",
+        "linkedLecId": "115588db-c2c1-4701-852d-112b614125fa",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192961096_12",
+        "linkedLecId": "f2876be7-7f03-4810-b9aa-3dc5c3f1c5fc",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192961096_13",
+        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
+        "status": "struggling",
+        "bloom_level": 4
+      },
+      {
+        "id": "extracted_1774192962714_0",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192962714_1",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192962714_2",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_3",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_4",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "struggling",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192962714_5",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_6",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_7",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_8",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_9",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192962714_10",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192962714_11",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_12",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_13",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_14",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774192962714_15",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774192962714_16",
+        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_0",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_1",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193009729_2",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_4",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_5",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_6",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193009729_7",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193009729_8",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_9",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193009729_10",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193009729_11",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 1
+      },
+      {
+        "id": "extracted_1774193009729_12",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193009729_13",
+        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_0",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_1",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_2",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_3",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_4",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_5",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_6",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_7",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "mastered",
+        "bloom_level": 2
+      },
+      {
+        "id": "extracted_1774193019354_8",
+        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
+        "status": "struggling",
+        "bloom_level": 2
+      },
+      {
+        "id": "cbcee7ad-0ad8-43c7-9cce-bf8f2e5eccf9",
+        "linkedLecId": "f2876be7-7f03-4810-b9aa-3dc5c3f1c5fc",
+        "status": "mastered",
+        "bloom_level": 4
+      },
+      {
+        "id": "d00e2b40-ad2b-4e15-b6a5-07b1b196a209",
+        "linkedLecId": "6f8f3cf8-5ec2-4c2b-aa2f-fc26c8ac44c1",
+        "status": "struggling",
+        "bloom_level": 1
+      },
       {
         "id": "cc961337-25fd-4fe5-9be9-da22896766a3",
         "linkedLecId": "mm5go6rks76",
@@ -575,19 +2193,19 @@
       },
       {
         "id": "2fc85cc8-1086-4a53-905f-923b544637c1",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "linkedLecId": "mm5go6rks76",
         "status": "mastered",
         "bloom_level": 2
       },
       {
         "id": "22e91b33-5bd8-42c8-85cd-011b1a0f6441",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "linkedLecId": "mm5go6rks76",
         "status": "mastered",
         "bloom_level": 2
       },
       {
         "id": "d9191401-7c4d-4db9-8dd0-0a1e9fc24824",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
+        "linkedLecId": "mm5go6rks76",
         "status": "mastered",
         "bloom_level": 2
       },
@@ -952,24 +2570,6 @@
         "bloom_level": 2
       },
       {
-        "id": "fcbaa074-08c5-4c19-bb7e-6103b60e44de",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "a0790844-2d29-42f3-b3d0-09b01149c2f1",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "9c2bcb48-0224-4db6-8bbe-e3bed0fc735d",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
         "id": "e2337f02-38a5-4640-98c2-74a3cd4f1d00",
         "linkedLecId": "mm4f38e1k82",
         "status": "struggling",
@@ -1018,136 +2618,10 @@
         "bloom_level": 4
       },
       {
-        "id": "8b1f725d-4d7d-4405-b71d-e57fa9cf2b1c",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "b819406f-b928-484a-ab73-c46a09f12b77",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "aa53ce1b-8b5c-49a8-9e6d-55ba15145170",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "fcf2ef52-68ec-46c2-8afc-6cf885c2b2e1",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "2c8c4c53-f788-407f-b09f-3aefa8b06ece",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "cda2326f-765f-4a75-bee1-b0a4af7a00a8",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "50a6628e-4ee5-4a50-8815-a7b4a802db0c",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "3841059a-3634-4fb4-8f35-1e3dadb5fdf1",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
         "id": "0957cc96-8adc-4093-a0d6-e71e901327b4",
         "linkedLecId": "mm4f38e1k82",
         "status": "mastered",
         "bloom_level": 2
-      },
-      {
-        "id": "6e3bb957-1953-4534-a86b-b387decf0dc1",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "90a17953-19e3-4972-952c-c1d56e622ba4",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "bc170c3e-ea39-41a0-8ade-c08569f6382f",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "5b6471c7-e36c-492a-99b4-4ec6632ed52d",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "ddf03dd4-6a7d-4692-b087-dcc1bba0763a",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "2f1d7e45-cc57-4911-9175-00dd53631fdf",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "a5905601-18b3-4d8a-b826-86d406c7a66e",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "8b9593e2-9268-42c1-9e83-91a9c06a0696",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "da9d194b-6f57-4bee-adc9-c58e08a8cb68",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "62bb4584-27a9-4986-8e92-e9ad87d2a58e",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "160e921e-0470-4c25-a83d-071175e3b1b6",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "8bbdc589-7257-4fbe-b4c2-150eb3cd6ce8",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "f596153d-980c-46fe-b980-dbc17db2e6ed",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 1
       },
       {
         "id": "50b48f54-da06-42a8-ab90-4495972c4983",
@@ -1156,146 +2630,8 @@
         "bloom_level": 1
       },
       {
-        "id": "ec4dc418-9785-4bcb-93cb-1170743698cf",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "d310b580-cf33-4a2b-9732-514936a26c64",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "eee202b0-4995-4333-90c5-531ee9f507c3",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "405e44cb-2f8b-4886-8a89-b86e2e20d528",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "42ca63b0-986b-4363-a13c-59f6c7f42063",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "69736597-35a5-48f6-8684-0dbc77a2ee3f",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "7b7d6c22-8d57-4578-b539-d302c9173d3f",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "8fb2cf69-121c-404e-99b1-1d65bd84b08f",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "5c3b2da7-42e8-4f41-9e08-4edc635ac573",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "c0693dc8-2412-48b0-997e-6250eec60e31",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "8a4c9afb-75d8-4fdb-bb31-d9cb49baa556",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "ef192cb7-543b-4f69-b532-6e204fd0be91",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "b1fb5e78-4772-44e8-9ba8-768870536ba4",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "fa3e64c3-55d7-49c2-88be-bc518aff29e1",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "465fbd1f-9e06-4272-a6c3-5d0daa062857",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "775a29bd-678e-4c90-887d-b3f1090a64b1",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
         "id": "dbf5ed39-6c1f-4694-8661-10726cddcd2a",
         "linkedLecId": "mm4f38e1k82",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "bacb1db0-6171-4119-bcd1-88b713ddbb28",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "252b2af9-bb58-416f-b2bc-884636122f50",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "e59227be-aaea-479f-ad42-87943801082a",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "e1663610-c2be-4a5a-8e42-7d8ba5ce95cd",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "4e0ffb05-6591-4573-a948-627d9fcae773",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "6eb127d8-0b33-49f6-98fe-16926a7a8877",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "900a2438-c84e-42a9-9834-8728e7066a6f",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
         "status": "mastered",
         "bloom_level": 2
       },
@@ -1306,117 +2642,9 @@
         "bloom_level": 2
       },
       {
-        "id": "d38c6e74-105e-4e4e-b619-11b16342a578",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "4b38cbe8-81f9-4124-971d-2be0fd50bfd4",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "fc1e7536-a405-4a43-9210-bf332fe21586",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "b638483b-8d21-4d19-b706-ec2bbf5965f6",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "c6dcccbf-66ea-495b-b8e7-b32b505c6c2f",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "c39f9d79-d770-4ce6-a5f6-9b963de90a91",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "f393c082-c759-477e-9787-bc3e9619ac1c",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "23abffe4-53f9-458f-9266-df0d79eefb06",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "78b8b3a9-4473-4fe0-b68e-781363921ee5",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "ea419edd-59c5-4a52-85cb-13a187ac2de7",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "85da9202-cd03-4362-a7a4-b17308d9f189",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "039545fa-fcee-4c73-9558-b39dca305fa1",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "61b1c428-e297-4dc5-9884-081fef8bf80b",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "ea411c72-3ee5-4f25-b4aa-6f2b5675a801",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "93c2f81c-1508-4a39-b2ad-fc7942de2fee",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "fd0bcce0-3c3d-48d6-b843-3fc51cd18a7b",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "47987b7f-13ca-4ec5-a20e-a0a843024cca",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
         "id": "162cfc72-bacf-4dba-b3b9-34ba09437914",
         "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
         "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "dc1fffb8-2f0e-40d1-a238-4bc7d6a3667c",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
         "bloom_level": 2
       },
       {
@@ -1546,52 +2774,10 @@
         "bloom_level": 2
       },
       {
-        "id": "117f1ebd-121c-44b3-8f50-03e3703f5c93",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "305fa081-3029-4bc5-8d7e-aef93d7a98ad",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
         "id": "cdc416f3-4a39-471e-89b8-b22800dacf4d",
         "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
         "status": "struggling",
         "bloom_level": 2
-      },
-      {
-        "id": "b82d2eb4-4822-4c52-a52a-117fcc1a35df",
-        "linkedLecId": "6f8f3cf8-5ec2-4c2b-aa2f-fc26c8ac44c1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "715416cb-010c-4ea8-b90e-94cda94c834d",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "01b4bed0-fc41-4936-a711-498e89d16ae5",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "ab3cc7c2-547b-4d36-b597-14016d1fbb72",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "54695dbb-5068-4300-991b-d273a7d96a0f",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 1
       },
       {
         "id": "1bb96a90-e870-4d25-8768-66588a73bd5f",
@@ -1601,102 +2787,6 @@
       },
       {
         "id": "fde3c9e7-c140-428d-a575-2e4f97619a9a",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "ac79953f-8791-43bb-ace3-d32085b5ccc5",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "72fd361c-1b96-48ed-80aa-8ca1ed885040",
-        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "ab28eecf-c831-4cd4-a286-62369263d188",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "db401e69-e972-401c-8fb6-346766a638c2",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "b4e680a3-cdaa-4f8e-bf0c-26efc3b88791",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "ab8fd032-f273-4e86-9240-d9bd4862e2aa",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "79c27286-64d6-4f6d-8234-07729a3dc5df",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "aa4d4845-317f-41f0-b9cd-2e7bd0d6bd0b",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "2418bc44-468a-47f3-9b07-c2d3e612670a",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "4677c3fe-cca3-4366-9f63-67241f34d8b5",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "d267edee-d542-4308-b807-1a72fa4aadfd",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "3c114d8e-9117-4cb2-8dfd-37162619a249",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "0ccff563-14d2-4234-9414-4033f8d7db87",
-        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "78ab94ea-630d-4f26-81d9-f4485811e9cf",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "6b78858d-8f18-417b-9318-3b7435cff5a2",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "bc58fcf7-aa6a-4529-9e84-de7f21a1cd62",
         "linkedLecId": "mm5gn8vv4p7",
         "status": "mastered",
         "bloom_level": 2
@@ -1774,186 +2864,6 @@
         "bloom_level": 2
       },
       {
-        "id": "2beda28b-587e-4465-8588-b3edaf65800a",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "a1b82de7-20db-4947-a9e4-3d02f07b593f",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "cc2e2520-58c8-4cb8-8f0e-f75b06f140d1",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "7e9ec619-1dc4-4543-b229-c8fed348617d",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "3cb91b28-f12e-4b00-9784-7c0916a6a34a",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "cffa4cb7-3eaf-4976-97d0-5fa5c8d4bfea",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "760a9f6e-7122-4a5e-882a-4b95a5b437ba",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "fd4b5a58-d073-49be-beb7-3cae8b3d42a8",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "d15f1e92-6df6-4fa7-957e-19c0dd9d1cc0",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "cffee72b-a4a7-4a53-b3a1-5561d27a6967",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "7b44b84c-f98a-44f5-9016-54989dbf8b47",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "0c7c4c99-1d42-4d7f-9b7b-45346fa97183",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "512d00d3-a8f5-4787-83bf-34a457205fc8",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "b2dad4f2-4bc2-4c4d-9f41-5384c8052367",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "dac68508-83ef-489c-a7f1-162e369395c6",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "61c21d74-4c3a-4489-96f2-1a2f7cbf44b7",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "45066701-5200-4ef3-acb2-eaf79d955403",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "d7ee40da-7d40-44d2-a0b5-7496468a860a",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "5eca1296-5ada-44d4-8dfb-857d7f7fe11c",
-        "linkedLecId": "mm5gn8vv4p7",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "a3d7b476-f13b-432b-b8dc-e0c74c8c04ce",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "b72f8f5d-6fe4-4fa4-bb87-d8857d6b8640",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "97e488bf-de3e-4a1f-bb9f-00dc7e0ef2a1",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "a94e6c2d-9856-4ce8-88d7-6dd88be4c784",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "5f39b56a-8d95-4bfe-90ab-4f78a57415d7",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "2fe2c77d-5bc1-41bb-b2cf-99b7dc02e8db",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "b35f313a-dba6-44ce-8da0-34a7577a3bb0",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "7e0df020-17e3-4b7c-b457-51d7f0c25638",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "67748b16-5816-4d9e-8ca2-19bd58b94b0f",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "289c751d-1ec5-4551-b395-c0c4b00e4526",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "78c827b7-1707-4e94-8c9d-0affc95ae624",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
         "id": "77e1bd05-d5e6-458b-92cd-fbfb48c97b85",
         "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
         "status": "mastered",
@@ -1988,126 +2898,6 @@
         "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
         "status": "struggling",
         "bloom_level": 1
-      },
-      {
-        "id": "17d43376-4110-4419-9d61-b1eca66f70f4",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "dd87e7c5-a3cd-42c1-891b-28a8a10fe2e8",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "bd8aa38a-3385-4459-ae96-e7d79a69d7b2",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "43678435-8f7c-4e2b-8799-b2a2c192e103",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "1d2aea6f-e15d-448a-98d0-61d4d76e1322",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "acf38796-af00-4102-a5af-318cdef7f234",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "e5f42800-dbd0-4968-9967-1beb92e9199c",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "48cf9f2c-1d0e-41cc-803a-c50a6e586a7d",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "25a2816c-9bbf-4096-ad57-4fbf91069e5e",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "731708b2-d625-49b0-b2a1-8e277b897807",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "3120dc1d-cd7a-4346-ace5-0413256f54c4",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "b122db54-1c4b-4822-9527-b38585002e0c",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "e42a791e-657d-4f79-86dc-cc0f3dd30de0",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "684a412a-a7d3-43f1-91de-2f3b76bd9ec7",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "d9612207-2768-489c-bf69-28f77279667a",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "679f1119-7dd1-47c2-8947-a1b4cb879900",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "3e729146-fa63-4dc5-b7a4-bea708a64cfe",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "ffb7db9a-beb3-4b38-bd36-89fcb26eeff3",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 3
-      },
-      {
-        "id": "e69ad458-17f8-4f96-88df-2ca4e4d7f0f5",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "eaa2da1d-4008-4eec-88f6-851499fdc870",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
       },
       {
         "id": "0ecdbc78-8b9c-4a4c-9b41-6deaf496c216",
@@ -2146,45 +2936,9 @@
         "bloom_level": 2
       },
       {
-        "id": "e1e99863-f0be-4db3-9a1a-55fdffb6869e",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "e16d38fb-1370-4f61-a30a-2a857077ce24",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "77f66531-a560-4a6e-bfac-e0e0de9f7370",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "f8d868ee-bcea-4c1d-812f-b80564fcdae2",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
         "id": "c19e7628-7632-45c2-b2ce-06296401eaa2",
         "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
         "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "4811c4c4-edd7-406e-a1b3-51acdfc2f477",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "c1559be6-de19-4af5-b184-ad5c6794f8fc",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
         "bloom_level": 2
       },
       {
@@ -2242,12 +2996,6 @@
         "bloom_level": 1
       },
       {
-        "id": "4fa06746-5dfe-4617-9bd3-ef11d0662c8b",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
         "id": "34771c9b-35b5-4375-a8b3-693ec2ec25b5",
         "linkedLecId": "mm5go6rks76",
         "status": "mastered",
@@ -2302,12 +3050,6 @@
         "bloom_level": 5
       },
       {
-        "id": "0de53a3a-9c4a-476e-9dce-9518a25bd8ab",
-        "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
         "id": "aead0432-90ca-4929-9fe2-622c4b1b4bdc",
         "linkedLecId": "f1bc8386-bf45-4320-b067-c4b60f912cd5",
         "status": "mastered",
@@ -2344,48 +3086,6 @@
         "bloom_level": 1
       },
       {
-        "id": "00e96c64-b7d6-4bcb-9bc2-b43137090ef7",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "94f18c05-0522-4d72-998c-2a77ab860010",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "d2265f09-8816-4b7b-8797-ac2f854a30fb",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "cad6299c-effc-4be9-a197-035c1322ea4b",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "a2ad661e-0aab-48f1-a549-e2404d55dfbd",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "d9a103d4-4a22-4d47-aaeb-f61b00cb37cd",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "fd21c532-953c-43e8-9617-eac39426bb07",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
         "id": "d164a3a8-dee4-4769-80bf-9917939b2d32",
         "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
         "status": "struggling",
@@ -2396,18 +3096,6 @@
         "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
         "status": "mastered",
         "bloom_level": 2
-      },
-      {
-        "id": "1c149dcd-7b2e-4e22-a497-bddd6699beb8",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "2381a6b7-0c15-43f2-9701-f29d7c621d78",
-        "linkedLecId": "3f21db47-3d20-4fb5-be5c-76ad8d4203bf",
-        "status": "struggling",
-        "bloom_level": 1
       },
       {
         "id": "a7a8ee98-3670-428f-8784-c43ae4c01a47",
@@ -2422,40 +3110,16 @@
         "bloom_level": 4
       },
       {
-        "id": "062db41b-0c5e-4283-b57c-54677d095b05",
-        "linkedLecId": "bca4fa3a-47d9-4da0-a5b8-608fc559145a",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
         "id": "0e4824b7-b34e-454e-b0ea-ea91a7b5ea6d",
         "linkedLecId": "bca4fa3a-47d9-4da0-a5b8-608fc559145a",
         "status": "mastered",
         "bloom_level": 2
       },
       {
-        "id": "b9610567-9b7f-4ef0-9686-656773178dc0",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "657178ff-141b-428a-8726-3239da8df88d",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
         "id": "c88b66fb-eef2-49b0-b1e1-7bc8f737f215",
         "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
         "status": "mastered",
         "bloom_level": 4
-      },
-      {
-        "id": "f26e0c87-cdc3-4f9d-9c0a-27f7b40b0a7a",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 1
       },
       {
         "id": "27bd747c-0fd9-4441-8892-63ad0cf8046c",
@@ -2536,30 +3200,6 @@
         "bloom_level": 2
       },
       {
-        "id": "ce98f887-2bb4-44ee-8a32-0aba7810da0c",
-        "linkedLecId": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "22ae1519-9ba7-4d27-aa9a-9e93834a279b",
-        "linkedLecId": "7155594f-f991-4140-8160-ebaaeffbc923",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "dd84ec88-e537-4652-a010-99d0ce6bf834",
-        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "acb0cfd7-807d-4a4d-b3e0-8259c14bb993",
-        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
         "id": "5ce1ef69-2ce8-4ea5-86db-ee578fd708d1",
         "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
         "status": "mastered",
@@ -2598,12 +3238,6 @@
       {
         "id": "a9292d1c-1f0c-453c-9229-5a7520e7351e",
         "linkedLecId": "cb8f3d8c-0ceb-4f3a-8c0e-206c367c4fe2",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "01f6fae0-9912-4754-a7c6-fc826bd2a13a",
-        "linkedLecId": "bca4fa3a-47d9-4da0-a5b8-608fc559145a",
         "status": "mastered",
         "bloom_level": 2
       },
@@ -2800,60 +3434,6 @@
         "bloom_level": 4
       },
       {
-        "id": "0e1bad2a-4ba5-4ca5-8eca-6e4ce6902ec2",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "8e119908-a02d-49ea-b702-b2b13bd0fde7",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "4e06d2af-4728-4686-925b-218554ec0492",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "72ea7bd3-4091-4778-b57b-2cb902c87476",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "dc2e3dcd-da77-4c87-afa3-a188cf43ff34",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "023f23d4-c741-4424-a9a5-835ea30aa2fb",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "90e6df01-417d-4b1b-8de6-b8f3eeb43a4c",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "4bf3c466-97fe-445d-b0f6-0e25765e0c39",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "8139ff13-bfc2-4f39-8731-cfb28f25aa96",
-        "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
         "id": "e26e2137-fa84-451a-96ba-fe736b5cb37a",
         "linkedLecId": "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1",
         "status": "mastered",
@@ -2990,546 +3570,6 @@
         "linkedLecId": "1e68f096-133a-4826-ba26-45604f397eb9",
         "status": "struggling",
         "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945590201_12",
-        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945590201_13",
-        "linkedLecId": "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945609572_5",
-        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945609572_6",
-        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945609572_12",
-        "linkedLecId": "d01aaabd-8ca5-409f-af23-9a9ee267e158",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945736142_0",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 3
-      },
-      {
-        "id": "extracted_1772945736142_1",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945736142_2",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945736142_5",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945736142_7",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945736142_8",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945736142_19",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945736142_20",
-        "linkedLecId": "62b98747-f49c-42a3-b3b3-ceda6c65f541",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945773926_0",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945773926_1",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945773926_13",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945773926_14",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945773926_17",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945773926_18",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945773926_19",
-        "linkedLecId": "mm4f38e1k82",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945801226_2",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945801226_5",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945801226_7",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945801226_8",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945801226_10",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945801226_12",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945801226_13",
-        "linkedLecId": "90975097-b749-4852-8eaa-5acc6c3c4cef",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945962241_2",
-        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945962241_8",
-        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945962241_11",
-        "linkedLecId": "1a366f59-60e6-463c-9506-f4d5d6f5aab6",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772945981593_1",
-        "linkedLecId": "b136d9d7-d1eb-4598-8951-edf651961bd1",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772945981593_2",
-        "linkedLecId": "b136d9d7-d1eb-4598-8951-edf651961bd1",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772946101931_4",
-        "linkedLecId": "a7488191-9772-4356-82ce-fb73ff952ce3",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772946136683_3",
-        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1772946136683_8",
-        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1772946136683_9",
-        "linkedLecId": "7a1cd320-3c08-4045-8d1f-514fef9645d5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774051526900_4",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774051526900_5",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774051526900_12",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774051526900_14",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059387285_1",
-        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059387285_2",
-        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059387285_4",
-        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "extracted_1774059387285_5",
-        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "extracted_1774059387285_8",
-        "linkedLecId": "54b9a1bc-64cd-4b8a-9c82-3c0ead354a96",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059392149_2",
-        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059392149_5",
-        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059392149_6",
-        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059392149_9",
-        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059392149_12",
-        "linkedLecId": "94900ff1-8c58-48a0-ae64-1a8f36509eca",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059422970_0",
-        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059422970_1",
-        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059422970_2",
-        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059422970_3",
-        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059422970_4",
-        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
-        "status": "inprogress",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059422970_5",
-        "linkedLecId": "cf06c385-bed4-4b1f-a0d9-a1f4dc6e4d85",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059431923_4",
-        "linkedLecId": "175921c0-52fd-438e-a510-a3078e20b06a",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059457190_1",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059457190_3",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059457190_5",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059457190_7",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "extracted_1774059457190_9",
-        "linkedLecId": "9db2c1f8-b652-41b9-a529-cf656f349d32",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774059526562_1",
-        "linkedLecId": "32175cf1-f455-4bbc-971d-803098f11109",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774059536704_0",
-        "linkedLecId": "bca4fa3a-47d9-4da0-a5b8-608fc559145a",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "extracted_1774192909881_0",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192909881_1",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192909881_4",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192909881_5",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192909881_6",
-        "linkedLecId": "7aa221a3-93eb-47ee-bc60-3af8efc244fa",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192909881_7",
-        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192905791_0",
-        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192905791_1",
-        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
-        "status": "struggling",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192905791_2",
-        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774192905791_3",
-        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774192905791_4",
-        "linkedLecId": "5d833563-2b64-4dde-8a7d-03dfe8b316b8",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192932566_8",
-        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "extracted_1774192932566_9",
-        "linkedLecId": "196978ab-cbb5-4232-8d77-3c3022b34d89",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192932269_7",
-        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192961096_3",
-        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192961096_4",
-        "linkedLecId": "115588db-c2c1-4701-852d-112b614125fa",
-        "status": "struggling",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774192961096_8",
-        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192961096_10",
-        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774192961096_13",
-        "linkedLecId": "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6",
-        "status": "struggling",
-        "bloom_level": 4
-      },
-      {
-        "id": "extracted_1774193009729_2",
-        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774193009729_4",
-        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774193009729_11",
-        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
-        "status": "mastered",
-        "bloom_level": 1
-      },
-      {
-        "id": "extracted_1774193009729_13",
-        "linkedLecId": "30b70ef7-553c-4593-9476-d916cbe104d5",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "extracted_1774193019354_3",
-        "linkedLecId": "33469023-1d35-4eca-9e9b-b90834c7011f",
-        "status": "mastered",
-        "bloom_level": 2
-      },
-      {
-        "id": "cbcee7ad-0ad8-43c7-9cce-bf8f2e5eccf9",
-        "linkedLecId": "f2876be7-7f03-4810-b9aa-3dc5c3f1c5fc",
-        "status": "mastered",
-        "bloom_level": 4
-      },
-      {
-        "id": "d00e2b40-ad2b-4e15-b6a5-07b1b196a209",
-        "linkedLecId": "6f8f3cf8-5ec2-4c2b-aa2f-fc26c8ac44c1",
-        "status": "struggling",
-        "bloom_level": 1
       }
     ],
     "examDates": {
@@ -3978,8 +4018,8 @@
       "62b98747-f49c-42a3-b3b3-ceda6c65f541": null,
       "1d7faf7b-87c9-4880-8bf1-3f28a9b0b712": null,
       "mm5ceyov4br": null,
-      "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1": null,
       "mm5go6rks76": null,
+      "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1": null,
       "f1bc8386-bf45-4320-b067-c4b60f912cd5": null,
       "mm5gn8vv4p7": null,
       "6f8f3cf8-5ec2-4c2b-aa2f-fc26c8ac44c1": null,
@@ -4003,27 +4043,31 @@
         "activityLog": [
           {
             "date": "2026-04-28T23:16:25.706Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-28",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:58:20.768Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:43:20.821Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4034,39 +4078,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T00:50:05.120Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:33:19.020Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T07:14:16.679Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4077,21 +4127,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T06:12:28.210Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T04:07:41.256Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4102,33 +4155,38 @@
         "activityLog": [
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-23T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-18T20:53:53.704Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "video",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4139,63 +4197,73 @@
         "activityLog": [
           {
             "date": "2026-04-25T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T23:38:42.908Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-23T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-19T18:40:42.499Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-19T18:30:31.022Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-17",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4206,69 +4274,80 @@
         "activityLog": [
           {
             "date": "2026-05-02T04:23:43.528Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-02",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01T21:58:44.310Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29T23:38:05.254Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T23:43:52.790Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T03:25:48.590Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-22",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "anki",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "lecture",
+            "confidenceRating": "struggling",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4279,15 +4358,17 @@
         "activityLog": [
           {
             "date": "2026-04-20T20:02:19.833Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T19:50:42.818Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           }
         ]
       },
@@ -4298,15 +4379,17 @@
         "activityLog": [
           {
             "date": "2026-04-24T06:56:47.476Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-20T20:42:20.964Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           }
         ]
       },
@@ -4317,39 +4400,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T23:33:14.321Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29T00:54:01.088Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-29",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T02:38:16.954Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-22T03:00:24.101Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4360,39 +4449,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T00:33:46.287Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T01:54:46.579Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "struggling",
+            "questionScore": 0,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T01:26:36.489Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4403,39 +4498,45 @@
         "activityLog": [
           {
             "date": "2026-04-30T22:26:59.202Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T06:31:36.797Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": 80,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T03:11:14.266Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4446,33 +4547,38 @@
         "activityLog": [
           {
             "date": "2026-04-30T22:45:11.280Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-27T00:00:00.000Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "review",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26T04:12:08.625Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4483,21 +4589,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T21:28:27.022Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T07:01:45.213Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4508,27 +4617,31 @@
         "activityLog": [
           {
             "date": "2026-04-30T23:12:16.920Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-30",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-25T21:50:38.694Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T22:40:08.071Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4539,21 +4652,24 @@
         "activityLog": [
           {
             "date": "2026-04-26T06:04:02.353Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-26",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T23:09:18.011Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4564,21 +4680,24 @@
         "activityLog": [
           {
             "date": "2026-05-01T04:42:12.029Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-05-01",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-24T06:49:49.458Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       },
@@ -4589,21 +4708,24 @@
         "activityLog": [
           {
             "date": "2026-04-25T02:43:26.211Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "good",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:33:26.946Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           },
           {
             "date": "2026-04-21T23:22:21.903Z",
-            "type": null,
-            "score": null,
-            "confidence": null
+            "activityType": "questions",
+            "confidenceRating": "okay",
+            "questionScore": null,
+            "durationMinutes": null
           }
         ]
       }
@@ -4841,17 +4963,16 @@
         "color": "#f59e0b"
       },
       "7a1cd320-3c08-4045-8d1f-514fef9645d5": {
-        "mode": "biochemistry",
-        "label": "Biochemistry & Pathways",
-        "icon": "⚗️",
+        "mode": "clinical",
+        "label": "Clinical Sciences",
+        "icon": "🏥",
         "recommended": [
           "deepLearn",
-          "flashcards",
           "mcq"
         ],
         "avoid": [],
-        "reason": "Biochemistry pathways benefit from Deep Learn, spaced recall, and application questions.",
-        "color": "#f59e0b"
+        "reason": "Mixed clinical content works well with Deep Learn and MCQ practice.",
+        "color": "#60a5fa"
       },
       "a7488191-9772-4356-82ce-fb73ff952ce3": {
         "mode": "clinical",
@@ -4866,17 +4987,17 @@
         "color": "#60a5fa"
       },
       "7f0b84f4-6d7c-47a0-ad4d-19949d996c15": {
-        "mode": "anatomy",
-        "label": "Anatomy & Structure",
-        "icon": "🦴",
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
         "recommended": [
           "anki",
           "deepLearn"
         ],
         "avoid": [],
         "hasUploadedContent": false,
-        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
-        "color": "#6366f1"
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
       },
       "b136d9d7-d1eb-4598-8951-edf651961bd1": {
         "mode": "anatomy",
@@ -4956,19 +5077,6 @@
         "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
         "color": "#6366f1"
       },
-      "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1": {
-        "mode": "histology",
-        "label": "Histology",
-        "icon": "🔬",
-        "recommended": [
-          "anki",
-          "deepLearn"
-        ],
-        "avoid": [],
-        "hasUploadedContent": false,
-        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
-        "color": "#a78bfa"
-      },
       "mm5go6rks76": {
         "mode": "anatomy",
         "label": "Anatomy & Structure",
@@ -4981,6 +5089,19 @@
         "hasUploadedContent": false,
         "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
         "color": "#6366f1"
+      },
+      "c7881b39-53e9-45ce-b9fa-bd65d31eaaa1": {
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
+        "recommended": [
+          "anki",
+          "deepLearn"
+        ],
+        "avoid": [],
+        "hasUploadedContent": false,
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
       },
       "f1bc8386-bf45-4320-b067-c4b60f912cd5": {
         "mode": "histology",
@@ -4996,17 +5117,17 @@
         "color": "#a78bfa"
       },
       "mm5gn8vv4p7": {
-        "mode": "histology",
-        "label": "Histology",
-        "icon": "🔬",
+        "mode": "anatomy",
+        "label": "Anatomy & Structure",
+        "icon": "🦴",
         "recommended": [
           "anki",
           "deepLearn"
         ],
         "avoid": [],
         "hasUploadedContent": false,
-        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
-        "color": "#a78bfa"
+        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#6366f1"
       },
       "6f8f3cf8-5ec2-4c2b-aa2f-fc26c8ac44c1": {
         "mode": "anatomy",
@@ -5035,17 +5156,17 @@
         "color": "#6366f1"
       },
       "d01aaabd-8ca5-409f-af23-9a9ee267e158": {
-        "mode": "anatomy",
-        "label": "Anatomy & Structure",
-        "icon": "🦴",
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
         "recommended": [
           "anki",
           "deepLearn"
         ],
         "avoid": [],
         "hasUploadedContent": false,
-        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
-        "color": "#6366f1"
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
       },
       "3f21db47-3d20-4fb5-be5c-76ad8d4203bf": {
         "mode": "anatomy",
@@ -5074,17 +5195,17 @@
         "color": "#6366f1"
       },
       "ffaa3c42-9aea-475c-acb3-1d0eb78d14f6": {
-        "mode": "anatomy",
-        "label": "Anatomy & Structure",
-        "icon": "🦴",
+        "mode": "histology",
+        "label": "Histology",
+        "icon": "🔬",
         "recommended": [
           "anki",
           "deepLearn"
         ],
         "avoid": [],
         "hasUploadedContent": false,
-        "reason": "Anatomy is best studied with Anki image cards. Log your Anki sessions here to track progress.",
-        "color": "#6366f1"
+        "reason": "Histology is best studied with Anki image cards. Log your Anki sessions here to track progress.",
+        "color": "#a78bfa"
       },
       "7155594f-f991-4140-8160-ebaaeffbc923": {
         "mode": "clinical",
