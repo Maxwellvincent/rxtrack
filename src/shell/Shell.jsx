@@ -14,10 +14,9 @@ import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAl
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
 import PatientRecognition from "../PatientRecognition.jsx";
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
-import { LectureExtractModal } from "./LectureExtractModal.jsx";
-import { McqGenModal } from "./McqGenModal.jsx";
 import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
+import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
 import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
@@ -94,11 +93,11 @@ function ShellMain({ theme, toggle, userId }) {
   const [showAnki, setShowAnki] = useState(false);
   const [showRecognize, setShowRecognize] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  const [showExtract, setShowExtract] = useState(false);
-  const [showMcq, setShowMcq] = useState(false);
   const [view, setView] = useState("home"); // home | objectives
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
+  // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
+  const [studyLecture, setStudyLecture] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
   const legacyTheme = themes[theme] || themes.dark;
 
@@ -120,6 +119,13 @@ function ShellMain({ theme, toggle, userId }) {
 
   const onContinue = useCallback(() => setSessionMode("engine"), []);
   const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
+
+  // "Study →" on a lecture row: resolve the id to the stored lecture, then hand
+  // it to the flow, which sources its text (locally or from Firestore) itself.
+  const onStudyLecture = useCallback((lectureId) => {
+    const lecture = readLectures().find((l) => l?.id === lectureId);
+    if (lecture) setStudyLecture(lecture);
+  }, []);
 
   // The real objective-quiz launch: ObjectiveTracker's callback → MCQ engine →
   // the calibrated AtomQuiz runner, logging confidence against this block.
@@ -154,7 +160,13 @@ function ShellMain({ theme, toggle, userId }) {
     <div className={`theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
       <Sidebar
         activeBlockId={activeBlockId}
-        onSelectBlock={(id) => { setActiveBlockId(id); setSessionMode(null); setView("home"); setQuiz(null); }}
+        onSelectBlock={(id) => {
+          setActiveBlockId(id);
+          setSessionMode(null);
+          setView("home");
+          setQuiz(null);
+          setStudyLecture(null); // a lecture from the old block must not survive the switch
+        }}
         onOpenPalette={() => setPaletteOpen(true)}
       />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -166,8 +178,6 @@ function ShellMain({ theme, toggle, userId }) {
           onAnki={() => setShowAnki(true)}
           onRecognize={() => setShowRecognize(true)}
           onImportSchedule={() => setShowImport(true)}
-          onExtractLecture={() => setShowExtract(true)}
-          onGenMcq={() => setShowMcq(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         <main className="flex-1 overflow-y-auto">
@@ -191,6 +201,14 @@ function ShellMain({ theme, toggle, userId }) {
                 onExit={() => setSessionMode(null)}
               />
             )
+          ) : studyLecture ? (
+            <LectureStudyFlow
+              key={studyLecture.id}
+              lecture={studyLecture}
+              blockId={activeBlockId}
+              userId={userId}
+              onClose={() => setStudyLecture(null)}
+            />
           ) : view === "objectives" && activeBlockId ? (
             <ObjectivesView
               blockId={activeBlockId}
@@ -201,6 +219,7 @@ function ShellMain({ theme, toggle, userId }) {
               onBack={() => { setView("home"); setQuiz(null); }}
               onCloseQuiz={() => setQuiz(null)}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
+              onStudyLecture={onStudyLecture}
             />
           ) : (
             <BlockHome
@@ -216,13 +235,11 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setActiveBlockId(it.id); setSessionMode(null); }}
+        onPick={(it) => { setActiveBlockId(it.id); setSessionMode(null); setView("home"); setQuiz(null); setStudyLecture(null); }}
       />
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
       {showRecognize && <PatientRecognition T={legacyTheme} onClose={() => setShowRecognize(false)} />}
       {showImport && <ScheduleImportModal userId={userId} onClose={() => setShowImport(false)} />}
-      {showExtract && <LectureExtractModal onClose={() => setShowExtract(false)} />}
-      {showMcq && <McqGenModal onClose={() => setShowMcq(false)} />}
     </div>
   );
 }
@@ -232,7 +249,7 @@ function ShellMain({ theme, toggle, userId }) {
  * pane — it is a full-attention surface, and its results are logged against the
  * block by AtomQuiz itself.
  */
-function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onCloseQuiz, onStartObjectiveQuiz }) {
+function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onCloseQuiz, onStartObjectiveQuiz, onStudyLecture }) {
   if (quiz?.questions?.length) {
     return (
       <div className="p-5">
@@ -254,6 +271,7 @@ function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onCloseQu
         quizLoadingId={quiz?.loading ? quiz.lectureId : null}
         quizErrorId={quiz?.error ? quiz.lectureId : null}
         onStartObjectiveQuiz={onStartObjectiveQuiz}
+        onStudyLecture={onStudyLecture}
         headerActions={
           <button onClick={onBack} className="font-mono text-xs text-text-3 hover:text-text-1">
             ← block

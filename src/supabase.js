@@ -120,6 +120,40 @@ async function commitInChunks(writeOps, errors, chunk = 400) {
 export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 
 /**
+ * Lecture content on demand.
+ *
+ * `pullAllDataFromSupabase` hydrates `chunks` into localStorage for the active
+ * term ONLY — everything older stays chunk-light so the ~5MB quota survives.
+ * Which means 363 of 367 lectures have no text locally, and anything that wants
+ * to read a lecture (extraction, quiz grounding) has to come here for it.
+ *
+ * @returns {Promise<{chunks: object[], atoms: object[], meta: object}|null>}
+ */
+export async function fetchLectureContent(userId, lecId) {
+  if (!userId || !lecId) return null;
+  const snap = await getDoc(doc(db, "users", userId, "lectures", encodeDocId(lecId)));
+  if (!snap.exists()) return null;
+  const v = snap.data() || {};
+  return { chunks: v.chunks || [], atoms: v.atoms || [], meta: v.data || {} };
+}
+
+/**
+ * Store extracted atoms on the lecture doc. They live in Firestore rather than
+ * localStorage on purpose: 40 atoms across 367 lectures would be ~1.8MB of a
+ * budget that just had 794KB clawed back out of it.
+ */
+export async function saveLectureAtoms(userId, lecId, atoms) {
+  if (!userId || !lecId) return { saved: 0 };
+  const list = Array.isArray(atoms) ? atoms : [];
+  await setDoc(
+    doc(db, "users", userId, "lectures", encodeDocId(lecId)),
+    { atoms: list, atomsUpdatedAt: serverTimestamp() },
+    { merge: true }
+  );
+  return { saved: list.length };
+}
+
+/**
  * Authoritative rewrite of the objectives collection — the ONE place that is
  * allowed to shrink cloud data.
  *

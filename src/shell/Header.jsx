@@ -1,4 +1,6 @@
-export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRecognize, onImportSchedule, onExtractLecture, onGenMcq, onSignOut }) {
+// Lecture extraction and question generation moved onto the lecture rows in the
+// objectives view (SP1 T2.1) — they act on a real lecture there, not an upload.
+export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRecognize, onImportSchedule, onSignOut }) {
   return (
     <header className="flex h-11 items-center justify-between border-b border-border bg-bg px-4 text-sm">
       <span className="font-mono text-xs text-text-3">
@@ -13,12 +15,6 @@ export function Header({ termName, blockName, theme, onToggleTheme, onAnki, onRe
         )}
         {onImportSchedule && (
           <button onClick={onImportSchedule} className="text-text-2 hover:text-text-1" title="Import term schedule (.md)">📅 Schedule</button>
-        )}
-        {onExtractLecture && (
-          <button onClick={onExtractLecture} className="text-text-2 hover:text-text-1" title="Extract lecture signal (.md)">🔬 Extract</button>
-        )}
-        {onGenMcq && (
-          <button onClick={onGenMcq} className="text-text-2 hover:text-text-1" title="Generate Step 1 questions from a lecture">❓ Quiz</button>
         )}
         <button onClick={onToggleTheme} className="text-text-2 hover:text-text-1" aria-label="Toggle theme">
           {theme === "dark" ? "◑ light" : "◐ dark"}

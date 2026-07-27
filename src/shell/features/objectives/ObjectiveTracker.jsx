@@ -123,6 +123,7 @@ function LecObjectiveGroup({
   allObjectives,
   onSelfRate,
   onQuiz,
+  onStudyLecture = null,
   color,
   T,
   blockId,
@@ -414,6 +415,25 @@ function LecObjectiveGroup({
         >
           {perfScore != null && perfScore > 0 ? perfScore + "%" : "0%"}
         </span>
+        {onStudyLecture && lectureId && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onStudyLecture(lectureId); }}
+            title="Extract this lecture's high-yield atoms, then quiz them"
+            style={{
+              background: "none",
+              border: "1px solid " + T.border1,
+              color: T.text2,
+              padding: "11px 14px",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontFamily: MONO,
+              fontSize: 13,
+              flexShrink: 0,
+            }}
+          >
+            Study →
+          </button>
+        )}
         <button
           disabled={isQuizLoading}
           onClick={(e) => {
@@ -669,6 +689,7 @@ export default function ObjectiveTracker({
   onSelfRate,
   onUpdateObjectiveStatus,
   onStartObjectiveQuiz,
+  onStudyLecture = null,
   quizLoadingId = null,
   quizErrorId = null,
   quizFlashLectureId = null,
@@ -1008,6 +1029,7 @@ export default function ObjectiveTracker({
               allObjectives={objectives}
               onSelfRate={onSelfRate}
               onQuiz={onStartObjectiveQuiz}
+              onStudyLecture={onStudyLecture}
               color={color}
               T={T}
               blockId={blockId}

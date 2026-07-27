@@ -19,6 +19,7 @@ export function ObjectivesContainer({
   // Still App-owned surfaces (AI re-extract, quiz launch) — passed through when
   // a caller has them, absent in the new shell until T1.3 wires the real path.
   onStartObjectiveQuiz = null,
+  onStudyLecture = null,
   quizLoadingId = null,
   quizErrorId = null,
   quizFlashLectureId = null,
@@ -50,6 +51,7 @@ export function ObjectivesContainer({
       setEditingTitle={setEditingTitle}
       smartTruncateTitle={smartTruncateTitle}
       onStartObjectiveQuiz={onStartObjectiveQuiz}
+      onStudyLecture={onStudyLecture}
       quizLoadingId={quizLoadingId}
       quizErrorId={quizErrorId}
       quizFlashLectureId={quizFlashLectureId}
