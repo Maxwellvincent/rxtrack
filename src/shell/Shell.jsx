@@ -18,6 +18,8 @@ import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { Today } from "./features/today/Today.jsx";
+import { LectureList } from "./features/tracker/LectureList.jsx";
+import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
 import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
@@ -219,6 +221,17 @@ function ShellMain({ theme, toggle, userId }) {
               userId={userId}
               onClose={() => setStudyLecture(null)}
             />
+          ) : view === "lectures" && activeBlockId ? (
+            <LectureList
+              blockId={activeBlockId}
+              userId={userId}
+              quizBusyLectureId={quiz?.loading ? quiz.lectureId : null}
+              onStudyLecture={onStudyLecture}
+              onStartObjectiveQuiz={onStartObjectiveQuiz}
+              onBack={() => setView("home")}
+            />
+          ) : view === "weak" && activeBlockId ? (
+            <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setView("home")} />
           ) : view === "objectives" && activeBlockId ? (
             <ObjectivesView
               blockId={activeBlockId}
@@ -237,6 +250,8 @@ function ShellMain({ theme, toggle, userId }) {
               onContinue={onContinue}
               onCalibrate={onCalibrate}
               onObjectives={() => setView("objectives")}
+              onLectures={() => setView("lectures")}
+              onWeakConcepts={() => setView("weak")}
               today={
                 <Today
                   blockId={activeBlockId}

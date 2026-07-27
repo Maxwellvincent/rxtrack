@@ -3,7 +3,7 @@ import { readTerms, readLectures, flattenBlocks, blockCoverage } from "./data.js
 import { Button } from "../ui/Button.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
 
-export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, today = null }) {
+export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, today = null }) {
   const block = useMemo(() => {
     const blocks = flattenBlocks(readTerms(), readLectures());
     return blocks.find((b) => b.id === blockId) || null;
@@ -43,6 +43,22 @@ export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, toda
             <Button variant="outline" onClick={onObjectives}>◇ Objectives</Button>
             <div className="mt-1.5 font-mono text-[10px] text-text-3">
               per-lecture coverage, linking, and objective-targeted quizzes
+            </div>
+          </div>
+        )}
+        {onLectures && (
+          <div>
+            <Button variant="outline" onClick={onLectures}>▤ Lectures</Button>
+            <div className="mt-1.5 font-mono text-[10px] text-text-3">
+              every lecture in the block — filter, search, quick-log a session
+            </div>
+          </div>
+        )}
+        {onWeakConcepts && (
+          <div>
+            <Button variant="outline" onClick={onWeakConcepts}>⚠ Weak concepts</Button>
+            <div className="mt-1.5 font-mono text-[10px] text-text-3">
+              what you keep missing, landmines first
             </div>
           </div>
         )}
