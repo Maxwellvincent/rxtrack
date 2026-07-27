@@ -7,11 +7,14 @@
  * upload path survives here as the fallback for chunk-light lectures — which is
  * most of them, since only the active term keeps chunks in localStorage.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { fetchLectureContent, saveLectureAtoms } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
+import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
+import { selectBlockObjectives } from "../../logic/objectives.js";
+import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { readExemplars } from "../objectives/quizLaunch.js";
 import { extractAtoms, loadLecture, quizFromAtoms } from "./lectureStudy.js";
@@ -22,6 +25,23 @@ const TYPE_META = {
   relationship: { label: "Relationships", hint: "how things relate", accent: "border-l-accent" },
   result: { label: "Results", hint: "the outcome", accent: "border-l-bad" },
 };
+
+/**
+ * One chip per objective an atom serves. Objectives without a SOM code fall
+ * back to their text, and chips are deduped by label because this data has
+ * duplicate objective rows sharing a code — four identical chips on one atom
+ * says nothing useful.
+ */
+function objectiveChips(objectiveIds, objectiveById) {
+  const seen = new Map();
+  for (const id of objectiveIds) {
+    const objective = objectiveById.get(id);
+    const text = objective ? objective.objective || objective.text || "" : "";
+    const label = objective?.code || (text ? `${text.slice(0, 26)}${text.length > 26 ? "…" : ""}` : "objective");
+    if (!seen.has(label)) seen.set(label, { key: id, label, title: text || id });
+  }
+  return [...seen.values()];
+}
 
 export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [atoms, setAtoms] = useState([]);
@@ -66,6 +86,38 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     if (uploaded.trim().length < 200) { setError("That file has almost no text in it."); return; }
     await runExtract(uploaded);
   }, [runExtract]);
+
+  // This lecture's objectives, by id — the tagging target and the chip labels.
+  const lectureObjectives = useMemo(() => {
+    const all = selectBlockObjectives(objectivesStore.read(userId), blockId);
+    return all.filter((o) => o?.linkedLecId === lecture?.id);
+  }, [blockId, userId, lecture?.id]);
+
+  const objectiveById = useMemo(
+    () => new Map(lectureObjectives.map((o) => [o.id, o])),
+    [lectureObjectives]
+  );
+
+  const untagged = atoms.filter((a) => !a.objectiveIds?.length).length;
+
+  /**
+   * Tag atoms to the objectives they serve. This is the join SP2's learner
+   * model reads: a missed question on an atom becomes evidence against the
+   * objective the curriculum is written in.
+   */
+  const runTagging = useCallback(async () => {
+    setBusy("Matching atoms to objectives…"); setError("");
+    const r = await tagAtomsWithObjectives(atoms, lectureObjectives, { callAIJSON });
+    setBusy("");
+    if (r.error && !r.tagged) { setError(r.error); return; }
+    if (r.error) setError(`Partly tagged (${r.byTerm} by name): ${r.error}`);
+    setAtoms(r.atoms);
+    try {
+      await saveLectureAtoms(userId, lecture?.id, r.atoms);
+    } catch (e) {
+      setError(`Tagged, but saving failed: ${e?.message || String(e)}`);
+    }
+  }, [atoms, lectureObjectives, lecture, userId]);
 
   const runQuiz = useCallback(async () => {
     setBusy("Writing questions…"); setError(""); setQuestions(null);
@@ -120,9 +172,27 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
       )}
 
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <Button onClick={runQuiz} disabled={!!busy}>{busy || "▸ Quiz me on these"}</Button>
           <span className="text-[10px] text-text-3">one calibrated Step-1 question per atom</span>
+          {lectureObjectives.length > 0 && untagged > 0 && (
+            <>
+              <Button variant="outline" onClick={runTagging} disabled={!!busy}>
+                ◇ Tag to objectives
+              </Button>
+              <span className="text-[10px] text-text-3">
+                {untagged} of {atoms.length} untagged · {lectureObjectives.length} objectives on this lecture
+              </span>
+            </>
+          )}
+          {lectureObjectives.length > 0 && untagged === 0 && (
+            <span className="text-[10px] text-text-3">
+              all {atoms.length} atoms tagged to objectives
+            </span>
+          )}
+          {lectureObjectives.length === 0 && (
+            <span className="text-[10px] text-text-3">no objectives linked to this lecture — nothing to tag against</span>
+          )}
         </div>
       )}
 
@@ -142,6 +212,19 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
                     <div key={i} className={"rounded-lg border-l-2 bg-bg-elevated px-3 py-2 text-xs " + meta.accent}>
                       <span className="font-semibold text-text-1">{a.term}</span>
                       <span className="text-text-2"> — {a.content}</span>
+                      {a.objectiveIds?.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {objectiveChips(a.objectiveIds, objectiveById).map((chip) => (
+                            <span
+                              key={chip.key}
+                              title={chip.title}
+                              className="rounded border border-border px-1.5 py-0.5 font-mono text-[9px] text-text-3"
+                            >
+                              {chip.label}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
