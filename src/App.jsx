@@ -23,7 +23,6 @@ import Tracker, {
 } from "./Tracker";
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
-import ObjectiveTracker from "./shell/features/objectives/ObjectiveTracker.jsx";
 import { guideFor } from "./objectiveGuides.js";
 import { loadPDFJS, parseExamPDF } from "./examParser";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
@@ -42,7 +41,6 @@ import { loadProfile, saveProfile, recordAnswer } from "./learningModel";
 import { getCalibrationStats, getCalibrationHeadline, CALIBRATION_BUCKETS } from "./calibration";
 import { backfillObjectiveLinks, filterAvailableWeakConcepts } from "./weakConcepts";
 import StudyRoutineModal from "./StudyRoutineModal";
-import RecognitionContainer from "./shell/features/recognition/RecognitionContainer.jsx";
 import AnkiSyncModal from "./AnkiSyncModal";
 import { evaluateToday as evaluateRoutineToday, getSuggestions as getRoutineSuggestions } from "./studyRoutine";
 import {
@@ -9079,53 +9077,6 @@ What is the clinical significance of this finding?`,
   );
 }
 
-// ─────────────────────────────────────────────
-// EDITABLE TEXT (theme-aware)
-// ─────────────────────────────────────────────
-function EditableText({ value, onChange, style, placeholder }) {
-  const { T } = useTheme();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(value || "");
-  const ref = useRef();
-  useEffect(() => { setDraft(value || ""); }, [value]);
-  useEffect(() => { if (editing && ref.current) ref.current.focus(); }, [editing]);
-  const commit = () => { setEditing(false); if (draft.trim() !== value) onChange(draft.trim()); };
-  return editing ? (
-    <input
-      ref={ref}
-      value={draft}
-      onChange={e => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={e => {
-        if (e.key === "Enter") commit();
-        if (e.key === "Escape") { setDraft(value || ""); setEditing(false); }
-      }}
-      style={{
-        background: T.inputBg,
-        border: "1px solid " + T.blue,
-        color: T.text1,
-        fontFamily: "var(--font-sans)",
-        fontSize: 15,
-        padding: "2px 8px",
-        borderRadius: 5,
-        outline: "none",
-        width: "100%",
-        ...style,
-      }}
-    />
-  ) : (
-    <div
-      onClick={() => setEditing(true)}
-      title={placeholder || "Click to edit"}
-      style={{ cursor: "text", display: "flex", alignItems: "center", gap: 6, ...style }}
-      onMouseEnter={e => { e.currentTarget.style.opacity = "0.8"; }}
-      onMouseLeave={e => { e.currentTarget.style.opacity = "1"; }}
-    >
-      <span>{value || placeholder || "Click to set"}</span>
-      <span style={{ fontSize: 12, opacity: 0.5 }}>✏</span>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────
 // EDITABLE LECTURE NUMBER & TYPE BADGE
@@ -17415,7 +17366,6 @@ export default function App() {
   const [hasCloudData, setHasCloudData] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showStudyRoutine, setShowStudyRoutine] = useState(false);
-  const [showPatientRecognition, setShowPatientRecognition] = useState(false);
   const [showAnkiSync, setShowAnkiSync] = useState(false);
   const [routineTick, setRoutineTick] = useState(0);
   const [showImportScreen, setShowImportScreen] = useState(false);
@@ -28955,13 +28905,6 @@ Current student level: ${tierLabel}`;
         onChange={() => setRoutineTick((x) => x + 1)}
       />
     )}
-    {showPatientRecognition && (
-      <RecognitionContainer
-        T={t}
-        blockId={activeBlock?.id ?? blockId}
-        onClose={() => setShowPatientRecognition(false)}
-      />
-    )}
     {showAnkiSync && (
       <AnkiSyncModal T={t} onClose={() => setShowAnkiSync(false)} />
     )}
@@ -29647,14 +29590,6 @@ Current student level: ${tierLabel}`;
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
 
-                    <button
-                      type="button"
-                      onClick={() => { setShowPatientRecognition(true); setShowUserMenu(false); }}
-                      style={{ width: "100%", padding: "8px 14px", fontSize: 12, textAlign: "left", background: "transparent", border: "none", cursor: "pointer", color: "var(--color-text-secondary, " + t.text2 + ")", fontFamily: SANS }}
-                    >
-                      🩺 Patient Recognition
-                      <span style={{ display: "block", fontSize: 10, color: t.text3, marginTop: 2 }}>Vignette → diagnosis · Step 1 style</span>
-                    </button>
 
                     <div style={{ borderTop: "0.5px solid var(--color-border-tertiary, " + t.border2 + ")", marginTop: 4 }} />
 
@@ -33264,107 +33199,11 @@ Current student level: ${tierLabel}`;
                       )}
                     </div>
                   )}
-                  <ObjectiveTracker
-                    blockId={activeBlock?.id ?? blockId}
-                    blockLectures={blockLecs}
-                    objectives={getBlockObjectives(activeBlock?.id ?? blockId)}
-                    coverageObjectives={coverageObjectivesMemo}
-                    onReExtractObjectives={reExtractObjectivesForLecture}
-                    reExtractingLectureId={reExtractingLectureId}
-                    editingLecId={editingLecId}
-                    setEditingLecId={setEditingLecId}
-                    editingTitle={editingTitle}
-                    setEditingTitle={setEditingTitle}
-                    onRenameLecture={renameLecture}
-                    smartTruncateTitle={smartTruncate}
-                    onUpdateObjectiveStatus={(objId, newStatus) =>
-                      updateSingleObjectiveStatus(activeBlock?.id ?? blockId, objId, newStatus)
-                    }
-                    onSelfRate={(id, status) =>
-                      updateObjective(activeBlock?.id ?? blockId, id, {
-                        status,
-                        lastTested: new Date().toISOString(),
-                      })
-                    }
-                    onStartObjectiveQuiz={startObjectiveQuiz}
-                    quizLoadingId={quizLoadingId}
-                    quizErrorId={quizErrorId}
-                    quizFlashLectureId={quizFlashLectureId}
-                    getLecPerf={getLecPerf}
-                    termColor={tc}
-                    T={t}
-                    focusUnlinkedTabKey={unlinkedTabFocusKey}
-                    onAssignObjectiveToLecture={(objId, lecId) =>
-                      assignObjectiveToLecture(activeBlock?.id ?? blockId, objId, lecId)
-                    }
-                    onAssignAllVisibleObjectives={(lecId, ids) =>
-                      assignAllVisibleObjectives(activeBlock?.id ?? blockId, lecId, ids)
-                    }
-                    onRemoveObjectiveLink={(objId) =>
-                      removeObjectiveLectureLink(activeBlock?.id ?? blockId, objId)
-                    }
-                    onDeleteUnlinkedObjectives={() =>
-                      deleteUnlinkedObjectivesForBlock(activeBlock?.id ?? blockId)
-                    }
-                    onDeleteSingleObjective={(objId) =>
-                      deleteSingleObjective(objId, activeBlock?.id ?? blockId)
-                    }
-                    onDeleteMultipleObjectives={(ids) =>
-                      deleteMultipleObjectives(ids, activeBlock?.id ?? blockId)
-                    }
-                    onAssignMultipleToLecture={(ids, lecId) =>
-                      assignMultipleToLecture(ids, lecId, activeBlock?.id ?? blockId)
-                    }
-                    headerActions={
-                      <button
-                        type="button"
-                        onClick={() => {
-                          drillCompletionSyncedRef.current = false;
-                          setDrillSessionQuestionTarget(null);
-                          const db = activeBlock?.id ?? blockId ?? "msk";
-                          setDrillBlockId(db);
-                          drillBlockIdRef.current = db;
-                          setDrillMode(true);
-                          setShowDrillSummary(false);
-                          setDrillSummaryData(null);
-                          drillSummaryBuiltRef.current = false;
-                          setDrillQueue([]);
-                          setDrillIndex(0);
-                          setDrillComplete(false);
-                          setDrillIdAllowlist(null);
-                          setDrillFilter("weak_untested");
-                          setSelectedLectureIds(new Set());
-                          setDrillStats({ seen: 0, mastered: 0, struggling: 0, skipped: 0, inprogress: 0, assessedIndices: [] });
-                          resetDrillSessionResultsRef();
-                          drillSessionStrugglingRef.current.clear();
-                          sessionReQueuedRef.current.clear();
-                          drillCardFirstRenderRef.current = true;
-                          revealedCardKeyRef.current = null;
-                          setRevealedCardKey(null);
-                          setCardState("front");
-                          drillCardModeRef.current = "back";
-                          setDrillCardMode("back");
-                          setMcqData(null);
-                          setCardBack(null);
-                          setMcqError(null);
-                          mcqRetryRef.current = false;
-                        }}
-                        style={{
-                          background: "#EEEDFE",
-                          color: "#3C3489",
-                          border: "0.5px solid #AFA9EC",
-                          borderRadius: "var(--border-radius-md, 8px)",
-                          fontSize: 12,
-                          padding: "5px 12px",
-                          cursor: "pointer",
-                          fontFamily: SANS,
-                          fontWeight: 600,
-                        }}
-                      >
-                        ⚡ Drill mode
-                      </button>
-                    }
-                  />
+                  {/* SP1 T6.1: Objectives lives in the new shell now. */}
+                  <div style={{ padding: 24, textAlign: "center", color: t.text3, fontFamily: SANS, fontSize: 13 }}>
+                    Objectives moved to the new shell.{" "}
+                    <a href="/" style={{ color: t.accent1 || "#6366f1" }}>Open it</a>
+                  </div>
                   </>
                   ) : (
                   (() => {
