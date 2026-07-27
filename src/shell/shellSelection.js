@@ -16,8 +16,13 @@ export const SHELL_NEW = "new";
 export const SHELL_OLD = "old";
 export const LOCAL_KEY = "rxt-new-shell";
 
-/** Flip this to SHELL_NEW to make the new shell the default for everyone. */
-export const DEFAULT_SHELL = SHELL_OLD;
+/**
+ * The new shell is the default (SP1 T6.1, 2026-07-27).
+ *
+ * `?shell=old` is the per-load escape hatch and it persists, the remote flag is
+ * the fleet-wide rollback, and App.jsx is still there behind both.
+ */
+export const DEFAULT_SHELL = SHELL_NEW;
 
 const normalise = (value) => {
   if (value === SHELL_NEW || value === SHELL_OLD) return value;
@@ -42,9 +47,16 @@ export function readLocalShell() {
   }
 }
 
+/**
+ * Both choices persist. Before the flip, "old" was stored by removing the key —
+ * which stopped meaning anything the moment the default became "new", because
+ * an absent key falls through to the default. "0" is an explicit "keep me on
+ * the old shell".
+ */
 export function setLocalShell(choice) {
   try {
     if (choice === SHELL_NEW) localStorage.setItem(LOCAL_KEY, "1");
+    else if (choice === SHELL_OLD) localStorage.setItem(LOCAL_KEY, "0");
     else localStorage.removeItem(LOCAL_KEY);
   } catch { /* storage unavailable — the session choice still applies */ }
 }
@@ -77,13 +89,19 @@ export function resolveShellChoice({ query = null, remote = null, local = null, 
 }
 
 /**
- * Should this resolution wipe the persisted local choice?
+ * What the persisted local choice should become after seeing the remote flag.
  *
- * Only when the remote flag actively disagrees with it — that is the rollback
- * case. A query override is per-load and must not erase what the user chose.
+ * When they disagree, the remote value is written down — it is not enough to
+ * just clear the local one. Now that the default is "new", clearing on a
+ * rollback would fall straight back through to "new" the moment the remote flag
+ * was removed, i.e. back into the shell that was being rolled back.
+ *
+ * @returns {string|null} value to persist, or null when nothing should change
+ *   (no remote opinion, or it already agrees).
  */
-export function shouldClearLocal({ remote = null, local = null } = {}) {
+export function localFlagAfterRemote({ remote = null, local = null } = {}) {
   const r = normalise(remote);
   const l = normalise(local);
-  return !!(r && l && r !== l);
+  if (!r) return null;
+  return r === l ? null : r;
 }

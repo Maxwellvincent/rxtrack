@@ -10,8 +10,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { onAuthChange, fetchShellFlag } from "./supabase.js";
 import {
   resolveShellChoice,
-  shouldClearLocal,
-  clearLocalShell,
+  localFlagAfterRemote,
   setLocalShell,
   readQueryShell,
   readLocalShell,
@@ -39,9 +38,11 @@ export default function ShellRoot() {
       if (!alive || !remote) return;
 
       const local = readLocalShell();
-      // Rollback: remote disagreeing with the sticky choice wipes it, so the
-      // next boot cannot bounce back into the shell that was rolled back.
-      if (shouldClearLocal({ remote, local })) clearLocalShell();
+      // Rollback: write the remote decision down. Clearing instead would fall
+      // through to the default — which is now the new shell, i.e. straight back
+      // into whatever was being rolled back.
+      const next = localFlagAfterRemote({ remote, local });
+      if (next) setLocalShell(next);
       setChoice(resolveShellChoice({ query, remote, local }));
     });
     return () => {
