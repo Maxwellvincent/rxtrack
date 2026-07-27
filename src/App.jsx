@@ -24,6 +24,7 @@ import Tracker, {
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import ObjectiveTracker from "./shell/features/objectives/ObjectiveTracker.jsx";
+import { guideFor } from "./objectiveGuides.js";
 import { loadPDFJS, parseExamPDF } from "./examParser";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
 import { DIFFICULTY_TIERS, buildDifficultyInstruction } from "./difficultyEngine";
@@ -11677,14 +11678,18 @@ function LecListRow({
                     const lecDate = lec.lectureDate;
                     const isPre = lecDate && new Date(lecDate) > new Date();
                     const actType = getActivityType(lec.lectureType);
-                    const guidance =
+                    // guideFor falls back to the Bloom-level default, so the text
+                    // survives compaction stripping it off the stored objective.
+                    const guidance = guideFor(
+                      obj,
                       actType === "DLA"
-                        ? obj.dla_guide
+                        ? "dla_guide"
                         : actType === "SG"
-                          ? obj.sg_guide
+                          ? "sg_guide"
                           : isPre
-                            ? obj.pre_lecture_guide
-                            : obj.post_lecture_guide;
+                            ? "pre_lecture_guide"
+                            : "post_lecture_guide"
+                    );
                     const noteVal =
                       pendingObjectiveNotes[obj.id] !== undefined
                         ? pendingObjectiveNotes[obj.id]

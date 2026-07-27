@@ -119,6 +119,59 @@ async function commitInChunks(writeOps, errors, chunk = 400) {
 
 export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 
+/**
+ * Authoritative rewrite of the objectives collection — the ONE place that is
+ * allowed to shrink cloud data.
+ *
+ * Every other push is read-merge-write, which is what keeps two devices from
+ * deleting each other's work. Compaction needs the opposite: `{ merge: false }`
+ * so the stripped fields actually leave the cloud doc, and a real delete for a
+ * block that is a dead duplicate. Callers must have confirmed the deletion.
+ *
+ * @returns {Promise<{written: number, deleted: number, errors: object[]}>}
+ */
+export async function overwriteObjectivesInCloud(userId, store, deletedBlockIds = []) {
+  if (!userId) return { written: 0, deleted: 0, errors: [{ message: "no userId" }] };
+  const errors = [];
+  let written = 0;
+  let deleted = 0;
+
+  for (const [blockId, entry] of Object.entries(store || {})) {
+    try {
+      await setDoc(
+        doc(db, "users", userId, "objectives", encodeDocId(blockId)),
+        { data: entry, updatedAt: serverTimestamp() },
+        { merge: false }
+      );
+      written += 1;
+    } catch (e) {
+      errors.push({ block: blockId, message: e?.message || String(e) });
+    }
+  }
+
+  // Copy before delete: the block lands in `objectivesBackup` so a wrong call is
+  // recoverable without a restore from a device that still has the data.
+  for (const blockId of deletedBlockIds) {
+    try {
+      const ref = doc(db, "users", userId, "objectives", encodeDocId(blockId));
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        await setDoc(
+          doc(db, "users", userId, "objectivesBackup", encodeDocId(blockId)),
+          { ...snap.data(), backedUpAt: serverTimestamp() },
+          { merge: false }
+        );
+      }
+      await deleteDoc(ref);
+      deleted += 1;
+    } catch (e) {
+      errors.push({ block: blockId, message: e?.message || String(e) });
+    }
+  }
+
+  return { written, deleted, errors };
+}
+
 // ─── MERGE HELPERS ───────────────────────────────────
 // Every push is read-merge-write: fetch cloud first, merge local ON TOP additively,
 // then write back. Cloud data is never silently deleted or overwritten.

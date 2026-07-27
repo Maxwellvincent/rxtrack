@@ -9,6 +9,7 @@ service cloud.firestore {
       allow read, write: if owner(uid);            // the user profile doc
       match /state/{name}        { allow read, write: if owner(uid); }
       match /objectives/{blockId}{ allow read, write: if owner(uid); }
+      match /objectivesBackup/{blockId}{ allow read, write: if owner(uid); } // pre-delete copies made by storage compaction
       match /lectures/{lecId}    { allow read, write: if owner(uid); }
       match /kv/{key}            { allow read, write: if owner(uid); }
       match /mcq/{id}            { allow read, write: if owner(uid); }
