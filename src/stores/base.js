@@ -46,12 +46,33 @@ export function readJson(userId, logicalKey, fallback) {
   return parseJson(ls.getItem(logicalKey), fallback);
 }
 
+/**
+ * Where a write lands. A namespaced write beside an existing legacy key would
+ * store a SECOND full copy of that key — with rxt-block-objectives at ~2MB that
+ * blows the 5MB localStorage quota on the first write, and App.jsx (which reads
+ * the unnamespaced keys) would stop seeing shell edits. So writes go to the slot
+ * the data already occupies; only brand-new keys start out namespaced.
+ *
+ * Consequence, accepted deliberately: two accounts in the same browser share any
+ * key that predates namespacing. App.jsx already behaves that way, and this
+ * stops being true per key once App is retired and the data is migrated.
+ */
+export function resolveWriteKey(userId, logicalKey) {
+  const ls = storage();
+  if (!userId || !ls) return logicalKey;
+  const namespaced = physicalKey(userId, logicalKey);
+  if (ls.getItem(namespaced) != null) return namespaced;
+  if (ls.getItem(logicalKey) != null) return logicalKey;
+  return namespaced;
+}
+
 export function writeJson(userId, logicalKey, value, { fallback, merge } = {}) {
   const ls = storage();
   if (!ls) return value;
   const next = merge ? merge(readJson(userId, logicalKey, fallback), value) : value;
-  ls.setItem(physicalKey(userId, logicalKey), JSON.stringify(next));
-  notifyStoreChanged(logicalKey, { physicalKey: physicalKey(userId, logicalKey), userId });
+  const target = resolveWriteKey(userId, logicalKey);
+  ls.setItem(target, JSON.stringify(next));
+  notifyStoreChanged(logicalKey, { physicalKey: target, userId });
   return next;
 }
 

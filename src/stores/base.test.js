@@ -6,14 +6,34 @@ import * as terms from "./terms.js";
 describe("store base", () => {
   beforeEach(() => installDomStorage());
 
-  it("uses userId namespacing with legacy read-through fallback", () => {
+  it("namespaces brand-new keys", () => {
+    terms.write("u1", [{ id: "t1" }]);
+    expect(localStorage.getItem("rxt-terms")).toBeNull();
+    expect(JSON.parse(localStorage.getItem(physicalKey("u1", "rxt-terms")))).toEqual([{ id: "t1" }]);
+    expect(terms.read("u1")).toEqual([{ id: "t1" }]);
+  });
+
+  it("writes into an existing legacy key instead of duplicating it", () => {
     localStorage.setItem("rxt-terms", JSON.stringify([{ id: "legacy" }]));
     expect(terms.read("u1")).toEqual([{ id: "legacy" }]);
 
     terms.merge("u1", [{ id: "new" }]);
-    expect(localStorage.getItem("rxt-terms")).toBe(JSON.stringify([{ id: "legacy" }]));
-    expect(JSON.parse(localStorage.getItem(physicalKey("u1", "rxt-terms")))).toEqual([{ id: "legacy" }, { id: "new" }]);
-    expect(terms.read("u2")).toEqual([{ id: "legacy" }]);
+
+    // One copy, in the slot the data already lived in — a second namespaced
+    // copy of a multi-MB key is what blew the quota in the live app.
+    expect(localStorage.getItem(physicalKey("u1", "rxt-terms"))).toBeNull();
+    expect(JSON.parse(localStorage.getItem("rxt-terms"))).toEqual([{ id: "legacy" }, { id: "new" }]);
+    expect(terms.read("u1")).toEqual([{ id: "legacy" }, { id: "new" }]);
+  });
+
+  it("keeps writing to a namespaced key once one exists", () => {
+    localStorage.setItem("rxt-terms", JSON.stringify([{ id: "legacy" }]));
+    localStorage.setItem(physicalKey("u1", "rxt-terms"), JSON.stringify([{ id: "mine" }]));
+
+    terms.write("u1", [{ id: "mine2" }]);
+
+    expect(JSON.parse(localStorage.getItem(physicalKey("u1", "rxt-terms")))).toEqual([{ id: "mine2" }]);
+    expect(JSON.parse(localStorage.getItem("rxt-terms"))).toEqual([{ id: "legacy" }]);
   });
 
   it("notifies subscribers for in-process writes and direct notify calls", () => {
