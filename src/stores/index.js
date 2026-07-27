@@ -8,11 +8,12 @@ import * as examDates from "./examDates.js";
 import * as calibration from "./calibration.js";
 import * as trackerV2 from "./trackerV2.js";
 import * as mcqBank from "./mcqBank.js";
+import * as assessments from "./assessments.js";
 
-export { terms, lectures, blockObjectives, weakConcepts, performance, completion, examDates, calibration, trackerV2, mcqBank };
+export { terms, lectures, blockObjectives, weakConcepts, performance, completion, examDates, calibration, trackerV2, mcqBank, assessments };
 
 const byKey = Object.fromEntries(
-  [terms, lectures, blockObjectives, weakConcepts, performance, completion, examDates, calibration, trackerV2, mcqBank]
+  [terms, lectures, blockObjectives, weakConcepts, performance, completion, examDates, calibration, trackerV2, mcqBank, assessments]
     .map((mod) => [mod.key, mod])
 );
 

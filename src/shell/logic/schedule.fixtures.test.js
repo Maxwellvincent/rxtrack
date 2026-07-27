@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildStudySchedule, generateDailySchedule } from "./schedule.js";
+import { availableDateFor, buildStudySchedule, generateDailySchedule } from "./schedule.js";
 import { studyScheduleShape, dailyScheduleShape } from "./scheduleFixtureShape.js";
 
 const FIXTURE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "__fixtures__");
@@ -22,7 +22,23 @@ const fixtures = fs
     ...JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, file), "utf8")),
   }));
 
-describe("schedule parity with App.jsx", () => {
+describe("local date parsing", () => {
+  it("treats YYYY-MM-DD as a calendar date, not a UTC instant", () => {
+    // App's bug, fixed here: west of Greenwich this used to land a day early,
+    // so every dated lecture was scheduled one day before it happened.
+    const lecture = { id: "l", lectureDate: "2026-09-01" };
+    const { date } = availableDateFor(lecture, null);
+    expect(date.getFullYear()).toBe(2026);
+    expect(date.getMonth()).toBe(8); // September
+    expect(date.getDate()).toBe(1);
+  });
+
+  it("still reads the legacy `date` field records were imported with", () => {
+    expect(availableDateFor({ id: "l", date: "2026-09-01" }, null).date.getDate()).toBe(1);
+  });
+});
+
+describe("schedule parity with the recorded run", () => {
   it("has fixtures to check against", () => {
     expect(fixtures.length).toBeGreaterThanOrEqual(6);
   });

@@ -470,6 +470,7 @@ const KV_KEYS = [
   "rxt-style-prefs",
   "rxt-question-notes",
   "rxt-calibration-log",
+  "rxt-assessments",
 ];
 
 // Byte-guard: Firestore doc limit is 1MB; skip (log+shard-later) anything
@@ -542,8 +543,12 @@ export async function pushAllLocalDataToSupabase(userId) {
 
   const lecOps = [];
   for (const l of lecs) {
-    const { chunks, ...meta } = l;
-    const payload = { data: meta, blockId: l.blockId, termId: l.termId };
+    const { chunks, ...rest } = l;
+    // Firestore rejects `undefined` outright — one lecture carrying an undefined
+    // field (termId, in practice) aborts the whole batch and silently kills the
+    // push. Drop them; an absent field reads back the same as an undefined one.
+    const meta = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+    const payload = { data: meta, blockId: l.blockId ?? null, termId: l.termId ?? null };
     // Only write chunks when we actually hold them. Omitting the field lets
     // Firestore's merge PRESERVE the existing cloud chunks — so lectures we
     // keep chunk-light in localStorage (older terms) don't get wiped on sync.

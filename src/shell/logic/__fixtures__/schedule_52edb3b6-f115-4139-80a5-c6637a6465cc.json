@@ -4252,7 +4252,7 @@
       ]
     },
     "dailySchedule": {
-      "daysLeft": 64,
+      "daysLeft": 65,
       "needsBlockStart": false,
       "schedule": [],
       "lecScores": [

@@ -21,7 +21,10 @@ export function mergeScheduleIntoStores(blocks, existing, opts = {}) {
   const terms = structuredClone(existing.terms || []);
   const examDates = { ...(existing.examDates || {}) };
   const lectures = [...(existing.lectures || [])];
-  const summary = { blocksAdded: 0, blocksUpdated: 0, examDatesSet: 0, lecturesAdded: 0 };
+  // blockId → [{activity, number, date, start, end, location}]. Replaced per
+  // block on re-import: the schedule .md is the source of truth for them.
+  const assessments = { ...(existing.assessments || {}) };
+  const summary = { blocksAdded: 0, blocksUpdated: 0, examDatesSet: 0, lecturesAdded: 0, assessmentsSet: 0 };
 
   let term = terms.find((t) => norm(t.name) === norm(termName));
   if (!term) { term = { id: idgen(), name: termName, color, blocks: [] }; terms.push(term); }
@@ -45,6 +48,11 @@ export function mergeScheduleIntoStores(blocks, existing, opts = {}) {
 
     if (desc.examDate) { examDates[block.id] = desc.examDate; summary.examDatesSet += 1; }
 
+    if (desc.assessments?.length) {
+      assessments[block.id] = desc.assessments.map((a) => noUndef({ ...a, blockId: block.id }));
+      summary.assessmentsSet += desc.assessments.length;
+    }
+
     for (const lec of desc.lectures || []) {
       const k = lecKey(block.id, lec.number);
       if (haveLec.has(k)) continue;
@@ -52,7 +60,13 @@ export function mergeScheduleIntoStores(blocks, existing, opts = {}) {
       lectures.push({
         id: idgen(), blockId: block.id, termId: term.id, lectureType: "LEC", lectureNumber: lec.number,
         filename: `${desc.system} LEC ${String(lec.number).padStart(2, "0")}`,
-        date: lec.date || null, createdAt: new Date().toISOString(),
+        // `lectureDate` is the field every consumer reads (App's getAvailableDate,
+        // shell/logic/schedule.js, Tracker). This used to write only `date`, which
+        // nothing reads — so imported lectures looked undated and the day planner
+        // silently placed nothing. `date` stays for the records already written.
+        lectureDate: lec.date || null,
+        date: lec.date || null,
+        createdAt: new Date().toISOString(),
       });
       summary.lecturesAdded += 1;
     }
@@ -66,5 +80,5 @@ export function mergeScheduleIntoStores(blocks, existing, opts = {}) {
     return noUndef({ ...l, termId });
   });
 
-  return { terms, examDates, lectures: cleanLectures, summary };
+  return { terms, examDates, lectures: cleanLectures, assessments, summary };
 }

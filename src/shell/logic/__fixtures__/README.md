@@ -32,6 +32,30 @@ One file per block that has an exam date. Each holds:
 - `output` — what `buildStudySchedule(blockId)` and
   `generateDailySchedule(blockId, examDate)` returned for that context.
 
+## Deliberate divergence from App (2026-07-27)
+
+The recorded `output` was regenerated once, on purpose, after fixing how
+date-only strings are parsed.
+
+App did `new Date("2026-09-01")` — parsed as **UTC** — then `setHours(0,0,0,0)`,
+landing on Aug 31 anywhere west of Greenwich. Every dated lecture was scheduled a
+day early and every days-to-exam count was one short. It was invisible while no
+lecture had a date; fixing the schedule importer (which had been writing `date`
+where every consumer reads `lectureDate`) made it visible immediately.
+
+`schedule.js` now builds a `YYYY-MM-DD` as a local calendar date. The regenerated
+fixtures changed in exactly one field:
+
+| fixture | change |
+|---|---|
+| mrspx2sg9go | `dailySchedule.daysLeft` 34 → 35 |
+| 52edb3b6… (Diabetes) | 64 → 65 |
+| 8023cfab… (Nervous) | 87 → 88 |
+| cpr1, CPR2, msk | identical |
+
+Urgency scores, task ordering, day assignment and both study schedules are
+unchanged. Everything else in these files is still a 1:1 record of App.
+
 ## What these are for
 
 They are the parity contract. `src/shell/logic/schedule.js` (T4.2) must

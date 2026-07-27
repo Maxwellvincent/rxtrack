@@ -23,9 +23,21 @@
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
-/** Midnight, so day arithmetic matches App's `setHours(0,0,0,0)`. */
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * Local midnight.
+ *
+ * DELIBERATE DIVERGENCE FROM App.jsx (2026-07-27): App did `new Date("2026-09-01")`
+ * — parsed as UTC — then `setHours(0,0,0,0)`, which lands on Aug 31 anywhere west
+ * of Greenwich. Every dated lecture was scheduled a day early. That was invisible
+ * while no lecture had a date; the schedule importer's date fix made it visible
+ * immediately. A "YYYY-MM-DD" is a calendar date, not an instant, so it is built
+ * in local time. See __fixtures__/README.md.
+ */
 function startOfDay(value) {
-  const d = new Date(value);
+  const iso = typeof value === "string" ? value.match(DATE_ONLY) : null;
+  const d = iso ? new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])) : new Date(value);
   d.setHours(0, 0, 0, 0);
   return d;
 }
@@ -192,7 +204,10 @@ const DOW = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
 
 /** When a lecture becomes studiable: explicit date, else derived from the block start. */
 export function availableDateFor(lecture, blockStart) {
-  if (lecture.lectureDate) return { date: startOfDay(lecture.lectureDate), source: "explicit" };
+  // `date` is what the schedule importer wrote before it was fixed to write
+  // `lectureDate`; records from before that fix still only carry `date`.
+  const explicit = lecture.lectureDate || lecture.date;
+  if (explicit) return { date: startOfDay(explicit), source: "explicit" };
 
   if (lecture.weekNumber && lecture.dayOfWeek && blockStart) {
     const startDay = blockStart.getDay();

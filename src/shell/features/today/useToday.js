@@ -59,6 +59,13 @@ export function useToday(blockId, userId, { now } = {}) {
   // see fallback.js for why that is needed at all.
   const { tasks: todayTasks, reason: todayReason } = useMemo(() => todayTasks_(daily), [daily]);
 
+  // The first day the planner DID place work on, when that is not today — a
+  // block whose term has not started yet has a real plan, just not for now.
+  const nextDay = useMemo(() => {
+    const first = daily?.schedule?.[0];
+    return first && first.daysFromNow > 0 ? first : null;
+  }, [daily]);
+
   const mutateCompletion = completion.mutate;
   const logActivity = useCallback(
     ({ lectureId, activityType, confidenceRating, durationMinutes = null, note = null }) => {
@@ -97,6 +104,7 @@ export function useToday(blockId, userId, { now } = {}) {
     study,
     todayTasks,
     todayReason,
+    nextDay,
     examDate: context.examDate,
     daysLeft: daily?.daysLeft ?? null,
     logActivity,

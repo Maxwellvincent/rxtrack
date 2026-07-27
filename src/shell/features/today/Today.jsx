@@ -92,7 +92,7 @@ function TaskCard({ task, onQuiz, onStudy, onLog, busy }) {
 }
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, study, examDate, daysLeft, logActivity, objectivesForTask } =
+  const { todayTasks, todayReason, nextDay, study, examDate, daysLeft, logActivity, objectivesForTask } =
     useToday(blockId, userId);
   const [logged, setLogged] = useState(null);
 
@@ -140,9 +140,24 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       )}
 
       {todayTasks.length === 0 ? (
-        <div className="rounded-lg border border-border p-3 text-xs text-text-3">
-          Nothing to do in this block yet — every lecture is either mastered or not yet available.
-        </div>
+        nextDay ? (
+          <div className="rounded-lg border border-border p-3 text-xs text-text-3">
+            Nothing due today. This block starts on{" "}
+            <span className="text-text-1">{nextDay.dateStr}</span> — in {nextDay.daysFromNow} days, with{" "}
+            {nextDay.tasks.length} lecture{nextDay.tasks.length === 1 ? "" : "s"} that day:
+            <div className="mt-1.5 flex flex-col gap-0.5">
+              {nextDay.tasks.slice(0, 4).map((t) => (
+                <span key={t.lec.id} className="font-mono text-[10px]">
+                  {t.studyMode?.icon} {t.lec.lectureTitle || t.lec.fileName || t.lec.filename}
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-border p-3 text-xs text-text-3">
+            Nothing to do in this block yet — every lecture is either mastered or not yet available.
+          </div>
+        )
       ) : (
         <div className="flex flex-col gap-2">
           {todayTasks.map((task) => (
