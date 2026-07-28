@@ -4590,343 +4590,6 @@ const DIFFICULTY_INSTRUCTIONS = {
   expert: "Hardest USMLE difficulty. Complex vignettes requiring synthesis across multiple topics. All distractors clinically plausible. Include secondary complications and exceptions.",
 };
 
-function buildLectureContext(lectureId, subtopic, blockId, { lecs, getBlockObjectives }) {
-  let questionBanksByFile = {};
-  try {
-    questionBanksByFile = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
-  } catch {}
-  const lec = (lecs || []).find((l) => l.id === lectureId);
-  if (!lec) return { context: "", questionExamples: [], objectives: [], lectureContent: "", patterns: {}, lec: null };
-
-  let lectureContent = getLecText(lec).slice(0, 8000);
-  const contentNote = lec.extractionMethod === "mistral-ocr"
-    ? "The following lecture content has been extracted with high-fidelity OCR, preserving tables, headings, and document structure as markdown. Use the structure to identify high-yield topics."
-    : "The following is extracted lecture text.";
-  if (lectureContent) lectureContent = contentNote + "\n\n" + lectureContent;
-
-  const uploadedQs = Object.values(questionBanksByFile || {})
-    .flat()
-    .filter((q) => {
-      const topicMatch = (q.topic || "").toLowerCase().includes((subtopic || "").toLowerCase().slice(0, 20));
-      const lecMatch = (q.topic || "").toLowerCase().includes((lec.lectureTitle || "").toLowerCase().slice(0, 20));
-      const numMatch = (q.topic || "").toLowerCase().includes("lecture " + (lec.lectureNumber ?? ""));
-      return topicMatch || lecMatch || numMatch;
-    })
-    .slice(0, 15);
-
-  const allObjs = getBlockObjectives ? getBlockObjectives(blockId) || [] : [];
-  const lecObjs = allObjs.filter(
-    (o) =>
-      o.linkedLecId === lec.id ||
-      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-  );
-
-  const questionExamples = uploadedQs.map((q) => ({
-    stem: q.stem,
-    choices: q.choices,
-    correct: q.correct,
-    explanation: q.explanation,
-    type: q.type,
-    difficulty: q.difficulty,
-  }));
-
-  const patterns = {
-    avgStemLength: Math.round(uploadedQs.reduce((a, q) => (q.stem || "").length + a, 0) / Math.max(uploadedQs.length, 1)),
-    commonTypes: [...new Set(uploadedQs.map((q) => q.type).filter(Boolean))],
-    hasClinicalCases: uploadedQs.some((q) => /patient|year.old|presents|history/i.test(q.stem || "")),
-    hasCalculations: uploadedQs.some((q) => /calculate|compute|determine.*value|what is the.*level/i.test(q.stem || "")),
-    hasMechanisms: uploadedQs.some((q) => /mechanism|pathway|enzyme|receptor/i.test(q.stem || "")),
-  };
-
-  return { lectureContent, questionExamples, objectives: lecObjs, patterns, lec };
-}
-
-function buildTopicVignettesPrompt(n, subject, focusLine, fullText, difficulty, questionType) {
-  const diffLine = difficulty && difficulty !== "auto"
-    ? "DIFFICULTY LEVEL: " + difficulty.toUpperCase() + "\n" + (DIFFICULTY_INSTRUCTIONS[difficulty] || "") + "\n\n"
-    : "";
-  return (
-    "Generate exactly " + n + " USMLE Step 1 clinical vignette questions.\n\n" +
-    diffLine +
-    "CRITICAL: Each 'stem' field must end with a '?' question sentence.\n" +
-    "Format: [Clinical scenario 2-4 sentences]. [Question sentence ending in ?]\n" +
-    "Example: 'A 45-year-old male presents with... Which of the following muscles is responsible for...?'\n\n" +
-    "Subject: " + subject + "\n" +
-    focusLine + "\n" +
-    "Difficulty level: " + (difficulty === "auto" ? "mixed, harder on weak topics" : difficulty) + "\n" +
-    "Question type focus: " + (questionType || "clinicalVignette") + "\n\n" +
-    LECTURE_MARKDOWN_CONTEXT_FOR_AI +
-    "\n\nLECTURE MATERIAL:\n" +
-    fullText.slice(0, 6000) +
-    "\n\n" +
-    "STRICT FORMAT RULES — follow exactly:\n" +
-    "1. Each vignette MUST have ALL of these fields: id, difficulty, stem, choices, correct, explanation\n" +
-    "2. stem: 3-5 sentence patient scenario ending with a CLEAR QUESTION like 'Which of the following is the most likely diagnosis?' or 'What is the most appropriate next step?' or 'Which mechanism best explains this finding?' — the stem MUST end with a question\n" +
-    "3. choices: exactly 4 options labeled A, B, C, D — each option must be a complete answer, not a sentence fragment\n" +
-    MCQ_DISTINCT_OPTIONS_RULE +
-    "\n" +
-    MCQ_LAB_NORMAL_RANGES_RULE +
-    "\n" +
-    "4. correct: must be exactly one letter: A, B, C, or D\n" +
-    "5. explanation: must cover (a) why the correct answer is right with the mechanism, (b) why each wrong answer is wrong specifically, (c) one First Aid reference\n" +
-    "6. difficulty: must be exactly one of: easy, medium, hard\n\n" +
-    "QUESTION STYLES TO USE (rotate between these):\n" +
-    "- Most likely diagnosis\n" +
-    "- Most appropriate next step in management\n" +
-    "- Most likely underlying mechanism\n" +
-    "- Most likely causative organism or drug\n" +
-    "- Best initial test or gold standard test\n\n" +
-    "PATIENT SCENARIO MUST INCLUDE:\n" +
-    "- Patient age and sex\n" +
-    "- Chief complaint and duration\n" +
-    "- Relevant history (PMH, medications, family history if relevant)\n" +
-    "- Vital signs (at least 2-3 values)\n" +
-    "- Physical exam findings\n" +
-    "- Lab values or imaging results where relevant\n" +
-    "- The stem MUST end with a question mark\n\n" +
-    "EXAMPLE of correct stem format:\n" +
-    "\"A 45-year-old man with a history of hypertension presents with sudden onset crushing chest pain radiating to his left arm for 2 hours. His temperature is 37.2C, blood pressure is 160/95 mmHg, heart rate is 102 bpm. ECG shows ST elevation in leads V1-V4. Troponin I is elevated at 2.8 ng/mL. Which of the following is the most appropriate immediate next step in management?\"\n\n" +
-    "EXAMPLE of correct choices format:\n" +
-    "\"choices\": { \"A\": \"Administer aspirin and heparin, then percutaneous coronary intervention\", \"B\": \"Order an echocardiogram before starting treatment\", \"C\": \"Start oral beta-blockers and discharge with cardiology follow-up\", \"D\": \"Perform CT angiography of the chest\" }\n\n" +
-    "Return ONLY valid complete JSON with no markdown, no extra text before or after:\n" +
-    "{\"vignettes\":[{\"id\":\"v1\",\"difficulty\":\"medium\",\"stem\":\"[full patient scenario ending with a question?]\",\"choices\":{\"A\":\"...\",\"B\":\"...\",\"C\":\"...\",\"D\":\"...\"},\"correct\":\"A\",\"explanation\":\"[detailed explanation]\"}]}\n\n" +
-    VIGNETTE_JSON_INSTRUCTION
-  );
-}
-
-async function genTopicVignettes(cfg) {
-  try {
-    const { lecture, subject, subtopic, scope, qCount, difficulty, questionType } = cfg;
-    const fullText = getLecText(lecture) || lecture?.fullText || "";
-    const count = qCount || 10;
-    const diff = difficulty ?? "auto";
-    const qType = questionType ?? "clinicalVignette";
-    const focusLine =
-      scope === "full"
-        ? "Cover the whole lecture evenly."
-        : "Focus on: " + (subtopic || "Review");
-    const BATCH_SIZE = 5;
-
-    if (count <= BATCH_SIZE) {
-      const prompt = buildTopicVignettesPrompt(count, subject, focusLine, fullText, diff, qType);
-      const raw = await claude(prompt, 8000);
-  const data = safeJSON(raw);
-  return validateAndFixQuestions((data.vignettes || []).slice(0, count).map((v) => ({
-    ...v,
-    difficulty: v.difficulty || diff || "medium",
-  })));
-}
-
-    const allVignettes = [];
-    for (let i = 0; i < count; i += BATCH_SIZE) {
-      const batchCount = Math.min(BATCH_SIZE, count - i);
-      const prompt = buildTopicVignettesPrompt(batchCount, subject, focusLine, fullText, diff, qType);
-      const raw = await claude(prompt, 8000);
-      const data = safeJSON(raw);
-      const batch = (data.vignettes || []).slice(0, batchCount).map((v) => ({
-        ...v,
-        difficulty: v.difficulty || diff || "medium",
-      }));
-      batch.forEach((v, j) => { v.id = "v" + (allVignettes.length + j + 1); });
-      allVignettes.push(...batch);
-    }
-    return validateAndFixQuestions(allVignettes.slice(0, count));
-  } catch (e) {
-    throw new Error("genTopicVignettes: " + (e.message || String(e)));
-  }
-}
-
-async function genTopicVignettesWithContext(cfg, deps) {
-  const { lectureId, subtopic, count = 10, difficulty, blockId } = {
-    lectureId: cfg.lecture?.id,
-    subtopic: cfg.subtopic,
-    count: cfg.qCount || 10,
-    difficulty: cfg.difficulty,
-    blockId: cfg.blockId,
-  };
-  const { lectures = [], getBlockObjectives, getTopicDifficulty, sessions = [], performanceHistory: perfHistory = {}, makeTopicKey: makeKey, stylePrefs } = deps || {};
-  const { lectureContent, questionExamples, objectives, patterns, lec } = buildLectureContext(
-    lectureId,
-    subtopic,
-    blockId,
-    { lecs: lectures, getBlockObjectives }
-  );
-
-  const topicKey = makeKey ? makeKey(lectureId || null, blockId) : (lectureId || blockId) + "__" + (subtopic || "full");
-  const currentDiff = (getTopicDifficulty && getTopicDifficulty(topicKey)) || difficulty || "medium";
-  const perfData = perfHistory[topicKey];
-  const streak = perfData?.streak || 0;
-  const lastScore = perfData?.sessions?.slice(-1)[0]?.score ?? null;
-  console.log(`Generating for ${topicKey} at difficulty: ${currentDiff}, streak: ${streak}, lastScore: ${lastScore}`);
-
-  const examplesSection =
-    questionExamples.length > 0
-      ? "\n\nEXAMPLE QUESTIONS FROM YOUR SCHOOL'S UPLOADED EXAM BANKS:\n" +
-        "(Study these carefully — model your questions after this exact style, format, length, and clinical depth)\n" +
-        questionExamples
-          .slice(0, 5)
-          .map(
-            (q, i) =>
-              `EXAMPLE ${i + 1}:\nQ: ${q.stem}\nA: ${q.choices?.A} B: ${q.choices?.B} C: ${q.choices?.C} D: ${q.choices?.D}\nCorrect: ${q.correct}\nExplanation: ${q.explanation || "N/A"}`
-          )
-          .join("\n\n")
-      : "";
-
-  const objectivesSection =
-    objectives.length > 0
-      ? "\n\nLEARNING OBJECTIVES THAT MUST BE COVERED:\n" +
-        "(Every question must map to one of these — these are the official exam objectives)\n" +
-        objectives.map((o, i) => `${i + 1}. [${o.code || o.id}] ${o.objective}`).join("\n")
-      : "";
-
-  const contentSection = lectureContent
-    ? "\n\n" + LECTURE_MARKDOWN_CONTEXT_FOR_AI + "\n\nLECTURE CONTENT TO BASE QUESTIONS ON:\n" + lectureContent
-    : "";
-
-  // High-yield details from NotebookLM pipeline — small/bolded/nuanced facts the student flags or slides emphasize.
-  let highYieldSection = "";
-  try {
-    const hy = Array.isArray(lec?.highYieldDetails) ? lec.highYieldDetails : [];
-    if (hy.length > 0) {
-      const formatted = hy
-        .slice(0, 20)
-        .map((d) => {
-          if (typeof d === "string") return `- ${d}`;
-          const why = d.why_tested ? ` (why tested: ${d.why_tested})` : "";
-          return `- ${d.term || d.name}: ${d.fact || d.detail || ""}${why}`;
-        })
-        .join("\n");
-      highYieldSection =
-        "\n\nHIGH-YIELD DETAILS (must test — these are small/bolded facts the lecture emphasized; ensure at least one question directly tests each relevant detail):\n" +
-        formatted;
-    }
-  } catch {}
-
-  // Weak concepts for this block — target ≥30% of questions here with plausible distractors.
-  let weakConceptsSection = "";
-  try {
-    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
-    const arr = Array.isArray(stored[blockId]) ? stored[blockId] : [];
-    const ranked = [...arr]
-      .filter((c) => c && (c.masteryLevel === "struggling" || (c.missCount || 0) >= 1))
-      .sort((a, b) => {
-        const missDiff = (b.missCount || 0) - (a.missCount || 0);
-        if (missDiff !== 0) return missDiff;
-        return String(b.lastMissed || "").localeCompare(String(a.lastMissed || ""));
-      })
-      .slice(0, 10);
-    if (ranked.length > 0) {
-      const formatted = ranked
-        .map((c) => {
-          const missCount = c.missCount ? ` (missed ${c.missCount}×)` : "";
-          const angle = c.angle && c.angle !== "general" ? ` [${c.angle}]` : "";
-          return `- ${c.concept}${angle}${missCount}${c.description ? ` — ${c.description}` : ""}`;
-        })
-        .join("\n");
-      weakConceptsSection =
-        "\n\nWEAK CONCEPTS (target ≥30% of questions at these, prefer the indicated angle; use as challenging distractor sources):\n" +
-        formatted;
-    }
-  } catch {}
-
-  // Recent user-flagged lookups/clarifications for this block.
-  let userNotesSection = "";
-  try {
-    const notes = JSON.parse(localStorage.getItem("rxt-quick-notes") || "[]");
-    if (Array.isArray(notes) && notes.length > 0) {
-      const recent = notes
-        .filter((n) => !blockId || !n.blockId || n.blockId === blockId)
-        .filter((n) => ["lookup", "clarification", "question"].includes(n.tag))
-        .slice(0, 10)
-        .map((n) => n.text || n.note || "")
-        .filter(Boolean);
-      if (recent.length > 0) {
-        userNotesSection =
-          "\n\nUSER-FLAGGED LOOKUPS / CLARIFICATIONS (ensure coverage):\n" +
-          recent.map((t) => `- ${t}`).join("\n");
-      }
-    }
-  } catch {}
-
-  const styleGuide =
-    questionExamples.length > 0
-      ? `\nQUESTION STYLE REQUIREMENTS (match your school's style exactly):
-- Stem length: approximately ${patterns.avgStemLength} characters
-- ${patterns.hasClinicalCases ? "USE clinical patient vignettes (your school uses patient-based questions)" : "Use direct concept questions"}
-- ${patterns.hasCalculations ? "INCLUDE calculation-based questions where appropriate" : ""}
-- ${patterns.hasMechanisms ? "INCLUDE mechanism/pathway questions" : ""}
-- Question types used: ${(patterns.commonTypes || []).join(", ") || "mixed"}`
-      : "";
-
-  const stylePrefText = [
-    stylePrefs?.longStems && "Use long, detailed clinical vignette stems (4-6 sentences).",
-    stylePrefs?.hardDistractors && "Use challenging distractors that are plausible and require careful reasoning.",
-    stylePrefs?.labValues && "Include specific lab values, vital signs, and diagnostic data where relevant.",
-    stylePrefs?.firstAid && "Reference First Aid mnemonics and high-yield facts where applicable.",
-    stylePrefs?.explainWrong && "For each question, include a brief explanation of why each wrong answer is incorrect.",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const prompt =
-    `Generate ${count} questions on "${subtopic}" from ${lec?.lectureTitle || subtopic}.\n\n` +
-    (stylePrefText ? `Style preferences: ${stylePrefText}\n\n` : "") +
-    `CRITICAL: Each 'stem' field must end with a '?' question sentence.\n` +
-    `Format: [Clinical scenario 2-4 sentences]. [Question sentence ending in ?]\n` +
-    `Example: 'A 45-year-old male presents with... Which of the following muscles is responsible for...?'\n\n` +
-    `DIFFICULTY: ${currentDiff.toUpperCase()}\n` +
-    (currentDiff === "easy" ? "Straightforward single-concept questions, direct recall.\n" : "") +
-    (currentDiff === "medium" ? "USMLE Step 1 standard, 2-step clinical reasoning.\n" : "") +
-    (currentDiff === "hard" ? "Multi-step reasoning, integrated concepts, challenging distractors.\n" : "") +
-    (currentDiff === "expert" ? "Hardest USMLE level, synthesis across topics, all distractors plausible.\n" : "") +
-    styleGuide +
-    objectivesSection +
-    examplesSection +
-    contentSection +
-    highYieldSection +
-    weakConceptsSection +
-    userNotesSection +
-    `\n\nCRITICAL RULES:
-- Each question must be UNIQUE — no repetition of stems, scenarios, or patient details
-- Vary the question format: some mechanism, some clinical presentation, some pharmacology, some lab values
-- Vary patient demographics, settings, and presentations
-- Never repeat the same correct answer letter more than 3 times in a row
-- If objectives are provided, ensure every objective is covered at least once
-- Base every question on the lecture content provided — do not invent off-topic content\n\n` +
-    `${MCQ_DISTINCT_OPTIONS_RULE}\n\n` +
-    `${MCQ_LAB_NORMAL_RANGES_RULE}\n\n` +
-    `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","objectiveId":"...","topic":"${(subtopic || "").replace(/"/g, '\\"')}","difficulty":"${currentDiff}","type":"clinicalVignette"}]}`;
-
-  const raw = await callAI(null, prompt, 8000);
-  const first = raw.indexOf("{");
-  const last = raw.lastIndexOf("}");
-  if (first === -1) return [];
-  let parsed;
-  try {
-    parsed = JSON.parse(raw.slice(first, last + 1).replace(/,\s*([}\]])/g, "$1"));
-  } catch {
-    parsed = { questions: [] };
-  }
-  const generatedQuestions = (parsed.questions || []).map((q, i) => ({
-    ...q,
-    id: "gen_" + Date.now() + "_" + i,
-    num: i + 1,
-    difficulty: q.difficulty || currentDiff || "medium",
-  }));
-
-  const recentStems = new Set(
-    (sessions || [])
-      .slice(-10)
-      .flatMap((s) => (s.questions || []).map((q) => (q.stem || "").slice(0, 40).toLowerCase()))
-  );
-  const freshQuestions = generatedQuestions.filter(
-    (q) => !recentStems.has((q.stem || "").slice(0, 40).toLowerCase())
-  );
-  const final = freshQuestions.length >= count * 0.6 ? freshQuestions : generatedQuestions;
-  return validateAndFixQuestions(final);
-}
-
 async function genBlockVignettes(blockLecs, count, weakSubs, difficulty, questionType) {
   try {
   const combined = blockLecs
@@ -5362,22 +5025,17 @@ function Btn({ children, onClick, color, disabled, style }) {
 // ─────────────────────────────────────────────
 function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, performanceHistory = {}, makeTopicKey }) {
   const { T } = useTheme();
-  const topicKey = makeTopicKey
-    ? (cfg.mode === "lecture" && cfg.lecture ? makeTopicKey(cfg.lecture.id, cfg.blockId ?? cfg.lecture?.blockId) : makeTopicKey(null, cfg.blockId || ""))
-    : (cfg.mode === "lecture" && cfg.lecture ? cfg.lecture.id + "__" + (cfg.subtopic || "full") : "block__" + (cfg.blockId || ""));
+  // Only block sessions reach this screen now — the per-lecture quiz it also
+  // configured went with the subtopic scope.
+  const topicKey = makeTopicKey ? makeTopicKey(null, cfg.blockId || "") : "block__" + (cfg.blockId || "");
   const storedDiff = getTopicDifficulty ? getTopicDifficulty(topicKey) : "medium";
   const storedPerf = getTopicDifficulty ? (performanceHistory[topicKey] || null) : null;
 
   const [qCount, setQCount] = useState(cfg.qCount || 10);
   const [difficulty, setDifficulty] = useState(cfg.difficulty || (storedDiff !== "medium" ? storedDiff : "auto"));
-  const [mode, setMode] = useState(cfg.mode || "lecture");
-  // Lecture quizzes cover the whole lecture: the per-subtopic scope went with
-  // the AI subtopics, whose labels objectives already say better.
-  const scopeOptions =
-    cfg.mode === "block"
-      ? [{ value: "block", label: "🏛 Block Exam", desc: "All lectures in block" }]
-      : [{ value: "full", label: "📚 Full Lecture", desc: "The whole lecture" }];
-  const [scope, setScope] = useState(cfg.mode === "block" ? "block" : "full");
+  const [mode, setMode] = useState(cfg.mode || "block");
+  const scopeOptions = [{ value: "block", label: "🏛 Block Exam", desc: "All lectures in block" }];
+  const [scope, setScope] = useState("block");
   const tc = termColor || T.red;
   const MONO = "var(--font-sans)";
   const SERIF = "var(--font-display)";
@@ -5408,12 +5066,10 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
           ← Back
         </button>
         <h1 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 900, letterSpacing: -0.5, marginBottom: 6, color: T.text1 }}>
-          {cfg.mode === "block" ? "Block Exam" : "Full Lecture Quiz"}
+          Block Exam
         </h1>
         <p style={{ fontFamily: SANS, color: T.text3, fontSize: 14 }}>
-          {cfg.mode === "block"
-            ? "Comprehensive review across all lectures in this block"
-            : (cfg.subject || "") + " · " + (cfg.lecture?.lectureTitle || "")}
+          Comprehensive review across all lectures in this block
         </p>
       </div>
 
@@ -6450,7 +6106,6 @@ function Session({
   cfg,
   onDone,
   onBack,
-  onGenerateTopicVignettes,
   quizSavedState = null,
   quizTargetLecture = null,
   quizBlockId = null,
@@ -6688,8 +6343,10 @@ What is the clinical significance of this finding?`,
           })();
           list = await genBlockVignettes(cfg.blockLectures, cfg.qCount, weak, cfg.difficulty, cfg.questionType);
         } else {
-          const generator = onGenerateTopicVignettes || genTopicVignettes;
-          list = await generator(cfg);
+          // Every other session arrives with its questions already generated
+          // (cfg.vignettes, handled above). The per-lecture generator went with
+          // the subtopic quiz; say so rather than render an empty session.
+          throw new Error("This session has no questions to run.");
         }
         if (live) setVigs(validateAndFixQuestions(list || []));
       } catch (e) {
@@ -20525,20 +20182,6 @@ What is the clinical significance of this finding?`,
 
   const [weakAreas, setWeakAreas] = useState([]);
 
-  const generateTopicVignettes = useCallback(
-    (cfg) =>
-      genTopicVignettesWithContext(cfg, {
-        lectures,
-        getBlockObjectives,
-        getTopicDifficulty,
-        sessions,
-        performanceHistory,
-        makeTopicKey,
-        stylePrefs,
-      }),
-    [lectures, getBlockObjectives, getTopicDifficulty, sessions, performanceHistory, makeTopicKey, stylePrefs]
-  );
-
   const showPerformanceFeedback = (topicKey, score, justUpgraded = false) => {
     const perf = performanceHistory[topicKey];
     const streak = perf?.streak ?? 0;
@@ -24162,9 +23805,7 @@ Current student level: ${tierLabel}`;
     const sessionMeta = meta || currentSessionMeta;
     const bid = sessionMeta?.blockId ?? blockId;
     const targetLecId =
-      sessionMeta?.lectureId ??
-      sessionMeta?.targetObjectives?.[0]?.linkedLecId ??
-      (studyCfg?.mode === "lecture" ? studyCfg?.lecture?.id : null);
+      sessionMeta?.lectureId ?? sessionMeta?.targetObjectives?.[0]?.linkedLecId ?? null;
 
     if (!targetLecId) {
       console.warn("⚠️ finalizeSession called without lectureId — session not saved");
@@ -24315,14 +23956,10 @@ Current student level: ${tierLabel}`;
     }
 
     const base = { id: uid(), blockId: bid, termId, correct, total, date };
-    const subject = studyCfg?.mode === "lecture" ? studyCfg.subject : studyCfg?.mode === "objectives" ? studyCfg.subject : "Block Exam";
-    const subtopic = studyCfg?.mode === "lecture" ? studyCfg.subtopic : studyCfg?.mode === "objectives" ? "Objectives" : "Comprehensive";
+    const subject = studyCfg?.mode === "objectives" ? studyCfg.subject : "Block Exam";
+    const subtopic = studyCfg?.mode === "objectives" ? "Objectives" : "Comprehensive";
     const questions = studyCfg?.vignettes?.map((q) => ({ stem: q.stem })) || [];
-    if (studyCfg?.mode === "lecture") {
-      setSessions((p) => [...p, { ...base, lectureId: studyCfg.lecture.id, subject, subtopic, questions }]);
-    } else {
-      setSessions((p) => [...p, { ...base, lectureId: null, subject, subtopic, questions }]);
-    }
+    setSessions((p) => [...p, { ...base, lectureId: null, subject, subtopic, questions }]);
     syncSessionToTracker({ correct, total }, studyCfg || {});
     setActiveSessions((prev) => {
       const next = { ...prev };
@@ -24978,8 +24615,10 @@ Current student level: ${tierLabel}`;
   const BLOCK_STATUS = blockStatus(t);
   const themeValue = { T: t, isDark, setTheme };
 
+  // Was gated on mode === "lecture", which no longer exists; an objectives quiz
+  // carries a lectureId too, so quick capture can name that lecture now.
   const activeLec =
-    view === "study" && studyCfg?.mode === "lecture"
+    view === "study"
       ? studyCfg?.lecture || lectures.find((l) => l?.id === studyCfg?.lectureId) || null
       : null;
   const selectedLec =
@@ -27035,7 +26674,6 @@ Current student level: ${tierLabel}`;
                     setStudyCfg(null);
                     setQuizSavedState(null);
                   }}
-                  onGenerateTopicVignettes={generateTopicVignettes}
                   quizSavedState={quizSavedState}
                   quizTargetLecture={lectures.find((l) => l.id === studyCfg?.lectureId) || null}
                   quizBlockId={studyCfg?.blockId ?? null}
