@@ -100,8 +100,6 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
             examTitle: baseName,
             totalQuestions: 0,
             format: "standard",
-            subtopics: [],
-            keyTerms: [],
             lectureNumber: detectNumber ? detectNumber(file.name, baseName, "LEC") : null,
             lectureTitle: baseName,
           },

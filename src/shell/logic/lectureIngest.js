@@ -156,7 +156,6 @@ export function buildLectureFromExtraction({
       chunks,
       fullText,
       subject: contentResult?.subject || contentResult?.discipline || "",
-      keyTerms: contentResult?.keyTerms || [],
       summary: contentResult?.summary || "",
       slideImages: contentResult?.slideImages || [],
       pageCount: contentResult?.pageCount ?? chunks.length,

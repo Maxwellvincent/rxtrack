@@ -93,8 +93,6 @@ describe("buildLectureFromExtraction", () => {
     fullText: "Cortisol is released from the adrenal cortex under ACTH control, and much more besides.",
     chunks: [{ markdown: "# Adrenal" }, { markdown: "Cortisol" }],
     slideImages: ["slide1"],
-    subtopics: ["Adrenal cortex"],
-    keyTerms: ["cortisol"],
     pageCount: 2,
     extractionMethod: "marker-local",
     lectureTitle: "ER LEC 06",
@@ -122,8 +120,10 @@ describe("buildLectureFromExtraction", () => {
     });
     expect(lecture.chunks).toHaveLength(2);
     expect(lecture.slideImages).toEqual(["slide1"]);
-    // No subtopics: the AI-guessed labels were cut — objectives carry the curriculum.
+    // No subtopics or keyTerms: the AI-guessed labels were cut — objectives and
+    // the teaching map's own per-section terms carry that weight now.
     expect(lecture.subtopics).toBeUndefined();
+    expect(lecture.keyTerms).toBeUndefined();
   });
 
   it("takes the extractor's title only when the filename is a bare slot", () => {

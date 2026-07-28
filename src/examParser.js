@@ -592,22 +592,6 @@ export async function parseExamPDF(file, onProgress) {
 
   const chunks = pages.map((p) => ({ text: p.text }));
 
-  const subtopicsFromQs = [
-    ...new Set(
-      (questions || [])
-        .map((q) => q.topic || q.subject || "")
-        .filter((t) => t.length > 3 && t.length < 80)
-    ),
-  ];
-
-  const keyTermsFromQs = [
-    ...new Set(
-      (questions || [])
-        .flatMap((q) => q.keyTerms || q.terms || [])
-        .filter(Boolean)
-    ),
-  ];
-
   return {
     questions,
     examTitle,
@@ -615,8 +599,6 @@ export async function parseExamPDF(file, onProgress) {
     format,
     fullText,
     chunks,
-    subtopics: subtopicsFromQs,
-    keyTerms: keyTermsFromQs,
     lectureNumber: detectLectureNumber(examTitle || ""),
     lectureTitle: examTitle || "",
   };

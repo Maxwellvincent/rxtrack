@@ -4564,10 +4564,9 @@ async function detectMeta(text) {
     "Anatomy, Physiology, Biochemistry, Microbiology, Immunology, Pathology, Pharmacology, " +
     "Neuroscience, Embryology, Histology, Genetics, Cell Biology, Behavioral Science, Biostatistics\n\n" +
     "Return exactly this shape:\n" +
-    "{\"subject\":\"Physiology\",\"keyTerms\":[\"term1\",\"term2\",\"term3\",\"term4\",\"term5\"],\"lectureTitle\":\"Specific Title\",\"lectureNumber\":50,\"lectureType\":\"Lecture\"}\n\n" +
+    "{\"subject\":\"Physiology\",\"lectureTitle\":\"Specific Title\",\"lectureNumber\":50,\"lectureType\":\"Lecture\"}\n\n" +
     "Rules:\n" +
     "- subject must be ONE of the subjects listed above, pick the closest match\n" +
-    "- keyTerms must be 5-8 high yield medical terms from the content\n" +
     "- lectureTitle must be specific, not generic\n" +
     "- lectureNumber: extract the lecture number as a number only (e.g. 50), or null if not found. Look for patterns like 'Lecture 50', 'Lec 50', 'L50', 'FTM Lecture 50' in the content\n" +
     "- lectureType must be exactly one of: Lecture, DLA, Lab, unknown\n\n" +
@@ -4642,7 +4641,7 @@ function buildLectureContext(lectureId, subtopic, blockId, { lecs, getBlockObjec
   return { lectureContent, questionExamples, objectives: lecObjs, patterns, lec };
 }
 
-function buildTopicVignettesPrompt(n, subject, focusLine, keyTerms, fullText, difficulty, questionType) {
+function buildTopicVignettesPrompt(n, subject, focusLine, fullText, difficulty, questionType) {
   const diffLine = difficulty && difficulty !== "auto"
     ? "DIFFICULTY LEVEL: " + difficulty.toUpperCase() + "\n" + (DIFFICULTY_INSTRUCTIONS[difficulty] || "") + "\n\n"
     : "";
@@ -4654,7 +4653,6 @@ function buildTopicVignettesPrompt(n, subject, focusLine, keyTerms, fullText, di
     "Example: 'A 45-year-old male presents with... Which of the following muscles is responsible for...?'\n\n" +
     "Subject: " + subject + "\n" +
     focusLine + "\n" +
-    "Key terms: " + (keyTerms || []).join(", ") + "\n" +
     "Difficulty level: " + (difficulty === "auto" ? "mixed, harder on weak topics" : difficulty) + "\n" +
     "Question type focus: " + (questionType || "clinicalVignette") + "\n\n" +
     LECTURE_MARKDOWN_CONTEXT_FOR_AI +
@@ -4700,7 +4698,6 @@ async function genTopicVignettes(cfg) {
   try {
     const { lecture, subject, subtopic, scope, qCount, difficulty, questionType } = cfg;
     const fullText = getLecText(lecture) || lecture?.fullText || "";
-    const keyTerms = lecture?.keyTerms || [];
     const count = qCount || 10;
     const diff = difficulty ?? "auto";
     const qType = questionType ?? "clinicalVignette";
@@ -4711,7 +4708,7 @@ async function genTopicVignettes(cfg) {
     const BATCH_SIZE = 5;
 
     if (count <= BATCH_SIZE) {
-      const prompt = buildTopicVignettesPrompt(count, subject, focusLine, keyTerms, fullText, diff, qType);
+      const prompt = buildTopicVignettesPrompt(count, subject, focusLine, fullText, diff, qType);
       const raw = await claude(prompt, 8000);
   const data = safeJSON(raw);
   return validateAndFixQuestions((data.vignettes || []).slice(0, count).map((v) => ({
@@ -4723,7 +4720,7 @@ async function genTopicVignettes(cfg) {
     const allVignettes = [];
     for (let i = 0; i < count; i += BATCH_SIZE) {
       const batchCount = Math.min(BATCH_SIZE, count - i);
-      const prompt = buildTopicVignettesPrompt(batchCount, subject, focusLine, keyTerms, fullText, diff, qType);
+      const prompt = buildTopicVignettesPrompt(batchCount, subject, focusLine, fullText, diff, qType);
       const raw = await claude(prompt, 8000);
       const data = safeJSON(raw);
       const batch = (data.vignettes || []).slice(0, batchCount).map((v) => ({
@@ -9718,16 +9715,6 @@ function LecListRow({
                 </div>
               );
             })()}
-          {lec.keyTerms?.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                {lec.keyTerms.slice(0, 6).map((t, i) => (
-                  <span key={i} style={{ fontFamily: SANS, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{t}</span>
-                ))}
-              </div>
-            </div>
-          )}
           {(() => {
             const expandedObjs = (allBlockObjectives ?? allObjectives ?? []).filter(
               (o) =>
@@ -11411,7 +11398,6 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
   const [strategy, setStrategy] = useState("append");
   const [keepOriginals, setKeep] = useState(false);
 
-  const allKeyTerms = [...new Set(lectures.flatMap(l => l.keyTerms || []))];
 
   if (!lectures.length) return null;
 
@@ -11481,16 +11467,6 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
                   <div style={{ fontFamily: SANS, fontSize: 12, color: T.text3, marginTop: 2 }}>{opt.desc}</div>
                 </div>
               ))}
-            </div>
-          </div>
-
-          <div style={{ background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>PREVIEW — KEY TERMS ({allKeyTerms.length})</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {allKeyTerms.slice(0, 10).map((kt, i) => (
-                <span key={i} style={{ fontFamily: SANS, color: T.text3, background: T.pillBg, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{kt}</span>
-              ))}
-              {allKeyTerms.length > 10 && <span style={{ fontFamily: SANS, color: T.text3, fontSize: 11 }}>+{allKeyTerms.length - 10} more</span>}
             </div>
           </div>
 
@@ -21587,7 +21563,6 @@ What is the clinical significance of this finding?`,
       mergedChunks = [...(primary.chunks || [])];
     }
 
-    const mergedKeyTerms = [...new Set(toMerge.flatMap(l => l.keyTerms || []))];
     const mergedFullText = toMerge.map(l => l.fullText || "").filter(Boolean).join("\n\n---\n\n");
 
     const mergedId = "merged_" + Date.now();
@@ -21603,7 +21578,6 @@ What is the clinical significance of this finding?`,
       lectureType: lecType,
       chunks: mergedChunks,
       fullText: mergedFullText || primary.fullText,
-      keyTerms: mergedKeyTerms,
       isMerged: true,
       mergedFrom: toMerge.map(l => ({
         id: l.id,
@@ -22293,7 +22267,6 @@ What is the clinical significance of this finding?`,
             weekNumber: detectWeekNumber(file.name, lecTitle) || null,
             subject: contentResult.subject || contentResult.discipline || "",
             chunks: contentResult.chunks || contentResult.sections || [],
-            keyTerms: contentResult.keyTerms || contentResult.terms || contentResult.keywords || [],
             summary: contentResult.summary || "",
             fullText: fullRawTextJoin,
             extractionMethod: contentResult.extractionMethod || "pdfplumber",
@@ -22477,7 +22450,7 @@ What is the clinical significance of this finding?`,
           try {
             meta = await detectMeta(text);
           } catch {
-            meta = { subject: "Unassigned", keyTerms: [], lectureTitle: file.name };
+            meta = { subject: "Unassigned", lectureTitle: file.name };
           }
           const rawSubject = (meta.subject || "").trim();
           if (["Medicine", "Unknown", "General", ""].includes(rawSubject)) {
@@ -22626,7 +22599,6 @@ What is the clinical significance of this finding?`,
           lectureTitle: mergedTitle,
           chunks: [...(colliding.chunks || []), ...(lectureToSave.chunks || [])],
           fullText: [colliding.fullText, lectureToSave.fullText].filter(Boolean).join("\n\n---\n\n"),
-          keyTerms: [...new Set([...(colliding.keyTerms || []), ...(lectureToSave.keyTerms || [])])],
           isMerged: true,
           mergedFrom: [
             { id: colliding.id, title: colliding.lectureTitle, num: colliding.lectureNumber },
