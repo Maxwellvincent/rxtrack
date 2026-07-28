@@ -106,9 +106,92 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
     [blockId, termId, userId]
   );
 
-  const confirm = useCallback(async () => {
+  /**
+   * Objectives are the authoritative curriculum — coverage, quizzes and atom
+   * tagging all read them. Re-running replaces this lecture's objectives rather
+   * than appending. Takes the lecture so it can run straight after a save,
+   * before React has re-rendered with it.
+   */
+  const extractObjectives = useCallback(
+    async (lecture) => {
+      const lec = lecture || saved;
+      if (!lec) return;
+      setProgress("Reading the objectives out of the lecture…");
+      try {
+        const found = await extractObjectivesFromLecture(lectureText(lec), lec, blockId);
+        if (!found.length) {
+          setObjectiveResult("No objectives found — no SOM codes and nothing verb-led in the text.");
+          return;
+        }
+
+        const commands = createObjectiveCommands({
+          read: () => objectivesStore.read(userId) || {},
+          write: (next) => objectivesStore.write(userId, next),
+          notify: () => { try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ } },
+        });
+        commands.replaceLectureObjectives(blockId, lec.id, found);
+        if (userId) await pushAllLocalDataToSupabase(userId);
+
+        const coded = found.filter((o) => String(o.code || "").startsWith("SOM.")).length;
+        setObjectiveResult(
+          `${found.length} objective${found.length === 1 ? "" : "s"} saved${coded ? ` · ${coded} SOM-coded` : ""}.`
+        );
+      } catch (e) {
+        setObjectiveResult("⚠ Objective extraction failed: " + (e?.message || String(e)));
+      } finally {
+        setProgress("");
+      }
+    },
+    [saved, blockId, userId]
+  );
+
+  /**
+   * The teaching map is what DeepLearn teaches from — its clinicalHook is the
+   * case DeepLearn opens with, so a lecture without one teaches with no
+   * patient. Written onto the stored lecture, not held in this component.
+   */
+  const buildTeachingMap = useCallback(
+    async (lecture) => {
+      const lec = lecture || saved;
+      if (!lec) return;
+      setProgress("Analyzing the lecture…");
+      try {
+        const map = await analyzeLecture(lec, lectureText(lec));
+        const sections = map?.sections?.length || 0;
+        if (!sections) {
+          setMapResult("⚠ The analysis came back empty — check the AI key, then run it again.");
+          return;
+        }
+
+        const teachingMapDate = new Date().toISOString();
+        const current = lecturesStore.read(userId) || [];
+        lecturesStore.write(
+          userId,
+          current.map((l) => (l.id === lec.id ? { ...l, teachingMap: map, teachingMapDate } : l))
+        );
+        setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
+        if (userId) await pushAllLocalDataToSupabase(userId);
+
+        setMapResult(
+          `${sections} section${sections === 1 ? "" : "s"} mapped${map.clinicalHook ? " · clinical hook ready" : ""}.`
+        );
+      } catch (e) {
+        setMapResult("⚠ Analysis failed: " + (e?.message || String(e)));
+      } finally {
+        setProgress("");
+      }
+    },
+    [saved, userId]
+  );
+
+  /**
+   * Save, then pull everything out of the lecture without being asked. Each AI
+   * pass reports into its own line and a failure in one does not stop the
+   * other — a lecture with objectives but no teaching map is still useful.
+   */
+  const addAndProcess = useCallback(async () => {
     if (!preview) return;
-    setBusy(true); setError("");
+    setBusy(true); setError(""); setObjectiveResult(""); setMapResult("");
     try {
       const lecture = { ...preview.lecture, lectureDate: lectureDate || null };
       const current = lecturesStore.read(userId) || [];
@@ -122,6 +205,9 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setPreview(null);
       setSaved(lecture);
       onAdded?.(lecture);
+
+      await extractObjectives(lecture);
+      await buildTeachingMap(lecture);
     } catch (e) {
       const msg = e?.message || String(e);
       setError(
@@ -131,88 +217,19 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       );
     } finally {
       setBusy(false);
-    }
-  }, [preview, lectureDate, userId, onAdded]);
-
-  /**
-   * Objectives are the authoritative curriculum, so this runs as its own step
-   * rather than silently on save: it costs a model call and the count is worth
-   * seeing. Re-running replaces this lecture's objectives, never appends.
-   */
-  const extractObjectives = useCallback(async () => {
-    if (!saved) return;
-    setBusy(true); setError(""); setProgress("Reading the objectives out of the lecture…");
-    try {
-      const found = await extractObjectivesFromLecture(lectureText(saved), saved, blockId);
-      if (!found.length) {
-        setObjectiveResult("No objectives found in that lecture — no codes and nothing verb-led.");
-        return;
-      }
-
-      const commands = createObjectiveCommands({
-        read: () => objectivesStore.read(userId) || {},
-        write: (next) => objectivesStore.write(userId, next),
-        notify: () => { try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ } },
-      });
-      commands.replaceLectureObjectives(blockId, saved.id, found);
-      if (userId) await pushAllLocalDataToSupabase(userId);
-
-      const coded = found.filter((o) => String(o.code || "").startsWith("SOM.")).length;
-      setObjectiveResult(
-        `${found.length} objective${found.length === 1 ? "" : "s"} saved${coded ? ` · ${coded} SOM-coded` : ""}.`
-      );
-    } catch (e) {
-      setError("Objective extraction failed: " + (e?.message || String(e)));
-    } finally {
-      setBusy(false);
       setProgress("");
     }
-  }, [saved, blockId, userId]);
-
-  /**
-   * The teaching map is what DeepLearn teaches from — its clinicalHook is the
-   * case DeepLearn opens with, so a lecture without one teaches with no
-   * patient. Written onto the stored lecture, not held in this component.
-   */
-  const buildTeachingMap = useCallback(async () => {
-    if (!saved) return;
-    setBusy(true); setError(""); setProgress("Analyzing the lecture…");
-    try {
-      const map = await analyzeLecture(saved, lectureText(saved));
-      const sections = map?.sections?.length || 0;
-      if (!sections) {
-        setMapResult("The analysis came back empty — check the AI key, then try again.");
-        return;
-      }
-
-      const teachingMapDate = new Date().toISOString();
-      const current = lecturesStore.read(userId) || [];
-      lecturesStore.write(
-        userId,
-        current.map((l) => (l.id === saved.id ? { ...l, teachingMap: map, teachingMapDate } : l))
-      );
-      setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
-      if (userId) await pushAllLocalDataToSupabase(userId);
-
-      setMapResult(
-        `${sections} section${sections === 1 ? "" : "s"} mapped${map.clinicalHook ? " · clinical hook ready" : ""}.`
-      );
-    } catch (e) {
-      setError("Analysis failed: " + (e?.message || String(e)));
-    } finally {
-      setBusy(false);
-      setProgress("");
-    }
-  }, [saved, userId]);
+  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">Add a lecture</div>
         <div className="mb-4 text-xs text-text-3">
-          Drop the PDF in and it runs through OCR here, or convert it with{" "}
-          <span className="font-mono">pdf2md</span> first and drop the .md — that path is faster and needs no AI.
-          Type, number and title are read from the filename.
+          Drop a PDF in: it goes through marker OCR (local server → Datalab → Mistral, falling back to
+          direct text extraction), then objectives and the teaching map are pulled out for you. A .md
+          from <span className="font-mono">pdf2md</span> skips the OCR step. Type, number and title
+          come from the filename.
         </div>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
@@ -262,29 +279,27 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
         {saved && (
           <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3">
-            <div className="text-xs text-text-2">
-              Two AI passes worth running now: objectives are the curriculum this block is graded on
-              (coverage, quizzes and tagging all read them), and the teaching map is what DeepLearn
-              teaches from.
+            <div className="font-mono text-[11px] text-text-3">what came out of it</div>
+            <div className={`mt-1 font-mono text-[11px] ${objectiveResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
+              ◇ {objectiveResult || (busy ? "reading objectives…" : "—")}
             </div>
-            {objectiveResult && (
-              <div className="mt-2 font-mono text-[11px] text-good">{objectiveResult}</div>
-            )}
-            {mapResult && <div className="mt-1 font-mono text-[11px] text-good">{mapResult}</div>}
+            <div className={`mt-1 font-mono text-[11px] ${mapResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
+              ◈ {mapResult || (busy ? "waiting on the teaching map…" : "—")}
+            </div>
             <div className="mt-2 flex flex-wrap gap-2">
-              <Button variant="outline" onClick={extractObjectives} disabled={busy}>
-                {objectiveResult ? "◇ Extract again" : "◇ Extract objectives"}
+              <Button variant="outline" onClick={() => extractObjectives()} disabled={busy}>
+                ◇ Objectives again
               </Button>
-              <Button variant="outline" onClick={buildTeachingMap} disabled={busy}>
-                {mapResult ? "◈ Analyze again" : "◈ Build teaching map"}
+              <Button variant="outline" onClick={() => buildTeachingMap()} disabled={busy}>
+                ◈ Analyze again
               </Button>
             </div>
           </div>
         )}
 
         <div className="flex gap-2">
-          <Button onClick={confirm} disabled={!preview || busy}>
-            {busy ? "Saving…" : preview?.action === "replaced" ? "Replace lecture" : "Add lecture"}
+          <Button onClick={addAndProcess} disabled={!preview || busy}>
+            {busy ? "Working…" : preview?.action === "replaced" ? "Replace and process" : "Add and process"}
           </Button>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>
