@@ -20,6 +20,7 @@ import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
+import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
 import { Today } from "./features/today/Today.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
@@ -110,6 +111,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showRecognize, setShowRecognize] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showAddLecture, setShowAddLecture] = useState(false);
+  const [showBulkImport, setShowBulkImport] = useState(false);
   const [view, setView] = useState("home"); // home | objectives
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
@@ -197,6 +199,7 @@ function ShellMain({ theme, toggle, userId }) {
           onRecognize={() => setShowRecognize(true)}
           onImportSchedule={() => setShowImport(true)}
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
+          onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         <main className="flex-1 overflow-y-auto">
@@ -311,6 +314,14 @@ function ShellMain({ theme, toggle, userId }) {
           termId={active?.termId ?? null}
           userId={userId}
           onClose={() => setShowAddLecture(false)}
+        />
+      )}
+      {showBulkImport && activeBlockId && (
+        <BulkImportModal
+          blockId={activeBlockId}
+          termId={active?.termId ?? null}
+          userId={userId}
+          onClose={() => setShowBulkImport(false)}
         />
       )}
     </div>

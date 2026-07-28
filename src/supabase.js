@@ -200,6 +200,34 @@ export async function fetchLectureContent(userId, lecId) {
 }
 
 /**
+ * Write one lecture's doc, chunks included.
+ *
+ * The bulk importer needs this: pushing everything through
+ * `pushAllLocalDataToSupabase` would mean keeping every lecture's text in
+ * localStorage first, and 120 decks of it does not fit in the ~5MB quota. So the
+ * text goes straight to Firestore and only a chunk-light row stays local, which
+ * is the same split a pull produces for non-active terms.
+ */
+export async function saveLectureToCloud(userId, lecture) {
+  if (!userId || !lecture?.id) return { saved: false, reason: "no user or lecture id" };
+  const { chunks, ...rest } = lecture;
+  // Firestore rejects undefined outright, and one bad field kills the write.
+  const meta = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+  const payload = {
+    data: meta,
+    blockId: lecture.blockId ?? null,
+    termId: lecture.termId ?? null,
+    updatedAt: serverTimestamp(),
+  };
+  if (chunks && chunks.length) payload.chunks = chunks;
+  if (JSON.stringify(payload).length > MAX_DOC_BYTES) {
+    return { saved: false, reason: "oversized" };
+  }
+  await setDoc(doc(db, "users", userId, "lectures", encodeDocId(lecture.id)), payload, { merge: true });
+  return { saved: true };
+}
+
+/**
  * Store extracted atoms on the lecture doc. They live in Firestore rather than
  * localStorage on purpose: 40 atoms across 367 lectures would be ~1.8MB of a
  * budget that just had 794KB clawed back out of it.
