@@ -12,7 +12,7 @@
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
-import { pushAllLocalDataToSupabase } from "../../../supabase.js";
+import { overwriteObjectivesInCloud, pushAllLocalDataToSupabase } from "../../../supabase.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
@@ -134,7 +134,10 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         }
 
         makeObjectiveCommands(userId).replaceLectureObjectives(blockId, lec.id, found);
-        if (userId) await pushAllLocalDataToSupabase(userId);
+        // Authoritative, not the merging push: a re-upload REMOVES the superseded
+        // lecture's objectives, and every ordinary push is read-merge-write, so a
+        // deletion never leaves the cloud and the next pull walks it back in.
+        if (userId) await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {});
 
         const coded = found.filter((o) => String(o.code || "").startsWith("SOM.")).length;
         setObjectiveResult(

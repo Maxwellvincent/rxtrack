@@ -13,7 +13,7 @@
  */
 import { callAI } from "../aiClient.js";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI } from "../aiPromptSnippets.js";
-import { tryParseJSON } from "../lib/aiJson.js";
+import { safeJSON, tryParseJSON } from "../lib/aiJson.js";
 
 const EMPTY_MAP = { summary: "", clinicalHook: "", sections: [], bigPicture: "" };
 
@@ -51,6 +51,79 @@ Full lecture content:
 ${(extractedText || "").slice(0, 6000)}`;
 }
 
+/** A top-level string field, read straight out of the raw text. */
+function scalarField(raw, name) {
+  const m = raw.match(new RegExp(`"${name}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"`));
+  try {
+    return m ? JSON.parse(`"${m[1]}"`) : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Rebuild what survived a response the model cut off mid-JSON.
+ *
+ * Neither parser handles this: a truncated object has no closing brace, so
+ * strict parsing fails and tryParseJSON returns null — which silently became
+ * "one Overview section" and a lecture with no clinical hook. The sections that
+ * did arrive complete are still worth keeping, so take every balanced object
+ * inside the sections array plus the top-level prose.
+ */
+export function salvageTeachingMap(raw) {
+  const text = String(raw || "");
+  const start = text.indexOf('"sections"');
+  const open = start === -1 ? -1 : text.indexOf("[", start);
+  if (open === -1) return null;
+
+  const sections = [];
+  let depth = 0;
+  let objStart = -1;
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '"') {
+      i++;
+      while (i < text.length) {
+        if (text[i] === "\\") { i += 2; continue; }
+        if (text[i] === '"') break;
+        i++;
+      }
+      continue;
+    }
+    if (ch === "{") {
+      if (depth === 0) objStart = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && objStart !== -1) {
+        try {
+          sections.push(JSON.parse(text.slice(objStart, i + 1)));
+        } catch { /* a half-written section is no loss */ }
+        objStart = -1;
+      }
+    } else if (ch === "]" && depth === 0) {
+      break;
+    }
+  }
+
+  if (!sections.length) return null;
+  return {
+    summary: scalarField(text, "summary"),
+    clinicalHook: scalarField(text, "clinicalHook"),
+    bigPicture: scalarField(text, "bigPicture"),
+    sections,
+  };
+}
+
+/** Strict first, then salvage — a cut-off response still carries whole sections. */
+function parseMapResponse(raw) {
+  try {
+    return safeJSON(raw);
+  } catch {
+    return tryParseJSON(raw) || salvageTeachingMap(raw);
+  }
+}
+
 /** Sections from whichever key the model used this time. */
 function sectionsFrom(result) {
   return (
@@ -86,9 +159,11 @@ export async function analyzeLecture(lec, extractedText) {
     const raw = await callAI(
       TEACHING_MAP_SYSTEM_PROMPT,
       buildTeachingMapUserPrompt(lec, extractedText),
-      2500
+      // 2500 was not enough for a hook plus several sections of coreContent —
+      // the response came back truncated and unparseable on a real lecture.
+      8000
     );
-    const result = tryParseJSON(raw) || EMPTY_MAP;
+    const result = parseMapResponse(raw) || EMPTY_MAP;
     const sections = sectionsFrom(result);
 
     if (!sections || !Array.isArray(sections) || sections.length === 0) {

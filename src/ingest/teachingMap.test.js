@@ -48,7 +48,30 @@ describe("analyzeLecture", () => {
     const map = await analyzeLecture(lec, "lecture text");
 
     expect(map).toMatchObject(goodMap);
-    expect(callAI).toHaveBeenCalledWith(TEACHING_MAP_SYSTEM_PROMPT, expect.any(String), 2500);
+    expect(callAI).toHaveBeenCalledWith(TEACHING_MAP_SYSTEM_PROMPT, expect.any(String), 8000);
+  });
+
+  it("salvages the sections that survived a response cut off mid-JSON", async () => {
+    // The real failure at the old token cap: whole sections arrived, then the
+    // response stopped before closing the array. Strict parsing fails and
+    // tryParseJSON returns null, which used to degrade the map to one Overview
+    // section with no clinical hook.
+    const truncated = JSON.stringify(goodMap).slice(0, -2);
+    callAI.mockResolvedValue(truncated);
+
+    const map = await analyzeLecture(lec, "text");
+
+    expect(map.clinicalHook).toContain("42-year-old");
+    expect(map.summary).toBe(goodMap.summary);
+    expect(map.sections).toHaveLength(1);
+    expect(map.sections[0].title).toBe("Zona fasciculata");
+  });
+
+  it("falls back when the response was cut off before any section completed", async () => {
+    callAI.mockResolvedValue(JSON.stringify(goodMap).slice(0, -40));
+    const map = await analyzeLecture(lec, "text");
+    // Nothing whole to keep, so the subtopic fallback is the honest answer.
+    expect(map.sections.map((s) => s.title)).toEqual(["Cortisol", "Aldosterone"]);
   });
 
   it("reads sections back from a fenced response", async () => {
