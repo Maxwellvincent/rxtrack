@@ -7,6 +7,7 @@
 
 import { isLocalMarkerUp, extractWithLocalMarker } from "./markerLocal";
 import { hasDatalabKey, extractWithDatalab } from "./markerDatalab";
+import { canUseDatalabProxy, extractWithDatalabProxy } from "./markerDatalabProxy";
 import { extractTextWithMistral, extractPDFWithMistral } from "./mistralOCR";
 import { normalizeMarkerResult } from "./ocrShared";
 
@@ -29,7 +30,7 @@ const hasMistral = () => !!import.meta.env.VITE_MISTRAL_API_KEY;
  * @throws only if every available provider fails.
  */
 export async function runOcrChain(file, opts = {}) {
-  const { onProgress, forceOcr = true, useLlm = false } = opts;
+  const { onProgress, forceOcr = true, useLlm = false, userId = null } = opts;
   const errors = [];
 
   // 0) Markdown/text upload (e.g. pre-verified marker OCR output) — no OCR needed.
@@ -55,7 +56,19 @@ export async function runOcrChain(file, opts = {}) {
     errors.push(`local: ${e.message}`);
   }
 
-  // 2) Datalab hosted marker.
+  // 2) Datalab through our Cloud Function. This is the one that works from a
+  //    browser — datalab.to sends no CORS headers, so the direct call below can
+  //    only ever fail with "Failed to fetch" from a page.
+  if (canUseDatalabProxy(userId)) {
+    try {
+      return await extractWithDatalabProxy(file, { userId, onProgress, forceOcr, useLlm });
+    } catch (e) {
+      console.warn("Datalab proxy failed, falling back:", e);
+      errors.push(`datalab-proxy: ${e.message}`);
+    }
+  }
+
+  // 2b) Direct Datalab — only reachable outside a browser (tests, Node scripts).
   if (hasDatalabKey()) {
     try {
       onProgress?.("☁️ Datalab marker…");

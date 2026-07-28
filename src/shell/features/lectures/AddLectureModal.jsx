@@ -84,7 +84,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           const { contentResult, method } = await extractWithSmartFallback(
             file,
             (msg) => setProgress(msg),
-            { detectNumber: (name) => parseLectureFilename(name).number }
+            { detectNumber: (name) => parseLectureFilename(name).number, userId }
           );
           quality = assessTextQuality(contentResult?.fullText || "");
           built = buildLectureFromExtraction({ filename: file.name, contentResult, method, blockId, termId });

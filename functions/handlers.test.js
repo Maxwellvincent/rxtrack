@@ -9,7 +9,13 @@
 // (`{ auth, data }`), exactly as firebase-functions v2 `onCall` would construct one.
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { buildRecognitionBankHandler, aiCompleteHandler, __setFirestoreForTests } from "./index.js";
+import {
+  buildRecognitionBankHandler,
+  aiCompleteHandler,
+  datalabConvertHandler,
+  __setFirestoreForTests,
+  __setStorageForTests,
+} from "./index.js";
 
 // ── Fake Admin Firestore (subset used by functions/index.js) ───────────────
 function makeFakeFirestore() {
@@ -135,7 +141,29 @@ beforeEach(() => {
   process.env.GEMINI_API_KEY = "fake-gemini-key";
   process.env.ANTHROPIC_API_KEY = "fake-anthropic-key";
   process.env.ALLOWED_UIDS = "u1";
+  process.env.DATALAB_API_KEY = "fake-datalab-key";
   global.fetch = vi.fn();
+});
+
+/** Minimal Storage bucket: just the file operations the proxy performs. */
+function makeFakeBucket({ exists = true } = {}) {
+  const deleted = [];
+  return {
+    deleted,
+    file: (path) => ({
+      exists: async () => [exists],
+      download: async () => [Buffer.from("%PDF-1.4 fake")],
+      delete: async () => {
+        deleted.push(path);
+      },
+    }),
+  };
+}
+
+const submitOk = { ok: true, json: async () => ({ success: true, request_check_url: "https://check/1" }) };
+const pollComplete = (markdown) => ({
+  ok: true,
+  json: async () => ({ status: "complete", markdown, images: {}, page_count: 3 }),
 });
 
 describe("aiComplete", () => {
@@ -227,6 +255,89 @@ describe("aiComplete", () => {
     expect(result).toEqual({ text: "fallback text" });
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
+});
+
+describe("datalabConvert", () => {
+  const path = "users/u1/ocr-inbox/lecture.pdf";
+
+  it("converts a stored PDF and deletes the upload afterwards", async () => {
+    const fakeBucket = makeFakeBucket();
+    __setStorageForTests(fakeBucket);
+    global.fetch.mockResolvedValueOnce(submitOk).mockResolvedValueOnce(pollComplete("# Hypothalamus"));
+
+    const result = await datalabConvertHandler({ auth: { uid: "u1" }, data: { storagePath: path } });
+
+    expect(result).toMatchObject({ markdown: "# Hypothalamus", pageCount: 3, method: "marker-datalab" });
+    expect(global.fetch.mock.calls[0][0]).toContain("datalab.to");
+    expect(global.fetch.mock.calls[0][1].headers["X-API-Key"]).toBe("fake-datalab-key");
+    expect(fakeBucket.deleted).toEqual([path]);
+  });
+
+  it("keeps the upload when asked to", async () => {
+    const fakeBucket = makeFakeBucket();
+    __setStorageForTests(fakeBucket);
+    global.fetch.mockResolvedValueOnce(submitOk).mockResolvedValueOnce(pollComplete("# Keep"));
+
+    await datalabConvertHandler({ auth: { uid: "u1" }, data: { storagePath: path, keepFile: true } });
+    expect(fakeBucket.deleted).toEqual([]);
+  });
+
+  it("refuses a path belonging to someone else", async () => {
+    __setStorageForTests(makeFakeBucket());
+    const req = { auth: { uid: "u1" }, data: { storagePath: "users/someone-else/ocr-inbox/x.pdf" } };
+    await expect(datalabConvertHandler(req)).rejects.toMatchObject({ code: "permission-denied" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unauthenticated or non-allowlisted caller before touching storage", async () => {
+    __setStorageForTests(makeFakeBucket());
+    await expect(datalabConvertHandler({ data: { storagePath: path } })).rejects.toMatchObject({
+      code: "unauthenticated",
+    });
+    await expect(
+      datalabConvertHandler({ auth: { uid: "intruder" }, data: { storagePath: path } })
+    ).rejects.toMatchObject({ code: "permission-denied" });
+  });
+
+  it("requires a storagePath", async () => {
+    __setStorageForTests(makeFakeBucket());
+    await expect(datalabConvertHandler({ auth: { uid: "u1" }, data: {} })).rejects.toMatchObject({
+      code: "invalid-argument",
+    });
+  });
+
+  it("reports a missing file rather than calling Datalab", async () => {
+    __setStorageForTests(makeFakeBucket({ exists: false }));
+    await expect(
+      datalabConvertHandler({ auth: { uid: "u1" }, data: { storagePath: path } })
+    ).rejects.toMatchObject({ code: "not-found" });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a failed conversion", async () => {
+    __setStorageForTests(makeFakeBucket());
+    global.fetch
+      .mockResolvedValueOnce(submitOk)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: "failed", error: "bad pdf" }) });
+
+    await expect(
+      datalabConvertHandler({ auth: { uid: "u1" }, data: { storagePath: path } })
+    ).rejects.toMatchObject({ code: "internal" });
+  });
+
+  // Real backoff sleeps (2s, 3s, 4.5s) run in this one, hence the longer budget:
+  // a 502 mid-job and a "processing" tick must not abort the conversion.
+  it("keeps polling through a transient error before completing", async () => {
+    __setStorageForTests(makeFakeBucket());
+    global.fetch
+      .mockResolvedValueOnce(submitOk)
+      .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({}) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: "processing" }) })
+      .mockResolvedValueOnce(pollComplete("# Eventually"));
+
+    const result = await datalabConvertHandler({ auth: { uid: "u1" }, data: { storagePath: path } });
+    expect(result.markdown).toBe("# Eventually");
+  }, 20000);
 });
 
 describe("buildRecognitionBank", () => {

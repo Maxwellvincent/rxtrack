@@ -32,6 +32,16 @@ function __setFirestoreForTests(instance) {
   firestoreOverride = instance;
 }
 
+/** Same seam for Storage, so the Datalab proxy is testable without a bucket. */
+let storageOverride = null;
+function bucket() {
+  if (storageOverride) return storageOverride;
+  return admin.storage().bucket();
+}
+function __setStorageForTests(instance) {
+  storageOverride = instance;
+}
+
 const GEMINI = defineSecret("GEMINI_API_KEY");
 const ANTHROPIC = defineSecret("ANTHROPIC_API_KEY");
 const ALLOWED_UIDS = defineString("ALLOWED_UIDS", { default: "" });
@@ -316,14 +326,100 @@ async function aiCompleteHandler(req) {
   return { data };
 }
 
+// ── Datalab marker OCR (server-side proxy) ──────────────────────────────────
+// The browser cannot call Datalab directly: the API sends no CORS headers, so
+// every client attempt died as "TypeError: Failed to fetch" and the app silently
+// fell back to pdf.js text extraction. Proxying also keeps the key server-side.
+//
+// The PDF arrives via Storage rather than in the call payload — callable
+// requests cap out around 10MB and a slide deck is routinely 30MB+.
+const DATALAB = defineSecret("DATALAB_API_KEY");
+const DATALAB_URL = process.env.DATALAB_URL || "https://www.datalab.to/api/v1/convert";
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Poll the check URL until the conversion finishes, fails, or we run out of budget. */
+async function pollDatalab(checkUrl, apiKey, budgetMs) {
+  const deadline = Date.now() + budgetMs;
+  let delay = 2000;
+  while (Date.now() < deadline) {
+    await sleep(delay);
+    delay = Math.min(delay * 1.5, 10000);
+    const res = await fetch(checkUrl, { headers: { "X-API-Key": apiKey } });
+    if (!res.ok) continue; // a transient 5xx during a long job is not fatal
+    const body = await res.json();
+    if (body.status === "complete") return body;
+    if (body.status === "failed") {
+      throw new HttpsError("internal", `Datalab failed: ${body.error || "no reason given"}`);
+    }
+  }
+  throw new HttpsError("deadline-exceeded", "Datalab did not finish in time");
+}
+
+async function datalabConvertHandler(req) {
+  assertAllowed(req);
+  const { storagePath, forceOcr = true, useLlm = false, keepFile = false } = req.data || {};
+  if (!storagePath) throw new HttpsError("invalid-argument", "storagePath required");
+
+  // A caller may only convert files under its own prefix.
+  const prefix = `users/${req.auth.uid}/`;
+  if (!storagePath.startsWith(prefix)) {
+    throw new HttpsError("permission-denied", "storagePath outside your own folder");
+  }
+
+  const apiKey = DATALAB.value();
+  if (!apiKey) throw new HttpsError("failed-precondition", "DATALAB_API_KEY not configured");
+
+  const file = bucket().file(storagePath);
+  const [exists] = await file.exists();
+  if (!exists) throw new HttpsError("not-found", `no such file: ${storagePath}`);
+  const [buffer] = await file.download();
+
+  const form = new FormData();
+  form.append("file", new Blob([buffer], { type: "application/pdf" }), storagePath.split("/").pop());
+  form.append("output_format", "markdown");
+  form.append("paginate", "true"); // {N}----- page markers, so the client can split pages
+  form.append("force_ocr", String(forceOcr));
+  form.append("use_llm", String(useLlm));
+
+  const submit = await fetch(DATALAB_URL, { method: "POST", headers: { "X-API-Key": apiKey }, body: form });
+  if (!submit.ok) {
+    throw new HttpsError("internal", `Datalab submit failed: ${submit.status} ${await submit.text()}`);
+  }
+  const job = await submit.json();
+  if (!job.success || !job.request_check_url) {
+    throw new HttpsError("internal", `Datalab rejected the job: ${job.error || "no request_check_url"}`);
+  }
+
+  const result = await pollDatalab(job.request_check_url, apiKey, 7 * 60 * 1000);
+
+  // The upload was a transport detail; don't leave 30MB of it behind per lecture.
+  if (!keepFile) {
+    try {
+      await file.delete();
+    } catch (e) {
+      logger.warn("datalabConvert: could not delete temp upload", { storagePath, err: e?.message });
+    }
+  }
+
+  return {
+    markdown: result.markdown || "",
+    images: result.images || {},
+    pageCount: result.page_count ?? null,
+    method: "marker-datalab",
+  };
+}
+
 // ── Exports ──────────────────────────────────────────────────────────────
 // Raw handlers exported for in-process unit testing (Task 7, Step 4) — call
 // directly with a fake { auth: { uid }, data } request, no emulator needed.
 exports.buildRecognitionBankHandler = buildRecognitionBankHandler;
 exports.aiCompleteHandler = aiCompleteHandler;
+exports.datalabConvertHandler = datalabConvertHandler;
 exports.assertAllowed = assertAllowed;
 exports.parseVignettes = parseVignettes;
 exports.__setFirestoreForTests = __setFirestoreForTests;
+exports.__setStorageForTests = __setStorageForTests;
 
 // minInstances:1 keeps one instance warm so callers don't hit Cloud Run
 // cold-start "no available instance" aborts (seen after re-enabling billing).
@@ -335,4 +431,10 @@ exports.buildRecognitionBank = onCall(
 exports.aiComplete = onCall(
   { secrets: [GEMINI, ANTHROPIC], memory: "512MiB", timeoutSeconds: 120 },
   aiCompleteHandler
+);
+// Marker OCR is minutes, not seconds, and holds a 30MB buffer while it runs:
+// 9 minutes and 1GiB, against the 7-minute polling budget inside the handler.
+exports.datalabConvert = onCall(
+  { secrets: [DATALAB], memory: "1GiB", timeoutSeconds: 540 },
+  datalabConvertHandler
 );

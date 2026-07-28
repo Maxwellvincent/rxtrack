@@ -81,7 +81,9 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
     try {
       onProgress?.("🔍 Running OCR...");
       console.log("Attempting OCR (marker → datalab → mistral)...");
-      const ocrExtract = await extractTextSmart(file, { onProgress });
+      // userId lets the chain reach the Datalab proxy; without it that tier is
+      // skipped and a browser can only fall through to direct text extraction.
+      const ocrExtract = await extractTextSmart(file, { onProgress, userId: opts?.userId ?? null });
       const chunks = ocrExtract.chunks || ocrExtract;
       const slideImages = ocrExtract.slideImages || [];
       console.log("OCR success, chunks:", chunks.length, "method:", ocrExtract.method);
