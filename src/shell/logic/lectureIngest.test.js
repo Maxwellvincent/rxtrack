@@ -3,6 +3,7 @@ import {
   parseLectureFilename,
   chunkMarkdown,
   buildLectureRecord,
+  buildLectureFromExtraction,
   upsertLecture,
 } from "./lectureIngest.js";
 
@@ -84,6 +85,82 @@ describe("buildLectureRecord", () => {
   it("carries a lecture date when one is given", () => {
     const { lecture } = buildLectureRecord({ filename: "a.md", text, blockId: "b1", lectureDate: "2026-09-01" });
     expect(lecture.lectureDate).toBe("2026-09-01");
+  });
+});
+
+describe("buildLectureFromExtraction", () => {
+  const contentResult = {
+    fullText: "Cortisol is released from the adrenal cortex under ACTH control, and much more besides.",
+    chunks: [{ markdown: "# Adrenal" }, { markdown: "Cortisol" }],
+    slideImages: ["slide1"],
+    subtopics: ["Adrenal cortex"],
+    keyTerms: ["cortisol"],
+    pageCount: 2,
+    extractionMethod: "marker-local",
+    lectureTitle: "ER LEC 06",
+  };
+
+  it("builds the same record shape the markdown path writes", () => {
+    const { lecture } = buildLectureFromExtraction({
+      filename: "ER LEC 06 - Adrenal Cortex.pdf",
+      contentResult,
+      method: "marker-local",
+      blockId: "b1",
+      termId: "t1",
+      idgen: () => "pdf-id",
+    });
+
+    expect(lecture).toMatchObject({
+      id: "pdf-id",
+      blockId: "b1",
+      termId: "t1",
+      lectureType: "LEC",
+      lectureNumber: 6,
+      lectureTitle: "Adrenal Cortex",
+      extractionMethod: "marker-local",
+      pageCount: 2,
+    });
+    expect(lecture.chunks).toHaveLength(2);
+    expect(lecture.slideImages).toEqual(["slide1"]);
+    expect(lecture.subtopics).toEqual(["Adrenal cortex"]);
+  });
+
+  it("takes the extractor's title only when the filename is a bare slot", () => {
+    const { lecture } = buildLectureFromExtraction({
+      filename: "ER LEC 06.pdf",
+      contentResult: { ...contentResult, lectureTitle: "The Adrenal Cortex" },
+      blockId: "b1",
+    });
+    expect(lecture.lectureTitle).toBe("The Adrenal Cortex");
+  });
+
+  it("joins the chunks when the extractor gave no fullText", () => {
+    const { lecture } = buildLectureFromExtraction({
+      filename: "ER LEC 06 - Adrenal.pdf",
+      contentResult: {
+        chunks: [{ text: "Cortisol is released from the adrenal cortex" }, { text: "under ACTH control." }],
+      },
+      blockId: "b1",
+    });
+    expect(lecture.fullText).toBe("Cortisol is released from the adrenal cortex\n\nunder ACTH control.");
+    expect(lecture.extractionMethod).toBe("pdf-upload");
+  });
+
+  it("names the scanned-PDF case instead of saving an empty lecture", () => {
+    const scanned = buildLectureFromExtraction({
+      filename: "ER LEC 06.pdf",
+      contentResult: { fullText: "   ", chunks: [] },
+      method: "none",
+      blockId: "b1",
+    });
+    expect(scanned.error).toMatch(/scanned images/);
+    expect(scanned.lecture).toBeUndefined();
+  });
+
+  it("refuses a missing block", () => {
+    expect(buildLectureFromExtraction({ filename: "a.pdf", contentResult, blockId: null }).error).toMatch(
+      /Pick a block/
+    );
   });
 });
 

@@ -1,16 +1,25 @@
 /**
  * SP1 T6.1 — adding a lecture from the shell.
  *
- * The markdown path only: convert with pdf2md locally, drop the .md here. App
- * still owns PDF/OCR ingest. Re-adding the same lecture replaces it and
- * tombstones the old id, so a re-upload cannot leave the duplicate that the
- * dedupe work had to clean up.
+ * Markdown (pdf2md locally, drop the .md here) or the PDF itself, which runs
+ * through the same extraction chain App uses — marker/datalab/mistral OCR,
+ * falling back to pdfplumber. What App still owns is the AI enrichment after
+ * extraction: objectives, teaching map, subtopics.
+ *
+ * Re-adding the same lecture replaces it and tombstones the old id, so a
+ * re-upload cannot leave the duplicate that the dedupe work had to clean up.
  */
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
 import { pushAllLocalDataToSupabase } from "../../../supabase.js";
-import { buildLectureRecord, upsertLecture } from "../../logic/lectureIngest.js";
+import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
+import {
+  buildLectureRecord,
+  buildLectureFromExtraction,
+  parseLectureFilename,
+  upsertLecture,
+} from "../../logic/lectureIngest.js";
 
 /** Same list App writes, so a superseded lecture stays deleted after a sync. */
 function tombstone(lecture) {
@@ -35,18 +44,50 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
+  const [progress, setProgress] = useState("");
 
   const onFile = useCallback(
     async (file) => {
-      setError(""); setDone(""); setPreview(null);
+      setError(""); setDone(""); setPreview(null); setProgress("");
       if (!file) return;
-      const text = await file.text();
-      const built = buildLectureRecord({ filename: file.name, text, blockId, termId });
+
+      const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+      let built;
+      let quality = null;
+
+      if (isPdf) {
+        setBusy(true);
+        try {
+          const { contentResult, method } = await extractWithSmartFallback(
+            file,
+            (msg) => setProgress(msg),
+            { detectNumber: (name) => parseLectureFilename(name).number }
+          );
+          quality = assessTextQuality(contentResult?.fullText || "");
+          built = buildLectureFromExtraction({ filename: file.name, contentResult, method, blockId, termId });
+        } catch (e) {
+          setError("Could not read that PDF: " + (e?.message || String(e)));
+          return;
+        } finally {
+          setBusy(false);
+          setProgress("");
+        }
+      } else {
+        const text = await file.text();
+        built = buildLectureRecord({ filename: file.name, text, blockId, termId });
+      }
+
       if (built.error) { setError(built.error); return; }
 
       const current = lecturesStore.read(userId) || [];
       const { action, replacedId } = upsertLecture(current, built.lecture);
-      setPreview({ lecture: built.lecture, action, replacedId, chars: text.length });
+      setPreview({
+        lecture: built.lecture,
+        action,
+        replacedId,
+        chars: built.lecture.fullText?.length ?? built.lecture.chunks.reduce((n, c) => n + (c.markdown || c.text || "").length, 0),
+        quality,
+      });
     },
     [blockId, termId, userId]
   );
@@ -67,7 +108,12 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setPreview(null);
       onAdded?.(lecture);
     } catch (e) {
-      setError("Save failed: " + (e?.message || String(e)));
+      const msg = e?.message || String(e);
+      setError(
+        /quota/i.test(msg)
+          ? "Out of local storage — this lecture's text does not fit. Run the storage compaction, then try again."
+          : "Save failed: " + msg
+      );
     } finally {
       setBusy(false);
     }
@@ -78,19 +124,21 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       <div className="w-full max-w-lg rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">Add a lecture</div>
         <div className="mb-4 text-xs text-text-3">
-          Convert the PDF with <span className="font-mono">pdf2md</span> first, then drop the .md here. Type, number
-          and title are read from the filename. PDF and OCR upload still live in the old shell.
+          Drop the PDF in and it runs through OCR here, or convert it with{" "}
+          <span className="font-mono">pdf2md</span> first and drop the .md — that path is faster and needs no AI.
+          Type, number and title are read from the filename.
         </div>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         {done && <div className="mb-3 font-mono text-[11px] text-good">{done}</div>}
+        {progress && <div className="mb-3 font-mono text-[11px] text-text-2">{progress}</div>}
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{preview?.lecture?.filename || "Choose a lecture .md / .txt"}</span>
+          <span className="text-text-2">{preview?.lecture?.filename || "Choose a lecture .pdf / .md / .txt"}</span>
           <span className="font-mono text-[10px] text-text-3">browse</span>
           <input
             type="file"
-            accept=".md,.markdown,.txt"
+            accept=".pdf,.md,.markdown,.txt"
             className="hidden"
             disabled={busy}
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onFile(f); }}
@@ -105,8 +153,15 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             <div className="mt-1 font-mono text-[10px] text-text-3">
               {preview.chars.toLocaleString()} chars · {preview.lecture.chunks.length} chunk
               {preview.lecture.chunks.length === 1 ? "" : "s"}
+              {preview.lecture.extractionMethod !== "markdown-upload" &&
+                ` · ${preview.lecture.extractionMethod}`}
               {preview.action === "replaced" && " · replaces the existing lecture in this slot"}
             </div>
+            {preview.quality?.quality === "poor" && (
+              <div className="mt-2 text-[11px] text-warn">
+                ⚠ {preview.quality.reason}. Convert it with pdf2md instead if the text looks wrong.
+              </div>
+            )}
             <label className="mt-2 flex items-center gap-2 font-mono text-[10px] text-text-3">
               date (optional — lets Today schedule it)
               <input

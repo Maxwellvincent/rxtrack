@@ -1,12 +1,12 @@
 /**
- * SP1 T6.1 — creating a lecture from a text file, in the shell.
+ * SP1 T6.1 — creating a lecture from a file, in the shell.
  *
- * App's upload pipeline is 1,154 lines covering PDF.js, Mistral OCR, an AI
- * extraction queue and cloud push. This is not that: it is the markdown path,
- * which is the one that actually gets used (pdf2md locally, then drop the .md
- * in). PDF and OCR stay in App until they can be ported with the same care.
+ * Two paths, one record shape: markdown (pdf2md locally, drop the .md in) and
+ * PDF, which goes through the extraction layer in src/ingest/pdfText.js first.
+ * What App still owns after extraction is the AI enrichment — objectives, the
+ * teaching map, subtopics — and the batch queue around it.
  *
- * Pure — the caller owns the store writes.
+ * Pure — the caller owns the store writes and the extraction call.
  */
 
 /** "MSK Lecture 27 - Histology of the Skin.md" → type LEC, number 27, title. */
@@ -87,6 +87,83 @@ export function buildLectureRecord({ filename, text, blockId, termId = null, lec
       extractionMethod: "markdown-upload",
       uploadedAt: new Date().toISOString(),
       createdAt: new Date().toISOString(),
+    },
+  };
+}
+
+/** Body text of a chunk, whichever shape the extractor produced. */
+function chunkBody(chunk) {
+  if (typeof chunk === "string") return chunk;
+  return chunk?.markdown || chunk?.text || "";
+}
+
+/**
+ * Build the lecture record from a PDF extraction (src/ingest/pdfText.js).
+ *
+ * The filename stays the authority on type/number/title — it is how Louis names
+ * lectures and it is what the .md path uses — with the extractor's own title
+ * only filling in when the filename has nothing but the type and number in it.
+ */
+export function buildLectureFromExtraction({
+  filename,
+  contentResult,
+  method = null,
+  blockId,
+  termId = null,
+  lectureDate = null,
+  idgen,
+}) {
+  if (!blockId) return { error: "Pick a block first." };
+
+  const chunks = contentResult?.chunks?.length
+    ? contentResult.chunks
+    : contentResult?.sections || [];
+  const fullText = String(
+    contentResult?.fullText || chunks.map(chunkBody).join("\n\n") || ""
+  ).trim();
+
+  if (!fullText || fullText.length < 50) {
+    return {
+      error:
+        method === "none" || !fullText
+          ? "No text came out of that PDF — it is probably scanned images. Convert it with pdf2md and upload the .md."
+          : "That PDF gave almost no text.",
+    };
+  }
+
+  const { type, number, title } = parseLectureFilename(filename);
+  const base = String(filename || "").replace(/\.[a-z0-9]+$/i, "").trim();
+  // A filename like "ER LEC 02" carries no title of its own; take the extractor's.
+  const titleIsBareSlot = title === base;
+  const lectureTitle =
+    (titleIsBareSlot && String(contentResult?.lectureTitle || "").trim()) || title;
+
+  const newId =
+    idgen?.() ??
+    (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `lec_${Date.now()}`);
+  const now = new Date().toISOString();
+
+  return {
+    lecture: {
+      id: newId,
+      blockId,
+      termId,
+      lectureType: type,
+      lectureNumber: number ?? contentResult?.lectureNumber ?? null,
+      lectureTitle,
+      filename,
+      lectureDate,
+      chunks,
+      fullText,
+      subject: contentResult?.subject || contentResult?.discipline || "",
+      subtopics: contentResult?.subtopics || [],
+      keyTerms: contentResult?.keyTerms || [],
+      summary: contentResult?.summary || "",
+      slideImages: contentResult?.slideImages || [],
+      pageCount: contentResult?.pageCount ?? chunks.length,
+      extractionMethod: contentResult?.extractionMethod || method || "pdf-upload",
+      uploadedAt: now,
+      createdAt: now,
     },
   };
 }
