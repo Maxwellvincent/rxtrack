@@ -25,6 +25,15 @@ import {
   upsertLecture,
 } from "../../logic/lectureIngest.js";
 
+/** Commands over the objectives store, built per call so no stale store is captured. */
+function makeObjectiveCommands(userId) {
+  return createObjectiveCommands({
+    read: () => objectivesStore.read(userId) || {},
+    write: (next) => objectivesStore.write(userId, next),
+    notify: () => { try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ } },
+  });
+}
+
 /** Text the objective extractor reads: whatever the record actually carries. */
 function lectureText(lecture) {
   if (lecture?.fullText) return lecture.fullText;
@@ -124,12 +133,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           return;
         }
 
-        const commands = createObjectiveCommands({
-          read: () => objectivesStore.read(userId) || {},
-          write: (next) => objectivesStore.write(userId, next),
-          notify: () => { try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ } },
-        });
-        commands.replaceLectureObjectives(blockId, lec.id, found);
+        makeObjectiveCommands(userId).replaceLectureObjectives(blockId, lec.id, found);
         if (userId) await pushAllLocalDataToSupabase(userId);
 
         const coded = found.filter((o) => String(o.code || "").startsWith("SOM.")).length;
@@ -197,7 +201,14 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       const current = lecturesStore.read(userId) || [];
       const { lectures, replacedId } = upsertLecture(current, lecture);
 
-      if (replacedId) tombstone(current.find((l) => l.id === replacedId));
+      if (replacedId) {
+        tombstone(current.find((l) => l.id === replacedId));
+        // The superseded lecture's objectives point at an id that is about to
+        // stop existing. Drop them here, or they survive as rows linked to a
+        // deleted lecture — the exact orphan the alignment code has to clean up
+        // later. The fresh extraction below replaces them.
+        makeObjectiveCommands(userId).replaceLectureObjectives(blockId, replacedId, []);
+      }
       lecturesStore.write(userId, lectures);
       if (userId) await pushAllLocalDataToSupabase(userId);
 
@@ -219,7 +230,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap]);
+  }, [preview, lectureDate, blockId, userId, onAdded, extractObjectives, buildTeachingMap]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
