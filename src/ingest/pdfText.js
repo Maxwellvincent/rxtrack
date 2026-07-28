@@ -2,8 +2,8 @@
  * SP1 T6.1 — PDF text extraction, lifted out of App.jsx unchanged.
  *
  * This is the first layer of App's upload pipeline: file in, text/chunks out.
- * It has no App state in it, so both shells can call it. The AI enrichment that
- * follows extraction (objectives, teaching map, subtopics) still lives in App.
+ * It has no App state in it, so both shells can call it. What follows extraction
+ * lives in ./objectives.js and ./teachingMap.js.
  */
 import { loadPDFJS, parseExamPDF } from "../examParser";
 import { extractTextSmart } from "../ocrExtract";

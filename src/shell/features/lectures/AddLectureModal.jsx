@@ -3,8 +3,8 @@
  *
  * Markdown (pdf2md locally, drop the .md here) or the PDF itself, which runs
  * through the same extraction chain App uses — marker/datalab/mistral OCR,
- * falling back to pdfplumber. What App still owns is the AI enrichment after
- * extraction: objectives, teaching map, subtopics.
+ * falling back to pdfplumber. Objectives and the teaching map run as explicit
+ * steps after the save, each costing one model call.
  *
  * Re-adding the same lecture replaces it and tombstones the old id, so a
  * re-upload cannot leave the duplicate that the dedupe work had to clean up.

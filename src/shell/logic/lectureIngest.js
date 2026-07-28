@@ -3,8 +3,8 @@
  *
  * Two paths, one record shape: markdown (pdf2md locally, drop the .md in) and
  * PDF, which goes through the extraction layer in src/ingest/pdfText.js first.
- * What App still owns after extraction is the AI enrichment — objectives, the
- * teaching map, subtopics — and the batch queue around it.
+ * Objectives and the teaching map are separate steps the caller runs after the
+ * record is saved; App still owns the batch upload queue.
  *
  * Pure — the caller owns the store writes and the extraction call.
  */
@@ -156,7 +156,6 @@ export function buildLectureFromExtraction({
       chunks,
       fullText,
       subject: contentResult?.subject || contentResult?.discipline || "",
-      subtopics: contentResult?.subtopics || [],
       keyTerms: contentResult?.keyTerms || [],
       summary: contentResult?.summary || "",
       slideImages: contentResult?.slideImages || [],

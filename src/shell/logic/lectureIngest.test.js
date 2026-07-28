@@ -122,7 +122,8 @@ describe("buildLectureFromExtraction", () => {
     });
     expect(lecture.chunks).toHaveLength(2);
     expect(lecture.slideImages).toEqual(["slide1"]);
-    expect(lecture.subtopics).toEqual(["Adrenal cortex"]);
+    // No subtopics: the AI-guessed labels were cut — objectives carry the curriculum.
+    expect(lecture.subtopics).toBeUndefined();
   });
 
   it("takes the extractor's title only when the filename is a bare slot", () => {

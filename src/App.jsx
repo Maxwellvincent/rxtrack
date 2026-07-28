@@ -1108,48 +1108,6 @@ function mergeObjectives(existing, incoming) {
   return [...existing, ...toAdd];
 }
 
-/** Match objectives to a subtopic title by significant-word overlap (render-time / upload stamp). */
-function matchObjectivesToSubtopic(subtopicTitle, objectives) {
-  const titleWords = String(subtopicTitle || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]/g, "")
-    .split(/\s+/)
-    .filter((w) => w.length > 3);
-  if (titleWords.length === 0) return [];
-  return (objectives || []).filter((obj) => {
-    const objText = (obj.text || obj.objective || "").toLowerCase();
-    return titleWords.some((word) => word && objText.includes(word));
-  });
-}
-
-/** After subtopics exist, stamp `subtopic` on objectives for this lecture (keyword match). */
-function stampLectureObjectivesWithSubtopics(blockId, lec) {
-  try {
-    if (blockId == null || blockId === "" || !lec?.id) return;
-    const subtopics = Array.isArray(lec.subtopics) ? lec.subtopics : [];
-    if (!subtopics.length) return;
-    const allObjs = getMSKObjectives(blockId);
-    if (!allObjs.length) return;
-    const linked = allObjs.filter((o) => o.linkedLecId === lec.id);
-    if (!linked.length) return;
-    const other = allObjs.filter((o) => o.linkedLecId !== lec.id);
-    const updated = linked.map((obj) => {
-      const objText = (obj.text || obj.objective || "").toLowerCase();
-      const matchedSubtopic = subtopics.find((st) => {
-        const stWords = String(st)
-          .toLowerCase()
-          .split(/\s+/)
-          .filter((w) => w.length > 3);
-        return stWords.some((w) => objText.includes(w));
-      });
-      return { ...obj, subtopic: matchedSubtopic || null };
-    });
-    saveMSKObjectives(blockId, [...other, ...updated]);
-  } catch (e) {
-    console.warn("stampLectureObjectivesWithSubtopics:", e?.message || e);
-  }
-}
-
 /** Drop duplicate objective rows by id (keeps first occurrence). */
 function dedupeObjectivesById(updatedObjs) {
   const seen = new Set();
@@ -4606,10 +4564,9 @@ async function detectMeta(text) {
     "Anatomy, Physiology, Biochemistry, Microbiology, Immunology, Pathology, Pharmacology, " +
     "Neuroscience, Embryology, Histology, Genetics, Cell Biology, Behavioral Science, Biostatistics\n\n" +
     "Return exactly this shape:\n" +
-    "{\"subject\":\"Physiology\",\"subtopics\":[\"Topic A\",\"Topic B\",\"Topic C\"],\"keyTerms\":[\"term1\",\"term2\",\"term3\",\"term4\",\"term5\"],\"lectureTitle\":\"Specific Title\",\"lectureNumber\":50,\"lectureType\":\"Lecture\"}\n\n" +
+    "{\"subject\":\"Physiology\",\"keyTerms\":[\"term1\",\"term2\",\"term3\",\"term4\",\"term5\"],\"lectureTitle\":\"Specific Title\",\"lectureNumber\":50,\"lectureType\":\"Lecture\"}\n\n" +
     "Rules:\n" +
     "- subject must be ONE of the subjects listed above, pick the closest match\n" +
-    "- subtopics must be 3-6 specific topics covered in this lecture\n" +
     "- keyTerms must be 5-8 high yield medical terms from the content\n" +
     "- lectureTitle must be specific, not generic\n" +
     "- lectureNumber: extract the lecture number as a number only (e.g. 50), or null if not found. Look for patterns like 'Lecture 50', 'Lec 50', 'L50', 'FTM Lecture 50' in the content\n" +
@@ -4749,8 +4706,8 @@ async function genTopicVignettes(cfg) {
     const qType = questionType ?? "clinicalVignette";
     const focusLine =
       scope === "full"
-        ? "Cover ALL of these subtopics equally: " + (lecture?.subtopics || []).join(", ")
-        : "Focus on subtopic: " + (subtopic || "Review");
+        ? "Cover the whole lecture evenly."
+        : "Focus on: " + (subtopic || "Review");
     const BATCH_SIZE = 5;
 
     if (count <= BATCH_SIZE) {
@@ -5417,16 +5374,13 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
   const [qCount, setQCount] = useState(cfg.qCount || 10);
   const [difficulty, setDifficulty] = useState(cfg.difficulty || (storedDiff !== "medium" ? storedDiff : "auto"));
   const [mode, setMode] = useState(cfg.mode || "lecture");
+  // Lecture quizzes cover the whole lecture: the per-subtopic scope went with
+  // the AI subtopics, whose labels objectives already say better.
   const scopeOptions =
     cfg.mode === "block"
       ? [{ value: "block", label: "🏛 Block Exam", desc: "All lectures in block" }]
-      : [
-          { value: "subtopic", label: "📌 This Subtopic", desc: cfg.subtopic === "__full__" ? "Full lecture" : (cfg.subtopic || "Current topic") },
-          { value: "full", label: "📚 Full Lecture", desc: "All subtopics combined" },
-        ];
-  const [scope, setScope] = useState(
-    cfg.mode === "block" ? "block" : cfg.subtopic === "__full__" ? "full" : "subtopic"
-  );
+      : [{ value: "full", label: "📚 Full Lecture", desc: "The whole lecture" }];
+  const [scope, setScope] = useState(cfg.mode === "block" ? "block" : "full");
   const tc = termColor || T.red;
   const MONO = "var(--font-sans)";
   const SERIF = "var(--font-display)";
@@ -5457,7 +5411,7 @@ function SessionConfig({ cfg, onStart, onBack, termColor, getTopicDifficulty, pe
           ← Back
         </button>
         <h1 style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 900, letterSpacing: -0.5, marginBottom: 6, color: T.text1 }}>
-          {cfg.mode === "block" ? "Block Exam" : (cfg.subtopic === "__full__" ? "Full Lecture Quiz" : cfg.subtopic)}
+          {cfg.mode === "block" ? "Block Exam" : "Full Lecture Quiz"}
         </h1>
         <p style={{ fontFamily: SANS, color: T.text3, fontSize: 14 }}>
           {cfg.mode === "block"
@@ -8520,7 +8474,6 @@ function LecListRow({
   onClose,
   /** Prefer this for header toggle — avoids stale state (functional update at parent). */
   onExpandToggle,
-  onStart,
   onDeepLearn,
   handleDeepLearnStart,
   handleRapidFireStart,
@@ -8537,9 +8490,7 @@ function LecListRow({
   updateObjective,
   currentBlock,
   startObjectiveQuiz,
-  getLectureSubtopicCompletion,
   getLecCompletion,
-  makeSubtopicKey,
   performanceHistory = {},
   reanalyzeLecture,
   compactLayout,
@@ -8919,7 +8870,6 @@ function LecListRow({
               onClose={onClose}
               onExpandToggle={onExpandToggle}
               isExpanded={true}
-              onStart={onStart}
               onDeepLearn={onDeepLearn}
               handleDeepLearnStart={handleDeepLearnStart}
               handleRapidFireStart={handleRapidFireStart}
@@ -8938,9 +8888,7 @@ function LecListRow({
               startObjectiveQuiz={startObjectiveQuiz}
               quizLoadingId={quizLoadingId}
               quizErrorId={quizErrorId}
-              getLectureSubtopicCompletion={getLectureSubtopicCompletion}
               getLecCompletion={getLecCompletion}
-              makeSubtopicKey={makeSubtopicKey}
               performanceHistory={performanceHistory}
               reanalyzeLecture={reanalyzeLecture}
               hideRowDiv
@@ -9770,288 +9718,6 @@ function LecListRow({
                 </div>
               );
             })()}
-          <div style={{ padding: "12px 0 10px" }}>
-            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>SUBTOPICS</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-              {(() => {
-                const getSubtopicCompletion = (lec, si, subName, blockId) => {
-                  const blockObjs = getBlockObjectives?.(blockId) || [];
-                  const lecObjs = blockObjs.filter(
-                    (o) =>
-                      o.linkedLecId === lec.id ||
-                      (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                  );
-                  if (lecObjs.length === 0) {
-                    return {
-                      pct: 0,
-                      mastered: 0,
-                      total: 0,
-                      sessions: 0,
-                      weakness: null,
-                      struggling: 0,
-                      untested: 0,
-                    };
-                  }
-                  const objsToUse = matchObjectivesToSubtopic(subName, lecObjs);
-                  if (objsToUse.length === 0) {
-                    const lecPct = getLecCompletion ? getLecCompletion(lec, blockId) : 0;
-                    return {
-                      pct: lecPct,
-                      mastered: 0,
-                      total: 0,
-                      sessions: 0,
-                      fallback: true,
-                      struggling: 0,
-                      untested: 0,
-                      weakness: null,
-                    };
-                  }
-                  const mastered = objsToUse.filter((o) => o.status === "mastered").length;
-                  const inProgress = objsToUse.filter((o) => o.status === "inprogress").length;
-                  const struggling = objsToUse.filter((o) => o.status === "struggling").length;
-                  const untested = objsToUse.filter((o) => o.status === "untested").length;
-                  const total = objsToUse.length;
-                  const pct = Math.round(((mastered + inProgress * 0.5) / total) * 100);
-                  const weakness =
-                    struggling > 0
-                      ? "critical"
-                      : pct < 50 && untested > 0
-                        ? "weak"
-                        : pct < 80 && total > 0
-                          ? "review"
-    : null;
-                  const subKey = makeSubtopicKey ? makeSubtopicKey(lec.id, si, blockId) : null;
-                  const subPerf = subKey ? performanceHistory[subKey] : null;
-                  const sessions = subPerf?.sessions?.length || 0;
-                  return {
-                    pct,
-                    mastered,
-                    total,
-                    sessions,
-                    lastScore: subPerf?.lastScore,
-                    struggling,
-                    untested,
-                    weakness,
-                  };
-                };
-                return (lec.subtopics || []).map((sub, si) => {
-                  const {
-                    pct,
-                    mastered,
-                    total,
-                    sessions,
-                    lastScore,
-                    weakness,
-                  } = getSubtopicCompletion(lec, si, sub, currentBlock?.id);
-                  const isDone = pct >= 100;
-                  const ringColor = isDone
-                    ? T.statusGood
-                    : weakness === "critical"
-                      ? T.statusBad
-                      : weakness === "weak"
-                        ? T.statusWarn
-                        : pct >= 80
-                          ? tc
-                          : T.statusWarn;
-                  const rowBg = isDone
-                    ? T.statusGoodBg
-                    : weakness === "critical"
-                      ? T.statusBadBg
-                      : weakness === "weak"
-                        ? T.statusWarnBg
-                        : T.inputBg;
-                  const rowBorder = isDone
-                    ? T.statusGoodBorder
-                    : weakness === "critical"
-                      ? T.statusBadBorder
-                      : weakness === "weak"
-                        ? T.statusWarnBorder
-                        : T.border1;
-                  return (
-                    <div
-                      key={si}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "9px 14px",
-                        borderRadius: 8,
-                        marginBottom: 4,
-                        background: rowBg,
-                        border: "1px solid " + rowBorder,
-                        transition: "all 0.2s",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: "50%",
-                          flexShrink: 0,
-                          position: "relative",
-                          background: `conic-gradient(${ringColor} ${pct * 3.6}deg, ${T.border1} 0deg)`,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 22,
-                            height: 22,
-                            borderRadius: "50%",
-                            background: T.cardBg,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontFamily: SANS,
-                              fontSize: 8,
-                              fontWeight: 700,
-                              color: isDone ? T.statusGood : weakness ? ringColor : pct > 0 ? tc : T.text3,
-                            }}
-                          >
-                            {isDone ? "✓" : pct + "%"}
-                          </span>
-                        </div>
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            overflow: "hidden",
-                            minWidth: 0,
-                          }}
-                        >
-                          <span
-                            style={{
-                              fontFamily: SANS,
-                              color: isDone ? T.statusGood : T.text1,
-                              fontSize: 12,
-                              fontWeight: isDone ? 700 : 400,
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {isDone && "✓ "}{sub}
-                          </span>
-                          {weakness && (
-                            <span
-                              style={{
-                                fontFamily: SANS,
-                                fontSize: 9,
-                                fontWeight: 700,
-                                padding: "2px 7px",
-                                borderRadius: 4,
-                                flexShrink: 0,
-                                background:
-                                  weakness === "critical"
-                                    ? T.statusBadBg
-                                    : weakness === "weak"
-                                      ? T.statusWarnBg
-                                      : T.border1,
-                                color:
-                                  weakness === "critical"
-                                    ? T.statusBad
-                                    : weakness === "weak"
-                                      ? T.statusWarn
-                                      : T.text3,
-                                border:
-                                  "1px solid " +
-                                  (weakness === "critical"
-                                    ? T.statusBadBorder
-                                    : weakness === "weak"
-                                      ? T.statusWarnBorder
-                                      : T.border2),
-                              }}
-                            >
-                              {weakness === "critical"
-                                ? "⚠ Struggling"
-                                : weakness === "weak"
-                                  ? "△ Weak"
-                                  : "↻ Review"}
-                            </span>
-                          )}
-                        </div>
-                        <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, marginTop: 1 }}>
-                          {`${mastered}/${total} obj`}
-                          {sessions > 0 && ` · ${sessions} session${sessions !== 1 ? "s" : ""}`}
-                          {lastScore != null && (
-                            <span
-                              style={{
-                                color: getScoreColor(T, lastScore),
-                              }}
-                            >
-                              {" "}
-                              · {lastScore}%
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const subObjs = (() => {
-                            const blockObjs = getBlockObjectives?.(currentBlock?.id) || allBlockObjectives || [];
-                            const lecObjs = blockObjs.filter(
-                              (o) =>
-                                o.linkedLecId === lec.id ||
-                                (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                            );
-                            return matchObjectivesToSubtopic(sub, lecObjs);
-                          })();
-                          if (!subObjs.length) return;
-                          onLaunchQuiz?.(lec, currentBlock?.id);
-                        }}
-                        style={{
-                          padding: "6px 12px",
-                          borderRadius: 6,
-                          border: isDone ? "1px solid " + T.statusGood : "1px solid #d97706",
-                          background: "transparent",
-                          color: isDone ? T.statusGood : "#d97706",
-                          cursor: "pointer",
-                          fontSize: 12,
-                          fontWeight: 600,
-                          fontFamily: SANS,
-                          flexShrink: 0,
-                        }}
-                      >
-                        {isDone ? "📝 Review" : "📝 Quiz"}
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpdateLec(lec.id, {
-                            subtopics: (lec.subtopics || []).filter((_, i) => i !== si),
-                          });
-                        }}
-                        style={{
-                          background: "none",
-                          border: "none",
-                          color: T.text3,
-                          cursor: "pointer",
-                          fontSize: 12,
-                          flexShrink: 0,
-                          padding: "4px",
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.color = T.statusBad)}
-                        onMouseLeave={(e) => (e.currentTarget.style.color = T.text3)}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </div>
           {lec.keyTerms?.length > 0 && (
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS</div>
@@ -10743,7 +10409,6 @@ const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 function Heatmap({
   lectures,
   getLecCompletion,
-  getSubtopicCompletion,
   getBlockObjectives,
   startObjectiveQuiz,
   currentBlock,
@@ -10803,105 +10468,7 @@ function Heatmap({
                 gap: 8,
               }}
             >
-              {(lec.subtopics || []).map((sub, si) => {
-                const { pct, mastered, total, weakness } =
-                  getSubtopicCompletion ? getSubtopicCompletion(lec, si, sub, blockId) : { pct: 0, mastered: 0, total: 0, weakness: null };
-
-                const cellColor =
-                  pct === 100 ? T.statusGood : weakness === "critical" ? T.statusBad : weakness === "weak" ? T.statusWarn : pct >= 60 ? tc : pct > 0 ? T.statusProgress : T.text3;
-                const cellBg =
-                  pct === 100 ? T.statusGoodBg : weakness === "critical" ? T.statusBadBg : weakness === "weak" ? T.statusWarnBg : pct > 0 ? tc + "0d" : T.inputBg;
-                const cellPattern =
-                  weakness === "critical"
-                    ? "repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(147,51,234,0.1) 3px, rgba(147,51,234,0.1) 6px)"
-                    : weakness === "weak"
-                      ? "repeating-linear-gradient(90deg, transparent, transparent 4px, rgba(217,119,6,0.08) 4px, rgba(217,119,6,0.08) 8px)"
-                      : "none";
-                const cellBorder =
-                  pct === 100 ? T.statusGoodBorder : weakness === "critical" ? T.statusBadBorder : weakness === "weak" ? T.statusWarnBorder : pct > 0 ? tc + "40" : T.border1;
-
-                return (
-                  <div
-                    key={si}
-                    style={{
-                      background: cellBg,
-                      backgroundImage: cellPattern,
-                      border: "1px solid " + cellBorder,
-                      borderRadius: 8,
-                      padding: "10px 12px",
-                      cursor: "pointer",
-                      transition: "all 0.15s",
-                    }}
-                    onClick={async () => {
-                      if (!startObjectiveQuiz || !getBlockObjectives) return;
-                      const blockObjs = getBlockObjectives(blockId) || [];
-                      const lecObjs = blockObjs.filter(
-                        (o) =>
-                          o.linkedLecId === lec.id ||
-                          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-                      );
-                      const subObjs = matchObjectivesToSubtopic(sub, lecObjs);
-                      if (!subObjs.length) return;
-                      await startObjectiveQuiz(subObjs, sub, blockId, {
-                        lectureId: lec.id,
-                        subtopicIndex: si,
-                        subtopicName: sub,
-                      });
-                    }}
-                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 4 }}>
-                      <div style={{ fontFamily: SANS, color: T.text1, fontSize: 11, lineHeight: 1.4, flex: 1 }}>
-                        {sub}
-                      </div>
-                      <span
-                        style={{
-                          fontFamily: SANS,
-                          fontWeight: 900,
-                          fontSize: 12,
-                          flexShrink: 0,
-                          color: cellColor,
-                        }}
-                      >
-                        {pct > 0 ? pct + "%" : "—"}
-                      </span>
-                    </div>
-                    <div style={{ fontFamily: SANS, color: T.text3, fontSize: 9, marginTop: 4 }}>
-                      {mastered}/{total} obj
-                    </div>
-                    {total > 0 && (
-                      <div style={{ height: 3, background: T.border1, borderRadius: 2, marginTop: 6 }}>
-                        <div
-                          style={{
-                            height: "100%",
-                            borderRadius: 2,
-                            background: cellColor,
-                            width: pct + "%",
-                            transition: "width 0.4s",
-                          }}
-                        />
-                      </div>
-                    )}
-                    {weakness && (
-                      <div
-                        style={{
-                          fontFamily: SANS,
-                          fontSize: 8,
-                          color: cellColor,
-                          marginTop: 4,
-                          fontWeight: 700,
-                        }}
-                      >
-                        {weakness === "critical" ? "⚠ Struggling" : weakness === "weak" ? "△ Needs Work" : "↻ Review"}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {(lec.subtopics || []).length === 0 &&
-                (() => {
+              {(() => {
                   const blockObjs = getBlockObjectives?.(blockId) || [];
                   const lecObjs = blockObjs.filter(
                     (o) =>
@@ -11561,13 +11128,11 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
   }, [lectureGroups, mode, blockLecs]);
 
   const [selectedLecIds, setSelectedLecIds] = useState(defaultLecIds);
-  const [selectedSubtopics, setSelectedSubtopics] = useState([]);
   const [questionCount, setQuestionCount] = useState(20);
   const [focusMode, setFocusMode] = useState(mode === "weak" ? "weak" : "all");
 
   useEffect(() => {
     setSelectedLecIds(defaultLecIds);
-    setSelectedSubtopics([]);
     setFocusMode(mode === "weak" ? "weak" : "all");
   }, [mode, defaultLecIds]);
 
@@ -11681,10 +11246,7 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                 Select All
               </button>
               <button
-                onClick={() => {
-                  setSelectedLecIds([]);
-                  setSelectedSubtopics([]);
-                }}
+                onClick={() => setSelectedLecIds([])}
                 style={{ fontFamily: SANS, fontSize: 11, color: T.text3, background: T.inputBg, border: "1px solid " + T.border1, padding: "5px 12px", borderRadius: 6, cursor: "pointer" }}
               >
                 Clear
@@ -11694,33 +11256,27 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
               {(() => {
                 const blockLecsList = blockLecs || [];
                 return blockLecsList.map((lec) => {
-                  const subtopics = lec.subtopics || [];
                   const isSelected = selectedLecIds.includes(lec.id);
-                  const allSubSel = subtopics.every((_, i) => selectedSubtopics.includes(lec.id + "_sub_" + i));
-                  const someSubSel = subtopics.some((_, i) => selectedSubtopics.includes(lec.id + "_sub_" + i));
 
                   return (
                     <div key={lec.id} style={{ marginBottom: 8 }}>
                       {/* Parent lecture row */}
                       <div
-                        onClick={() => {
-                          if (isSelected) {
-                            setSelectedLecIds((prev) => prev.filter((id) => id !== lec.id));
-                            setSelectedSubtopics((prev) => prev.filter((s) => !s.startsWith(lec.id + "_sub_")));
-                          } else {
-                            setSelectedLecIds((prev) => [...prev, lec.id]);
-                          }
-                        }}
+                        onClick={() =>
+                          setSelectedLecIds((prev) =>
+                            isSelected ? prev.filter((id) => id !== lec.id) : [...prev, lec.id]
+                          )
+                        }
                         style={{
                           display: "flex",
                           alignItems: "center",
                           gap: 12,
                           padding: "12px 14px",
-                          borderRadius: subtopics.length > 0 ? "10px 10px 0 0" : 10,
+                          borderRadius: 10,
                           background: isSelected ? tc + "12" : T.inputBg,
                           borderTop: "1px solid " + (isSelected ? tc + "60" : T.border1),
                           borderRight: "1px solid " + (isSelected ? tc + "60" : T.border1),
-                          borderBottom: subtopics.length > 0 ? "none" : "1px solid " + (isSelected ? tc + "60" : T.border1),
+                          borderBottom: "1px solid " + (isSelected ? tc + "60" : T.border1),
                           borderLeft: "1px solid " + (isSelected ? tc + "60" : T.border1),
                           cursor: "pointer",
                           transition: "all 0.15s",
@@ -11753,7 +11309,6 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                           </div>
                           <div style={{ fontFamily: SANS, color: T.text3, fontSize: 10, marginTop: 2 }}>
                             {lec.lectureType || "LEC"}{lec.lectureNumber}
-                            {subtopics.length > 0 && ` · ${subtopics.length} subtopics`}
                           </div>
                         </div>
                         {(() => {
@@ -11769,68 +11324,6 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                           );
                         })()}
                       </div>
-                      {/* Subtopics nested below */}
-                      {subtopics.length > 0 && (
-                        <div
-                          style={{
-                            borderTop: "1px solid " + T.border2,
-                            borderRight: "1px solid " + (isSelected ? tc + "60" : T.border1),
-                            borderBottom: "1px solid " + (isSelected ? tc + "60" : T.border1),
-                            borderLeft: "1px solid " + (isSelected ? tc + "60" : T.border1),
-                            borderRadius: "0 0 10px 10px",
-                            overflow: "hidden",
-                          }}
-                        >
-                          {subtopics.map((sub, si) => {
-                            const subKey = lec.id + "_sub_" + si;
-                            const subSel = selectedSubtopics.includes(subKey);
-                            return (
-                              <div
-                                key={subKey}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedSubtopics((prev) => (subSel ? prev.filter((s) => s !== subKey) : [...prev, subKey]));
-                                  if (!isSelected && !subSel) {
-                                    setSelectedLecIds((prev) => [...prev, lec.id]);
-                                  }
-                                }}
-                                style={{
-                                  display: "flex",
-                                  alignItems: "center",
-                                  gap: 12,
-                                  padding: "9px 14px 9px 42px",
-                                  background: subSel ? tc + "0a" : T.cardBg,
-                                  borderBottom: si < subtopics.length - 1 ? "1px solid " + T.border2 : "none",
-                                  cursor: "pointer",
-                                  transition: "background 0.15s",
-                                }}
-                                onMouseEnter={(e) => (e.currentTarget.style.background = subSel ? tc + "14" : (T.hoverBg ?? T.inputBg))}
-                                onMouseLeave={(e) => (e.currentTarget.style.background = subSel ? tc + "0a" : T.cardBg)}
-                              >
-                                <div
-                                  style={{
-                                    width: 16,
-                                    height: 16,
-                                    borderRadius: 4,
-                                    flexShrink: 0,
-                                    border: "2px solid " + (subSel ? tc : T.border1),
-                                    background: subSel ? tc : "transparent",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                  }}
-                                >
-                                  {subSel && <span style={{ color: "#fff", fontSize: 10 }}>✓</span>}
-                                </div>
-                                <span style={{ fontFamily: SANS, color: T.text2, fontSize: 12, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                  {sub}
-                                </span>
-                                <span style={{ fontFamily: SANS, color: T.text3, fontSize: 9 }}>subtopic</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
                   );
                 });
@@ -11872,7 +11365,6 @@ function ExamConfigModal({ config, blockObjs, blockLecs, questionBanksByFile, pe
                 selectedActivities: selectedGroups.map((g) => g.activity),
                 selectedGroups,
                 selectedLecIds,
-                selectedSubtopics,
                 targetObjectives: focusMode === "weak" ? weakObjs : focusMode === "untested" ? totalObjs.filter((o) => o.status === "untested") : focusMode === "mastered" ? masteredObjs : totalObjs,
                 blockId,
               })
@@ -11919,7 +11411,6 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
   const [strategy, setStrategy] = useState("append");
   const [keepOriginals, setKeep] = useState(false);
 
-  const allSubtopics = [...new Set(lectures.flatMap(l => l.subtopics || []))];
   const allKeyTerms = [...new Set(lectures.flatMap(l => l.keyTerms || []))];
 
   if (!lectures.length) return null;
@@ -11952,7 +11443,7 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
                 <span style={{ fontFamily: SANS, color: T.amber, fontSize: 13, fontWeight: 700, minWidth: 16 }}>{i + 1}</span>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontFamily: SANS, color: T.text1, fontSize: 13 }}>{l.lectureNumber ? (l.lectureType || "Lecture") + " " + l.lectureNumber + " — " : ""}{l.lectureTitle || l.filename}</div>
-                  <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, marginTop: 1 }}>{l.chunks?.length || 0} content chunks · {l.subtopics?.length || 0} subtopics</div>
+                  <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, marginTop: 1 }}>{l.chunks?.length || 0} content chunks</div>
                 </div>
                 {i === 0 && <span style={{ fontFamily: SANS, color: T.amber, background: T.amberBg, border: "1px solid " + T.amberBorder, fontSize: 10, padding: "2px 6px", borderRadius: 3 }}>PRIMARY</span>}
               </div>
@@ -11982,8 +11473,8 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {[
                 { value: "append", label: "Append", desc: "Add supplementary lecture content after primary — best when one is simpler/shorter" },
-                { value: "interleave", label: "Interleave", desc: "Mix subtopics from both in topic order — best when they cover same topics differently" },
-                { value: "primary", label: "Primary Only", desc: "Keep primary lecture content, use secondary only for extra subtopics and key terms" },
+                { value: "interleave", label: "Interleave", desc: "Mix both in topic order — best when they cover the same ground differently" },
+                { value: "primary", label: "Primary Only", desc: "Keep primary lecture content, use secondary only for extra key terms" },
               ].map(opt => (
                 <div key={opt.value} onClick={() => setStrategy(opt.value)} style={{ padding: "10px 14px", borderRadius: 8, cursor: "pointer", border: "1px solid " + (strategy === opt.value ? T.amber : T.border1), background: strategy === opt.value ? T.amberBg : T.inputBg, transition: "all 0.15s" }}>
                   <div style={{ fontFamily: SANS, fontSize: 13, fontWeight: 600, color: strategy === opt.value ? T.amber : T.text1 }}>{opt.label}</div>
@@ -11994,13 +11485,7 @@ function MergeModal({ config, onConfirm, onCancel, T, tc }) {
           </div>
 
           <div style={{ background: T.inputBg, border: "1px solid " + T.border1, borderRadius: 10, padding: "12px 14px" }}>
-            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 8 }}>PREVIEW — MERGED SUBTOPICS ({allSubtopics.length})</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginBottom: 10 }}>
-              {allSubtopics.map((s, i) => (
-                <span key={i} style={{ fontFamily: SANS, color: T.text2, background: T.pillBg, border: "1px solid " + T.border1, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{s}</span>
-              ))}
-            </div>
-            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>KEY TERMS ({allKeyTerms.length})</div>
+            <div style={{ fontFamily: SANS, color: T.text3, fontSize: 11, letterSpacing: 1.5, marginBottom: 6 }}>PREVIEW — KEY TERMS ({allKeyTerms.length})</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
               {allKeyTerms.slice(0, 10).map((kt, i) => (
                 <span key={i} style={{ fontFamily: SANS, color: T.text3, background: T.pillBg, fontSize: 11, padding: "2px 8px", borderRadius: 4 }}>{kt}</span>
@@ -16471,9 +15956,6 @@ export default function App() {
     },
     [activeBlock?.id, backdateActivity, backdateDate, backdateRating, blockId, examDates, makeTopicKey, setPerformanceHistory]
   );
-
-  const makeSubtopicKey = (lecId, subtopicIndex, blockId) =>
-    `${lecId}__sub${subtopicIndex}__${blockId}`;
 
   const hasOrphanedPerf = useMemo(() => {
     const bid = activeBlock?.id ?? blockId;
@@ -21962,23 +21444,6 @@ What is the clinical significance of this finding?`,
     }
   }, [activeBlock?.id, refreshKey]);
 
-  const getLectureSubtopicCompletion = useCallback(
-    (lec, bid) => {
-      if (!lec?.subtopics?.length) {
-        const perf = getLecPerf(lec, bid);
-        const sessions = perf?.sessions?.length || 0;
-        return Math.min(100, sessions * 33);
-      }
-      const subCompletions = (lec.subtopics || []).map((_, si) => {
-        const subKey = makeSubtopicKey(lec.id, si, bid);
-        return performanceHistory[subKey]?.completion || 0;
-      });
-      if (!subCompletions.length) return 0;
-      return Math.round(subCompletions.reduce((a, b) => a + b, 0) / subCompletions.length);
-    },
-    [getLecPerf, makeSubtopicKey, performanceHistory]
-  );
-
   const getLecCompletion = useCallback(
     (lec, blockId) => {
       const blockObjs = getBlockObjectives(blockId) || [];
@@ -21998,57 +21463,6 @@ What is the clinical significance of this finding?`,
       return Math.round(((mastered + inProgress * 0.5) / total) * 100);
     },
     [getBlockObjectives, getLecPerf]
-  );
-
-  const getSubtopicCompletion = useCallback(
-    (lec, si, subName, blockId) => {
-      const blockObjs = getBlockObjectives(blockId) || [];
-      const lecObjs = blockObjs.filter(
-        (o) =>
-          o.linkedLecId === lec.id ||
-          (lec.mergedFrom || []).some((m) => m && m.id === o.linkedLecId)
-      );
-      if (lecObjs.length === 0) {
-        return { pct: 0, mastered: 0, total: 0, sessions: 0, weakness: null };
-      }
-      const objsToUse = matchObjectivesToSubtopic(subName, lecObjs);
-      if (objsToUse.length === 0) {
-        const lecPct = getLecCompletion(lec, blockId);
-        return {
-          pct: lecPct,
-          mastered: 0,
-          total: 0,
-          sessions: 0,
-          weakness: null,
-        };
-      }
-      const mastered = objsToUse.filter((o) => o.status === "mastered").length;
-      const inProgress = objsToUse.filter((o) => o.status === "inprogress").length;
-      const struggling = objsToUse.filter((o) => o.status === "struggling").length;
-      const untested = objsToUse.filter((o) => o.status === "untested").length;
-      const total = objsToUse.length;
-      const pct = Math.round(((mastered + inProgress * 0.5) / total) * 100);
-      const weakness =
-        struggling > 0
-          ? "critical"
-          : pct < 50 && untested > 0
-            ? "weak"
-            : pct < 80 && total > 0
-              ? "review"
-              : null;
-      const subKey = makeSubtopicKey(lec.id, si, blockId);
-      const subPerf = performanceHistory[subKey];
-      const sessions = subPerf?.sessions?.length || 0;
-      return {
-        pct,
-        mastered,
-        total,
-        sessions,
-        lastScore: subPerf?.lastScore,
-        weakness,
-      };
-    },
-    [getBlockObjectives, getLecCompletion, makeSubtopicKey, performanceHistory]
   );
 
   const currentWeek = useMemo(() => {
@@ -22173,7 +21587,6 @@ What is the clinical significance of this finding?`,
       mergedChunks = [...(primary.chunks || [])];
     }
 
-    const mergedSubtopics = [...new Set(toMerge.flatMap(l => l.subtopics || []))];
     const mergedKeyTerms = [...new Set(toMerge.flatMap(l => l.keyTerms || []))];
     const mergedFullText = toMerge.map(l => l.fullText || "").filter(Boolean).join("\n\n---\n\n");
 
@@ -22190,7 +21603,6 @@ What is the clinical significance of this finding?`,
       lectureType: lecType,
       chunks: mergedChunks,
       fullText: mergedFullText || primary.fullText,
-      subtopics: mergedSubtopics,
       keyTerms: mergedKeyTerms,
       isMerged: true,
       mergedFrom: toMerge.map(l => ({
@@ -22592,9 +22004,6 @@ What is the clinical significance of this finding?`,
           typeWarning: shouldWarnLectureTypeBadge(lectureToSave.lectureType, file.name),
         },
       });
-      if (Array.isArray(lectureToSave?.subtopics) && lectureToSave.subtopics.length > 0) {
-        window.setTimeout(() => stampLectureObjectivesWithSubtopics(bid, lectureToSave), 450);
-      }
       markAsProcessed(file, bid);
       setUpMsg(
         "Done ✓ — " +
@@ -22884,7 +22293,6 @@ What is the clinical significance of this finding?`,
             weekNumber: detectWeekNumber(file.name, lecTitle) || null,
             subject: contentResult.subject || contentResult.discipline || "",
             chunks: contentResult.chunks || contentResult.sections || [],
-            subtopics: contentResult.subtopics || contentResult.topics || contentResult.subtopicList || [],
             keyTerms: contentResult.keyTerms || contentResult.terms || contentResult.keywords || [],
             summary: contentResult.summary || "",
             fullText: fullRawTextJoin,
@@ -22950,67 +22358,6 @@ What is the clinical significance of this finding?`,
 
           updateQueueItem(queueId, { status: "parsing", progress: 45 });
           setTimeout(() => updateQueueItem(queueId, { progress: 70 }), 30);
-
-          if (!newLec.subtopics?.length) {
-            try {
-              const allText = (contentResult.chunks || []).map((c) => getChunkBody(c)).join("\n").slice(0, 8000);
-
-              if (allText.length > 200) {
-                const prompt =
-                  "Extract from this medical lecture:\n" +
-                  "- 5-8 subtopics (short phrases)\n" +
-                  "- 5-10 key terms\n" +
-                  "- lecture number and title\n\n" +
-                  "Return ONLY complete valid JSON:\n" +
-                  '{"subtopics":["Back anatomy","Vertebral column"],"keyTerms":["lamina","pedicle"],"lectureNumber":1,"lectureTitle":"The Back"}\n\n' +
-                  "TEXT:\n" +
-                  allText.slice(0, 4000);
-
-                const raw = (await callAI(null, prompt, 1000, undefined, 0.1)).trim();
-                const cleaned = raw
-                  .replace(/^```json\s*/i, "")
-                  .replace(/^```\s*/i, "")
-                  .replace(/\s*```$/, "")
-                  .trim();
-                console.log("Subtopic cleaned:", cleaned.slice(0, 200));
-
-                let parsed = null;
-
-                try {
-                  parsed = JSON.parse(cleaned);
-                } catch {}
-
-                if (!parsed?.subtopics?.length) {
-                  const items = [];
-                  const matches = cleaned.matchAll(/"([^"]{5,80})"/g);
-                  for (const m of matches) {
-                    const val = m[1].trim();
-                    if (["subtopics", "keyTerms", "lectureTitle", "lectureNumber"].includes(val)) continue;
-                    if (/^[A-Z]/.test(val) || /^[a-z]/.test(val)) {
-                      items.push(val);
-                    }
-                  }
-                  if (items.length > 0) {
-                    const firstNumIdx = items.findIndex((i) => /^\d+$/.test(i));
-                    const subtopics = firstNumIdx > 0 ? items.slice(0, firstNumIdx) : items.slice(0, 10);
-                    parsed = { subtopics };
-                  }
-                }
-
-                if (parsed?.subtopics?.length) {
-                  newLec.subtopics = parsed.subtopics.filter((s) => s.length > 3 && s.length < 100);
-                  newLec.keyTerms = parsed.keyTerms || [];
-                  if (!newLec.lectureNumber && parsed.lectureNumber) newLec.lectureNumber = parsed.lectureNumber;
-                  if ((!newLec.lectureTitle || newLec.lectureTitle === file.name) && parsed.lectureTitle) {
-                    newLec.lectureTitle = parsed.lectureTitle;
-                  }
-                  console.log("Subtopics extracted:", newLec.subtopics);
-                }
-              }
-      } catch (e) {
-              console.warn("Subtopic extraction error:", e.message);
-            }
-          }
 
           let teachingMap = null;
           try {
@@ -23130,7 +22477,7 @@ What is the clinical significance of this finding?`,
           try {
             meta = await detectMeta(text);
           } catch {
-            meta = { subject: "Unassigned", subtopics: ["Unknown"], keyTerms: [], lectureTitle: file.name };
+            meta = { subject: "Unassigned", keyTerms: [], lectureTitle: file.name };
           }
           const rawSubject = (meta.subject || "").trim();
           if (["Medicine", "Unknown", "General", ""].includes(rawSubject)) {
@@ -23279,7 +22626,6 @@ What is the clinical significance of this finding?`,
           lectureTitle: mergedTitle,
           chunks: [...(colliding.chunks || []), ...(lectureToSave.chunks || [])],
           fullText: [colliding.fullText, lectureToSave.fullText].filter(Boolean).join("\n\n---\n\n"),
-          subtopics: [...new Set([...(colliding.subtopics || []), ...(lectureToSave.subtopics || [])])],
           keyTerms: [...new Set([...(colliding.keyTerms || []), ...(lectureToSave.keyTerms || [])])],
           isMerged: true,
           mergedFrom: [
@@ -23991,21 +23337,6 @@ EXPLANATION: ${q.explanation}`).join("\n\n")}
   );
 
   // ── Study ──────────────────────────────────
-  const startTopic = (lec, sub) => {
-    setStudyCfg({
-      mode: "lecture",
-      lecture: lec,
-      subject: lec.subject,
-      subtopic: sub,
-      qCount: 10,
-      blockId: lec.blockId,
-      blockName: activeBlock?.name || lec.blockId,
-      sessions,
-      termColor: tc,
-    });
-    setView("config");
-  };
-
   const startBlock = () => {
     if (!blockLecs.length) return;
     setStudyCfg({
@@ -24855,10 +24186,6 @@ Current student level: ${tierLabel}`;
     }
   };
 
-  const distributeResultsToSubtopics = (_results, _lec, _blockId) => {
-    // Session data is written only in finalizeSession — no separate subtopic writes
-  };
-
   const finalizeSession = (results, meta) => {
     const sessionMeta = meta || currentSessionMeta;
     const bid = sessionMeta?.blockId ?? blockId;
@@ -25000,10 +24327,6 @@ Current student level: ${tierLabel}`;
     }
 
     syncTrackerRow(targetLecId, bid, sessionRecord);
-
-    if (targetLec) {
-      distributeResultsToSubtopics(results, targetLec, bid);
-    }
 
     if (syncStats?.updatedCount > 0) {
       setPerfToast({
@@ -28692,7 +28015,6 @@ Current student level: ${tierLabel}`;
                       tc,
                       T: t,
                       sessions,
-                      onStart: startTopic,
                       onUpdateLec: updateLec,
                       mergeMode,
                       mergeSelected,
@@ -28711,9 +28033,7 @@ Current student level: ${tierLabel}`;
                       setAnkiLogTarget,
                       handleDeepLearnStart,
                       handleRapidFireStart,
-                      getLectureSubtopicCompletion,
                       getLecCompletion,
-                      makeSubtopicKey,
                       performanceHistory,
                       reanalyzeLecture,
                       getLecPerf,
@@ -29829,7 +29149,6 @@ Current student level: ${tierLabel}`;
                 <Heatmap
                   lectures={blockLecs}
                   getLecCompletion={getLecCompletion}
-                  getSubtopicCompletion={getSubtopicCompletion}
                   getBlockObjectives={getBlockObjectives}
                   startObjectiveQuiz={startObjectiveQuiz}
                   currentBlock={activeBlock}
