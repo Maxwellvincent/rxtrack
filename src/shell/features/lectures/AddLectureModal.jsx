@@ -13,13 +13,22 @@ import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
 import { pushAllLocalDataToSupabase } from "../../../supabase.js";
+import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
+import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
+import { createObjectiveCommands } from "../../logic/objectives.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
   parseLectureFilename,
   upsertLecture,
 } from "../../logic/lectureIngest.js";
+
+/** Text the objective extractor reads: whatever the record actually carries. */
+function lectureText(lecture) {
+  if (lecture?.fullText) return lecture.fullText;
+  return (lecture?.chunks || []).map((c) => c.markdown || c.text || "").join("\n\n");
+}
 
 /** Same list App writes, so a superseded lecture stays deleted after a sync. */
 function tombstone(lecture) {
@@ -45,10 +54,13 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
   const [progress, setProgress] = useState("");
+  const [saved, setSaved] = useState(null);            // the lecture just written
+  const [objectiveResult, setObjectiveResult] = useState("");
 
   const onFile = useCallback(
     async (file) => {
       setError(""); setDone(""); setPreview(null); setProgress("");
+      setSaved(null); setObjectiveResult("");
       if (!file) return;
 
       const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
@@ -106,6 +118,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
       setDone(`${preview.action === "replaced" ? "Replaced" : "Added"} ${lecture.lectureTitle}.`);
       setPreview(null);
+      setSaved(lecture);
       onAdded?.(lecture);
     } catch (e) {
       const msg = e?.message || String(e);
@@ -118,6 +131,41 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
     }
   }, [preview, lectureDate, userId, onAdded]);
+
+  /**
+   * Objectives are the authoritative curriculum, so this runs as its own step
+   * rather than silently on save: it costs a model call and the count is worth
+   * seeing. Re-running replaces this lecture's objectives, never appends.
+   */
+  const extractObjectives = useCallback(async () => {
+    if (!saved) return;
+    setBusy(true); setError(""); setProgress("Reading the objectives out of the lecture…");
+    try {
+      const found = await extractObjectivesFromLecture(lectureText(saved), saved, blockId);
+      if (!found.length) {
+        setObjectiveResult("No objectives found in that lecture — no codes and nothing verb-led.");
+        return;
+      }
+
+      const commands = createObjectiveCommands({
+        read: () => objectivesStore.read(userId) || {},
+        write: (next) => objectivesStore.write(userId, next),
+        notify: () => { try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ } },
+      });
+      commands.replaceLectureObjectives(blockId, saved.id, found);
+      if (userId) await pushAllLocalDataToSupabase(userId);
+
+      const coded = found.filter((o) => String(o.code || "").startsWith("SOM.")).length;
+      setObjectiveResult(
+        `${found.length} objective${found.length === 1 ? "" : "s"} saved${coded ? ` · ${coded} SOM-coded` : ""}.`
+      );
+    } catch (e) {
+      setError("Objective extraction failed: " + (e?.message || String(e)));
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  }, [saved, blockId, userId]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -171,6 +219,21 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
                 className="rounded border border-border bg-panel px-1.5 py-0.5 text-[11px] text-text-1"
               />
             </label>
+          </div>
+        )}
+
+        {saved && (
+          <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3">
+            <div className="text-xs text-text-2">
+              Objectives are the curriculum this block is graded on — pull them out of the lecture now
+              and everything downstream (coverage, quizzes, tagging) can use them.
+            </div>
+            {objectiveResult && (
+              <div className="mt-2 font-mono text-[11px] text-good">{objectiveResult}</div>
+            )}
+            <Button className="mt-2" variant="outline" onClick={extractObjectives} disabled={busy}>
+              {busy ? "Working…" : objectiveResult ? "◇ Extract again" : "◇ Extract objectives"}
+            </Button>
           </div>
         )}
 

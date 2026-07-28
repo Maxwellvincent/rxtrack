@@ -16,6 +16,7 @@ import {
   deleteObjectives,
   isLinked,
   deleteUnlinked,
+  replaceLectureObjectives,
   statusCounts,
   coveragePct,
   bloomRollup,
@@ -138,6 +139,51 @@ describe("reducers", () => {
   it("deletes only the unlinked ones", () => {
     const list = [{ id: "a", linkedLecId: "lec1" }, { id: "b", linkedLecId: "imported" }, { id: "c" }];
     expect(deleteUnlinked(list, [{ id: "lec1" }])).toEqual([{ id: "a", linkedLecId: "lec1" }]);
+  });
+});
+
+describe("replaceLectureObjectives", () => {
+  const other = { id: "x", linkedLecId: "lec2", objective: "Describe the pancreas" };
+
+  it("swaps this lecture's objectives and leaves every other lecture alone", () => {
+    const before = [other, { id: "old", linkedLecId: "lec1", objective: "Stale" }];
+    const after = replaceLectureObjectives(before, "lec1", [{ id: "new", objective: "Describe the thyroid" }]);
+
+    expect(after).toHaveLength(2);
+    expect(after.find((o) => o.id === "x")).toEqual(other);
+    expect(after.find((o) => o.id === "new")).toMatchObject({ linkedLecId: "lec1", sourceFile: "lec1" });
+    expect(after.find((o) => o.id === "old")).toBeUndefined();
+  });
+
+  it("matches on sourceFile too, which is how older rows point at a lecture", () => {
+    const before = [{ id: "old", sourceFile: "lec1", objective: "Stale" }];
+    expect(replaceLectureObjectives(before, "lec1", [])).toEqual([]);
+  });
+
+  it("carries a personal note onto the same objective in the new pass", () => {
+    const before = [
+      { id: "old", linkedLecId: "lec1", objective: "Describe the thyroid axis", personalNotes: "ask about TSH" },
+    ];
+    const after = replaceLectureObjectives(before, "lec1", [
+      { id: "new", objective: "Describe the thyroid axis!" },
+      { id: "new2", objective: "Outline calcium handling" },
+    ]);
+
+    expect(after.find((o) => o.id === "new").personalNotes).toBe("ask about TSH");
+    expect(after.find((o) => o.id === "new2").personalNotes).toBeUndefined();
+  });
+
+  it("does not overwrite a note the new pass already carries", () => {
+    const before = [{ id: "old", linkedLecId: "lec1", objective: "Describe X", personalNotes: "old note" }];
+    const after = replaceLectureObjectives(before, "lec1", [
+      { id: "new", objective: "Describe X", personalNotes: "new note" },
+    ]);
+    expect(after[0].personalNotes).toBe("new note");
+  });
+
+  it("is a no-op without a lecture id", () => {
+    const list = [{ id: "a" }];
+    expect(replaceLectureObjectives(list, null, [{ id: "b" }])).toBe(list);
   });
 });
 

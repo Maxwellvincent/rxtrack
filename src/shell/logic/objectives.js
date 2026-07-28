@@ -182,6 +182,43 @@ export function deleteObjectives(objectives, objIds) {
   return (objectives || []).filter((o) => !ids.has(o?.id));
 }
 
+/** App's note-matching key: first 55 chars, lowercased, non-word stripped. */
+function noteKey(text) {
+  return String(text || "").slice(0, 55).toLowerCase().replace(/\W/g, "");
+}
+
+/**
+ * Replace everything a previous extraction wrote for one lecture with a fresh
+ * pass, which is what re-ingesting a lecture means. Objectives belonging to
+ * other lectures are untouched, and a personal note written against an
+ * objective survives when the same objective comes back — App carried notes
+ * across a re-upload the same way, and losing them is real data loss.
+ */
+export function replaceLectureObjectives(objectives, lecId, incoming) {
+  if (!lecId) return objectives || [];
+  const list = objectives || [];
+  const belongs = (o) => o?.linkedLecId === lecId || o?.sourceFile === lecId;
+
+  const notes = new Map();
+  for (const o of list) {
+    if (!belongs(o) || !String(o?.personalNotes || "").trim()) continue;
+    const k = noteKey(o.objective || o.text);
+    if (k) notes.set(k, o.personalNotes);
+  }
+
+  const added = (incoming || []).map((o) => {
+    const carried = notes.get(noteKey(o?.objective || o?.text));
+    return {
+      ...o,
+      linkedLecId: lecId,
+      sourceFile: lecId,
+      ...(carried && !String(o?.personalNotes || "").trim() ? { personalNotes: carried } : {}),
+    };
+  });
+
+  return [...list.filter((o) => !belongs(o)), ...added];
+}
+
 /** An objective counts as linked only when it points at a real lecture in the block. */
 export function isLinked(objective, blockLectures) {
   const lid = objective?.linkedLecId;
@@ -301,5 +338,7 @@ export function createObjectiveCommands({ read, write, now = () => new Date().to
       apply(blockId, (objs) => deleteObjectives(objs, objIds)),
     deleteUnlinked: (blockId, blockLectures) =>
       apply(blockId, (objs) => deleteUnlinked(objs, blockLectures)),
+    replaceLectureObjectives: (blockId, lecId, incoming) =>
+      apply(blockId, (objs) => replaceLectureObjectives(objs, lecId, incoming)),
   };
 }
