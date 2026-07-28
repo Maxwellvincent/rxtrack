@@ -3509,48 +3509,9 @@ function isObjectiveLinked(obj, blockLecs) {
 }
 
 // ─────────────────────────────────────────────
-// PDF.js
-// ─────────────────────────────────────────────
-let pdfLib = null;
-async function getPdf() {
-  if (pdfLib) return pdfLib;
-  if (window.pdfjsLib) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    pdfLib = window.pdfjsLib;
-    return pdfLib;
-  }
-  return new Promise((res, rej) => {
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-    s.onload = () => {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      pdfLib = window.pdfjsLib;
-      res(pdfLib);
-    };
-    s.onerror = () => rej(new Error("PDF.js load failed"));
-    document.head.appendChild(s);
-  });
-}
-async function readPDF(file) {
-  const lib = await getPdf();
-  const pdf = await lib.getDocument({ data: await file.arrayBuffer(), verbosity: 0 }).promise;
-  let text = "";
-  for (let i = 1; i <= Math.min(pdf.numPages, 80); i++) {
-    const pg = await pdf.getPage(i);
-    const ct = await pg.getTextContent();
-    text += "\n[Slide " + i + "]\n" + ct.items.map(x => x.str).join(" ");
-  }
-  return text.trim();
-}
-
-// ─────────────────────────────────────────────
 // GEMINI API (claude() kept for call-site compatibility) — Task 7b: routed
 // through aiClient.callAI (the aiComplete Cloud Function), no client-side key.
 // ─────────────────────────────────────────────
-const MAX_TOKENS_CAP = 4096;
-
 async function claude(prompt, maxTokens, systemPrompt) {
   return callAI(systemPrompt || null, prompt, maxTokens || 1200);
 }
@@ -4583,12 +4544,6 @@ async function detectMeta(text) {
 const VIGNETTE_JSON_INSTRUCTION = "IMPORTANT: You must complete the entire JSON response. Never cut off mid-string. If you are running low on space, reduce the explanation length but always close every JSON object, array, and string properly.";
 
 const DIFFICULTY_LADDER = ["easy", "medium", "hard", "expert"];
-const DIFFICULTY_INSTRUCTIONS = {
-  easy: "Use straightforward single-concept questions. Direct recall with simple distractors.",
-  medium: "USMLE Step 1 standard. Clinical vignettes with 2-step reasoning. Plausible distractors.",
-  hard: "Complex multi-step reasoning. Two or more concepts integrated. Challenging distractors that require ruling out.",
-  expert: "Hardest USMLE difficulty. Complex vignettes requiring synthesis across multiple topics. All distractors clinically plausible. Include secondary complications and exceptions.",
-};
 
 async function genBlockVignettes(blockLecs, count, weakSubs, difficulty, questionType) {
   try {
@@ -4674,54 +4629,6 @@ async function genAnalysis(blockSessions, blockLecs) {
   } catch (e) {
     throw new Error("genAnalysis: " + (e.message || String(e)));
   }
-}
-
-async function genObjectiveQuestions(objectives, lectureTitle, difficulty = "medium") {
-  const objList = objectives
-    .map((o, i) => `${i + 1}. [${o.id}] ${o.objective}`)
-    .join("\n");
-  const diffInstructions = DIFFICULTY_INSTRUCTIONS[difficulty] || DIFFICULTY_INSTRUCTIONS.medium;
-  const prompt =
-    "You are a medical school exam writer. Generate clinical vignette questions that DIRECTLY test these learning objectives from " +
-    lectureTitle +
-    ".\n\nDIFFICULTY LEVEL: " + difficulty.toUpperCase() + "\n" + diffInstructions + "\n\n" +
-    "CRITICAL: Each 'stem' field must end with a '?' question sentence.\n" +
-    "Format: [Clinical scenario 2-4 sentences]. [Question sentence ending in ?]\n" +
-    "Example: 'A 45-year-old male presents with... Which of the following muscles is responsible for...?'\n\n" +
-    "LEARNING OBJECTIVES TO COVER:\n" +
-    objList +
-    "\n\nRules:\n" +
-    "- Each question MUST map to a specific objective — include the objective code in the question metadata\n" +
-    "- Write questions at USMLE Step 1 difficulty\n" +
-    "- Use clinical vignettes where possible (patient scenarios)\n" +
-    "- Cover every objective at least once if possible\n" +
-    "- Distribute questions: one per objective for short lists, sample for long lists\n\n" +
-    "Return ONLY valid JSON:\n" +
-    '{"questions":[{\n' +
-    '  "stem": "A 45-year-old man presents with...",\n' +
-    '  "choices": {"A":"...","B":"...","C":"...","D":"..."},\n' +
-    '  "correct": "B",\n' +
-    '  "explanation": "This tests objective X because...",\n' +
-    '  "objectiveId": "SOM.MK.I.BPM1.1.FTM.3.BCHM.0153",\n' +
-    '  "objectiveText": "the short objective being tested",\n' +
-    '  "difficulty": "medium",\n' +
-    '  "type": "clinicalVignette"\n' +
-    "}]}\n";
-  const raw = await callAI(null, prompt, 8000);
-  const first = raw.indexOf("{");
-  const last = raw.lastIndexOf("}");
-  const data = first !== -1 && last !== -1 ? safeJSON(raw.slice(first, last + 1)) : { questions: [] };
-  const questions = data.questions || [];
-  return questions.map((q, i) => ({
-    id: "objq" + (i + 1),
-    stem: q.stem || "",
-    choices: q.choices || { A: "", B: "", C: "", D: "" },
-    correct: q.correct || "A",
-    explanation: q.explanation || "",
-    topic: q.objectiveText || lectureTitle,
-    objectiveId: q.objectiveId || null,
-    difficulty: q.difficulty || difficulty || "medium",
-  }));
 }
 
 // ─────────────────────────────────────────────
@@ -4866,7 +4773,6 @@ function scoreColor(T, score) {
   if (score == null) return T.statusNeutral;
   return score >= 80 ? T.statusGood : score >= 60 ? T.statusProgress : score >= 40 ? T.statusWarn : T.statusBad;
 }
-const urgencyLabel = { overdue: "⏰ Overdue", soon: "⏱ Due Soon", weak: "△ Weak", untouched: "○ Not Started", ok: "✓ OK" };
 
 function blockStatus(T) {
   return {
@@ -4876,7 +4782,6 @@ function blockStatus(T) {
   };
 }
 
-const PALETTE = ["#60a5fa","#f472b6","#34d399","#a78bfa","#fb923c","#38bdf8","#4ade80","#facc15","#22d3ee","#fb7185"];
 
 // ─────────────────────────────────────────────
 // SMALL UI PIECES
@@ -5530,192 +5435,6 @@ function ReviewSession({ questions, originalAnswers, highlights, onClose, termCo
     </div>
   );
 }
-
-// ─────────────────────────────────────────────
-// WEAK CONCEPTS (Tracker tab) + manual add form
-// ─────────────────────────────────────────────
-function AddWeakConceptForm({ blockId, blockName, onSave, T }) {
-  const [concept, setConcept] = useState("");
-  const [description, setDescription] = useState("");
-  const [wrongAnswer, setWrongAnswer] = useState("");
-  const [correctAnswer, setCorrectAnswer] = useState("");
-  const [selectedLecId, setSelectedLecId] = useState("");
-  const [saving, setSaving] = useState(false);
-  const blockLecs = useMemo(() => {
-    try {
-      return JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]").filter((l) => l && l.blockId === blockId);
-    } catch {
-      return [];
-    }
-  }, [blockId]);
-
-  async function handleSave() {
-    if (!concept.trim() || saving) return;
-    setSaving(true);
-    try {
-      const lec = blockLecs.find((l) => l.id === selectedLecId);
-      const lectureLabel = lec
-        ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || ""}`
-        : "";
-      await recordWrongAnswer({
-        blockId,
-        blockName,
-        question: description || `Manual: ${concept}`,
-        wrongAnswer: wrongAnswer || "Manual entry",
-        correctAnswer: correctAnswer || "",
-        linkedLecId: selectedLecId || null,
-        lectureLabel,
-        source: "manual",
-      });
-      setConcept("");
-      setDescription("");
-      setWrongAnswer("");
-      setCorrectAnswer("");
-      setSelectedLecId("");
-      onSave?.();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      <div>
-        <label
-          style={{
-            fontSize: 11,
-            color: "var(--color-text-tertiary)",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            display: "block",
-            marginBottom: 3,
-          }}
-        >
-          Concept you keep getting wrong ✱
-        </label>
-        <input
-          type="text"
-          value={concept}
-          onChange={(e) => setConcept(e.target.value)}
-          placeholder="e.g. radial nerve, Hesselbach's triangle"
-          style={{ width: "100%", fontSize: 13, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--color-border-tertiary)" }}
-        />
-      </div>
-      <div>
-        <label
-          style={{
-            fontSize: 11,
-            color: "var(--color-text-tertiary)",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            display: "block",
-            marginBottom: 3,
-          }}
-        >
-          Lecture
-        </label>
-        <select
-          value={selectedLecId}
-          onChange={(e) => setSelectedLecId(e.target.value)}
-          style={{ width: "100%", fontSize: 12, padding: "6px 8px", borderRadius: 6 }}
-        >
-          <option value="">— Select lecture —</option>
-          {blockLecs
-            .sort((a, b) => (a.lectureNumber || 0) - (b.lectureNumber || 0))
-            .map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.lectureType} {l.lectureNumber} — {(l.lectureTitle || "").slice(0, 40)}
-              </option>
-            ))}
-        </select>
-      </div>
-      <div>
-        <label
-          style={{
-            fontSize: 11,
-            color: "#A32D2D",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            display: "block",
-            marginBottom: 3,
-          }}
-        >
-          What you keep thinking (wrong)
-        </label>
-        <textarea
-          value={wrongAnswer}
-          onChange={(e) => setWrongAnswer(e.target.value)}
-          placeholder="What's the misconception you have?"
-          rows={2}
-          style={{
-            width: "100%",
-            fontSize: 13,
-            lineHeight: 1.5,
-            resize: "vertical",
-            padding: "8px 10px",
-            border: "0.5px solid #F09595",
-            borderRadius: 8,
-            background: "#FCEBEB",
-            color: "var(--color-text-primary)",
-            fontFamily: "var(--font-sans)",
-          }}
-        />
-      </div>
-      <div>
-        <label
-          style={{
-            fontSize: 11,
-            color: "#27500A",
-            textTransform: "uppercase",
-            letterSpacing: "0.06em",
-            display: "block",
-            marginBottom: 3,
-          }}
-        >
-          What it actually is (correct)
-        </label>
-        <textarea
-          value={correctAnswer}
-          onChange={(e) => setCorrectAnswer(e.target.value)}
-          placeholder="The correct understanding"
-          rows={2}
-          style={{
-            width: "100%",
-            fontSize: 13,
-            lineHeight: 1.5,
-            resize: "vertical",
-            padding: "8px 10px",
-            border: "0.5px solid #97C459",
-            borderRadius: 8,
-            background: "#EAF3DE",
-            color: "var(--color-text-primary)",
-            fontFamily: "var(--font-sans)",
-          }}
-        />
-      </div>
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={!concept.trim() || saving}
-          style={{
-            fontSize: 13,
-            padding: "7px 16px",
-            border: "none",
-            borderRadius: 8,
-            background: concept.trim() && !saving ? "#2563eb" : "var(--color-background-tertiary)",
-            color: concept.trim() && !saving ? "white" : "var(--color-text-tertiary)",
-            cursor: concept.trim() && !saving ? "pointer" : "not-allowed",
-          }}
-        >
-          {saving ? "Saving…" : "Add to weak concepts"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
 
 // ─────────────────────────────────────────────
 // DRILL SESSION SUMMARY (Objectives tab)
@@ -10045,7 +9764,6 @@ function LecListRow({
 // ─────────────────────────────────────────────
 // LECTURE CARD
 // ─────────────────────────────────────────────
-const DOW_ORDER_CARD = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─────────────────────────────────────────────
 // HEATMAP
@@ -13481,25 +13199,6 @@ function markAsProcessed(file, blockId) {
     localStorage.setItem(UPLOAD_CACHE_KEY, JSON.stringify(cache));
   } catch (_) {}
 }
-
-
-async function withTimeout(promise, ms = 30000, label = "") {
-  let timeoutId;
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      reject(new Error(`Timeout after ${ms / 1000}s: ${label}`));
-    }, ms);
-  });
-  try {
-    const result = await Promise.race([promise, timeout]);
-    clearTimeout(timeoutId);
-    return result;
-  } catch (e) {
-    clearTimeout(timeoutId);
-    throw e;
-  }
-}
-
 
 
 /** Reject invented lecture IDs from AI; only return id if present in lecById map. */
@@ -30418,11 +30117,18 @@ Current student level: ${tierLabel}`;
                                         const syntheticQueue = shuffled.map((q, idx) => {
                                           const letters = ["A","B","C","D"];
                                           const correctLetter = q.correct || q.correctAnswer || "A";
-                                          const options = letters.map((L) => ({
-                                            text: q.choices?.[L] || q.options?.[idx]?.text || `Option ${L}`,
-                                            correct: L === correctLetter,
-                                            whyWrong: L !== correctLetter ? (q.whyWrong?.[L] || null) : null,
-                                          })).filter((o) => o.text && o.text !== `Option ${L}`);
+                                          // The filter drops the `Option A` placeholders this map
+                                          // falls back to. It used to compare against `Option ${L}`
+                                          // with L out of scope, which threw before any of this ran.
+                                          const options = letters
+                                            .map((L) => ({
+                                              letter: L,
+                                              text: q.choices?.[L] || q.options?.[idx]?.text || `Option ${L}`,
+                                              correct: L === correctLetter,
+                                              whyWrong: L !== correctLetter ? (q.whyWrong?.[L] || null) : null,
+                                            }))
+                                            .filter((o) => o.text && o.text !== `Option ${o.letter}`)
+                                            .map((o) => ({ text: o.text, correct: o.correct, whyWrong: o.whyWrong }));
                                           // Ensure at least 4 options
                                           while (options.length < 4) options.push({ text: `—`, correct: false, whyWrong: null });
                                           const preloadedMcq = {
