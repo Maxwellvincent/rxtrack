@@ -25,7 +25,8 @@ import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import { guideFor } from "./objectiveGuides.js";
 import { parseExamPDF } from "./examParser";
-import { safeJSON } from "./lib/aiJson";
+import { safeJSON, tryParseJSON } from "./lib/aiJson";
+import { analyzeLecture } from "./ingest/teachingMap";
 import {
   chunkText,
   tryParseObjectivesJSON,
@@ -2383,35 +2384,6 @@ function patchWeakConceptQuestionHistoryResult(blockId, conceptId, result, quest
   }
 }
 
-/** Robust JSON parse for Gemini / markdown-wrapped model output (shared by analyzeLecture, drill MCQ, etc.) */
-function tryParseJSON(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text.trim());
-  } catch (e) {}
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) {
-    try {
-      return JSON.parse(fence[1].trim());
-    } catch (e) {}
-  }
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start !== -1 && end > start) {
-    try {
-      return JSON.parse(text.slice(start, end + 1));
-    } catch (e) {}
-  }
-  const arrStart = text.indexOf("[");
-  const arrEnd = text.lastIndexOf("]");
-  if (arrStart !== -1 && arrEnd > arrStart) {
-    try {
-      return JSON.parse(text.slice(arrStart, arrEnd + 1));
-    } catch (e) {}
-  }
-  return null;
-}
-
 function shuffleArray(arr) {
   const shuffled = [...(arr || [])];
   for (let i = shuffled.length - 1; i > 0; i--) {
@@ -2774,93 +2746,6 @@ Generate 1 MCQ. Options max 8 words. Explanations max 15 words.`;
   return { normalized, matchingConceptId: null };
 }
 
-async function analyzeLecture(lec, extractedText) {
-  const subtopics = Array.isArray(lec?.subtopics) ? lec.subtopics : [];
-
-  const systemPrompt = `Return only valid JSON. No markdown. No code fences.
-No explanation text. Start with { or [.
-
-You are an expert medical educator analyzing a lecture for a medical student study app.
-Analyze this lecture content and produce a structured teaching map.
-Raw JSON only, no markdown, no backticks:
-{
-  "summary": "<2-3 sentence overview of what this lecture covers>",
-  "clinicalHook": "<a real patient scenario in 2-3 sentences that this entire lecture explains — make it vivid and specific>",
-  "sections": [
-    {
-      "title": "<section title>",
-      "objectives": ["<objective 1>", "<objective 2>"],
-      "coreContent": "<3-5 sentences teaching the key concepts of this section — define terms, explain mechanisms, build from basic science to clinical>",
-      "keyTerms": ["<term>", "<term>", "<term>"],
-      "clinicalRelevance": "<1-2 sentences — how does this section explain or connect to the patient scenario above>",
-      "commonMistakes": "<1 sentence — what do students commonly confuse or miss here>",
-      "anchorQuestion": "<one Socratic reasoning question — not recall, but application>"
-    }
-  ],
-  "bigPicture": "<the single most important clinical takeaway from this entire lecture>"
-}`;
-
-  const userPrompt = `Lecture title: ${lec.lectureTitle || ""}
-Lecture type: ${lec.lectureType || ""} ${lec.lectureNumber ?? ""}
-
-${LECTURE_MARKDOWN_CONTEXT_FOR_AI}
-
-Full lecture content:
-${(extractedText || "").slice(0, 6000)}`;
-
-  const fallback = { summary: "", clinicalHook: "", sections: [], bigPicture: "" };
-  try {
-    const raw = await callAI(systemPrompt, userPrompt, 2500);
-    let result = tryParseJSON(raw) || fallback;
-
-    let sections =
-      (Array.isArray(result?.sections) ? result.sections : null) ||
-      (Array.isArray(result?.map) ? result.map : null) ||
-      (Array.isArray(result?.content) ? result.content : null) ||
-      (Array.isArray(result) ? result : null);
-
-    if (!sections || !Array.isArray(sections) || sections.length === 0) {
-      console.log(
-        "analyzeLecture: subtopic fallback,",
-        "keys:", Object.keys(result || {}).join(", ")
-      );
-      const fallbackSections =
-        subtopics.length > 0
-          ? subtopics.map((topic) => ({
-              title: String(topic),
-              coreContent: `Study the key concepts related to: ${topic}`,
-              objectives: [],
-            }))
-          : [
-              {
-                title: "Overview",
-                coreContent: "Study the key concepts from this lecture using the source material.",
-                objectives: [],
-              },
-            ];
-      return {
-        summary: result?.summary || "",
-        clinicalHook: result?.clinicalHook || "",
-        bigPicture: result?.bigPicture || "",
-        sections: fallbackSections,
-      };
-    }
-
-    if (Array.isArray(result) && !result.sections) {
-      return {
-        summary: "",
-        clinicalHook: "",
-        bigPicture: "",
-        sections,
-      };
-    }
-
-    return { ...result, sections };
-  } catch (e) {
-    console.warn("analyzeLecture failed:", e?.message || e);
-    return fallback;
-  }
-}
 
 // ─────────────────────────────────────────────
 // PERSISTENT STORAGE

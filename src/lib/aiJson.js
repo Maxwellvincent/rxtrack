@@ -1,11 +1,43 @@
 /**
  * Parsing JSON out of a model response, salvage and all.
  *
- * Lifted out of App.jsx unchanged so the ingest pipeline can use the same
- * forgiving parser App has always used: fenced-block stripping, control-char
- * scrubbing, trailing-comma repair, and salvage passes for a response that was
- * cut off mid-array.
+ * Two parsers, both lifted out of App.jsx unchanged, because they fail
+ * differently on purpose:
+ *   safeJSON     — throws when nothing can be salvaged. For callers that must
+ *                  distinguish "the model returned nothing usable" from "the
+ *                  model returned an empty result".
+ *   tryParseJSON — returns null instead. For callers with a fallback ready.
  */
+
+/** Robust JSON parse for Gemini / markdown-wrapped model output (shared by analyzeLecture, drill MCQ, etc.) */
+export function tryParseJSON(text) {
+  if (!text) return null;
+  try {
+    return JSON.parse(text.trim());
+  } catch (e) { void e; }
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) {
+    try {
+      return JSON.parse(fence[1].trim());
+    } catch (e) { void e; }
+  }
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(text.slice(start, end + 1));
+    } catch (e) { void e; }
+  }
+  const arrStart = text.indexOf("[");
+  const arrEnd = text.lastIndexOf("]");
+  if (arrStart !== -1 && arrEnd > arrStart) {
+    try {
+      return JSON.parse(text.slice(arrStart, arrEnd + 1));
+    } catch (e) { void e; }
+  }
+  return null;
+}
+
 export const safeJSON = (raw) => {
   if (!raw) throw new Error("Empty response");
 

@@ -16,6 +16,7 @@ import { pushAllLocalDataToSupabase } from "../../../supabase.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
+import { analyzeLecture } from "../../../ingest/teachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
 import {
   buildLectureRecord,
@@ -56,11 +57,12 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [progress, setProgress] = useState("");
   const [saved, setSaved] = useState(null);            // the lecture just written
   const [objectiveResult, setObjectiveResult] = useState("");
+  const [mapResult, setMapResult] = useState("");
 
   const onFile = useCallback(
     async (file) => {
       setError(""); setDone(""); setPreview(null); setProgress("");
-      setSaved(null); setObjectiveResult("");
+      setSaved(null); setObjectiveResult(""); setMapResult("");
       if (!file) return;
 
       const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
@@ -167,6 +169,42 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
     }
   }, [saved, blockId, userId]);
 
+  /**
+   * The teaching map is what DeepLearn teaches from — its clinicalHook is the
+   * case DeepLearn opens with, so a lecture without one teaches with no
+   * patient. Written onto the stored lecture, not held in this component.
+   */
+  const buildTeachingMap = useCallback(async () => {
+    if (!saved) return;
+    setBusy(true); setError(""); setProgress("Analyzing the lecture…");
+    try {
+      const map = await analyzeLecture(saved, lectureText(saved));
+      const sections = map?.sections?.length || 0;
+      if (!sections) {
+        setMapResult("The analysis came back empty — check the AI key, then try again.");
+        return;
+      }
+
+      const teachingMapDate = new Date().toISOString();
+      const current = lecturesStore.read(userId) || [];
+      lecturesStore.write(
+        userId,
+        current.map((l) => (l.id === saved.id ? { ...l, teachingMap: map, teachingMapDate } : l))
+      );
+      setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
+      if (userId) await pushAllLocalDataToSupabase(userId);
+
+      setMapResult(
+        `${sections} section${sections === 1 ? "" : "s"} mapped${map.clinicalHook ? " · clinical hook ready" : ""}.`
+      );
+    } catch (e) {
+      setError("Analysis failed: " + (e?.message || String(e)));
+    } finally {
+      setBusy(false);
+      setProgress("");
+    }
+  }, [saved, userId]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
@@ -225,15 +263,22 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         {saved && (
           <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3">
             <div className="text-xs text-text-2">
-              Objectives are the curriculum this block is graded on — pull them out of the lecture now
-              and everything downstream (coverage, quizzes, tagging) can use them.
+              Two AI passes worth running now: objectives are the curriculum this block is graded on
+              (coverage, quizzes and tagging all read them), and the teaching map is what DeepLearn
+              teaches from.
             </div>
             {objectiveResult && (
               <div className="mt-2 font-mono text-[11px] text-good">{objectiveResult}</div>
             )}
-            <Button className="mt-2" variant="outline" onClick={extractObjectives} disabled={busy}>
-              {busy ? "Working…" : objectiveResult ? "◇ Extract again" : "◇ Extract objectives"}
-            </Button>
+            {mapResult && <div className="mt-1 font-mono text-[11px] text-good">{mapResult}</div>}
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button variant="outline" onClick={extractObjectives} disabled={busy}>
+                {objectiveResult ? "◇ Extract again" : "◇ Extract objectives"}
+              </Button>
+              <Button variant="outline" onClick={buildTeachingMap} disabled={busy}>
+                {mapResult ? "◈ Analyze again" : "◈ Build teaching map"}
+              </Button>
+            </div>
           </div>
         )}
 
