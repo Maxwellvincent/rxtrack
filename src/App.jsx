@@ -24,7 +24,13 @@ import {
 import LearningModel from "./LearningModel.jsx";
 import DeepLearn from "./DeepLearn";
 import { guideFor } from "./objectiveGuides.js";
-import { loadPDFJS, parseExamPDF } from "./examParser";
+import { parseExamPDF } from "./examParser";
+import {
+  assessTextQuality,
+  extractPdfTextFast,
+  extractWithSmartFallback,
+  extractionMethodSuffix,
+} from "./ingest/pdfText";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
 import { DIFFICULTY_TIERS, buildDifficultyInstruction } from "./difficultyEngine";
 import {
@@ -12798,35 +12804,6 @@ function tryParseObjectivesJSON(raw) {
   }
 }
 
-function assessTextQuality(text) {
-  if (!text || text.trim().length < 50) {
-    return { quality: "empty", reason: "No text extracted" };
-  }
-  const wordCount = text.split(/\s+/).filter(Boolean).length;
-  const avgWordLength = text.replace(/\s+/g, "").length / Math.max(1, wordCount);
-  if (wordCount < 20) {
-    return {
-      quality: "poor",
-      reason: "Very little text — may be image-based",
-    };
-  }
-  if (Number.isFinite(avgWordLength) && avgWordLength > 25) {
-    return {
-      quality: "poor",
-      reason: "Text may be garbled",
-    };
-  }
-  const specialCharRatio =
-    (text.match(/[^a-zA-Z0-9\s.,;:!?()-]/g) || []).length / Math.max(1, text.length);
-  if (specialCharRatio > 0.3) {
-    return {
-      quality: "poor",
-      reason: "Text may be garbled",
-    };
-  }
-  return { quality: "good", reason: null };
-}
-
 function deduplicateExtractedObjectives(objs) {
   const seen = new Map();
   objs.forEach((obj) => {
@@ -15448,94 +15425,6 @@ async function withTimeout(promise, ms = 30000, label = "") {
   }
 }
 
-/** Fast PDF text probe (pdf.js) — same extraction approach as examParser, no question AI */
-async function extractPdfTextFast(file) {
-  await loadPDFJS();
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer, verbosity: 0 }).promise;
-  const parts = [];
-  const maxPages = Math.min(pdf.numPages, 80);
-  for (let i = 1; i <= maxPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const text = content.items.map((x) => x.str + (x.hasEOL ? "\n" : " ")).join("").trim();
-    parts.push(text);
-  }
-  return parts.join("\n\n");
-}
-
-/** Mistral OCR first when API key is set; else / on failure fall back to pdfplumber (parseExamPDF). */
-async function extractWithSmartFallback(file, onProgress, opts = {}) {
-  void opts?.forceMistralOcr;
-
-  {
-    try {
-      onProgress?.("🔍 Running OCR...");
-      console.log("Attempting OCR (marker → datalab → mistral)...");
-      const ocrExtract = await extractTextSmart(file, { onProgress });
-      const chunks = ocrExtract.chunks || ocrExtract;
-      const slideImages = ocrExtract.slideImages || [];
-      console.log("OCR success, chunks:", chunks.length, "method:", ocrExtract.method);
-      const md = chunks.map((c) => c.markdown || c.text || "").join("\n\n---\n\n").trim();
-      if (chunks?.length && md) {
-        const extractionMethod = ocrExtract.method || "marker-ocr";
-        return {
-          contentResult: {
-            fullText: md,
-            chunks,
-            slideImages,
-            extractionMethod,
-            pageCount: chunks.length,
-            questions: [],
-            examTitle: file.name.replace(/\.pdf$/i, ""),
-            totalQuestions: 0,
-            format: "standard",
-            subtopics: [],
-            keyTerms: [],
-            lectureNumber: detectLectureNumber(file.name, file.name.replace(/\.pdf$/i, ""), "LEC"),
-            lectureTitle: file.name.replace(/\.pdf$/i, ""),
-          },
-          method: extractionMethod,
-        };
-      }
-    } catch (err) {
-      console.warn("OCR failed, falling back to pdfplumber:", err?.message || err);
-    }
-  }
-
-  const directText = await extractPdfTextFast(file);
-  if (directText && directText.trim().length > 100) {
-    const parsed = await parseExamPDF(file, onProgress);
-    return {
-      contentResult: {
-        ...parsed,
-        extractionMethod: "pdfplumber",
-        pageCount: (parsed.chunks || []).length,
-      },
-      method: "pdfplumber",
-    };
-  }
-  const parsed = await parseExamPDF(file, onProgress);
-  const hasText = (parsed.fullText || "").trim().length > 0;
-  return {
-    contentResult: {
-      ...parsed,
-      extractionMethod: hasText ? "pdfplumber" : "none",
-      pageCount: (parsed.chunks || []).length,
-    },
-    method: hasText ? "pdfplumber" : "none",
-  };
-}
-
-function extractionMethodSuffix(method) {
-  if (method === "pdfplumber") return "direct extract";
-  if (method === "mistral-ocr") return "OCR";
-  if (method === "marker-local") return "marker (GPU)";
-  if (method === "marker-datalab") return "marker (cloud)";
-  if (method === "marker-ocr") return "marker";
-  if (method === "none" || method === "error") return null;
-  return null;
-}
 
 
 /** Reject invented lecture IDs from AI; only return id if present in lecById map. */
@@ -23767,7 +23656,7 @@ What is the clinical significance of this finding?`,
       const { contentResult: cr0, method: extractMethodUsed } = await extractWithSmartFallback(
         filB,
         (msg) => setUpMsg(msg),
-        { forceMistralOcr: forceOcr }
+        { forceMistralOcr: forceOcr, detectNumber: detectLectureNumber }
       );
       if (typeof performance !== "undefined") {
         logUploadPhase(queueId, "merge_partB_extract", { method: extractMethodUsed }, performance.now() - tMergeEx);
@@ -23982,7 +23871,7 @@ What is the clinical significance of this finding?`,
           const { contentResult: cr0, method: extractMethodUsed } = await extractWithSmartFallback(
             file,
             (msg) => setUpMsg(msg),
-            { forceMistralOcr: forceOcr }
+            { forceMistralOcr: forceOcr, detectNumber: detectLectureNumber }
           );
           if (typeof performance !== "undefined") {
             logUploadPhase(queueId, "extract_done", { method: extractMethodUsed }, performance.now() - tExtract);
