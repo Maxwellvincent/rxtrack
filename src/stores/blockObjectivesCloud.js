@@ -24,8 +24,15 @@ import { mergeObjectivesMap } from "./merge.js";
 
 export const key = "rxt-block-objectives";
 
-/** How many blocks keep a localStorage copy for App. Two active + one spare. */
-export const HOT_BLOCK_LIMIT = 3;
+/**
+ * How many blocks keep a localStorage copy for App.
+ *
+ * One: the block on screen. A single big block is already over a megabyte —
+ * Nervous System & Behavior is 75 lectures — so mirroring three of them costs
+ * more than the whole budget has spare. App keeps working for the block being
+ * worked in, which is the only one its surfaces are showing anyway.
+ */
+export const HOT_BLOCK_LIMIT = 1;
 
 const state = {
   userId: null,
