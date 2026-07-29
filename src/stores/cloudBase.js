@@ -109,16 +109,25 @@ function entryFor(userId, logicalKey) {
 }
 
 /**
- * Keys App.jsx still reads straight out of localStorage get a mirrored copy.
+ * Keys still read straight out of localStorage somewhere get a mirrored copy.
  *
- * App reads rxt-lec-meta 57 times, rxt-completion 48, rxt-performance 41, all
- * synchronously and none through a store module. Making those keys cloud-only
- * would leave every App surface reading a copy that stops being updated. So
- * while App still owns those surfaces, a converted store writes both places:
- * Firestore is the source of truth, localStorage is a read-only shadow for App.
+ * This list existed for App.jsx. App.jsx is gone, and the list is still here,
+ * because deleting App did not delete every direct localStorage read:
  *
- * Each entry here is removed when T6.1 deletes the App surface that reads it —
- * at which point the key becomes cloud-only and stops costing storage.
+ *   rxt-performance, rxt-completion  DeepLearn.jsx, 7 sites
+ *   rxt-terms, rxt-lec-meta,
+ *   rxt-block-objectives             shell/data.js — readTerms/readLectures/
+ *                                    blockCoverage, called from BlockHome,
+ *                                    Sidebar, Shell and ScheduleImportModal
+ *   rxt-weak-concepts                weakConcepts.js + ObjectiveTracker
+ *   rxt-terms                        AnkiSyncModal
+ *   all of them                      supabase.js, the legacy merge-sync
+ *
+ * Firestore is the source of truth either way; localStorage is a read-only
+ * shadow for those readers. An entry comes off this list when its last direct
+ * reader is converted to a store — at which point the key becomes cloud-only
+ * and stops costing storage. Emptying it before then hands those readers a copy
+ * that silently stops updating.
  */
 const MIRRORED_TO_LOCAL = new Set([
   "rxt-terms",

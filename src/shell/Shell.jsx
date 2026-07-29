@@ -23,6 +23,7 @@ import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.j
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
+import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
 import { Today } from "./features/today/Today.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
@@ -117,6 +118,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showImport, setShowImport] = useState(false);
   const [showAddLecture, setShowAddLecture] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
+  const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [view, setView] = useState("home"); // home | objectives
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
@@ -171,7 +173,7 @@ function ShellMain({ theme, toggle, userId }) {
           lectureTitle,
           blockId: bid,
           lectures: readLectures(),
-          exemplars: readExemplars(),
+          exemplars: readExemplars(userId),
           questionCount: extraMeta?.questionCount,
           difficulty: extraMeta?.difficulty ?? "medium",
         },
@@ -183,7 +185,7 @@ function ShellMain({ theme, toggle, userId }) {
       }
       setQuiz({ lectureId, questions: result.questions, title: lectureTitle });
     },
-    [activeBlockId]
+    [activeBlockId, userId]
   );
 
   return (
@@ -211,11 +213,12 @@ function ShellMain({ theme, toggle, userId }) {
           onImportSchedule={() => setShowImport(true)}
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
+          onQuestionBanks={() => setShowQuestionBanks(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         <main className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
-            <div className="p-8 text-sm text-text-3">No terms found in your account yet. Add them in the current app (?shell=old), then reload.</div>
+            <div className="p-8 text-sm text-text-3">No terms found in your account yet. Import a term schedule (📅 Schedule) to get started.</div>
           ) : sessionMode && activeBlockId ? (
             sessionMode === "calibrate" ? (
               <CalibrationSession
@@ -333,6 +336,13 @@ function ShellMain({ theme, toggle, userId }) {
           termId={active?.termId ?? null}
           userId={userId}
           onClose={() => setShowBulkImport(false)}
+        />
+      )}
+      {showQuestionBanks && (
+        <QuestionBankModal
+          blockId={activeBlockId}
+          userId={userId}
+          onClose={() => setShowQuestionBanks(false)}
         />
       )}
     </div>

@@ -6,15 +6,15 @@
  * had a per-block loop and its own authoritative writer.
  *
  * One collection listener keeps every block in memory, so `read()` stays
- * synchronous and complete for the shell. localStorage gets only the HOT blocks
- * — the ones recently worked in — because App.jsx still reads that key directly
- * in around forty places and cannot be made async tonight.
+ * synchronous and complete for every consumer that goes through this store.
+ * localStorage gets only the HOT blocks — the ones recently worked in — because
+ * one direct reader is left: shell/data.js `blockCoverage`, which the sidebar
+ * calls per block to draw its coverage percentage.
  *
- * The consequence, stated plainly: in the old shell, a block that has been
- * evicted shows no objectives until it is opened in the new shell again. The new
- * shell is unaffected — it reads this store, which has them all. Term 1 is
- * finished and accounts for 1.1MB of a ~5MB budget, which is what makes the
- * trade worth making.
+ * The consequence, stated plainly: the sidebar shows no coverage figure for a
+ * block that has been evicted until it is opened again. Everything that reads
+ * this store has all the blocks regardless. Term 1 is finished and accounts for
+ * 1.1MB of a ~5MB budget, which is what makes the trade worth making.
  */
 import { collection, doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
@@ -26,12 +26,11 @@ import { stripUndefined } from "./cloudBase.js";
 export const key = "rxt-block-objectives";
 
 /**
- * How many blocks keep a localStorage copy for App.
+ * How many blocks keep a localStorage copy for the remaining direct reader.
  *
  * One: the block on screen. A single big block is already over a megabyte —
  * Nervous System & Behavior is 75 lectures — so mirroring three of them costs
- * more than the whole budget has spare. App keeps working for the block being
- * worked in, which is the only one its surfaces are showing anyway.
+ * more than the whole budget has spare.
  */
 export const HOT_BLOCK_LIMIT = 1;
 
