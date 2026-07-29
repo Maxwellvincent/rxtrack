@@ -129,6 +129,28 @@ describe("writeCloud", () => {
   });
 });
 
+describe("undefined fields", () => {
+  it("strips them, because Firestore rejects the whole write over one", () => {
+    // localStorage never cared — JSON.stringify drops undefined — so the data
+    // has carried fields like lastConfidence: undefined for years.
+    writeCloud("u1", "rxt-exam-dates", {
+      b1: { date: "2026-08-31", lastConfidence: undefined },
+      b2: undefined,
+      b3: { nested: [{ keep: 1, drop: undefined }] },
+    });
+
+    expect(backend.writes.at(-1).value.data).toEqual({
+      b1: { date: "2026-08-31" },
+      b3: { nested: [{ keep: 1 }] },
+    });
+  });
+
+  it("keeps the value readable in full locally, undefined and all", () => {
+    writeCloud("u1", "rxt-exam-dates", { b1: "2026-08-31", b2: undefined });
+    expect(readCloud("u1", "rxt-exam-dates", {})).toEqual({ b1: "2026-08-31", b2: undefined });
+  });
+});
+
 describe("where each key lives in Firestore", () => {
   it("reads the five state stores from state/{name}, not kv", () => {
     // Found live: terms came back EMPTY because it was read from kv/rxt-terms,

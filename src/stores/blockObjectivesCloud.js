@@ -21,6 +21,7 @@ import { db } from "../firebase.js";
 import { encodeDocId, decodeDocId } from "../idCodec.js";
 import { notifyStoreChanged, subscribeToStore, writeJson, readJson } from "./base.js";
 import { mergeObjectivesMap } from "./merge.js";
+import { stripUndefined } from "./cloudBase.js";
 
 export const key = "rxt-block-objectives";
 
@@ -139,7 +140,11 @@ export function write(userId, value) {
     state.blocks.set(blockId, entry);
     touchBlock(blockId);
     Promise.resolve(
-      put(docFn(db, "users", userId, "objectives", encodeDocId(blockId)), { data: entry, updatedAt: stamp() }, { merge: false })
+      put(
+        docFn(db, "users", userId, "objectives", encodeDocId(blockId)),
+        { data: stripUndefined(entry), updatedAt: stamp() },
+        { merge: false }
+      )
     ).catch((e) => console.warn(`block objectives: write failed for ${blockId}`, e?.message || e));
   }
 

@@ -40,6 +40,27 @@ function api() {
 const cacheKey = (userId, logicalKey) => `${userId || "anon"}:${logicalKey}`;
 
 /**
+ * Firestore rejects `undefined` outright — one field kills the whole write.
+ *
+ * localStorage never cared: JSON.stringify drops undefined silently, so the data
+ * has been carrying fields like `lastConfidence: undefined` for as long as it
+ * has existed. An absent field reads back the same as an undefined one, so
+ * dropping them changes nothing for any consumer.
+ */
+export function stripUndefined(value) {
+  if (Array.isArray(value)) return value.map(stripUndefined);
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v === undefined) continue;
+      out[k] = stripUndefined(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+/**
  * Where each key actually lives in Firestore.
  *
  * Not everything is a `kv` document. Five stores were promoted to their own
@@ -189,7 +210,7 @@ export function writeCloud(userId, logicalKey, value) {
 
   const { setDoc: put, serverTimestamp: stamp } = api();
   Promise.resolve(
-    put(docRef(userId, logicalKey), { data: value, updatedAt: stamp() }, { merge: false })
+    put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge: false })
   ).catch((e) => console.warn(`store ${logicalKey}: write failed`, e?.message || e));
 
   return value;

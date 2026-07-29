@@ -1,24 +1,52 @@
-// rxt-completion conflict policy: keep max completionLevel, use the newer side's reviewDates, and union activityLog by stable id/fingerprint.
-import { readJson, writeJson, subscribeToStore } from "./base.js";
+/**
+ * rxt-completion â€” Firestore-first (Phase B), MIRRORED.
+ *
+ * App.jsx reads this key 48 times straight out of localStorage, so cloudBase keeps
+ * a localStorage shadow in step until those surfaces are gone. Remove the key from
+ * MIRRORED_TO_LOCAL in cloudBase.js when the last App reader goes and it stops
+ * costing storage.
+ *
+ * Conflict policy was: keep max completionLevel, use the newer side's reviewDates, and union activityLog by
+ * stable id/fingerprint.
+ * That reconciled two full copies; it survives in `merge` for the legacy sync
+ * path only.
+ */
+import {
+  isHydrated as cloudIsHydrated,
+  readCloud,
+  readError as cloudReadError,
+  subscribeToCloudStore,
+  writeCloud,
+} from "./cloudBase.js";
+import { readJson } from "./base.js";
 import { mergeCompletion } from "./merge.js";
 
 export const key = "rxt-completion";
 const fallback = {};
 
 export function read(userId) {
-  return readJson(userId, key, fallback);
+  if (!userId) return readJson(userId, key, fallback);
+  return readCloud(userId, key, fallback);
 }
 
-// Authoritative replace — what a local UI write means (a delete must stay deleted).
+// Authoritative replace â€” what a local UI write means (a delete must stay deleted).
 export function write(userId, value) {
-  return writeJson(userId, key, value);
+  if (!userId) return value;
+  return writeCloud(userId, key, value);
 }
 
-// Merge incoming into stored under this key's conflict policy — the sync path.
 export function merge(userId, incoming) {
-  return writeJson(userId, key, incoming, { fallback, merge: mergeCompletion });
+  return write(userId, mergeCompletion(read(userId) || fallback, incoming));
 }
 
 export function subscribe(cb) {
-  return subscribeToStore(key, cb);
+  return subscribeToCloudStore(key, cb);
+}
+
+export function isHydrated(userId) {
+  return cloudIsHydrated(userId, key);
+}
+
+export function readError(userId) {
+  return cloudReadError(userId, key);
 }
