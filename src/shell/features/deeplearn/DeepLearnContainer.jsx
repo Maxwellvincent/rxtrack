@@ -6,7 +6,7 @@
  * feeds it the same data from the store hooks and the ported logic modules, the
  * same way ObjectiveTracker and PatientRecognition were adopted.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 // eslint-disable-next-line no-restricted-imports -- bounded legacy adapter: DeepLearn's own port is a later chunk.
 import DeepLearn from "../../../DeepLearn.jsx";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
@@ -14,6 +14,8 @@ import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { usePerformance } from "../../hooks/usePerformance.js";
+import { fetchLectureContent } from "../../../supabase.js";
+import { fetchTeachingMaps, withTeachingMaps } from "../../../lectureTeachingMap.js";
 import { createObjectiveCommands, dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
 import { detectStudyMode } from "../../logic/studyMode.js";
 import { buildQuestionContext } from "../../logic/questionContext.js";
@@ -56,6 +58,29 @@ export function DeepLearnContainer({
     [objectivesRes.data, blockId]
   );
 
+  /**
+   * Teaching maps are stored in Firestore, not in the lecture rows — a block of
+   * them is a few hundred KB of a ~5MB budget. DeepLearn reads lec.teachingMap
+   * deep inside its own tree, so they are folded back on here, once, when
+   * DeepLearn opens. Firestore serves repeats from its persistent cache.
+   */
+  const [teachingMaps, setTeachingMaps] = useState({});
+  const lectureRows = lectures.data;
+  useEffect(() => {
+    let live = true;
+    const uid = userId ?? getStoreHookUserId();
+    if (!uid || !lectureRows?.length) return undefined;
+    fetchTeachingMaps(uid, lectureRows, fetchLectureContent)
+      .then((maps) => { if (live && Object.keys(maps).length) setTeachingMaps((prev) => ({ ...prev, ...maps })); })
+      .catch((e) => console.warn("teaching maps: fetch failed", e?.message || e));
+    return () => { live = false; };
+  }, [userId, lectureRows]);
+
+  const lecturesWithMaps = useMemo(
+    () => withTeachingMaps(lectureRows, teachingMaps),
+    [lectureRows, teachingMaps]
+  );
+
   // DeepLearn asks for other blocks' objectives too (it can jump blocks).
   const getBlockObjectives = useCallback(
     (bid) => dedupeByText(selectBlockObjectives(objectivesRes.data, bid)),
@@ -88,19 +113,19 @@ export function DeepLearnContainer({
     (bid, lectureId, banksArg, _mode = "quiz", options = {}) =>
       buildQuestionContext({
         lectureId,
-        lectures: lectures.data,
+        lectures: lecturesWithMaps,
         objectives: getBlockObjectives(bid),
         questionBanks: banksArg || questionBanksByFile,
         selectedLecIds: options.selectedLecIds ?? null,
         stylePrefs: readStylePrefs(),
       }),
-    [lectures.data, getBlockObjectives, questionBanksByFile]
+    [lecturesWithMaps, getBlockObjectives, questionBanksByFile]
   );
 
   return (
     <DeepLearn
       blockId={blockId}
-      lecs={lectures.data}
+      lecs={lecturesWithMaps}
       blockObjectives={blockObjectives}
       getBlockObjectives={getBlockObjectives}
       onAppendObjectiveNote={onAppendObjectiveNote}

@@ -17,6 +17,7 @@ import { overwriteObjectivesInCloud, saveLectureToCloud } from "../../../supabas
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { analyzeLecture } from "../../../ingest/teachingMap.js";
+import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
 import {
   buildLectureRecord,
@@ -143,14 +144,17 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         sections = map?.sections?.length || 0;
         if (sections) {
           const teachingMapDate = new Date().toISOString();
-          // The map has to live on the LOCAL row as well as in the cloud:
-          // DeepLearn reads lec.teachingMap straight off the store, so a
-          // cloud-only copy teaches with no clinical hook. It is a few KB of
-          // prose, unlike the chunks, so it fits.
+          // Body to Firestore, stub to the row. DeepLearnContainer folds the
+          // body back when DeepLearn opens; a block of maps in localStorage is
+          // a few hundred KB of a budget the objectives already fill.
           const rows = lecturesStore.read(userId) || [];
           lecturesStore.write(
             userId,
-            rows.map((l) => (l.id === lecture.id ? { ...l, teachingMap: map, teachingMapDate } : l))
+            rows.map((l) =>
+              l.id === lecture.id
+                ? stripTeachingMap({ ...l, teachingMap: map, teachingMapDate })
+                : l
+            )
           );
           if (userId) await saveLectureToCloud(userId, { ...lecture, teachingMap: map, teachingMapDate });
         }

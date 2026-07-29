@@ -26,6 +26,7 @@ import DeepLearn from "./DeepLearn";
 import { guideFor } from "./objectiveGuides.js";
 import { parseExamPDF } from "./examParser";
 import { safeJSON, tryParseJSON } from "./lib/aiJson";
+import { teachingMapSectionCount } from "./lectureTeachingMap";
 import { analyzeLecture } from "./ingest/teachingMap";
 import {
   chunkText,
@@ -8576,9 +8577,11 @@ function LecListRow({
             🔍 Analyze with AI
           </button>
         )}
-        {lec.teachingMap?.sections?.length > 0 && (
+        {/* The map body lives in Firestore now; the row carries a stub with the
+            section count, so this badge reads whichever form it finds. */}
+        {teachingMapSectionCount(lec) > 0 && (
           <span style={{ fontFamily: SANS, fontSize: 11, color: T.statusProgress ?? tc, flexShrink: 0 }}>
-            ✓ {lec.teachingMap.sections?.length} sections mapped
+            ✓ {teachingMapSectionCount(lec)} sections mapped
           </span>
         )}
         {lec.subject && lec.subject !== lec.discipline && (

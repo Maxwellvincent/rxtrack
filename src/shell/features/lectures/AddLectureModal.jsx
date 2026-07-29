@@ -14,7 +14,8 @@
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
-import { overwriteObjectivesInCloud, pushAllLocalDataToSupabase } from "../../../supabase.js";
+import { overwriteObjectivesInCloud, pushAllLocalDataToSupabase, saveLectureToCloud } from "../../../supabase.js";
+import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
@@ -157,11 +158,16 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         }
 
         const teachingMapDate = new Date().toISOString();
+        // Body to Firestore, stub to the local row — DeepLearn fetches the body
+        // when it opens the lecture.
         const current = lecturesStore.read(userId) || [];
         lecturesStore.write(
           userId,
-          current.map((l) => (l.id === lec.id ? { ...l, teachingMap: map, teachingMapDate } : l))
+          current.map((l) =>
+            l.id === lec.id ? stripTeachingMap({ ...l, teachingMap: map, teachingMapDate }) : l
+          )
         );
+        if (userId) await saveLectureToCloud(userId, { ...lec, teachingMap: map, teachingMapDate });
         setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
         if (userId) await pushAllLocalDataToSupabase(userId);
 
