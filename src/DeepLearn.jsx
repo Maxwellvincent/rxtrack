@@ -4,6 +4,9 @@ import { LEVEL_NAMES, LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
 import { callAI, callAIJSON } from "./aiClient";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
 import { getLecText } from "./lectureText";
+import { fetchDeepLearnSession, pushDeepLearnSessions } from "./supabase";
+import { getStoreHookUserId } from "./shell/hooks/currentUser.js";
+import { hydrateSession, isStub, localCopyOf } from "./deepLearnSessions";
 import {
   DL_PHASE_ORDER,
   DEEP_LEARN_PHASES,
@@ -7696,17 +7699,46 @@ export default function DeepLearn({
         ...data,
         phase: typeof data?.phase === "string" ? migrateDeepLearnPhase(data.phase) : data?.phase,
       };
-      const updated = {
-        ...prev,
-        [sessionId]: {
-          ...normalized,
-          lastSaved: new Date().toISOString(),
-        },
-      };
-      localStorage.setItem("rxt-dl-sessions", JSON.stringify(updated));
+      const session = { ...normalized, lastSaved: new Date().toISOString() };
+
+      // The body goes to its own Firestore doc. It used to ride in the single
+      // rxt-dl-sessions kv doc, where three sessions together crossed the 900KB
+      // guard and the push silently skipped all of them.
+      const uid = getStoreHookUserId();
+      if (uid) {
+        pushDeepLearnSessions(uid, { [sessionId]: session }).catch((e) =>
+          console.warn("DeepLearn session cloud save failed:", e?.message || e)
+        );
+      }
+
+      // Locally keep only what the resume list needs when the body is large.
+      const updated = { ...prev, [sessionId]: session };
+      const forStorage = { ...updated, [sessionId]: uid ? localCopyOf(session) : session };
+      try {
+        localStorage.setItem("rxt-dl-sessions", JSON.stringify(forStorage));
+      } catch (e) {
+        console.warn("DeepLearn session local save failed:", e?.message || e);
+      }
       return updated;
     });
   }, []);
+
+  /**
+   * Resume needs the whole session. When only the stub is on this device, fetch
+   * the body first; a failed fetch must not drop the user into a blank session,
+   * so it surfaces instead.
+   */
+  const loadFullSession = useCallback(async (session) => {
+    if (!isStub(session)) return session;
+    const uid = getStoreHookUserId();
+    const sessionId = Object.keys(savedDeepLearnSessions).find((id) => savedDeepLearnSessions[id] === session);
+    if (!uid || !sessionId) return null;
+    const body = await fetchDeepLearnSession(uid, sessionId);
+    if (!body) return null;
+    const full = hydrateSession(session, body);
+    setSavedDeepLearnSessions((prev) => ({ ...prev, [sessionId]: full }));
+    return full;
+  }, [savedDeepLearnSessions]);
 
   const deleteDeepLearnSession = useCallback((sessionId) => {
     setSavedDeepLearnSessions((prev) => {
@@ -7718,6 +7750,8 @@ export default function DeepLearn({
   }, []);
 
   const [pendingDeepLearnStart, setPendingDeepLearnStart] = useState(null);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState("");
 
   const launchDeepLearn = useCallback((cfg, sid) => {
     const { selectedTopics, blockId: bid } = cfg;
@@ -8385,8 +8419,30 @@ export default function DeepLearn({
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               <button
-                onClick={() => {
-                  setSessionParams({ ...pendingDeepLearnStart.existingSession, resuming: true });
+                disabled={resumeLoading}
+                onClick={async () => {
+                  const stub = pendingDeepLearnStart.existingSession;
+                  setResumeError("");
+                  // A session whose body lives in the cloud has to be fetched
+                  // before resuming, or the session opens with nothing in it.
+                  if (isStub(stub)) {
+                    setResumeLoading(true);
+                    try {
+                      const full = await loadFullSession(stub);
+                      if (!full) {
+                        setResumeError("Could not load this session from the cloud. Check your connection and try again.");
+                        return;
+                      }
+                      setSessionParams({ ...full, resuming: true });
+                    } catch (e) {
+                      setResumeError("Could not load this session: " + (e?.message || String(e)));
+                      return;
+                    } finally {
+                      setResumeLoading(false);
+                    }
+                  } else {
+                    setSessionParams({ ...stub, resuming: true });
+                  }
                   setPhase("session");
                   setPendingDeepLearnStart(null);
                 }}
@@ -8396,14 +8452,20 @@ export default function DeepLearn({
                   color: "#fff",
                   padding: "14px",
                   borderRadius: 10,
-                  cursor: "pointer",
+                  cursor: resumeLoading ? "wait" : "pointer",
                   fontFamily: SERIF,
                   fontSize: 15,
                   fontWeight: 900,
+                  opacity: resumeLoading ? 0.7 : 1,
                 }}
               >
-                ▶ Resume from Phase {deepLearnPhaseNumber(pendingDeepLearnStart.existingSession.phase)}
+                {resumeLoading
+                  ? "Loading this session…"
+                  : `▶ Resume from Phase ${deepLearnPhaseNumber(pendingDeepLearnStart.existingSession.phase)}`}
               </button>
+              {resumeError && (
+                <div style={{ color: T.statusBad, fontFamily: MONO, fontSize: 12 }}>{resumeError}</div>
+              )}
               <button
                 onClick={() => {
                   deleteDeepLearnSession(pendingDeepLearnStart.existingSession.sessionId);
