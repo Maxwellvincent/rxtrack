@@ -859,6 +859,25 @@ export async function extractObjectivesFromLecture(rawText, lec, blockId) {
 async function _extractObjectivesFromLectureCore(rawText, lec, blockId, fullText) {
   const bid = blockId ?? lec?.blockId;
   const isCPR = typeof bid === "string" && bid.toLowerCase().startsWith("cpr");
+
+  /**
+   * Coded objectives come first, for EVERY block.
+   *
+   * All of the parsing below used to sit behind `isCPR`, so a Term 2 block —
+   * whose id is a generated string like "mrspx2sg9go" — never reached it and
+   * got its objectives purely from AI slices. Measured on the 24 imported
+   * Endocrine lectures that recovered 258 of 455 codes; parsing them directly
+   * recovers 454. The codes are the school's own curriculum, they are in the
+   * text verbatim, and a model is the wrong tool for copying them out.
+   */
+  const codedText = [rawText, fullText, (lec?.chunks || []).map(getChunkBody).join("\n\n")]
+    .filter(Boolean)
+    .join("\n\n");
+  const coded = extractCodeDelimited(codedText, lec, bid);
+  if (coded.length >= 3) {
+    console.log(`Extracted ${coded.length} coded objectives without AI`);
+    return deduplicateExtractedObjectives(coded);
+  }
   if (isCPR && lec?.chunks?.length) {
     // Part A+B merged PDFs: objectives may live in Part B — prefer last matching objectives-table chunk.
     const preferLast = !!lec.partABMerged;

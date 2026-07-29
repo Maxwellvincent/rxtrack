@@ -14,7 +14,7 @@ import {
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { encodeDocId, decodeDocId } from "./idCodec";
 import { storeForKey } from "./stores/index.js";
-import { applyLocalCap } from "./stores/capped.js";
+import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
 
 // SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
 // ALREADY merged by this module's own merge fns — whose argument order differs
@@ -528,7 +528,8 @@ export async function pushAllLocalDataToSupabase(userId) {
         continue;
       }
       const merged = await mergeDoc(stateRef(userId, name), parsed, mergeFn);
-      persistLocal(lsKey, merged);
+      // The cloud doc keeps the whole thing; the device keeps the working set.
+      persistLocal(lsKey, applyLocalCap(lsKey, merged));
     } catch (e) {
       errors.push({ store: name, error: { message: e?.message || String(e) } });
     }
@@ -729,11 +730,13 @@ export async function pullAllDataFromSupabase(userId) {
     persistLocal("rxt-completion", merged);
   }
 
-  // Weak concepts: union
+  // Weak concepts: union, then trimmed — the source questions and lecture
+  // labels each concept drags along are most of its size, and restoring them in
+  // full is what put 696KB straight back after every reload.
   if (weak != null) {
     const localWeak = localStorage.getItem("rxt-weak-concepts");
     const merged = mergeWeakConcepts(weak, localWeak ? JSON.parse(localWeak) : {});
-    persistLocal("rxt-weak-concepts", merged);
+    persistLocal("rxt-weak-concepts", applyLocalCap("rxt-weak-concepts", merged));
   }
 
   // Tracker: additive merge
@@ -767,6 +770,7 @@ export async function pullUserKvFromSupabase(userId) {
       const val = d.data()?.data;
       if (val == null) return;
       const key = decodeDocId(d.id);
+      if (SKIP_ON_PULL.has(key)) return; // lives in its own collection now
       try {
         // Same cap on the way in: a pull must not restore the whole history
         // that the push just declined to mirror.

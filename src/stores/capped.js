@@ -45,15 +45,60 @@ export function capMapEntries(map, max, stampOf = (v) => v?.savedAt || v?.update
   return out;
 }
 
-/** How much of each capped store stays on this device. */
+/**
+ * How much of each capped store stays on this device.
+ *
+ * rxt-question-banks holds every uploaded exam file's parsed questions, keyed by
+ * filename — 51 files and 618KB of a ~5MB budget. They are used as few-shot
+ * exemplars when generating questions, so a recent subset serves the same
+ * purpose; the full set stays in the cloud.
+ */
 export const LOCAL_CAPS = {
   "rxt-mcq-bank": 40,
   "rxt-missed-questions": 50,
+  "rxt-question-banks": 12,
 };
 
-/** Apply the cap for a key, if it has one. Anything else passes through. */
+/**
+ * Weak concepts carry their own evidence: the questions that produced them, the
+ * lectures they touch. That evidence is most of the 696KB — the concept itself
+ * is a line of text. Keep a couple of each locally; the cloud keeps the rest.
+ */
+export function trimWeakConcepts(store) {
+  if (!store || typeof store !== "object") return store;
+  const out = {};
+  for (const [blockId, list] of Object.entries(store)) {
+    out[blockId] = Array.isArray(list)
+      ? list.map((c) => ({
+          ...c,
+          sourceQuestions: (c?.sourceQuestions || []).slice(-2),
+          lectureLabels: (c?.lectureLabels || []).slice(-3),
+          linkedLecIds: (c?.linkedLecIds || []).slice(-3),
+        }))
+      : list;
+  }
+  return out;
+}
+
+/**
+ * Keys whose local copy is derived, not authoritative.
+ *
+ * Applied on the way IN as well as out: a pull that restores the full history
+ * undoes the cap, which is exactly what happened — dl-sessions came back at
+ * 881KB after a reload, twice.
+ */
 export function applyLocalCap(key, value) {
+  if (key === "rxt-weak-concepts") return trimWeakConcepts(value);
   const max = LOCAL_CAPS[key];
   if (!max) return value;
   return Array.isArray(value) ? capArray(value, max) : capMapEntries(value, max);
 }
+
+/**
+ * Keys the pull must not restore at all.
+ *
+ * DeepLearn sessions live in users/{uid}/dlSessions, a document each, because
+ * together they crossed the 900KB doc guard. The legacy kv blob is still there
+ * and restoring it puts 881KB straight back.
+ */
+export const SKIP_ON_PULL = new Set(["rxt-dl-sessions"]);
