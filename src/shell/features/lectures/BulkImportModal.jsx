@@ -141,7 +141,19 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       try {
         const map = await analyzeLecture(lecture, text);
         sections = map?.sections?.length || 0;
-        if (sections && userId) await saveLectureToCloud(userId, { ...lecture, teachingMap: map, teachingMapDate: new Date().toISOString() });
+        if (sections) {
+          const teachingMapDate = new Date().toISOString();
+          // The map has to live on the LOCAL row as well as in the cloud:
+          // DeepLearn reads lec.teachingMap straight off the store, so a
+          // cloud-only copy teaches with no clinical hook. It is a few KB of
+          // prose, unlike the chunks, so it fits.
+          const rows = lecturesStore.read(userId) || [];
+          lecturesStore.write(
+            userId,
+            rows.map((l) => (l.id === lecture.id ? { ...l, teachingMap: map, teachingMapDate } : l))
+          );
+          if (userId) await saveLectureToCloud(userId, { ...lecture, teachingMap: map, teachingMapDate });
+        }
       } catch (e) {
         setRow(entry.filename, { note: "teaching map failed: " + (e?.message || String(e)) });
       }
