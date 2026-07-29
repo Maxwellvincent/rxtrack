@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from "react";
 import { useTheme } from "./useTheme";
 import { readLectures } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
+import { useExamDates } from "./hooks/useExamDates.js";
 import { defaultBlockId, readCollapsedTerms } from "./navPrefs.js";
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
@@ -101,10 +102,13 @@ function ShellMain({ theme, toggle, userId }) {
   // were on disappears (a deleted term used to leave the shell pointing at
   // nothing).
   const [selectedBlockId, setSelectedBlockId] = useState(null);
+  // Exam dates decide where an unselected shell lands: the block whose exam is
+  // next is the one being studied.
+  const examDates = useExamDates(userId);
   const activeBlockId =
     selectedBlockId && blocks.some((b) => b.id === selectedBlockId)
       ? selectedBlockId
-      : defaultBlockId(blocks, readCollapsedTerms());
+      : defaultBlockId(blocks, readCollapsedTerms(), examDates.data);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sessionMode, setSessionMode] = useState(null); // null | 'engine' | 'calibrate'
   const [showAnki, setShowAnki] = useState(false);

@@ -54,16 +54,43 @@ export function isTermVisible(term, { collapsed, activeBlockId }) {
   return (term.blocks || []).some((b) => b.id === activeBlockId);
 }
 
+/** "YYYY-MM-DD" as a LOCAL calendar date — the convention the schedulers use. */
+function asLocalDate(value) {
+  if (!value) return null;
+  const [y, m, d] = String(value).slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const date = new Date(y, m - 1, d);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 /**
  * Which block to land on when nothing is selected.
  *
- * Prefers a block in a term that is NOT collapsed: collapsing Term 1 to focus on
- * Term 2 and then being dropped back into Term 1 on every reload — which
- * re-expands it, since the active block's term is always shown — defeats the
- * point. Falls back to the first block when every term is collapsed.
+ * The block being studied is the one whose exam is next, not the first in the
+ * list — landing in Term 1 / FTM 1 every reload while Term 2 is underway is
+ * just wrong, and collapsing Term 1 did not fix it because the active block's
+ * term is always shown, which re-expanded it.
+ *
+ * Order: the soonest exam still ahead, then the most recently passed exam (the
+ * block just finished beats one from a year ago), then a block in a term that is
+ * not collapsed, then whatever is first.
  */
-export function defaultBlockId(blocks, collapsed) {
+export function defaultBlockId(blocks, collapsed, examDates = {}, now = new Date()) {
   const list = blocks || [];
+  if (!list.length) return null;
+
+  const dated = list
+    .map((b) => ({ block: b, exam: asLocalDate(examDates?.[b.id]) }))
+    .filter((x) => x.exam);
+
+  const upcoming = dated
+    .filter((x) => x.exam >= now)
+    .sort((a, b) => a.exam - b.exam);
+  if (upcoming.length) return upcoming[0].block.id;
+
+  const past = dated.sort((a, b) => b.exam - a.exam);
+  if (past.length) return past[0].block.id;
+
   const open = list.find((b) => !collapsed?.has(b.termId));
   return (open ?? list[0])?.id ?? null;
 }

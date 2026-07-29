@@ -65,18 +65,42 @@ describe("defaultBlockId", () => {
     { id: "b2", termId: "t1" },
     { id: "b3", termId: "t2" },
   ];
+  const now = new Date(2026, 6, 29); // 29 July 2026
 
-  it("lands in a term you have not collapsed", () => {
-    // The Term 2 case: collapse Term 1, and reloads stop dropping you back into it.
-    expect(defaultBlockId(blocks, new Set(["t1"]))).toBe("b3");
+  it("lands on the block whose exam is next", () => {
+    // The actual complaint: Term 1 / FTM 1 every reload while Term 2 is running.
+    const exams = { b1: "2026-03-25", b2: "2026-04-16", b3: "2026-08-31" };
+    expect(defaultBlockId(blocks, new Set(), exams, now)).toBe("b3");
   });
 
-  it("uses the first block when nothing is collapsed", () => {
-    expect(defaultBlockId(blocks, new Set())).toBe("b1");
+  it("picks the soonest upcoming exam, not simply a future one", () => {
+    const exams = { b1: "2026-10-23", b2: "2026-08-31", b3: "2026-09-30" };
+    expect(defaultBlockId(blocks, new Set(), exams, now)).toBe("b2");
+  });
+
+  it("counts an exam happening today as still ahead", () => {
+    expect(defaultBlockId(blocks, new Set(), { b2: "2026-07-29" }, now)).toBe("b2");
+  });
+
+  it("falls back to the most recently finished block when every exam has passed", () => {
+    const exams = { b1: "2025-11-01", b2: "2026-04-16", b3: "2026-03-25" };
+    expect(defaultBlockId(blocks, new Set(), exams, now)).toBe("b2");
+  });
+
+  it("lands in a term you have not collapsed when no exam dates are known", () => {
+    expect(defaultBlockId(blocks, new Set(["t1"]), {}, now)).toBe("b3");
+  });
+
+  it("uses the first block when nothing is collapsed and nothing is dated", () => {
+    expect(defaultBlockId(blocks, new Set(), {}, now)).toBe("b1");
   });
 
   it("still returns something when every term is collapsed", () => {
-    expect(defaultBlockId(blocks, new Set(["t1", "t2"]))).toBe("b1");
+    expect(defaultBlockId(blocks, new Set(["t1", "t2"]), {}, now)).toBe("b1");
+  });
+
+  it("ignores an unparseable date rather than landing nowhere", () => {
+    expect(defaultBlockId(blocks, new Set(), { b1: "not a date", b3: "2026-08-31" }, now)).toBe("b3");
   });
 
   it("copes with no blocks at all", () => {
