@@ -5,6 +5,7 @@ import { useTheme } from "./useTheme";
 import { readLectures } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
 import { useExamDates } from "./hooks/useExamDates.js";
+import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms } from "./navPrefs.js";
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
@@ -122,6 +123,12 @@ function ShellMain({ theme, toggle, userId }) {
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
   const [studyLecture, setStudyLecture] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
+
+  // The block on screen is the one App must still find in localStorage: the
+  // objectives store keeps only recently-worked blocks mirrored there.
+  useEffect(() => {
+    if (activeBlockId) touchBlock(activeBlockId);
+  }, [activeBlockId]);
   const legacyTheme = themes[theme] || themes.dark;
 
   // Store hooks read this when no explicit userId is passed.

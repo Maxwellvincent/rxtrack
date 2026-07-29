@@ -1,24 +1,26 @@
-// rxt-block-objectives conflict policy: merge per block; imported objectives union by id, preferring the side with more drill evidence; extracted objectives union by id.
-import { readJson, writeJson, subscribeToStore } from "./base.js";
-import { mergeObjectivesMap } from "./merge.js";
-
-export const key = "rxt-block-objectives";
-const fallback = {};
-
-export function read(userId) {
-  return readJson(userId, key, fallback);
-}
-
-// Authoritative replace — what a local UI write means (a delete must stay deleted).
-export function write(userId, value) {
-  return writeJson(userId, key, value);
-}
-
-// Merge incoming into stored under this key's conflict policy — the sync path.
-export function merge(userId, incoming) {
-  return writeJson(userId, key, incoming, { fallback, merge: mergeObjectivesMap });
-}
-
-export function subscribe(cb) {
-  return subscribeToStore(key, cb);
-}
+/**
+ * rxt-block-objectives â€” Firestore-first, a document per block.
+ *
+ * The implementation lives in blockObjectivesCloud.js because this key is a
+ * COLLECTION, not the single document cloudBase.js serves: users/{uid}/objectives/{blockId}.
+ * It is the largest store in the app â€” 1.5MB of a ~5MB budget across seven
+ * blocks â€” which is why it holds everything in memory and mirrors only the
+ * blocks recently worked in back to localStorage for App.jsx.
+ *
+ * The old per-block merge policy (imported union by id preferring drill
+ * evidence, extracted union by id) reconciled two full copies. With one source
+ * of truth there is nothing to reconcile, so a write is a write.
+ */
+export {
+  key,
+  read,
+  write,
+  merge,
+  subscribe,
+  isHydrated,
+  readError,
+  touchBlock,
+  hotBlocks,
+  resetObjectivesStore,
+  HOT_BLOCK_LIMIT,
+} from "./blockObjectivesCloud.js";
