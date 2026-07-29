@@ -21,7 +21,7 @@
 import { doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { encodeDocId } from "../idCodec.js";
-import { notifyStoreChanged, subscribeToStore } from "./base.js";
+import { notifyStoreChanged, subscribeToStore, writeJson } from "./base.js";
 
 /** `${userId}:${logicalKey}` -> { value, hydrated, unsub, error } */
 const entries = new Map();
@@ -39,9 +39,42 @@ function api() {
 
 const cacheKey = (userId, logicalKey) => `${userId || "anon"}:${logicalKey}`;
 
+/**
+ * Where each key actually lives in Firestore.
+ *
+ * Not everything is a `kv` document. Five stores were promoted to their own
+ * `state/{name}` documents by the original sync, with names that do not match
+ * the localStorage key — rxt-weak-concepts is state/weak_concepts, rxt-tracker-v2
+ * is state/tracker. Reading them from kv/{key} finds nothing, which is exactly
+ * what happened on the first live run of this: terms came back empty.
+ *
+ * Two keys are not single documents at all and cannot be served from here:
+ * rxt-lec-meta is a document per lecture and rxt-block-objectives is a document
+ * per block. They need a collection-backed store, not this one.
+ */
+const STATE_DOCS = {
+  "rxt-terms": "terms",
+  "rxt-performance": "performance",
+  "rxt-completion": "completion",
+  "rxt-weak-concepts": "weak_concepts",
+  "rxt-tracker-v2": "tracker",
+};
+
+const COLLECTION_BACKED = new Set(["rxt-lec-meta", "rxt-block-objectives"]);
+
+export function docPathFor(userId, logicalKey) {
+  if (COLLECTION_BACKED.has(logicalKey)) {
+    throw new Error(`${logicalKey} is a collection, not a single document — it needs a collection-backed store`);
+  }
+  const stateName = STATE_DOCS[logicalKey];
+  return stateName
+    ? ["users", userId, "state", stateName]
+    : ["users", userId, "kv", encodeDocId(logicalKey)];
+}
+
 function docRef(userId, logicalKey) {
   const { doc: docFn } = api();
-  return docFn(db, "users", userId, "kv", encodeDocId(logicalKey));
+  return docFn(db, ...docPathFor(userId, logicalKey));
 }
 
 function entryFor(userId, logicalKey) {
@@ -52,6 +85,44 @@ function entryFor(userId, logicalKey) {
     entries.set(id, entry);
   }
   return entry;
+}
+
+/**
+ * Keys App.jsx still reads straight out of localStorage get a mirrored copy.
+ *
+ * App reads rxt-lec-meta 57 times, rxt-completion 48, rxt-performance 41, all
+ * synchronously and none through a store module. Making those keys cloud-only
+ * would leave every App surface reading a copy that stops being updated. So
+ * while App still owns those surfaces, a converted store writes both places:
+ * Firestore is the source of truth, localStorage is a read-only shadow for App.
+ *
+ * Each entry here is removed when T6.1 deletes the App surface that reads it —
+ * at which point the key becomes cloud-only and stops costing storage.
+ */
+const MIRRORED_TO_LOCAL = new Set([
+  "rxt-terms",
+  "rxt-performance",
+  "rxt-completion",
+  "rxt-weak-concepts",
+  "rxt-lec-meta",
+  "rxt-block-objectives",
+  "rxt-tracker-v2",
+]);
+
+export function isMirrored(logicalKey) {
+  return MIRRORED_TO_LOCAL.has(logicalKey);
+}
+
+function mirrorLocally(userId, logicalKey, value) {
+  if (!isMirrored(logicalKey) || value === undefined) return;
+  try {
+    // silent: the caller announces this change itself, and notifying here too
+    // would run every subscriber twice per write.
+    writeJson(userId, logicalKey, value, { silent: true });
+  } catch (e) {
+    // A full quota must not break the cloud write that already succeeded.
+    console.warn(`store ${logicalKey}: local mirror failed`, e?.message || e);
+  }
 }
 
 /**
@@ -70,6 +141,8 @@ export function ensureSubscribed(userId, logicalKey) {
       entry.value = snap.exists() ? snap.data()?.data : undefined;
       entry.hydrated = true;
       entry.error = null;
+      // A change made on another device has to reach App's copy too.
+      mirrorLocally(userId, logicalKey, entry.value);
       notifyStoreChanged(logicalKey, { userId, source: "firestore" });
     },
     (error) => {
@@ -111,6 +184,7 @@ export function writeCloud(userId, logicalKey, value) {
   const entry = entryFor(userId, logicalKey);
   entry.value = value;
   entry.hydrated = true;
+  mirrorLocally(userId, logicalKey, value);
   notifyStoreChanged(logicalKey, { userId, source: "local-write" });
 
   const { setDoc: put, serverTimestamp: stamp } = api();

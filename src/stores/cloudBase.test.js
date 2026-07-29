@@ -1,6 +1,8 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+﻿import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { installDomStorage } from "./testEnv.js";
 import {
   __setCloudBackendForTests,
+  docPathFor,
   isHydrated,
   readCloud,
   readError,
@@ -41,6 +43,7 @@ let backend;
 const PATH = "users/u1/kv/rxt-exam-dates";
 
 beforeEach(() => {
+  installDomStorage();
   backend = makeBackend();
   __setCloudBackendForTests(backend.api);
   vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -126,6 +129,68 @@ describe("writeCloud", () => {
   });
 });
 
+describe("where each key lives in Firestore", () => {
+  it("reads the five state stores from state/{name}, not kv", () => {
+    // Found live: terms came back EMPTY because it was read from kv/rxt-terms,
+    // and it is state/terms. The state doc names do not match the localStorage
+    // keys either â€” weak-concepts is weak_concepts, tracker-v2 is tracker.
+    expect(docPathFor("u1", "rxt-terms")).toEqual(["users", "u1", "state", "terms"]);
+    expect(docPathFor("u1", "rxt-performance")).toEqual(["users", "u1", "state", "performance"]);
+    expect(docPathFor("u1", "rxt-completion")).toEqual(["users", "u1", "state", "completion"]);
+    expect(docPathFor("u1", "rxt-weak-concepts")).toEqual(["users", "u1", "state", "weak_concepts"]);
+    expect(docPathFor("u1", "rxt-tracker-v2")).toEqual(["users", "u1", "state", "tracker"]);
+  });
+
+  it("reads everything else from kv", () => {
+    expect(docPathFor("u1", "rxt-exam-dates")).toEqual(["users", "u1", "kv", "rxt-exam-dates"]);
+    expect(docPathFor("u1", "rxt-assessments")).toEqual(["users", "u1", "kv", "rxt-assessments"]);
+  });
+
+  it("refuses the two keys that are collections rather than documents", () => {
+    // A document per lecture and a document per block; serving either from a
+    // single doc would silently read nothing.
+    expect(() => docPathFor("u1", "rxt-lec-meta")).toThrow(/collection/);
+    expect(() => docPathFor("u1", "rxt-block-objectives")).toThrow(/collection/);
+  });
+});
+
+describe("the localStorage mirror for keys App still reads", () => {
+  const TERMS_PATH = "users/u1/state/terms";
+
+  it("shadows a write for a mirrored key", () => {
+    writeCloud("u1", "rxt-terms", [{ id: "t1" }]);
+    expect(JSON.parse(localStorage.getItem("rxt:u1:rxt-terms") || localStorage.getItem("rxt-terms")))
+      .toEqual([{ id: "t1" }]);
+  });
+
+  it("shadows a change that arrived from another device", () => {
+    readCloud("u1", "rxt-terms", []);
+    backend.emit(TERMS_PATH, [{ id: "from-other-device" }]);
+    expect(JSON.parse(localStorage.getItem("rxt:u1:rxt-terms") || localStorage.getItem("rxt-terms")))
+      .toEqual([{ id: "from-other-device" }]);
+  });
+
+  it("does not shadow a key App does not read", () => {
+    localStorage.removeItem("rxt-exam-dates");
+    localStorage.removeItem("rxt:u1:rxt-exam-dates");
+    writeCloud("u1", "rxt-exam-dates", { b1: "2026-08-31" });
+    expect(localStorage.getItem("rxt-exam-dates")).toBeNull();
+    expect(localStorage.getItem("rxt:u1:rxt-exam-dates")).toBeNull();
+  });
+
+  it("keeps the cloud write even when the mirror throws", () => {
+    const setItem = localStorage.setItem;
+    localStorage.setItem = () => { throw new Error("QuotaExceededError"); };
+    try {
+      writeCloud("u1", "rxt-terms", [{ id: "t2" }]);
+      expect(readCloud("u1", "rxt-terms", [])).toEqual([{ id: "t2" }]);
+      expect(backend.writes.at(-1).path).toBe(TERMS_PATH);
+    } finally {
+      localStorage.setItem = setItem;
+    }
+  });
+});
+
 describe("listener errors", () => {
   it("keeps the last good value and surfaces the error", () => {
     readCloud("u1", "rxt-exam-dates", {});
@@ -138,3 +203,4 @@ describe("listener errors", () => {
     expect(isHydrated("u1", "rxt-exam-dates")).toBe(true);
   });
 });
+

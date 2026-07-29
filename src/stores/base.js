@@ -66,13 +66,18 @@ export function resolveWriteKey(userId, logicalKey) {
   return namespaced;
 }
 
-export function writeJson(userId, logicalKey, value, { fallback, merge } = {}) {
+/**
+ * `silent` is for the localStorage shadow a Firestore-backed store keeps for
+ * App.jsx: that write is a copy of a change already being announced, and
+ * announcing it twice makes every subscriber run twice per write.
+ */
+export function writeJson(userId, logicalKey, value, { fallback, merge, silent } = {}) {
   const ls = storage();
   if (!ls) return value;
   const next = merge ? merge(readJson(userId, logicalKey, fallback), value) : value;
   const target = resolveWriteKey(userId, logicalKey);
   ls.setItem(target, JSON.stringify(next));
-  notifyStoreChanged(logicalKey, { physicalKey: target, userId });
+  if (!silent) notifyStoreChanged(logicalKey, { physicalKey: target, userId });
   return next;
 }
 
