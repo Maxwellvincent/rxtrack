@@ -204,7 +204,10 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
               directory=""
               className="hidden"
               disabled={running}
-              onChange={(e) => { const fs = e.target.files; e.target.value = ""; onFiles(fs); }}
+              // Copy before resetting the input: e.target.files is a LIVE
+              // FileList, so clearing the value empties the very list just
+              // captured and the handler sees nothing.
+              onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
             />
           </label>
           <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
@@ -216,7 +219,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
               accept=".pdf,.md,.markdown,.txt"
               className="hidden"
               disabled={running}
-              onChange={(e) => { const fs = e.target.files; e.target.value = ""; onFiles(fs); }}
+              onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
             />
           </label>
         </div>
