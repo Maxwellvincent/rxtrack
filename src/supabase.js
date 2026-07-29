@@ -14,6 +14,7 @@ import {
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { encodeDocId, decodeDocId } from "./idCodec";
 import { storeForKey } from "./stores/index.js";
+import { applyLocalCap } from "./stores/capped.js";
 
 // SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
 // ALREADY merged by this module's own merge fns — whose argument order differs
@@ -605,8 +606,20 @@ export async function pushAllLocalDataToSupabase(userId) {
         errors.push({ store: `kv:${key}`, error: { message: "oversized, skipped" } });
         continue;
       }
+      // DeepLearn sessions go to their own collection: together they crossed
+      // the doc guard, so this key was skipped on every push and the sessions
+      // had no cloud copy at all.
+      if (key === "rxt-dl-sessions") {
+        const { errors: dlErrors } = await pushDeepLearnSessions(userId, parsed);
+        dlErrors.forEach((e) => errors.push({ store: `dlSessions:${e.session || "?"}`, error: { message: e.message } }));
+        continue;
+      }
       const merged = await mergeDoc(doc(db, "users", userId, "kv", encodeDocId(key)), parsed, mergeKvValue);
-      persistLocal(key, merged);
+      // The cloud doc keeps the whole history; localStorage keeps a working set
+      // for the capped keys. Without this, every generated MCQ and every missed
+      // question is mirrored back on every sync and the ~5MB budget goes to
+      // history instead of to the lectures and objectives that need it.
+      persistLocal(key, applyLocalCap(key, merged));
     } catch (e) {
       errors.push({ store: `kv:${key}`, error: { message: e?.message || String(e) } });
     }
@@ -755,7 +768,9 @@ export async function pullUserKvFromSupabase(userId) {
       if (val == null) return;
       const key = decodeDocId(d.id);
       try {
-        persistLocal(key, val);
+        // Same cap on the way in: a pull must not restore the whole history
+        // that the push just declined to mirror.
+        persistLocal(key, applyLocalCap(key, val));
         count++;
       } catch (e) {
         console.warn("user_kv restore failed for", key, e?.message);
@@ -791,6 +806,56 @@ export async function saveMcqBankEntry(userId, objectiveId, round, data) {
 }
 
 /**
+ * DeepLearn sessions, one Firestore doc each.
+ *
+ * They used to ride along in the single `kv` doc for rxt-dl-sessions, and that
+ * map crossed the 900KB guard — so the push skipped it every time and the only
+ * copy of a paused session was the one in localStorage. A single session
+ * carrying its generated SAQs is 844KB on its own, so the map was only ever
+ * going to grow past the limit; per-session docs give each one its own budget.
+ */
+export async function pushDeepLearnSessions(userId, sessions) {
+  if (!userId) return { written: 0, errors: [{ message: "no userId" }] };
+  const map = sessions || {};
+  const errors = [];
+  let written = 0;
+
+  for (const [sessionId, payload] of Object.entries(map)) {
+    try {
+      if (JSON.stringify(payload).length > MAX_DOC_BYTES) {
+        errors.push({ session: sessionId, message: "single session oversized, skipped" });
+        continue;
+      }
+      await setDoc(
+        doc(db, "users", userId, "dlSessions", encodeDocId(sessionId)),
+        { data: payload, updatedAt: serverTimestamp() },
+        { merge: false }
+      );
+      written += 1;
+    } catch (e) {
+      errors.push({ session: sessionId, message: e?.message || String(e) });
+    }
+  }
+  return { written, errors };
+}
+
+/** One session's full payload, for resuming a session whose body is not local. */
+export async function fetchDeepLearnSession(userId, sessionId) {
+  if (!userId || !sessionId) return null;
+  const snap = await getDoc(doc(db, "users", userId, "dlSessions", encodeDocId(sessionId)));
+  return snap.exists() ? snap.data()?.data ?? null : null;
+}
+
+/** Every stored session, keyed as DeepLearn expects. */
+export async function fetchAllDeepLearnSessions(userId) {
+  if (!userId) return {};
+  const snap = await getDocs(collection(db, "users", userId, "dlSessions"));
+  const out = {};
+  snap.docs.forEach((d) => { out[decodeDocId(d.id)] = d.data()?.data; });
+  return out;
+}
+
+/**
  * Pull all mcq docs for this user from Firestore into localStorage.
  * Called once on sign-in alongside pullAllDataFromSupabase.
  */
@@ -805,8 +870,10 @@ export async function pullMcqBankFromSupabase(userId) {
       // Rebuild the local cache key from the doc's own fields, not the encoded doc id.
       bank[`${v.objectiveId}_r${v.round ?? 0}`] = v.data;
     });
-    persistLocal("rxt-mcq-bank", bank);
-    console.log(`mcq: pulled ${snap.docs.length} questions from Firestore`);
+    // Every question ever generated lives in the `mcq` collection; the local
+    // cache keeps a working set so it cannot grow past the storage budget.
+    persistLocal("rxt-mcq-bank", applyLocalCap("rxt-mcq-bank", bank));
+    console.log(`mcq: pulled ${snap.docs.length} questions from Firestore, kept the most recent locally`);
   } catch (e) {
     console.warn("mcq pull exception:", e?.message);
   }

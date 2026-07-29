@@ -108,6 +108,7 @@ import {
 } from "./objectiveTextForAi.js";
 import { findRelevantMcqLectureChunk, mcqLectureSnippetPreview } from "./drillLectureSnippet";
 import { storeForKey } from "./stores/index.js";
+import { applyLocalCap } from "./stores/capped.js";
 
 const STUDY_MODES = {
   DEEP_LEARN: {
@@ -6034,7 +6035,10 @@ What is the clinical significance of this finding?`,
         yourAnswer: answers[q.id],
         highlights: highlights[q.id] || [],
       }));
-      const combined = [...existingMissed, ...newMissed].slice(-200);
+      // The push sends this to the kv doc, which keeps the full history; what
+      // stays on the device is a working set. 200 of these, each carrying its
+      // stem, choices and highlights, was 340KB of the storage budget.
+      const combined = applyLocalCap("rxt-missed-questions", [...existingMissed, ...newMissed]);
       localStorage.setItem("rxt-missed-questions", JSON.stringify(combined));
     } catch (e) {
       console.warn("Save missed questions failed", e);

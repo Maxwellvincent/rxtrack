@@ -13,6 +13,7 @@ service cloud.firestore {
       match /lectures/{lecId}    { allow read, write: if owner(uid); }
       match /kv/{key}            { allow read, write: if owner(uid); }
       match /mcq/{id}            { allow read, write: if owner(uid); }
+      match /dlSessions/{id}     { allow read, write: if owner(uid); } // paused DeepLearn sessions: one doc each, they blow the single-kv-doc limit together
       match /ankiCards/{id}      { allow read, write: if owner(uid); }
       match /ungeneratedCards/{id}{ allow read, write: if owner(uid); } // client Anki-ingest writes; server marks generated
       match /questionImages/{id} { allow read, write: if owner(uid); }
