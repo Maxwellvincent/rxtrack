@@ -8,6 +8,7 @@ import {
   normalizeSomCodesInText,
   findObjectivesTableChunk,
   buildObjEntry,
+  extractCodeDelimited,
   extractFromTableText,
   parseObjectiveActivityTag,
 } from "./objectives.js";
@@ -208,6 +209,59 @@ describe("buildObjEntry", () => {
   it("takes the activity from a session tag, else the lecture type", () => {
     expect(buildObjEntry("", "Describe the sarcomere (TBL)", lec, "b1").activity).toBe("TBL");
     expect(buildObjEntry("", "Describe the sarcomere", lec, "b1").activity).toBe("LEC");
+  });
+});
+
+describe("extractCodeDelimited — the format the decks actually use", () => {
+  // Verbatim from Lecture 10 - Pelvis and Perineum I: lowercase segments in the
+  // code, ONE space before the text, and objectives that wrap across lines.
+  const real = `Objectives: Lectures 10, 11 & 14
+
+SOM.1ai.BMP2.2.ER.1.ANAT.RP.0705 Describe the external genitalia in males and contrast it to that of females.
+SOM.1ai.BMP2.2.ER.1.ANAT.RP.0706 Describe an oblique episiotomy and it's clinical significance
+SOM.1ai.BMP2.2.ER.1.ANAT.RP.0707 Identify the major organs of the pelvis in CT, MRI and radiological images.
+SOM.1ai.BMP2.2.ER.1.ANAT.RP.0708 Describe Colles' fascia and its relationship with the superficial fascia of the
+abdomen and scrotum/labia.
+
+SOM.1ai.BMP2.2.ER.1.ANAT.RP.0805 Describe the arterial supply, venous drainage and lymphatic drainage of the
+perineum.`;
+
+  it("keeps the lowercase segments instead of truncating every code to SOM.1", () => {
+    const out = extractCodeDelimited(real, lec, "b1");
+    expect(out).toHaveLength(5);
+    expect(out.map((o) => o.code)).toEqual([
+      "SOM.1ai.BMP2.2.ER.1.ANAT.RP.0705",
+      "SOM.1ai.BMP2.2.ER.1.ANAT.RP.0706",
+      "SOM.1ai.BMP2.2.ER.1.ANAT.RP.0707",
+      "SOM.1ai.BMP2.2.ER.1.ANAT.RP.0708",
+      "SOM.1ai.BMP2.2.ER.1.ANAT.RP.0805",
+    ]);
+  });
+
+  it("takes the text after a single space, not two", () => {
+    expect(extractCodeDelimited(real, lec, "b1")[0].objective).toBe(
+      "Describe the external genitalia in males and contrast it to that of females."
+    );
+  });
+
+  it("keeps an objective that wraps onto the next line whole", () => {
+    const wrapped = extractCodeDelimited(real, lec, "b1").find((o) => o.code.endsWith("0708"));
+    expect(wrapped.objective).toBe(
+      "Describe Colles' fascia and its relationship with the superficial fascia of the abdomen and scrotum/labia."
+    );
+  });
+
+  it("is what extractFromTableText now uses for this shape", () => {
+    expect(extractFromTableText(real, lec, "b1")).toHaveLength(5);
+  });
+
+  it("still returns nothing when there are no codes", () => {
+    expect(extractCodeDelimited("Just some slide prose.", lec, "b1")).toEqual([]);
+  });
+
+  it("skips a code with no text after it", () => {
+    expect(extractCodeDelimited("SOM.1ai.BPM2.1.ER.1.PHYS.EN.0101\nSOM.1ai.BPM2.1.ER.1.PHYS.EN.0102", lec, "b1"))
+      .toHaveLength(0);
   });
 });
 

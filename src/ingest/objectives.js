@@ -193,20 +193,24 @@ function chunkHasTableFileReference(text) {
 export function normalizeSomCodesInText(text) {
   if (!text || typeof text !== "string") return text;
   let out = text;
-  // Mistral OCR autolinks the SOM prefix into a markdown link, e.g.
-  // "[SOM.MK](http://SOM.MK).I.BPM1.3.CPR.1.INTG.0024" — unwrap it.
-  out = out.replace(/\[(SOM\.[A-Z0-9.]+)\]\(https?:\/\/[^)]+\)/gi, "$1");
-  // Collapse one or more whitespace chars sitting between the trailing dot
-  // and the 4-digit suffix. Repeat until stable to handle pathological cases.
-  for (let i = 0; i < 3; i++) {
-    const next = out.replace(/(SOM\.[A-Z0-9.]+\.)\s+(\d{4})\b/g, "$1$2");
+  // Character class allows LOWERCASE: a real code is SOM.1ai.BMP2.2.ER.1.ANAT.RP.0705,
+  // and [A-Z0-9.] stops at the "a". That made this function a no-op for the codes
+  // it most needed to repair — 31 of 46 codes in one lecture kept a stray space
+  // before their four-digit tail and were therefore never matched downstream.
+  out = out.replace(/\[(SOM\.[A-Za-z0-9.]+)\]\(https?:\/\/[^)]+\)/gi, "$1");
+  // Collapse whitespace anywhere inside a code: OCR and pdf text layers break
+  // them after any dot, not only before the suffix.
+  for (let i = 0; i < 4; i++) {
+    const next = out
+      .replace(/(SOM\.[A-Za-z0-9.]*)\s+([A-Za-z0-9]+\.)/g, "$1$2")
+      .replace(/(SOM\.[A-Za-z0-9.]+\.)\s+(\d{4})\b/g, "$1$2");
     if (next === out) break;
     out = next;
   }
   // Convert "; NNNN" or ", NNNN" continuations directly after a SOM code into
   // the "//NNNN" syntax that existing expansion logic understands.
   out = out.replace(
-    /(SOM\.[A-Z0-9.]+\.\d{4})((?:\s*[;,]\s*\d{4})+)/g,
+    /(SOM\.[A-Za-z0-9.]+\.\d{4})((?:\s*[;,]\s*\d{4})+)/g,
     (_, head, tail) => head + tail.replace(/\s*[;,]\s*(\d{4})/g, "//$1")
   );
   return out;
@@ -288,9 +292,61 @@ export function buildObjEntry(code, objText, lec, blockId) {
   };
 }
 
+/**
+ * The real shape of a SOM code, lowercase segments and all.
+ *
+ * The older patterns in this file use `SOM\.[A-Z0-9.]+`, which stops dead at the
+ * first lowercase letter. Against a real code — SOM.1ai.BMP2.2.ER.1.ANAT.RP.0705
+ * — that matches only "SOM.1", so every code on the page collapses to the same
+ * string, the de-dupe keeps one, and the rest of the objectives are lost. A
+ * Pelvis and Perineum lecture with 46 codes yielded exactly 1.
+ */
+const SOM_CODE = /SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}/g;
+
+/**
+ * Objectives listed as `CODE text`, one after another.
+ *
+ * Rather than guess at column spacing — the decks use a single space, the older
+ * pattern demanded two — this takes each code's position and treats everything
+ * up to the next code as that objective's text. Wrapped lines come along with
+ * it, which is what the source actually looks like.
+ */
+export function extractCodeDelimited(text, lec, blockId) {
+  if (!text) return [];
+  const src = normalizeSomCodesInText(text.toString());
+  const matches = [...src.matchAll(SOM_CODE)];
+  if (!matches.length) return [];
+
+  const results = [];
+  const seen = new Set();
+  for (let i = 0; i < matches.length; i++) {
+    // The match may still carry a space the normaliser could not reach; the
+    // stored code never should.
+    const code = matches[i][0].replace(/\s/g, "");
+    const start = matches[i].index + matches[i][0].length;
+    const end = i + 1 < matches.length ? matches[i + 1].index : Math.min(src.length, start + 600);
+    const body = src
+      .slice(start, end)
+      .replace(/\s+/g, " ")
+      .replace(/^[\s:.\-–—|]+/, "")
+      .trim();
+
+    if (seen.has(code) || body.length < 10) continue;
+    seen.add(code);
+    results.push(buildObjEntry(code, body, lec, blockId));
+  }
+  return results;
+}
+
 export function extractFromTableText(text, lec, blockId) {
   if (!text) return [];
   const src = normalizeSomCodesInText(text.toString());
+
+  // Code-delimited first: it handles the format the decks actually use, and the
+  // patterns below only ever matched a subset of it.
+  const delimited = extractCodeDelimited(src, lec, blockId);
+  if (delimited.length) return delimited;
+
   const results = [];
   const seen = new Set();
 
