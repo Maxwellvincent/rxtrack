@@ -218,11 +218,26 @@ function sameNumberSlot(l, lecture) {
   );
 }
 
+/**
+ * Titles are compared with the slot prefix stripped.
+ *
+ * The same lecture is stored both ways in real data: an older upload kept the
+ * whole filename ("Lecture 01 - Endocrine System") while parseLectureFilename
+ * takes the part after the dash ("Endocrine System"). Comparing raw strings
+ * calls those two different lectures and duplicates the row.
+ */
+function normalizeTitle(value) {
+  return String(value || "")
+    .replace(/\.[a-z0-9]+$/i, "")
+    .replace(/^\s*(?:lecture|lec|dla|clin|sg|lab|us|imcq)\s*0*\d*\s*[-–—:]?\s*/i, "")
+    .trim()
+    .toLowerCase();
+}
+
 function sameTitle(l, lecture) {
-  return (
-    String(l.lectureTitle || l.filename || "").trim().toLowerCase() ===
-    String(lecture.lectureTitle || lecture.filename || "").trim().toLowerCase()
-  );
+  const a = normalizeTitle(l.lectureTitle || l.filename);
+  const b = normalizeTitle(lecture.lectureTitle || lecture.filename);
+  return !!a && a === b;
 }
 
 /** A schedule row: the slot exists, with dates, but no content has landed yet. */

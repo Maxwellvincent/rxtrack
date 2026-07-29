@@ -233,6 +233,42 @@ describe("findFillTarget / fillLecture — the schedule stub case", () => {
     expect(findFillTarget([stub], upload)).toBe(stub);
   });
 
+  it("matches a row that kept the whole filename as its title", () => {
+    // Real data: an older upload stored "Lecture 01 - Endocrine System" while
+    // the parser yields "Endocrine System". Same lecture, and it already has
+    // content, so the empty-stub fallback would not save it.
+    const populated = {
+      id: "old-1",
+      blockId: "b1",
+      lectureType: "LEC",
+      lectureNumber: 1,
+      lectureTitle: "Lecture 01 - Endocrine System",
+      chunks: [{ markdown: "old content" }],
+    };
+    const incoming = {
+      id: "fresh",
+      blockId: "b1",
+      lectureType: "LEC",
+      lectureNumber: 1,
+      lectureTitle: "Endocrine System",
+    };
+    expect(findFillTarget([populated], incoming)).toBe(populated);
+    expect(fillLecture(populated, incoming).lectureTitle).toBe("Lecture 01 - Endocrine System");
+  });
+
+  it("still refuses to merge two genuinely different lectures in one slot", () => {
+    const populated = {
+      id: "old-1",
+      blockId: "b1",
+      lectureType: "LEC",
+      lectureNumber: 1,
+      lectureTitle: "Adrenal Glands",
+      chunks: [{ markdown: "content" }],
+    };
+    const incoming = { id: "fresh", blockId: "b1", lectureType: "LEC", lectureNumber: 1, lectureTitle: "Thyroid" };
+    expect(findFillTarget([populated], incoming)).toBeNull();
+  });
+
   it("keeps the schedule's date and week, and takes the title from the upload", () => {
     const merged = fillLecture(stub, upload);
     expect(merged).toMatchObject({
