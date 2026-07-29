@@ -56,17 +56,29 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
     (fileList) => {
       setError(""); setSummary(""); setRows({});
       const raw = Array.from(fileList || []);
-      if (!raw.length) return;
+      // A folder pick that produces nothing is indistinguishable from a dead
+      // button, so say what arrived.
+      console.log("[bulk-import] files handed over:", raw.length, raw.slice(0, 3).map((f) => f.webkitRelativePath || f.name));
+      if (!raw.length) {
+        setError("The picker returned no files. If Chrome asked to upload and the prompt was dismissed, try again and confirm it.");
+        return;
+      }
       // Pick the folder and you get the PDFs, the markdown and marker's
       // per-document subfolders all at once; keep one file per lecture.
       const files = selectBestFiles(raw);
       if (!files.length) {
-        setError("Nothing importable in there — expected .md, .txt or .pdf files.");
+        setError(`Nothing importable in those ${raw.length} files — expected .md, .txt or .pdf.`);
         return;
       }
       setSkipped(raw.length - files.length);
       const existing = lecturesStore.read(userId) || [];
-      setPlan(planBulkImport(files, existing.filter((l) => l.blockId === blockId), blockId));
+      const next = planBulkImport(files, existing.filter((l) => l.blockId === blockId), blockId);
+      console.log("[bulk-import] kept", files.length, "of", raw.length, "→ planned", next.length);
+      if (!next.length) {
+        setError(`Could not read a lecture number or title from any of those ${files.length} files.`);
+        return;
+      }
+      setPlan(next);
     },
     [blockId, userId]
   );
