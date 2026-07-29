@@ -2,7 +2,7 @@ import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { useTheme } from "./useTheme";
-import { readLectures } from "./data.js";
+import * as lecturesStore from "../stores/lectures.js";
 import { useBlocks } from "./hooks/useBlocks.js";
 import { useExamDates } from "./hooks/useExamDates.js";
 import { touchBlock } from "../stores/blockObjectives.js";
@@ -155,9 +155,9 @@ function ShellMain({ theme, toggle, userId }) {
   // "Study →" on a lecture row: resolve the id to the stored lecture, then hand
   // it to the flow, which sources its text (locally or from Firestore) itself.
   const onStudyLecture = useCallback((lectureId) => {
-    const lecture = readLectures().find((l) => l?.id === lectureId);
+    const lecture = (lecturesStore.read(userId) || []).find((l) => l?.id === lectureId);
     if (lecture) setStudyLecture(lecture);
-  }, []);
+  }, [userId]);
 
   // The real objective-quiz launch: ObjectiveTracker's callback → MCQ engine →
   // the calibrated AtomQuiz runner, logging confidence against this block.
@@ -172,7 +172,7 @@ function ShellMain({ theme, toggle, userId }) {
           objectives,
           lectureTitle,
           blockId: bid,
-          lectures: readLectures(),
+          lectures: lecturesStore.read(userId) || [],
           exemplars: readExemplars(userId),
           questionCount: extraMeta?.questionCount,
           difficulty: extraMeta?.difficulty ?? "medium",
@@ -287,6 +287,7 @@ function ShellMain({ theme, toggle, userId }) {
           ) : (
             <BlockHome
               blockId={activeBlockId}
+              userId={userId}
               onContinue={onContinue}
               onCalibrate={onCalibrate}
               onObjectives={() => setView("objectives")}

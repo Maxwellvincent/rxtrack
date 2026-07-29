@@ -1,14 +1,13 @@
-/** Read + shape the shell's data from localStorage. Self-contained — no App.jsx. */
-
-export function readTerms() {
-  try { return JSON.parse(localStorage.getItem("rxt-terms") || "[]"); }
-  catch { return []; }
-}
-
-export function readLectures() {
-  try { return JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]"); }
-  catch { return []; }
-}
+/**
+ * Pure shaping helpers for the shell's data. No storage reads.
+ *
+ * `readTerms`/`readLectures` used to live here and read localStorage directly.
+ * They are gone: a component calling them inside a `useMemo` saw whatever was in
+ * localStorage before the first Firestore snapshot landed and never updated,
+ * which is how BlockHome came to show "Select a block to begin." with a block
+ * plainly selected in the sidebar. Use the hooks (useBlocks / useLectures) or
+ * the stores directly.
+ */
 
 /** Flatten terms→blocks with term metadata + per-block lecture count. */
 export function flattenBlocks(terms, lectures) {
@@ -45,11 +44,17 @@ export function flattenObjectiveEntry(entry) {
   return vals.filter((v) => v && typeof v === "object");
 }
 
-/** Average objective coverage % for a block, or null. Reads rxt-block-objectives. */
-export function blockCoverage(blockId) {
+/**
+ * Average objective coverage % for a block, or null.
+ *
+ * Takes the objectives map rather than reading localStorage itself: the caller
+ * has it from the store, which is reactive and complete. Reading the mirrored
+ * copy here meant the figure was missing for any block the HOT_BLOCK_LIMIT had
+ * evicted, and stale until a reload.
+ */
+export function blockCoverage(objectives, blockId) {
   try {
-    const store = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
-    const list = flattenObjectiveEntry(store[blockId]);
+    const list = flattenObjectiveEntry((objectives || {})[blockId]);
     const scores = list.map((o) => (typeof o?.score === "number" ? o.score : null)).filter((s) => s != null);
     if (!scores.length) return null;
     return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);

@@ -1,11 +1,9 @@
 import { useState, useCallback } from "react";
 import { Button } from "../ui/Button.jsx";
-import { readTerms, readLectures } from "./data.js";
 import { parseSchedule } from "../schedule/scheduleParser.js";
 import { scheduleToBlocks } from "../schedule/scheduleToBlocks.js";
 import { mergeScheduleIntoStores } from "../schedule/mergeSchedule.js";
 import { scheduleToIcs } from "../schedule/scheduleToIcs.js";
-import { pushAllLocalDataToSupabase } from "../supabase.js";
 import * as termsStore from "../stores/terms.js";
 import * as examDatesStore from "../stores/examDates.js";
 import * as lecturesStore from "../stores/lectures.js";
@@ -21,20 +19,23 @@ function downloadIcs(events, name) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const readExamDates = () => {
-  try { return JSON.parse(localStorage.getItem("rxt-exam-dates") || "{}"); }
-  catch { return {}; }
-};
-
-// Read schedule .md → block descriptors → preview merge (no writes yet).
-function buildPreview(md, termName) {
+/**
+ * Read schedule .md → block descriptors → preview merge (no writes yet).
+ *
+ * Every read goes through a store with the real userId. It used to read terms
+ * and lectures out of localStorage, exam dates out of a key that is not
+ * mirrored there at all, and assessments with `read(null)` — so on a signed-in
+ * account the merge was computed against an empty world and reported every
+ * existing block as new.
+ */
+function buildPreview(md, termName, userId) {
   const events = parseSchedule(md);
   const blocks = scheduleToBlocks(events);
   const existing = {
-    terms: readTerms(),
-    examDates: readExamDates(),
-    lectures: readLectures(),
-    assessments: assessmentsStore.read(null),
+    terms: termsStore.read(userId),
+    examDates: examDatesStore.read(userId),
+    lectures: lecturesStore.read(userId),
+    assessments: assessmentsStore.read(userId),
   };
   const merged = mergeScheduleIntoStores(blocks, existing, { termName });
   return { events, blocks, merged };
@@ -53,22 +54,24 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
     setFileName(file.name);
     try {
       const md = await file.text();
-      const p = buildPreview(md, termName);
+      const p = buildPreview(md, termName, userId);
       if (!p.blocks.length) throw new Error("No blocks found — is this a schedule .md?");
       setPreview(p);
     } catch (e) { setError(e?.message || String(e)); }
-  }, [termName]);
+  }, [termName, userId]);
 
   const confirm = useCallback(async () => {
     if (!preview) return;
     setBusy(true); setError("");
     try {
       const { terms, examDates, lectures, assessments } = preview.merged;
-      termsStore.write(null, terms);
-      examDatesStore.write(null, examDates);
-      lecturesStore.write(null, lectures);
-      assessmentsStore.write(null, assessments);
-      if (userId) await pushAllLocalDataToSupabase(userId);
+      // With the real userId: these stores are Firestore-first and `write(null,
+      // …)` is a no-op that just hands the value back, so the import used to
+      // persist nothing at all on a signed-in account.
+      termsStore.write(userId, terms);
+      examDatesStore.write(userId, examDates);
+      lecturesStore.write(userId, lectures);
+      assessmentsStore.write(userId, assessments);
       setDone(true);
     } catch (e) { setError("Write failed: " + (e?.message || String(e))); }
     finally { setBusy(false); }
@@ -130,9 +133,9 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
         {done && (
           <div className="space-y-3">
             <div className="rounded-lg border border-good bg-bg-elevated p-3 text-sm text-good">
-              ✓ Imported. {s.blocksAdded + s.blocksUpdated} blocks, {s.lecturesAdded} lecture slots, {s.examDatesSet} test dates saved and synced.
+              ✓ Imported. {s.blocksAdded + s.blocksUpdated} blocks, {s.lecturesAdded} lecture slots, {s.examDatesSet} test dates written to your account.
             </div>
-            <Button onClick={() => window.location.reload()}>Reload to see it</Button>
+            <Button onClick={onClose}>Done</Button>
           </div>
         )}
       </div>

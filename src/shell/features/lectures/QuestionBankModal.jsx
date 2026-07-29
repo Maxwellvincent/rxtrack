@@ -12,11 +12,16 @@
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { parseExamPDF } from "../../../examParser.js";
+import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import { summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
 
 export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded }) {
-  const [banks, setBanks] = useState(() => questionBanksStore.read(userId) || {});
+  // Through the hook, not a useState initializer: the banks arrive from
+  // Firestore after the first paint, so a one-shot read showed "0 banks" on an
+  // account with 51 of them.
+  const banksRes = useQuestionBanks(userId);
+  const banks = banksRes.data;
   const [status, setStatus] = useState("");
   const [summary, setSummary] = useState(null);
   const [wrongOnly, setWrongOnly] = useState(false);
@@ -44,7 +49,6 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
           }
         }
       } finally {
-        setBanks(questionBanksStore.read(userId) || {});
         setSummary(summarizeBankUpload(results));
         setStatus("");
         setBusy(false);
@@ -57,7 +61,6 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
   const remove = useCallback(
     (filename) => {
       questionBanksStore.removeBank(userId, filename);
-      setBanks(questionBanksStore.read(userId) || {});
       onUploaded?.();
     },
     [userId, onUploaded]

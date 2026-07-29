@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { blockCoverage } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
+import { useObjectives } from "./hooks/useObjectives.js";
 import { StatusGlyph } from "../ui/Badge.jsx";
 import {
   readCollapsedTerms,
@@ -13,6 +14,9 @@ import {
 export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = null }) {
   // Reactive: a schedule import or lecture upload updates the nav without a reload.
   const blocks = useBlocks(userId);
+  // Every block's objectives, from the store — the mirrored localStorage copy
+  // holds only the hot block, so coverage was blank for all the others.
+  const objectives = useObjectives(null, userId);
   const [collapsed, setCollapsed] = useState(() => readCollapsedTerms());
 
   const byTerm = useMemo(() => {
@@ -73,7 +77,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
 
               {open &&
                 term.blocks.map((b) => {
-                  const cov = blockCoverage(b.id);
+                  const cov = blockCoverage(objectives.data, b.id);
                   const active = b.id === activeBlockId;
                   return (
                     <button

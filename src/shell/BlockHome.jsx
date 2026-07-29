@@ -1,18 +1,22 @@
-import { useMemo } from "react";
-import { readTerms, readLectures, flattenBlocks, blockCoverage } from "./data.js";
+import { blockCoverage } from "./data.js";
+import { useBlocks } from "./hooks/useBlocks.js";
+import { useObjectives } from "./hooks/useObjectives.js";
 import { Button } from "../ui/Button.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
 
-export function BlockHome({ blockId, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, onDeepLearn, today = null }) {
-  const block = useMemo(() => {
-    const blocks = flattenBlocks(readTerms(), readLectures());
-    return blocks.find((b) => b.id === blockId) || null;
-  }, [blockId]);
+export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, onDeepLearn, today = null }) {
+  // Via the stores, not a one-shot localStorage read: the terms arrive from
+  // Firestore after the first paint, so a memo over localStorage resolved to no
+  // block and never re-ran — the pane sat on "Select a block" while the sidebar,
+  // which is store-backed, showed the block highlighted.
+  const blocks = useBlocks(userId);
+  const objectives = useObjectives(null, userId);
+  const block = blocks.find((b) => b.id === blockId) || null;
 
   if (!block) {
     return <div className="p-6 text-text-3">Select a block to begin.</div>;
   }
-  const cov = blockCoverage(block.id);
+  const cov = blockCoverage(objectives.data, block.id);
 
   return (
     <div className="p-5">
