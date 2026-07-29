@@ -21,9 +21,27 @@ param(
     [Parameter(Mandatory = $true)][string[]]$Folders,
     [switch]$ForceOcr,
     [switch]$WhatIfOnly,
+    # Marker writes each result into its own subfolder alongside the extracted
+    # images. Copy the .md files up so the app's folder import is one
+    # multi-select instead of a trip through 24 subfolders.
+    [switch]$NoFlatten,
     # A markdown file smaller than this almost certainly means no text layer.
     [int]$ThinKb = 3
 )
+
+function Copy-MarkdownUp($folder) {
+    $moved = 0
+    foreach ($dir in Get-ChildItem -LiteralPath $folder -Directory -ErrorAction SilentlyContinue) {
+        $md = Get-ChildItem -LiteralPath $dir.FullName -Filter *.md -File -ErrorAction SilentlyContinue |
+              Sort-Object Length -Descending | Select-Object -First 1
+        if (-not $md) { continue }
+        $dest = Join-Path $folder ($dir.Name + ".md")
+        if (Test-Path -LiteralPath $dest) { continue }
+        Copy-Item -LiteralPath $md.FullName -Destination $dest
+        $moved++
+    }
+    return $moved
+}
 
 $ErrorActionPreference = 'Continue'
 
@@ -51,7 +69,13 @@ foreach ($folder in $Folders) {
     if ($ForceOcr) { pdf2md $folder none -ForceOcr } else { pdf2md $folder }
     $elapsed = (Get-Date) - $started
 
-    $mds = Get-Mds $folder
+    if (-not $NoFlatten) {
+        $flattened = Copy-MarkdownUp $folder
+        if ($flattened -gt 0) { Write-Host "  flattened $flattened markdown files into the folder root" }
+    }
+
+    # Only the top level now: the flattened copies are the ones to import.
+    $mds = Get-ChildItem -LiteralPath $folder -Filter *.md -File -ErrorAction SilentlyContinue
     $thin = $mds | Where-Object { $_.Length -lt ($ThinKb * 1KB) }
     $mins = [math]::Round($elapsed.TotalMinutes, 1)
 
