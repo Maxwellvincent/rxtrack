@@ -14,7 +14,7 @@ describe("planBulkImport", () => {
     { id: "other-block", blockId: "b2", lectureType: "LEC", lectureNumber: 4, lectureTitle: "Adrenal" },
   ];
 
-  it("marks each file as an add or a replace against the block's lectures", () => {
+  it("marks each file as filling an existing lecture or adding a new one", () => {
     const plan = planBulkImport(
       [f("Lecture 03 - Thyroid.md"), f("Lecture 04 - Adrenal.md")],
       existing,
@@ -22,12 +22,21 @@ describe("planBulkImport", () => {
     );
 
     expect(plan.map((p) => [p.lectureNumber, p.action])).toEqual([
-      [3, "replace"],
+      [3, "fill"],
       [4, "add"],
     ]);
-    expect(plan[0].replacesId).toBe("old-3");
+    expect(plan[0].fillsId).toBe("old-3");
     // Same slot number in another block is a different lecture.
-    expect(plan[1].replacesId).toBeNull();
+    expect(plan[1].fillsId).toBeNull();
+  });
+
+  it("fills the untitled, dated stubs that schedule import creates", () => {
+    const stubs = [
+      { id: "s2", blockId: "b1", lectureType: "LEC", lectureNumber: 2, filename: "ER LEC 02", lectureDate: "2026-08-12", chunks: [] },
+    ];
+    const plan = planBulkImport([f("Lecture 02 - Hypothalamus.md")], stubs, "b1");
+
+    expect(plan[0]).toMatchObject({ action: "fill", fillsId: "s2", fillsDate: "2026-08-12" });
   });
 
   it("orders by lecture number, un-numbered last", () => {
@@ -52,10 +61,14 @@ describe("planBulkImport", () => {
 });
 
 describe("summarizePlan", () => {
-  it("counts adds and replaces", () => {
-    const plan = [{ action: "add" }, { action: "replace" }, { action: "add" }];
-    expect(summarizePlan(plan)).toEqual({ total: 3, add: 2, replace: 1 });
-    expect(summarizePlan([])).toEqual({ total: 0, add: 0, replace: 0 });
+  it("counts adds, fills, and how many carry a scheduled date", () => {
+    const plan = [
+      { action: "add" },
+      { action: "fill", fillsDate: "2026-08-12" },
+      { action: "fill", fillsDate: null },
+    ];
+    expect(summarizePlan(plan)).toEqual({ total: 3, add: 1, fill: 2, dated: 1 });
+    expect(summarizePlan([])).toEqual({ total: 0, add: 0, fill: 0, dated: 0 });
   });
 });
 

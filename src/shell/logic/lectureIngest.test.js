@@ -5,6 +5,8 @@ import {
   buildLectureRecord,
   buildLectureFromExtraction,
   upsertLecture,
+  findFillTarget,
+  fillLecture,
 } from "./lectureIngest.js";
 
 describe("parseLectureFilename", () => {
@@ -175,23 +177,91 @@ describe("upsertLecture", () => {
   };
   const incoming = { ...existing, id: "new" };
 
-  it("replaces the same slot instead of duplicating it", () => {
+  it("fills the row that is already in the slot, keeping its id", () => {
     const result = upsertLecture([existing], incoming);
-    expect(result.action).toBe("replaced");
-    expect(result.replacedId).toBe("old");
+    expect(result.action).toBe("filled");
+    expect(result.filledId).toBe("old");
+    expect(result.lectures.map((l) => l.id)).toEqual(["old"]);
+  });
+
+  it("still replaces when the caller asks for it", () => {
+    const result = upsertLecture([existing], incoming, { mode: "replace" });
+    expect(result).toMatchObject({ action: "replaced", replacedId: "old" });
     expect(result.lectures.map((l) => l.id)).toEqual(["new"]);
   });
 
   it("adds when the slot is free, and leaves other lectures alone", () => {
     const other = { id: "x", blockId: "b1", lectureType: "LEC", lectureNumber: 9, lectureTitle: "Other" };
     const result = upsertLecture([other], incoming);
-    expect(result).toMatchObject({ action: "added", replacedId: null });
+    expect(result).toMatchObject({ action: "added", replacedId: null, filledId: null });
     expect(result.lectures.map((l) => l.id).sort()).toEqual(["new", "x"]);
   });
 
-  it("treats a different title in the same slot as a different lecture", () => {
-    const result = upsertLecture([existing], { ...incoming, lectureTitle: "Parathyroid" });
+  it("leaves a different, already-populated lecture in the same slot alone", () => {
+    const populated = { ...existing, chunks: [{ markdown: "real content" }] };
+    const result = upsertLecture([populated], { ...incoming, lectureTitle: "Parathyroid" });
     expect(result.action).toBe("added");
     expect(result.lectures).toHaveLength(2);
+  });
+});
+
+describe("findFillTarget / fillLecture — the schedule stub case", () => {
+  // What schedule import actually writes: a filename like "ER LEC 02", no
+  // title, real dates, no content.
+  const stub = {
+    id: "sched-2",
+    blockId: "b1",
+    lectureType: "LEC",
+    lectureNumber: 2,
+    filename: "ER LEC 02",
+    lectureDate: "2026-08-12",
+    weekNumber: 1,
+    chunks: [],
+  };
+  const upload = {
+    id: "fresh",
+    blockId: "b1",
+    lectureType: "LEC",
+    lectureNumber: 2,
+    lectureTitle: "Hypothalamus",
+    filename: "Lecture 02 - Hypothalamus.md",
+    chunks: [{ markdown: "# Hypothalamus" }],
+    lectureDate: null,
+  };
+
+  it("finds the untitled stub that a title comparison would miss", () => {
+    expect(findFillTarget([stub], upload)).toBe(stub);
+  });
+
+  it("keeps the schedule's date and week, and takes the title from the upload", () => {
+    const merged = fillLecture(stub, upload);
+    expect(merged).toMatchObject({
+      id: "sched-2",
+      lectureDate: "2026-08-12",
+      weekNumber: 1,
+      lectureTitle: "Hypothalamus",
+    });
+    expect(merged.chunks).toHaveLength(1);
+  });
+
+  it("does not let an upload with no date blank out the scheduled one", () => {
+    expect(fillLecture(stub, { ...upload, lectureDate: null }).lectureDate).toBe("2026-08-12");
+    expect(fillLecture(stub, { ...upload, lectureDate: "" }).lectureDate).toBe("2026-08-12");
+  });
+
+  it("accepts a date the upload does carry", () => {
+    expect(fillLecture(stub, { ...upload, lectureDate: "2026-09-01" }).lectureDate).toBe("2026-09-01");
+  });
+
+  it("keeps a title the schedule already had rather than the parsed one", () => {
+    const titled = { ...stub, lectureTitle: "Hypothalamic-Pituitary Axis" };
+    expect(fillLecture(titled, upload).lectureTitle).toBe("Hypothalamic-Pituitary Axis");
+  });
+
+  it("upsert fills the stub in place, so nothing pointing at it is orphaned", () => {
+    const result = upsertLecture([stub], upload);
+    expect(result).toMatchObject({ action: "filled", filledId: "sched-2", replacedId: null });
+    expect(result.lectures).toHaveLength(1);
+    expect(result.lectures[0]).toMatchObject({ id: "sched-2", lectureDate: "2026-08-12" });
   });
 });

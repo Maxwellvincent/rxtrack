@@ -80,23 +80,24 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       }
       if (built.error) throw new Error(built.error);
 
-      const lecture = built.lecture;
-      const text = lecture.fullText || (lecture.chunks || []).map((c) => c.markdown || c.text || "").join("\n\n");
+      const text = built.lecture.fullText || (built.lecture.chunks || []).map((c) => c.markdown || c.text || "").join("\n\n");
 
-      // Text to the cloud, chunk-light row to localStorage.
-      if (userId) await saveLectureToCloud(userId, lecture);
+      // Fill the scheduled row rather than replacing it: it carries the date
+      // Today plans from, and its id is what objectives and sessions point at.
       const current = lecturesStore.read(userId) || [];
-      const { lectures } = applyToLectures(current, toLocalRow(lecture));
-      lecturesStore.write(userId, lectures);
+      const { lectures, lecture: merged, action } = applyToLectures(current, built.lecture);
+      const lecture = merged || built.lecture;
+      lecturesStore.write(userId, lectures.map((l) => (l.id === lecture.id ? toLocalRow(l) : l)));
+
+      // Text to the cloud, chunk-light row locally.
+      if (userId) await saveLectureToCloud(userId, lecture);
+      setRow(entry.filename, { note: action === "filled" ? "filled the scheduled lecture" : "" });
 
       const commands = createObjectiveCommands({
         read: () => objectivesStore.read(userId) || {},
         write: (next) => objectivesStore.write(userId, next),
         notify: () => { try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ } },
       });
-      // A replaced lecture's objectives point at an id that is going away.
-      if (entry.replacesId) commands.replaceLectureObjectives(blockId, entry.replacesId, []);
-
       setRow(entry.filename, { status: "objectives" });
       let objectiveCount = 0;
       try {
@@ -182,7 +183,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         {plan.length > 0 && (
           <>
             <div className="mb-2 font-mono text-[11px] text-text-3">
-              {counts.add} new · {counts.replace} replacing an existing lecture in this block
+              {counts.fill} filling an existing lecture ({counts.dated} of them scheduled) · {counts.add} new
             </div>
             <div className="mb-3 flex-1 overflow-y-auto rounded-lg border border-border">
               <table className="w-full text-left text-[11px]">
@@ -194,7 +195,9 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
                       <tr key={p.filename} className="border-b border-border last:border-0">
                         <td className="px-2 py-1 font-mono text-text-3">{p.lectureType} {p.lectureNumber ?? "—"}</td>
                         <td className="px-2 py-1 text-text-1">{p.lectureTitle}</td>
-                        <td className="px-2 py-1 font-mono text-text-3">{p.action === "replace" ? "replace" : "new"}</td>
+                        <td className="px-2 py-1 font-mono text-text-3">
+                          {p.action === "fill" ? (p.fillsDate ? `fill · ${p.fillsDate}` : "fill") : "new"}
+                        </td>
                         <td className={`px-2 py-1 font-mono ${status === "error" ? "text-bad" : status === "done" ? "text-good" : "text-text-2"}`}>
                           {STATUS_LABEL[status]}
                         </td>

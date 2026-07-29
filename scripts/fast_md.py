@@ -55,6 +55,12 @@ def convert(path, out_dir):
     return dest, len(text)
 
 
+def bar(done, total, width=28):
+    """A progress bar, because a silent run of 40 decks looks like a hang."""
+    filled = int(width * done / max(1, total))
+    return "[" + "#" * filled + "-" * (width - filled) + f"] {done}/{total}"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("folders", nargs="+")
@@ -74,9 +80,10 @@ def main():
         os.makedirs(out_dir, exist_ok=True)
         print(f"\n=== {folder} - {len(pdfs)} PDFs ===")
 
-        for pdf in pdfs:
+        for i, pdf in enumerate(pdfs, 1):
             total += 1
             name = os.path.basename(pdf)
+            print(f"  {bar(i, len(pdfs))}  {name[:48]}", flush=True)
             try:
                 pages, per_page = probe(pdf)
             except Exception as e:  # a corrupt file should not stop the folder
@@ -85,18 +92,18 @@ def main():
 
             if per_page < THIN_CHARS_PER_PAGE:
                 needs_ocr.append(name)
-                print(f"  OCR   {name} ({per_page} chars/page, {pages}p) - needs marker -ForceOcr")
+                print(f"        needs OCR - {per_page} chars/page over {pages}p", flush=True)
                 continue
             if args.probe:
-                print(f"  ok    {name} ({per_page} chars/page, {pages}p)")
+                print(f"        ok - {per_page} chars/page over {pages}p", flush=True)
                 continue
 
             try:
                 dest, chars = convert(pdf, out_dir)
                 converted += 1
-                print(f"  {chars:>7,} chars  {os.path.basename(dest)}")
+                print(f"        {chars:,} chars -> {os.path.basename(dest)}", flush=True)
             except Exception as e:
-                print(f"  FAIL  {name}: {e}")
+                print(f"        FAILED: {e}", flush=True)
 
     secs = round(time.time() - started, 1)
     print(f"\n{converted}/{total} converted in {secs}s")

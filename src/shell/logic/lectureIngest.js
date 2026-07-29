@@ -167,24 +167,120 @@ export function buildLectureFromExtraction({
 }
 
 /**
+ * Fields that belong to the schedule, not to the file being uploaded.
+ *
+ * A block's lectures arrive from the schedule import first: the right titles,
+ * dates and week numbers, with no content. Uploading the deck fills that row
+ * in. Replacing it instead — new id, tombstone the old — throws the schedule
+ * away, and Today plans backwards from those dates.
+ */
+const SCHEDULE_FIELDS = ["lectureDate", "weekNumber", "dayOfWeek", "examDate", "studyMode"];
+
+/**
+ * Merge an upload into the lecture that is already there.
+ *
+ * Keeps the existing id, so nothing that points at this lecture — objectives,
+ * performance, completion, atoms — is orphaned. Keeps the schedule fields
+ * unless the upload explicitly carries one. Everything about the content comes
+ * from the upload.
+ */
+export function fillLecture(existing, incoming) {
+  const merged = { ...existing };
+
+  for (const [key, value] of Object.entries(incoming)) {
+    if (key === "id") continue; // the row keeps its identity
+    if (SCHEDULE_FIELDS.includes(key)) {
+      // Only overwrite a schedule field when the upload actually has one.
+      if (value != null && value !== "") merged[key] = value;
+      continue;
+    }
+    if (value !== undefined) merged[key] = value;
+  }
+
+  // A schedule row's title is the curriculum's; keep it unless it was empty.
+  if (existing.lectureTitle) merged.lectureTitle = existing.lectureTitle;
+  merged.id = existing.id;
+  merged.contentUpdatedAt = new Date().toISOString();
+  return merged;
+}
+
+/**
  * Replace a same-slot lecture rather than adding a duplicate — the rule the
  * dedupe work landed on: same block, same type, same number, same title.
  * Returns the next list plus what happened, and the id it superseded so the
  * caller can tombstone it (or the cloud copy walks back in on the next pull).
  */
-export function upsertLecture(lectures, lecture) {
-  const list = lectures || [];
-  const sameSlot = (l) =>
+function sameNumberSlot(l, lecture) {
+  return (
     l.blockId === lecture.blockId &&
     (l.lectureType || "LEC") === lecture.lectureType &&
-    String(l.lectureNumber ?? "") === String(lecture.lectureNumber ?? "") &&
-    String(l.lectureTitle || l.filename || "").trim().toLowerCase() ===
-      String(lecture.lectureTitle || lecture.filename || "").trim().toLowerCase();
+    String(l.lectureNumber ?? "") === String(lecture.lectureNumber ?? "")
+  );
+}
 
-  const existing = list.find(sameSlot);
+function sameTitle(l, lecture) {
+  return (
+    String(l.lectureTitle || l.filename || "").trim().toLowerCase() ===
+    String(lecture.lectureTitle || lecture.filename || "").trim().toLowerCase()
+  );
+}
+
+/** A schedule row: the slot exists, with dates, but no content has landed yet. */
+function isEmptyStub(l) {
+  return !(l.chunks || []).length && !String(l.fullText || "").trim();
+}
+
+/**
+ * Which existing lecture this upload belongs to.
+ *
+ * Exact slot first. Failing that, an empty stub with the same type and number —
+ * schedule import creates those with a filename like "ER LEC 02" and no title
+ * at all, so a title comparison never matches one and the upload lands as a
+ * second LEC 2 next to the dated row it was meant to fill.
+ *
+ * A row that already has content and a different title is left alone: two real
+ * lectures can share a number.
+ */
+export function findFillTarget(lectures, lecture) {
+  const list = lectures || [];
+  return (
+    list.find((l) => sameNumberSlot(l, lecture) && sameTitle(l, lecture)) ||
+    list.find((l) => sameNumberSlot(l, lecture) && isEmptyStub(l)) ||
+    null
+  );
+}
+
+/**
+ * Land an upload in the list.
+ *
+ * Default is to fill the row that is already there — keeping its id, and with
+ * it every objective, session and completion record that points at it, plus the
+ * schedule's dates. `mode: "replace"` keeps the old behaviour of swapping in a
+ * brand new row, which the caller must then tombstone.
+ */
+export function upsertLecture(lectures, lecture, { mode = "fill" } = {}) {
+  const list = lectures || [];
+  const existing = findFillTarget(list, lecture);
+
+  if (!existing) {
+    return { lectures: [...list, lecture], replacedId: null, filledId: null, action: "added" };
+  }
+
+  if (mode === "replace") {
+    return {
+      lectures: [...list.filter((l) => l.id !== existing.id), lecture],
+      replacedId: existing.id,
+      filledId: null,
+      action: "replaced",
+    };
+  }
+
+  const merged = fillLecture(existing, lecture);
   return {
-    lectures: [...list.filter((l) => !sameSlot(l)), lecture],
-    replacedId: existing?.id ?? null,
-    action: existing ? "replaced" : "added",
+    lectures: list.map((l) => (l.id === existing.id ? merged : l)),
+    replacedId: null,
+    filledId: existing.id,
+    lecture: merged,
+    action: "filled",
   };
 }

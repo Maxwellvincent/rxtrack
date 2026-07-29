@@ -6,8 +6,10 @@
  * falling back to pdfplumber. Objectives and the teaching map run as explicit
  * steps after the save, each costing one model call.
  *
- * Re-adding the same lecture replaces it and tombstones the old id, so a
- * re-upload cannot leave the duplicate that the dedupe work had to clean up.
+ * Uploading a lecture that already exists FILLS it rather than replacing it.
+ * A block's lectures come from the schedule import first — right numbers, right
+ * dates, no content — and the deck is the content they were waiting for. A
+ * replace would mint a new id and drop the date Today plans from.
  */
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
@@ -38,23 +40,6 @@ function makeObjectiveCommands(userId) {
 function lectureText(lecture) {
   if (lecture?.fullText) return lecture.fullText;
   return (lecture?.chunks || []).map((c) => c.markdown || c.text || "").join("\n\n");
-}
-
-/** Same list App writes, so a superseded lecture stays deleted after a sync. */
-function tombstone(lecture) {
-  if (!lecture?.id) return;
-  try {
-    const raw = JSON.parse(localStorage.getItem("rxt-id-tombstones") || "[]");
-    const list = Array.isArray(raw) ? raw : [];
-    list.push({
-      oldId: lecture.id,
-      blockId: lecture.blockId,
-      lectureType: lecture.lectureType,
-      lectureNumber: String(lecture.lectureNumber),
-      deletedAt: new Date().toISOString(),
-    });
-    localStorage.setItem("rxt-id-tombstones", JSON.stringify(list.slice(-50)));
-  } catch { /* best effort */ }
 }
 
 export function AddLectureModal({ blockId, termId = null, userId = null, onClose, onAdded }) {
@@ -103,11 +88,12 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       if (built.error) { setError(built.error); return; }
 
       const current = lecturesStore.read(userId) || [];
-      const { action, replacedId } = upsertLecture(current, built.lecture);
+      const { action, filledId, lecture: merged } = upsertLecture(current, built.lecture);
       setPreview({
         lecture: built.lecture,
         action,
-        replacedId,
+        filledId,
+        fillsDate: merged?.lectureDate ?? null,
         chars: built.lecture.fullText?.length ?? built.lecture.chunks.reduce((n, c) => n + (c.markdown || c.text || "").length, 0),
         quality,
       });
@@ -200,22 +186,22 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
     if (!preview) return;
     setBusy(true); setError(""); setObjectiveResult(""); setMapResult("");
     try {
-      const lecture = { ...preview.lecture, lectureDate: lectureDate || null };
+      const incoming = { ...preview.lecture, lectureDate: lectureDate || null };
       const current = lecturesStore.read(userId) || [];
-      const { lectures, replacedId } = upsertLecture(current, lecture);
+      // Fill the row that is already there. It holds the schedule's date and
+      // week, and its id is what objectives, sessions and completion point at —
+      // swapping in a new row throws all of that away.
+      const { lectures, lecture: merged, action } = upsertLecture(current, incoming);
+      const lecture = merged || incoming;
 
-      if (replacedId) {
-        tombstone(current.find((l) => l.id === replacedId));
-        // The superseded lecture's objectives point at an id that is about to
-        // stop existing. Drop them here, or they survive as rows linked to a
-        // deleted lecture — the exact orphan the alignment code has to clean up
-        // later. The fresh extraction below replaces them.
-        makeObjectiveCommands(userId).replaceLectureObjectives(blockId, replacedId, []);
-      }
       lecturesStore.write(userId, lectures);
       if (userId) await pushAllLocalDataToSupabase(userId);
 
-      setDone(`${preview.action === "replaced" ? "Replaced" : "Added"} ${lecture.lectureTitle}.`);
+      setDone(
+        action === "filled"
+          ? `Filled ${lecture.lectureTitle}${lecture.lectureDate ? ` (${lecture.lectureDate})` : ""} with the uploaded content.`
+          : `Added ${lecture.lectureTitle}.`
+      );
       setPreview(null);
       setSaved(lecture);
       onAdded?.(lecture);
@@ -233,7 +219,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, blockId, userId, onAdded, extractObjectives, buildTeachingMap]);
+  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -272,7 +258,10 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
               {preview.lecture.chunks.length === 1 ? "" : "s"}
               {preview.lecture.extractionMethod !== "markdown-upload" &&
                 ` · ${preview.lecture.extractionMethod}`}
-              {preview.action === "replaced" && " · replaces the existing lecture in this slot"}
+              {preview.action === "filled" &&
+                (preview.fillsDate
+                  ? ` · fills the scheduled lecture (${preview.fillsDate})`
+                  : " · fills the existing lecture in this slot")}
             </div>
             {preview.quality?.quality === "poor" && (
               <div className="mt-2 text-[11px] text-warn">
@@ -313,7 +302,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
         <div className="flex gap-2">
           <Button onClick={addAndProcess} disabled={!preview || busy}>
-            {busy ? "Working…" : preview?.action === "replaced" ? "Replace and process" : "Add and process"}
+            {busy ? "Working…" : preview?.action === "filled" ? "Fill and process" : "Add and process"}
           </Button>
           <Button variant="outline" onClick={onClose}>Close</Button>
         </div>

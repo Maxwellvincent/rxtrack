@@ -45,6 +45,30 @@ function Copy-MarkdownUp($folder) {
 
 $ErrorActionPreference = 'Continue'
 
+# Keep the machine awake for the duration. A marker run is hours, and a PC that
+# sleeps mid-run leaves half a folder converted. The display is still allowed to
+# switch off - only the system sleep timer is held.
+#
+# Note this cannot make work happen WHILE asleep: a sleeping machine runs
+# nothing. To convert overnight unattended, register a scheduled task with
+# "wake the computer to run this task", which resumes from sleep, runs, and lets
+# it sleep again afterwards. See the note at the end of this script.
+$script:KeepAwake = $false
+try {
+    Add-Type -Namespace Win32 -Name Power -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern uint SetThreadExecutionState(uint esFlags);
+'@ -ErrorAction Stop
+    # ES_CONTINUOUS (0x80000000) | ES_SYSTEM_REQUIRED (0x1) = 2147483649.
+    # Written in decimal on purpose: PowerShell reads 0x80000001 as a negative
+    # Int32, which will not convert to the uint the API takes.
+    [void][Win32.Power]::SetThreadExecutionState([uint32]2147483649)
+    $script:KeepAwake = $true
+    Write-Host "Sleep held off for the duration of this run." -ForegroundColor DarkGray
+} catch {
+    Write-Host "Could not hold off sleep; long runs may be interrupted." -ForegroundColor Yellow
+}
+
 function Get-Pdfs($folder) { Get-ChildItem -LiteralPath $folder -Filter *.pdf -File -ErrorAction SilentlyContinue }
 function Get-Mds($folder) { Get-ChildItem -LiteralPath $folder -Filter *.md -File -Recurse -ErrorAction SilentlyContinue }
 
@@ -97,10 +121,22 @@ foreach ($folder in $Folders) {
     }
 }
 
+if ($script:KeepAwake) {
+    # ES_CONTINUOUS alone (0x80000000): release the hold, normal policy resumes.
+    [void][Win32.Power]::SetThreadExecutionState([uint32]2147483648)
+}
+
 if ($report.Count -gt 0) {
     Write-Host ""
     Write-Host "=== summary ===" -ForegroundColor Cyan
     $report | Format-Table -AutoSize
     Write-Host "Next: open the block in the app, then use the Folder button in the header"
     Write-Host "and select that folder's .md files."
+    Write-Host ""
+    Write-Host "To run this overnight from sleep, register a waking task once:" -ForegroundColor DarkGray
+    Write-Host '  $a = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ' -ForegroundColor DarkGray
+    Write-Host '       ("-NoProfile -File \"" + $PSCommandPath + "\" -Folders \"D:\lectures\neuro\"")' -ForegroundColor DarkGray
+    Write-Host '  $t = New-ScheduledTaskTrigger -Daily -At 3am' -ForegroundColor DarkGray
+    Write-Host '  $s = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries' -ForegroundColor DarkGray
+    Write-Host '  Register-ScheduledTask -TaskName "rxtrack-convert" -Action $a -Trigger $t -Settings $s' -ForegroundColor DarkGray
 }

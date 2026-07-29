@@ -10,18 +10,8 @@
  *
  * Pure. The caller owns extraction, the store writes and the AI passes.
  */
-import { parseLectureFilename, upsertLecture } from "./lectureIngest.js";
+import { findFillTarget, parseLectureFilename, upsertLecture } from "./lectureIngest.js";
 
-/** Same-slot rule as upsertLecture: block + type + number + title. */
-function sameSlot(a, b) {
-  return (
-    a.blockId === b.blockId &&
-    (a.lectureType || "LEC") === (b.lectureType || "LEC") &&
-    String(a.lectureNumber ?? "") === String(b.lectureNumber ?? "") &&
-    String(a.lectureTitle || a.filename || "").trim().toLowerCase() ===
-      String(b.lectureTitle || b.filename || "").trim().toLowerCase()
-  );
-}
 
 /**
  * What each file would do, without touching anything.
@@ -41,7 +31,7 @@ export function planBulkImport(files, existingLectures, blockId) {
 
     const { type, number, title } = parseLectureFilename(name);
     const candidate = { blockId, lectureType: type, lectureNumber: number, lectureTitle: title };
-    const existing = (existingLectures || []).find((l) => sameSlot(l, candidate));
+    const existing = findFillTarget(existingLectures || [], candidate);
 
     plan.push({
       file,
@@ -49,8 +39,11 @@ export function planBulkImport(files, existingLectures, blockId) {
       lectureType: type,
       lectureNumber: number,
       lectureTitle: title,
-      action: existing ? "replace" : "add",
-      replacesId: existing?.id ?? null,
+      // "fill" is the normal case for a scheduled block: the row exists with
+      // its date, and the upload is the content it has been waiting for.
+      action: existing ? "fill" : "add",
+      fillsId: existing?.id ?? null,
+      fillsDate: existing?.lectureDate ?? null,
       status: "queued",
     });
   }
@@ -63,11 +56,12 @@ export function planBulkImport(files, existingLectures, blockId) {
   });
 }
 
-/** Counts for the confirm step, so a big replace is never a surprise. */
+/** Counts for the confirm step, so nothing about the batch is a surprise. */
 export function summarizePlan(plan) {
   const add = (plan || []).filter((p) => p.action === "add").length;
-  const replace = (plan || []).filter((p) => p.action === "replace").length;
-  return { total: (plan || []).length, add, replace };
+  const fill = (plan || []).filter((p) => p.action === "fill").length;
+  const dated = (plan || []).filter((p) => p.fillsDate).length;
+  return { total: (plan || []).length, add, fill, dated };
 }
 
 /**
