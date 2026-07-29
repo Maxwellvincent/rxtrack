@@ -13,6 +13,49 @@
 import { findFillTarget, parseLectureFilename, upsertLecture } from "./lectureIngest.js";
 
 
+/** Path depth, so a file sitting at the top of the chosen folder wins. */
+function depthOf(file) {
+  const rel = file?.webkitRelativePath || "";
+  return rel ? rel.split("/").length : 1;
+}
+
+const baseName = (name) => String(name || "").replace(/\.[a-z0-9]+$/i, "").trim().toLowerCase();
+const isMarkdown = (name) => /\.(md|markdown|txt)$/i.test(name || "");
+
+/**
+ * One file per lecture, out of whatever was selected.
+ *
+ * Picking the folder hands over everything in it, and after a conversion run
+ * that means three copies of each lecture: the source PDF, the markdown beside
+ * it, and marker's per-document subfolder holding the same markdown again.
+ * Feeding all of them in would re-OCR decks that are already converted, which
+ * is minutes each against a fraction of a second for the markdown.
+ *
+ * So: markdown beats PDF for the same lecture, and the shallowest copy wins.
+ */
+export function selectBestFiles(files) {
+  const best = new Map();
+
+  for (const file of files || []) {
+    const name = file?.name || "";
+    if (!name || !/\.(pdf|md|markdown|txt)$/i.test(name)) continue;
+
+    const key = baseName(name);
+    const current = best.get(key);
+    if (!current) {
+      best.set(key, file);
+      continue;
+    }
+
+    const currentIsMd = isMarkdown(current.name);
+    const candidateIsMd = isMarkdown(name);
+    if (candidateIsMd && !currentIsMd) best.set(key, file);
+    else if (candidateIsMd === currentIsMd && depthOf(file) < depthOf(current)) best.set(key, file);
+  }
+
+  return [...best.values()];
+}
+
 /**
  * What each file would do, without touching anything.
  *

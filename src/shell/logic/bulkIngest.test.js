@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   planBulkImport,
+  selectBestFiles,
   summarizePlan,
   toLocalRow,
   runQueue,
@@ -57,6 +58,67 @@ describe("planBulkImport", () => {
     expect(planBulkImport([], [], "b1")).toEqual([]);
     expect(planBulkImport([{ name: "" }], [], "b1")).toEqual([]);
     expect(planBulkImport(null, null, "b1")).toEqual([]);
+  });
+});
+
+describe("selectBestFiles", () => {
+  const at = (path) => ({ name: path.split("/").pop(), webkitRelativePath: path });
+
+  it("prefers the markdown over the PDF of the same lecture", () => {
+    const picked = selectBestFiles([
+      at("Endocrine/Lecture 02 - Hypothalamus.pdf"),
+      at("Endocrine/Lecture 02 - Hypothalamus.md"),
+    ]);
+    expect(picked.map((f) => f.name)).toEqual(["Lecture 02 - Hypothalamus.md"]);
+  });
+
+  it("takes the copy at the top over the one in marker's subfolder", () => {
+    const picked = selectBestFiles([
+      at("Endocrine/Lecture 02 - Hypothalamus/Lecture 02 - Hypothalamus.md"),
+      at("Endocrine/Lecture 02 - Hypothalamus.md"),
+    ]);
+    expect(picked).toHaveLength(1);
+    expect(picked[0].webkitRelativePath).toBe("Endocrine/Lecture 02 - Hypothalamus.md");
+  });
+
+  it("keeps a PDF that has no markdown yet", () => {
+    const picked = selectBestFiles([
+      at("Endocrine/Lecture 03 - Steroids.pdf"),
+      at("Endocrine/Lecture 02 - Hypothalamus.md"),
+    ]);
+    expect(picked.map((f) => f.name).sort()).toEqual([
+      "Lecture 02 - Hypothalamus.md",
+      "Lecture 03 - Steroids.pdf",
+    ]);
+  });
+
+  it("ignores everything that is not a lecture file", () => {
+    const picked = selectBestFiles([
+      at("Endocrine/Lecture 01 - A/_page_3_Picture_2.jpeg"),
+      at("Endocrine/Lecture 01 - A/Lecture 01 - A_meta.json"),
+      at("Endocrine/Lecture 01 - A.md"),
+    ]);
+    expect(picked.map((f) => f.name)).toEqual(["Lecture 01 - A.md"]);
+  });
+
+  it("handles the real shape: 24 PDFs, 24 markdown, 24 subfolders", () => {
+    const files = [];
+    for (let i = 1; i <= 24; i++) {
+      const base = `Lecture ${String(i).padStart(2, "0")} - Topic ${i}`;
+      files.push(at(`Endocrine/${base}.pdf`));
+      files.push(at(`Endocrine/${base}.md`));
+      files.push(at(`Endocrine/${base}/${base}.md`));
+      files.push(at(`Endocrine/${base}/_page_1_Picture_1.jpeg`));
+    }
+    const picked = selectBestFiles(files);
+    expect(picked).toHaveLength(24);
+    expect(picked.every((f) => f.name.endsWith(".md"))).toBe(true);
+    expect(picked.every((f) => f.webkitRelativePath.split("/").length === 2)).toBe(true);
+  });
+
+  it("survives an empty selection", () => {
+    expect(selectBestFiles([])).toEqual([]);
+    expect(selectBestFiles(null)).toEqual([]);
   });
 });
 

@@ -23,7 +23,14 @@ import {
   buildLectureFromExtraction,
   parseLectureFilename,
 } from "../../logic/lectureIngest.js";
-import { applyToLectures, planBulkImport, runQueue, summarizePlan, toLocalRow } from "../../logic/bulkIngest.js";
+import {
+  applyToLectures,
+  planBulkImport,
+  runQueue,
+  selectBestFiles,
+  summarizePlan,
+  toLocalRow,
+} from "../../logic/bulkIngest.js";
 
 const STATUS_LABEL = {
   queued: "queued",
@@ -38,6 +45,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
   const [plan, setPlan] = useState([]);
   const [rows, setRows] = useState({}); // filename -> { status, note }
   const [running, setRunning] = useState(false);
+  const [skipped, setSkipped] = useState(0);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
   const cancelled = useRef(false);
@@ -47,8 +55,16 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
   const onFiles = useCallback(
     (fileList) => {
       setError(""); setSummary(""); setRows({});
-      const files = Array.from(fileList || []);
-      if (!files.length) return;
+      const raw = Array.from(fileList || []);
+      if (!raw.length) return;
+      // Pick the folder and you get the PDFs, the markdown and marker's
+      // per-document subfolders all at once; keep one file per lecture.
+      const files = selectBestFiles(raw);
+      if (!files.length) {
+        setError("Nothing importable in there — expected .md, .txt or .pdf files.");
+        return;
+      }
+      setSkipped(raw.length - files.length);
       const existing = lecturesStore.read(userId) || [];
       setPlan(planBulkImport(files, existing.filter((l) => l.blockId === blockId), blockId));
     },
@@ -156,29 +172,47 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">Import a folder of lectures</div>
         <div className="mb-3 text-xs text-text-3">
-          Convert the folder first — <span className="font-mono">pdf2md &quot;C:\path\to\folder&quot;</span> runs
-          marker over every PDF locally, free and with no upload — then select all the .md files here. PDFs work
-          too, but each one goes through OCR one at a time. Objectives and the teaching map run for every lecture,
-          three at a time.
+          Point this at the folder you converted. It takes one file per lecture, preferring the markdown over
+          the source PDF, and ignores marker&apos;s per-document subfolders — so a folder holding PDFs, markdown
+          and subfolders all at once still imports cleanly. A lecture with no markdown yet falls back to OCR on
+          its PDF, which is minutes rather than a fraction of a second. Objectives and the teaching map then run
+          for every lecture, three at a time.
         </div>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         {summary && <div className="mb-3 font-mono text-[11px] text-good">{summary}</div>}
 
-        <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">
-            {plan.length ? `${counts.total} files selected` : "Choose the lecture files (.md / .txt / .pdf)"}
-          </span>
-          <span className="font-mono text-[10px] text-text-3">browse</span>
-          <input
-            type="file"
-            multiple
-            accept=".pdf,.md,.markdown,.txt"
-            className="hidden"
-            disabled={running}
-            onChange={(e) => { const fs = e.target.files; e.target.value = ""; onFiles(fs); }}
-          />
-        </label>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
+            <span className="text-text-2">Choose the whole folder</span>
+            <span className="font-mono text-[10px] text-text-3">folder</span>
+            <input
+              type="file"
+              webkitdirectory=""
+              directory=""
+              className="hidden"
+              disabled={running}
+              onChange={(e) => { const fs = e.target.files; e.target.value = ""; onFiles(fs); }}
+            />
+          </label>
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
+            <span className="text-text-2">Pick files instead</span>
+            <span className="font-mono text-[10px] text-text-3">files</span>
+            <input
+              type="file"
+              multiple
+              accept=".pdf,.md,.markdown,.txt"
+              className="hidden"
+              disabled={running}
+              onChange={(e) => { const fs = e.target.files; e.target.value = ""; onFiles(fs); }}
+            />
+          </label>
+        </div>
+        {plan.length > 0 && (
+          <div className="mb-3 font-mono text-[11px] text-text-3">
+            {counts.total} lectures{skipped > 0 && ` · ignored ${skipped} other files (source PDFs, images, marker subfolders)`}
+          </div>
+        )}
 
         {plan.length > 0 && (
           <>
