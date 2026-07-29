@@ -121,12 +121,12 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
 
   const runQuiz = useCallback(async () => {
     setBusy("Writing questions…"); setError(""); setQuestions(null);
-    const r = await quizFromAtoms(lecture, atoms, { callAIJSON, exemplars: readExemplars() });
+    const r = await quizFromAtoms(lecture, atoms, { callAIJSON, exemplars: readExemplars(userId) });
     setBusy("");
     if (r.error) { setError(r.error); return; }
     if (!r.questions?.length) { setError("No questions came back."); return; }
     setQuestions(r.questions);
-  }, [lecture, atoms]);
+  }, [lecture, atoms, userId]);
 
   if (questions) {
     return (

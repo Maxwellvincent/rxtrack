@@ -45,18 +45,10 @@ export function capMapEntries(map, max, stampOf = (v) => v?.savedAt || v?.update
   return out;
 }
 
-/**
- * How much of each capped store stays on this device.
- *
- * rxt-question-banks holds every uploaded exam file's parsed questions, keyed by
- * filename — 51 files and 618KB of a ~5MB budget. They are used as few-shot
- * exemplars when generating questions, so a recent subset serves the same
- * purpose; the full set stays in the cloud.
- */
+/** How much of each capped store stays on this device. */
 export const LOCAL_CAPS = {
   "rxt-mcq-bank": 40,
   "rxt-missed-questions": 50,
-  "rxt-question-banks": 12,
 };
 
 /**
@@ -100,5 +92,9 @@ export function applyLocalCap(key, value) {
  * DeepLearn sessions live in users/{uid}/dlSessions, a document each, because
  * together they crossed the 900KB doc guard. The legacy kv blob is still there
  * and restoring it puts 881KB straight back.
+ *
+ * Question banks are read straight from Firestore by stores/questionBanks.js —
+ * 51 files, 618KB — so a local copy is dead weight that only competes with the
+ * store for the same document.
  */
-export const SKIP_ON_PULL = new Set(["rxt-dl-sessions"]);
+export const SKIP_ON_PULL = new Set(["rxt-dl-sessions", "rxt-question-banks"]);

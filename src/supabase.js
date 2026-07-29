@@ -120,44 +120,10 @@ async function commitInChunks(writeOps, errors, chunk = 400) {
 
 export const __test = { stateRef, readDoc, writeDoc, mergeDoc, commitInChunks, encodeDocId, decodeDocId };
 
-/**
- * SP1 T5.1 — the remote shell flag: the rollback switch for the shell flip.
- *
- * Stored per user at `kv/rxt-shell-flag` so it can be flipped from the Firebase
- * console without a deploy. Returns "new" | "old" | null (null = no opinion,
- * fall through to the local choice). Never throws: a boot must not hang or die
- * because a flag lookup failed.
- */
-export async function fetchShellFlag(userId) {
-  if (!userId) return null;
-  try {
-    const snap = await getDoc(doc(db, "users", userId, "kv", encodeDocId("rxt-shell-flag")));
-    const value = snap.exists() ? snap.data()?.data ?? snap.data()?.value : null;
-    const flag = typeof value === "string" ? value : value?.shell;
-    return flag === "new" || flag === "old" ? flag : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Set (or clear) the remote shell flag — the rollback control.
- *
- * `setShellFlag(uid, "old")` forces every device of that user back to the old
- * shell on next boot and wipes their sticky local choice; `null` removes the
- * flag and hands the decision back to the local choice / default.
- */
-export async function setShellFlag(userId, flag) {
-  if (!userId) return { ok: false };
-  const ref = doc(db, "users", userId, "kv", encodeDocId("rxt-shell-flag"));
-  if (flag == null) {
-    await deleteDoc(ref);
-    return { ok: true, flag: null };
-  }
-  if (flag !== "new" && flag !== "old") throw new Error(`shell flag must be "new", "old" or null`);
-  await setDoc(ref, { data: flag, updatedAt: serverTimestamp() }, { merge: true });
-  return { ok: true, flag };
-}
+// The remote shell flag (kv/rxt-shell-flag) and its rollback helpers lived here
+// through SP1 T5.1. They rolled a device back to App.jsx, which no longer
+// exists, so there is nothing left to roll back to. The stale flag documents are
+// harmless — nothing reads them.
 
 /**
  * Lecture ids App has deleted or replaced locally (`rxt-id-tombstones`).
@@ -484,8 +450,11 @@ function mergeKvValue(cloud, local) {
 
 // ─── PUSH LOCAL DATA TO SUPABASE ─────────────────────
 
+// rxt-question-banks is absent deliberately: it is a Firestore-first store now
+// (stores/questionBanks.js) and owns its own kv document. Leaving it here would
+// merge the local leftovers back in on every push, walking a removed bank
+// straight back — the same read-merge-write trap the objectives hit.
 const KV_KEYS = [
-  "rxt-question-banks",
   "rxt-exam-results",
   "rxt-exam-dates",
   "rxt-learning-profile",

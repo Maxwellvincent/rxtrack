@@ -11,6 +11,7 @@
  * school exam bank as few-shot style exemplars.
  */
 import { generateFromAtoms, generateMcqs } from "../../../engine/mcq.js";
+import * as questionBanksStore from "../../../stores/questionBanks.js";
 import { getLecText } from "../../../lectureText.js";
 
 /** Weakest first — fewest consecutive correct answers get quizzed first. */
@@ -40,10 +41,16 @@ export function findLectureForQuiz(lectures, blockId, lectureTitle) {
   );
 }
 
-/** Uploaded exam-bank questions (rxt-question-banks) used as style exemplars. */
-export function readExemplars() {
+/**
+ * Uploaded exam-bank questions used as style exemplars.
+ *
+ * Firestore-backed since the banks stopped being mirrored to localStorage —
+ * 51 files was 618KB of a ~5MB budget. Signed out, the store falls back to
+ * whatever local copy is left.
+ */
+export function readExemplars(userId = null) {
   try {
-    const banks = JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
+    const banks = questionBanksStore.read(userId) || {};
     return Object.values(banks).flat().filter((q) => q && q.stem && q.choices);
   } catch {
     return [];

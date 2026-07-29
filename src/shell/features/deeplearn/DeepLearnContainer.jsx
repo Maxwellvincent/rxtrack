@@ -14,19 +14,12 @@ import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { usePerformance } from "../../hooks/usePerformance.js";
+import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { fetchLectureContent } from "../../../supabase.js";
 import { fetchTeachingMaps, withTeachingMaps } from "../../../lectureTeachingMap.js";
 import { createObjectiveCommands, dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
 import { detectStudyMode } from "../../logic/studyMode.js";
 import { buildQuestionContext } from "../../logic/questionContext.js";
-
-const readQuestionBanks = () => {
-  try {
-    return JSON.parse(localStorage.getItem("rxt-question-banks") || "{}");
-  } catch {
-    return {};
-  }
-};
 
 const readStylePrefs = () => {
   try {
@@ -106,8 +99,7 @@ export function DeepLearnContainer({
     [userId, mutateObjectives, getBlockObjectives]
   );
 
-  // Read once per mount: the banks only change on upload, which happens in App.
-  const questionBanksByFile = useMemo(() => readQuestionBanks(), []);
+  const questionBanksByFile = useQuestionBanks(userId).data;
 
   const questionContext = useCallback(
     (bid, lectureId, banksArg, _mode = "quiz", options = {}) =>
