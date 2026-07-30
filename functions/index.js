@@ -358,7 +358,20 @@ async function aiCompleteHandler(req) {
 //
 // The PDF arrives via Storage rather than in the call payload — callable
 // requests cap out around 10MB and a slide deck is routinely 30MB+.
-const DATALAB = defineSecret("DATALAB_API_KEY");
+/**
+ * The Datalab secret, declared on first use rather than at module load.
+ *
+ * `defineSecret` registers the param the moment it is called, whether or not any
+ * deployed function uses it — and a registered secret that does not exist in
+ * Secret Manager makes `firebase deploy` stop and prompt for its value, which
+ * blocked deploying every unrelated function in this file.
+ */
+let datalabSecret = null;
+function datalabParam() {
+  if (!datalabSecret) datalabSecret = defineSecret("DATALAB_API_KEY");
+  return datalabSecret;
+}
+
 const DATALAB_URL = process.env.DATALAB_URL || "https://www.datalab.to/api/v1/convert";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -392,7 +405,7 @@ async function datalabConvertHandler(req) {
     throw new HttpsError("permission-denied", "storagePath outside your own folder");
   }
 
-  const apiKey = DATALAB.value();
+  const apiKey = datalabParam().value();
   if (!apiKey) throw new HttpsError("failed-precondition", "DATALAB_API_KEY not configured");
 
   const file = bucket().file(storagePath);
@@ -459,7 +472,18 @@ exports.aiComplete = onCall(
 );
 // Marker OCR is minutes, not seconds, and holds a 30MB buffer while it runs:
 // 9 minutes and 1GiB, against the 7-minute polling budget inside the handler.
-exports.datalabConvert = onCall(
-  { secrets: [DATALAB], memory: "1GiB", timeoutSeconds: 540 },
-  datalabConvertHandler
-);
+//
+// Registered only when DEPLOY_DATALAB=1. DATALAB_API_KEY does not exist in
+// Secret Manager, and Firebase validates the secrets of every DISCOVERED
+// function before deploying — including ones excluded by --only. So merely
+// declaring this made every functions deploy fail on a 404 for a secret that
+// belongs to an unrelated, never-deployed function.
+//
+// To deploy it: create the secret, then
+//   DEPLOY_DATALAB=1 firebase deploy --only functions:datalabConvert
+if (process.env.DEPLOY_DATALAB === "1") {
+  exports.datalabConvert = onCall(
+    { secrets: [datalabParam()], memory: "1GiB", timeoutSeconds: 540 },
+    datalabConvertHandler
+  );
+}
