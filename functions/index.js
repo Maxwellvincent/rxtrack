@@ -177,6 +177,23 @@ flashcard, produce diverse patient-recognition items. Return STRICT JSON:
 Produce {{N}} distinct vignettes varying age/sex/presentation. Mechanism-first
 teaching. No markdown, JSON only.`;
 
+/**
+ * One vignette batch, Gemini then Claude.
+ *
+ * Throws only when both refuse, so a spent key on one provider degrades to a
+ * slower build rather than an empty bank.
+ */
+async function callWithFallback({ system, prompt, geminiKey, anthropicKey }) {
+  try {
+    if (!geminiKey) throw new Error("GEMINI_API_KEY not set");
+    return await callGeminiRaw({ system, prompt, apiKey: geminiKey, maxTokens: 2048, json: true });
+  } catch (geminiErr) {
+    if (!anthropicKey) throw geminiErr;
+    logger.warn(`buildRecognitionBank: gemini failed (${geminiErr.message}) — trying anthropic`);
+    return callClaudeRaw({ system, prompt, apiKey: anthropicKey, maxTokens: 2048, json: true });
+  }
+}
+
 /** Deterministic id for a generated vignette so re-runs don't duplicate rows. */
 function vignetteDocId(cardId, index) {
   return `${cardId}-v${index}`;
@@ -189,7 +206,10 @@ async function buildRecognitionBankHandler(req) {
   if (userId && userId !== uid) throw new HttpsError("permission-denied", "userId mismatch");
 
   const geminiKey = GEMINI.value();
-  if (!geminiKey) throw new HttpsError("failed-precondition", "GEMINI_API_KEY not set");
+  const anthropicKey = ANTHROPIC.value();
+  if (!geminiKey && !anthropicKey) {
+    throw new HttpsError("failed-precondition", "no provider key set (GEMINI_API_KEY / ANTHROPIC_API_KEY)");
+  }
 
   const firestore = db();
   const ungeneratedRef = firestore.collection("users").doc(uid).collection("ungeneratedCards");
@@ -218,7 +238,12 @@ async function buildRecognitionBankHandler(req) {
     const prompt = `FACT (block ${card.block_id}, subject ${card.subject || "—"}):\n${card.text}`;
     let vignettes = [];
     try {
-      const raw = await callGeminiRaw({ system, prompt, apiKey: geminiKey, maxTokens: 2048, json: true });
+      // Gemini first, Claude if it refuses — the same fallback aiComplete has
+      // had all along. Without it, a spent Gemini key made this the one dead
+      // generator in the app: every fact 429'd with "prepayment credits are
+      // depleted", the bank stayed empty, and both engine sessions reported
+      // "nothing to study" on blocks full of material.
+      const raw = await callWithFallback({ system, prompt, geminiKey, anthropicKey });
       vignettes = parseVignettes(raw);
     } catch (e) {
       logger.error("buildRecognitionBank: generation failed", cardId, String(e));
@@ -425,7 +450,7 @@ exports.__setStorageForTests = __setStorageForTests;
 // cold-start "no available instance" aborts (seen after re-enabling billing).
 // memory 512MiB + 120s timeout give the AI provider calls headroom.
 exports.buildRecognitionBank = onCall(
-  { secrets: [GEMINI], memory: "512MiB", timeoutSeconds: 120 },
+  { secrets: [GEMINI, ANTHROPIC], memory: "512MiB", timeoutSeconds: 120 },
   buildRecognitionBankHandler
 );
 exports.aiComplete = onCall(

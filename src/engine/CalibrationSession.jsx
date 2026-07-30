@@ -7,6 +7,7 @@ import { createSession, advanceSession } from "./session.js";
 import { recordOutcome } from "./mastery.js";
 import { classify, summarize } from "./calibration.js";
 import { appendCalibration } from "./calibrationStore.js";
+import { BuildStatus, NothingToStudy } from "./SessionStatus.jsx";
 
 const BURST = 10;
 
@@ -28,6 +29,7 @@ const GAP = {
 
 export function CalibrationSession({ userId, blockId, blockName, newPool = [], onExit }) {
   const [items, setItems] = useState(null); // null = loading
+  const [build, setBuild] = useState(null); // { phase, pooled, generated } while the bank builds
   const [session, setSession] = useState(() => createSession(BURST));
   const [current, setCurrent] = useState(null); // { concept, mode, item }
   const [picked, setPicked] = useState(null);
@@ -38,8 +40,10 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
   useEffect(() => {
     let alive = true;
     (async () => {
-      const it = await ensureBlockItems(userId, blockId);
-      if (alive) setItems(it);
+      const it = await ensureBlockItems(userId, blockId, {
+        onProgress: (p) => { if (alive) setBuild(p); },
+      });
+      if (alive) { setItems(it); setBuild((b) => (b?.phase === "failed" ? b : null)); }
     })();
     return () => { alive = false; };
   }, [userId, blockId]);
@@ -121,13 +125,11 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
     return () => window.removeEventListener("keydown", onKey);
   }, [current, picked, revealed, rate, advance]);
 
-  if (items === null) return <Centered>Loading your session…</Centered>;
+  if (items === null) return <Centered><BuildStatus build={build} blockName={blockName} /></Centered>;
 
   if (session.done) return <Summary records={records} onAnother={() => { setSession(createSession(BURST)); setRecords([]); setCurrent(null); }} onExit={onExit} />;
 
-  if (!current) {
-    return <Centered>Nothing to study in {blockName} yet — build the recognition bank first.<div className="mt-3"><Button variant="outline" onClick={onExit}>Back</Button></div></Centered>;
-  }
+  if (!current) return <Centered><NothingToStudy blockName={blockName} build={build} onExit={onExit} /></Centered>;
 
   const q = current.item?.data;
   const correct = revealed && (q.options || []).find((o) => o.letter === picked)?.isCorrect;

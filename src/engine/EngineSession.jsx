@@ -8,11 +8,13 @@ import { recordOutcome } from "./mastery.js";
 import { callAIJSON } from "../aiClient.js";
 import { generateDiagram } from "./visualize.js";
 import { DiagramView } from "./DiagramView.jsx";
+import { BuildStatus, NothingToStudy } from "./SessionStatus.jsx";
 
 const BURST = 10;
 
 export function EngineSession({ userId, blockId, blockName, newPool = [], onExit }) {
   const [items, setItems] = useState(null); // null=loading
+  const [build, setBuild] = useState(null); // { phase, pooled, generated, remaining } while the bank builds
   const [session, setSession] = useState(() => createSession(BURST));
   const [current, setCurrent] = useState(null); // { concept, mode, item, isNew }
   const [picked, setPicked] = useState(null);
@@ -62,8 +64,12 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
   useEffect(() => {
     let alive = true;
     (async () => {
-      const it = await ensureBlockItems(userId, blockId);
-      if (alive) setItems(it);
+      const it = await ensureBlockItems(userId, blockId, {
+        onProgress: (p) => { if (alive) setBuild(p); },
+      });
+      // A failure is the only thing worth keeping once loading ends — it is what
+      // the empty state has to explain.
+      if (alive) { setItems(it); setBuild((b) => (b?.phase === "failed" ? b : null)); }
     })();
     return () => { alive = false; };
   }, [userId, blockId]);
@@ -135,7 +141,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
     return () => window.removeEventListener("keydown", onKey);
   }, [current, revealed, picked, struck, submit]);
 
-  if (items === null) return <Centered>Loading your session…</Centered>;
+  if (items === null) return <Centered><BuildStatus build={build} blockName={blockName} /></Centered>;
 
   if (session.done) {
     const s = sessionSummary(session);
@@ -153,9 +159,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
     );
   }
 
-  if (!current) {
-    return <Centered>Nothing to study in {blockName} yet — build the recognition bank first.<div className="mt-3"><Button variant="outline" onClick={onExit}>Back</Button></div></Centered>;
-  }
+  if (!current) return <Centered><NothingToStudy blockName={blockName} build={build} onExit={onExit} /></Centered>;
 
   const q = current.item?.data;
   // All modes are question-first; the label hints how much teaching follows.
