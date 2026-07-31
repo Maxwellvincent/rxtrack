@@ -4,6 +4,7 @@
 
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase.js";
+import { bridgeComplete, parseBridgeJSON } from "./llmBridge.js";
 
 export const AI_PROVIDERS = {
   GEMINI: "gemini",
@@ -119,6 +120,11 @@ export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explici
     explicitProvider !== undefined && explicitProvider !== null ? explicitProvider : DEFAULT_PROVIDER;
   const model = providerToModel(provider);
 
+  // Free path first: the local bridge runs on your own subscriptions. Returns null when it
+  // is not running, which is not an error — fall through to the Cloud Function.
+  const bridged = await bridgeComplete({ system: systemPrompt, prompt: userPrompt });
+  if (bridged !== null) return bridged;
+
   try {
     const res = await withRetry(() =>
       aiCompleteCall({ system: systemPrompt, prompt: userPrompt, maxTokens, model, temperature })
@@ -150,6 +156,19 @@ export async function callAIJSON(
     explicitProvider !== undefined && explicitProvider !== null ? explicitProvider : DEFAULT_PROVIDER;
   const model = providerToModel(provider);
 
+  // Free path first. A bridge reply that will not parse is treated as a bridge failure and
+  // falls through to the cloud, rather than silently handing back `fallback`.
+  try {
+    const bridged = await bridgeComplete({
+      system: systemPrompt,
+      prompt: userPrompt,
+      json: true,
+    });
+    if (bridged !== null) return parseBridgeJSON(bridged);
+  } catch (err) {
+    console.warn("bridge JSON parse failed, using cloud:", err.message);
+  }
+
   try {
     const res = await withRetry(() =>
       aiCompleteCall({ system: systemPrompt, prompt: userPrompt, json: true, maxTokens, model, temperature })
@@ -174,6 +193,15 @@ export async function callAIJSON(
  * wrapper instead of dropping the multi-image capability.
  */
 export async function callAIWithImages(systemPrompt, userPrompt, images, maxTokens = 2000, temperature) {
+  const bridged = await bridgeComplete({
+    system: systemPrompt,
+    prompt: userPrompt,
+    images: (images || []).map((img) => ({ mimeType: img.mimeType || "image/png", data: img.base64 })),
+  });
+  if (bridged !== null) {
+    return bridged.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
+  }
+
   const res = await withRetry(() =>
     aiCompleteCall({
       system: systemPrompt,
@@ -202,6 +230,15 @@ export async function callAIWithImage(
   maxTokens = 2000,
   temperature
 ) {
+  const bridged = await bridgeComplete({
+    system: systemPrompt,
+    prompt: userPrompt,
+    images: [{ mimeType, data: base64 }],
+  });
+  if (bridged !== null) {
+    return bridged.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
+  }
+
   const res = await withRetry(() =>
     aiCompleteCall({
       system: systemPrompt,
