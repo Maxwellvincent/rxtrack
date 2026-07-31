@@ -52,6 +52,10 @@ const ALLOWED_UIDS = defineString("ALLOWED_UIDS", { default: "" });
 //  - claude-sonnet-5: current Sonnet (claude-sonnet-4-20250514 is retired)
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+// Base URL is env-overridable so the Anthropic-wire-format caller can be pointed
+// at any compatible endpoint (e.g. Moonshot's https://api.moonshot.ai/anthropic)
+// by setting ANTHROPIC_BASE_URL + ANTHROPIC_MODEL in functions/.env — no code edit.
+const ANTHROPIC_BASE_URL = (process.env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
 
 // ── Auth guard (shared) ─────────────────────────────────────────────────────
 function assertAllowed(req) {
@@ -147,7 +151,7 @@ async function callClaudeRaw({ system, prompt, images = [], apiKey, maxTokens = 
   }
   content.push({ type: "text", text: prompt || "" });
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
