@@ -58,3 +58,45 @@ export function getLecText(lec) {
 
   return chunks + supplemental + blockExtra;
 }
+
+/**
+ * How much lecture text one teaching section may send to the model.
+ *
+ * The old cap was 2000 characters, which is ~500 tokens — on a 23k-character lecture split into
+ * three sections that discarded roughly three quarters of every section, mid-sentence. The model
+ * then had a fragment with no start and no end, so it produced loose definitions instead of
+ * walking the objective. Sections are a few thousand characters; there is no reason to cut them.
+ */
+export const SECTION_CHAR_CAP = 12000;
+
+/**
+ * Trim to at most `max` characters without cutting mid-sentence.
+ *
+ * Prefers a paragraph break, then a sentence end, then a space, and only falls back to a hard
+ * cut when the text has no break at all. Never returns more than `max`.
+ */
+export function sliceAtBoundary(text, max = SECTION_CHAR_CAP) {
+  const s = String(text || "");
+  if (s.length <= max) return s;
+  const head = s.slice(0, max);
+  // Only accept a boundary in the last third, otherwise a single early break throws away
+  // most of the window we were trying to keep.
+  const floor = Math.floor(max * 0.66);
+  for (const re of [/\n\s*\n(?![\s\S]*\n\s*\n)/, /[.!?]\s(?![\s\S]*[.!?]\s)/, /\s(?!\S*\s)/]) {
+    const m = head.match(re);
+    if (m && m.index >= floor) return head.slice(0, m.index + (re.source.startsWith("[.!?]") ? 1 : 0)).trim();
+  }
+  return head.trim();
+}
+
+/**
+ * Split a lecture into `count` ordered windows, each boundary-trimmed.
+ * Used when a lecture has no parsed objectives, so sections come from the text itself.
+ */
+export function splitLectureIntoSections(text, count) {
+  const s = String(text || "");
+  const n = Math.max(1, count | 0);
+  if (!s) return Array(n).fill("");
+  const size = Math.ceil(s.length / n);
+  return Array.from({ length: n }, (_, i) => sliceAtBoundary(s.slice(i * size, (i + 1) * size)));
+}

@@ -3,7 +3,7 @@ import { useTheme, getScoreColor } from "./theme";
 import { LEVEL_NAMES, LEVEL_COLORS, LEVEL_BG } from "./bloomsTaxonomy";
 import { callAI, callAIJSON } from "./aiClient";
 import { LECTURE_MARKDOWN_CONTEXT_FOR_AI, LECTURE_MARKDOWN_SYSTEM_INSTRUCTION } from "./aiPromptSnippets";
-import { getLecText } from "./lectureText";
+import { getLecText, sliceAtBoundary, splitLectureIntoSections, SECTION_CHAR_CAP } from "./lectureText";
 import { fetchDeepLearnSession, pushDeepLearnSessions } from "./supabase";
 import { getStoreHookUserId } from "./shell/hooks/currentUser.js";
 import { hydrateSession, isStub, localCopyOf } from "./deepLearnSessions";
@@ -1745,7 +1745,8 @@ function FirstPassWalkthroughInner({
           for (let i = 0; i < sections.length; i += 2) {
             chunks.push(sections.slice(i, i + 2).join("\n\n"));
           }
-          return chunks.length > 0 ? chunks : [lectureContent.slice(0, 2000)];
+          // No headings to split on: window the whole lecture instead of keeping only its opening.
+          return chunks.length > 0 ? chunks : splitLectureIntoSections(lectureContent, 3);
         })()
       : null;
 
@@ -1757,7 +1758,7 @@ function FirstPassWalkthroughInner({
         }
         return chunks;
       })()
-    : (contentChunks || [lectureContent?.slice(0, 2000) || ""]).map((c) => ({
+    : (contentChunks || splitLectureIntoSections(lectureContent || "", 3)).map((c) => ({
         type: "content",
         content: c,
       }));
@@ -1801,12 +1802,14 @@ function FirstPassWalkthroughInner({
     const totalSections = totalSteps;
     const sectionIndex = step;
     const len = (lectureContent || "").length;
-    const contentSnippet = (lectureContent || "")
-      .slice(
+    // This section's share of the lecture, trimmed at a sentence rather than a character count.
+    const contentSnippet = sliceAtBoundary(
+      (lectureContent || "").slice(
         Math.floor((sectionIndex / totalSections) * len),
         Math.floor(((sectionIndex + 1) / totalSections) * len)
-      )
-      .slice(0, 2000);
+      ),
+      SECTION_CHAR_CAP
+    );
 
     setLoading(true);
     setSectionData(null);
