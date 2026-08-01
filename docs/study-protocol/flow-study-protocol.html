@@ -1,0 +1,102 @@
+<style>
+  :root{--ink:#1a1a1a;--mut:#666;--line:#e2e2e2;--accent:#7c3aed;--bg:#fafafa;--card:#fff}
+  @media(prefers-color-scheme:dark){:root{--ink:#e8e8e8;--mut:#9a9a9a;--line:#333;--bg:#141414;--card:#1c1c1c}}
+  *{box-sizing:border-box}
+  body{font:16px/1.6 -apple-system,Segoe UI,Georgia,serif;color:var(--ink);background:var(--bg);max-width:760px;margin:0 auto;padding:2.5rem 1.5rem}
+  h1{font-size:2rem;margin:0 0 .2rem;letter-spacing:-.02em}
+  .sub{color:var(--mut);margin:0 0 2rem;font-style:italic}
+  h2{font-size:1.15rem;margin:2.2rem 0 .6rem;border-bottom:2px solid var(--accent);display:inline-block;padding-bottom:2px}
+  .phase{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1rem 1.2rem;margin:.8rem 0}
+  .phase h3{margin:0 0 .3rem;font-size:1rem}
+  .t{color:var(--accent);font-weight:600;font-size:.8rem;letter-spacing:.05em;text-transform:uppercase}
+  table{width:100%;border-collapse:collapse;margin:.6rem 0;font-size:.92rem}
+  td{padding:.4rem .5rem;border-bottom:1px solid var(--line);vertical-align:top}
+  td:first-child{color:var(--mut);white-space:nowrap;width:1%;padding-right:1rem}
+  .code{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:.15rem .4rem;font:.85rem ui-monospace,monospace}
+  .why{color:var(--mut);font-size:.9rem;margin-top:.3rem}
+  ul{padding-left:1.2rem}li{margin:.2rem 0}
+  .flag{display:inline-block;font-size:.85rem;padding:.1rem .5rem;border-radius:20px;border:1px solid var(--line);margin:.15rem .2rem 0 0}
+</style>
+
+<h1>Flow Study Protocol</h1>
+<p class="sub">Port the vibe-coding flow state into medical study. One lecture → one debug loop.</p>
+
+<h2>The mapping</h2>
+<table>
+  <tr><td><b>Coding flow trigger</b></td><td><b>Med study equivalent</b></td></tr>
+  <tr><td>Run code → instant result</td><td>Active recall / practice Q → instant right-or-wrong</td></tr>
+  <tr><td>Clear binary goal</td><td>One closeable objective per block ("answer 20 Q, review misses")</td></tr>
+  <tr><td>Active building</td><td>Make the card, write the differential, teach it out loud</td></tr>
+  <tr><td>Bug to solve</td><td>Clinical case / "why is this patient X?"</td></tr>
+  <tr><td>Difficulty on the edge</td><td>Bored → integrate/harder; drowning → shrink to one pathway</td></tr>
+</table>
+
+<h2>Per-lecture pipeline</h2>
+
+<div class="phase">
+  <span class="t">Phase 0 · Ingest (10 min, passive OK)</span>
+  <h3>Turn lecture into raw material</h3>
+  <ul>
+    <li>Drop lecture (PDF/slides/recording) into <span class="code">inbox-lectures/</span>.</li>
+    <li><span class="code">pdf2md</span> the deck → markdown. Push to NotebookLM notebook.</li>
+    <li>Skim ONCE for the map — do not try to memorize. Goal = know the shape, not the detail.</li>
+  </ul>
+  <p class="why">Passive is allowed here only. It builds the scaffold the active phases hang on.</p>
+</div>
+
+<div class="phase">
+  <span class="t">Phase 1 · Objectives → binary goals (5 min)</span>
+  <h3>Convert fuzzy topic into closeable tickets</h3>
+  <ul>
+    <li>Pull the lecture's learning objectives. Each becomes one binary goal.</li>
+    <li>Rewrite as a question, not a topic. "Renal handling of K+" → "Given a drug/acid-base state, predict serum K+ direction and why."</li>
+    <li>Each goal = a ticket you can mark done. Never "study cardio."</li>
+  </ul>
+</div>
+
+<div class="phase">
+  <span class="t">Phase 2 · Build the feedback engine (20–30 min, ACTIVE)</span>
+  <h3>Make the cards + questions that give instant feedback</h3>
+  <ul>
+    <li>Cloze/Anki cards for each objective (NotebookLM → Anki cloze pipeline). Sparing anime mnemonics per your rules.</li>
+    <li>Write 3–5 case stems per lecture — "patient presents with… why?" These are the bugs.</li>
+    <li>Building the card IS learning. This is the active-output requirement.</li>
+  </ul>
+</div>
+
+<div class="phase">
+  <span class="t">Phase 3 · Debug loop (timed blocks, DEEP FLOW)</span>
+  <h3>Solve cases + recall, tight loop, no interrupts</h3>
+  <ul>
+    <li>25–50 min block. Phone away. One tab. Timer running.</li>
+    <li>Run UWorld/practice Q or your case stems. Answer <i>before</i> revealing.</li>
+    <li>Every miss = error message. Trace the causal chain until you can explain it cold.</li>
+    <li>Blank-page recall the pathway from memory, then check.</li>
+  </ul>
+  <p class="why">This block is where flow lives. Feedback is instant, goal is binary, you are building the explanation.</p>
+</div>
+
+<div class="phase">
+  <span class="t">Phase 4 · Teach + close (10 min)</span>
+  <h3>Prove storage strength</h3>
+  <ul>
+    <li>Teach the lecture to an imaginary student (or to me) with no notes.</li>
+    <li>Gaps you hit = tomorrow's spaced-review cards.</li>
+    <li>Mark the tickets closed. Log what stuck / what broke → <span class="code">learning-records/</span>.</li>
+  </ul>
+</div>
+
+<h2>Difficulty knob (keep the edge)</h2>
+<span class="flag">Bored → integrate 2 systems, harder Q, add time pressure</span>
+<span class="flag">Overwhelmed → shrink to ONE pathway, drop the timer, more scaffold</span>
+<span class="flag">Numb / rereading → STOP. Switch to blank-page recall immediately</span>
+
+<h2>Flow-killers to ban</h2>
+<ul>
+  <li>Rereading highlighted notes (feels productive, teaches nothing).</li>
+  <li>Open-ended "study this chapter" with no binary goal.</li>
+  <li>Passive rewatching at 2x.</li>
+  <li>Phone / notifications inside a debug block.</li>
+</ul>
+
+<p class="sub" style="margin-top:2.5rem">Reference doc — return to it before each lecture. Lessons in <span class="code">lessons/</span> apply it to specific content.</p>
