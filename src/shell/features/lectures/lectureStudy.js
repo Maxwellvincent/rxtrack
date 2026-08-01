@@ -99,3 +99,32 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
     { callAIJSON }
   );
 }
+
+/**
+ * How many atoms one study round covers.
+ *
+ * The screen used to render every atom at once — sixty rows of "term — content" for a full
+ * lecture, with nothing on it that could be finished. A round has to be small enough to start
+ * when you don't feel like starting, and it has to end.
+ */
+export const ROUND_SIZE = 5;
+
+/**
+ * Split atoms into ordered rounds. Atoms arrive already sorted by the canonical type sequence
+ * (definitions, mechanisms, relationships, results), so slicing preserves that order.
+ */
+export function atomRounds(atoms, size = ROUND_SIZE) {
+  const list = Array.isArray(atoms) ? atoms.filter(Boolean) : [];
+  const n = Math.max(1, size | 0);
+  const out = [];
+  for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
+  return out;
+}
+
+/** Human label for where you are: "atoms 6–10 of 48". */
+export function roundLabel(index, rounds, total, size = ROUND_SIZE) {
+  if (!rounds.length) return "";
+  const start = index * size + 1;
+  const end = start + (rounds[index]?.length || 0) - 1;
+  return `atoms ${start}–${end} of ${total}`;
+}

@@ -17,7 +17,7 @@ import { selectBlockObjectives } from "../../logic/objectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { readExemplars } from "../objectives/quizLaunch.js";
-import { extractAtoms, loadLecture, quizFromAtoms } from "./lectureStudy.js";
+import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundLabel } from "./lectureStudy.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -50,6 +50,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [questions, setQuestions] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [round, setRound] = useState(0);
+  const [started, setStarted] = useState(false);
 
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
 
@@ -119,22 +121,54 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     }
   }, [atoms, lectureObjectives, lecture, userId]);
 
-  const runQuiz = useCallback(async () => {
+  const rounds = useMemo(() => atomRounds(atoms), [atoms]);
+
+  /** Questions for one round only — five atoms, not the whole lecture. */
+  const runRound = useCallback(async (index) => {
+    const roundAtoms = rounds[index];
+    if (!roundAtoms?.length) return;
     setBusy("Writing questions…"); setError(""); setQuestions(null);
-    const r = await quizFromAtoms(lecture, atoms, { callAIJSON, exemplars: readExemplars(userId) });
+    const r = await quizFromAtoms(lecture, roundAtoms, { callAIJSON, exemplars: readExemplars(userId) });
     setBusy("");
     if (r.error) { setError(r.error); return; }
     if (!r.questions?.length) { setError("No questions came back."); return; }
+    setRound(index);
     setQuestions(r.questions);
-  }, [lecture, atoms, userId]);
+  }, [lecture, rounds, userId]);
+
+  // You clicked Study, so studying is what should happen — land on question 1 rather than on a
+  // wall of atoms to read. Fires once per lecture; `started` keeps a re-render from re-asking.
+  useEffect(() => {
+    if (stage !== "quiz" || started || busy || questions || !rounds.length) return;
+    setStarted(true);
+    runRound(0);
+  }, [stage, started, busy, questions, rounds, runRound]);
 
   if (questions) {
+    const hasNext = round + 1 < rounds.length;
     return (
       <div className="p-5">
-        <button onClick={() => setQuestions(null)} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
-          ← back to atoms
-        </button>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <button onClick={() => setQuestions(null)} className="font-mono text-xs text-text-3 hover:text-text-1">
+            ← back to atoms
+          </button>
+          <span className="font-mono text-[11px] text-text-3">
+            round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)}
+          </span>
+        </div>
         <AtomQuiz questions={questions} blockId={blockId} />
+        <div className="mt-4 flex items-center gap-3">
+          {hasNext ? (
+            <>
+              <Button onClick={() => runRound(round + 1)} disabled={!!busy}>
+                {busy || `▸ Next ${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)}`}
+              </Button>
+              <span className="text-[10px] text-text-3">or stop here — the round is done</span>
+            </>
+          ) : (
+            <span className="text-[10px] text-text-3">that was the last round of this lecture</span>
+          )}
+        </div>
       </div>
     );
   }
@@ -173,8 +207,12 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
 
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <Button onClick={runQuiz} disabled={!!busy}>{busy || "▸ Quiz me on these"}</Button>
-          <span className="text-[10px] text-text-3">one calibrated Step-1 question per atom</span>
+          <Button onClick={() => runRound(round)} disabled={!!busy}>
+            {busy || `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`}
+          </Button>
+          <span className="text-[10px] text-text-3">
+            {rounds.length} rounds of {ROUND_SIZE} · one calibrated Step-1 question per atom
+          </span>
           {lectureObjectives.length > 0 && untagged > 0 && (
             <>
               <Button variant="outline" onClick={runTagging} disabled={!!busy}>
@@ -196,8 +234,14 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
         </div>
       )}
 
+      {/* The atom list is reference, not the session. Reading it is the passive habit this
+          screen used to force; it stays one click away for when you actually want it. */}
       {atoms.length > 0 && (
-        <div className="space-y-4">
+        <details className="group">
+          <summary className="cursor-pointer list-none font-mono text-[11px] text-text-3 hover:text-text-1">
+            ▸ review all {atoms.length} atoms
+          </summary>
+          <div className="mt-3 space-y-4">
           {HY_TYPES.map((type) => {
             const list = atoms.filter((a) => a.type === type);
             if (!list.length) return null;
@@ -231,7 +275,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
               </div>
             );
           })}
-        </div>
+          </div>
+        </details>
       )}
     </div>
   );
