@@ -52,6 +52,17 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [error, setError] = useState("");
   const [round, setRound] = useState(0);
   const [started, setStarted] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+
+  // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
+  // as a hung app, and the honest fix is to show the wait, not to hide it.
+  useEffect(() => {
+    if (!busy) { setElapsed(0); return; }
+    const started = Date.now();
+    const t = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [busy]);
+  const busyLabel = busy ? `${busy}${elapsed ? ` ${elapsed}s` : ""}` : "";
 
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
 
@@ -131,7 +142,13 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     const r = await quizFromAtoms(lecture, roundAtoms, { callAIJSON, exemplars: readExemplars(userId) });
     setBusy("");
     if (r.error) { setError(r.error); return; }
-    if (!r.questions?.length) { setError("No questions came back."); return; }
+    if (!r.questions?.length) {
+      setError(
+        "No questions came back. The local bridge was unreachable and the cloud provider returned " +
+        "nothing — check that llm-bridge is running, or the console for the bridge reason."
+      );
+      return;
+    }
     setRound(index);
     setQuestions(r.questions);
   }, [lecture, rounds, userId]);
@@ -161,7 +178,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
           {hasNext ? (
             <>
               <Button onClick={() => runRound(round + 1)} disabled={!!busy}>
-                {busy || `▸ Next ${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)}`}
+                {busyLabel || `▸ Next ${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)}`}
               </Button>
               <span className="text-[10px] text-text-3">or stop here — the round is done</span>
             </>
@@ -199,7 +216,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
       {stage === "extract" && (
         <div className="mb-4 flex items-center gap-3">
           <Button onClick={() => runExtract(text)} disabled={!!busy}>
-            {busy || "▸ Extract the signal"}
+            {busyLabel || "▸ Extract the signal"}
           </Button>
           <span className="text-[10px] text-text-3">definitions, mechanisms, relationships, results — fluff dropped</span>
         </div>
@@ -208,7 +225,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <Button onClick={() => runRound(round)} disabled={!!busy}>
-            {busy || `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`}
+            {busyLabel || `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`}
           </Button>
           <span className="text-[10px] text-text-3">
             {rounds.length} rounds of {ROUND_SIZE} · one calibrated Step-1 question per atom

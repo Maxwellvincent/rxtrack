@@ -13,8 +13,26 @@ const BRIDGE_URL =
   (typeof localStorage !== "undefined" && localStorage.getItem("rxt_bridge_url")) ||
   "http://127.0.0.1:4319";
 
-const PROBE_TTL_MS = 30_000;
+// A positive probe is cheap to trust for a while. A negative one is not: the bridge spends
+// most of its life mid-generation (a five-atom quiz is ~40s of `claude`), and a 1.2s health
+// check that blips during one of those used to blackball the bridge for a full 30 seconds —
+// long enough to push a whole study round onto the cloud path, which has no credit. So
+// failures expire fast and successes last.
+const PROBE_OK_TTL_MS = 30_000;
+const PROBE_FAIL_TTL_MS = 3_000;
+const PROBE_TIMEOUT_MS = 4_000;
 let probe = { at: 0, ok: false };
+
+/** True while the cached probe result is still worth reusing. */
+export function probeIsFresh(p, now = Date.now()) {
+  const age = now - (p?.at || 0);
+  return p?.ok ? age < PROBE_OK_TTL_MS : age < PROBE_FAIL_TTL_MS;
+}
+
+/** Test seam: reset the cached probe between cases. */
+export function resetBridgeProbe() {
+  probe = { at: 0, ok: false };
+}
 
 /** Off by default is wrong here — the point is zero-cost when available. Explicit opt-out only. */
 export function bridgeEnabled() {
@@ -32,10 +50,10 @@ export function setBridgeEnabled(on) {
 export async function bridgeAvailable() {
   if (!bridgeEnabled()) return false;
   const now = Date.now();
-  if (now - probe.at < PROBE_TTL_MS) return probe.ok;
+  if (probeIsFresh(probe, now)) return probe.ok;
   try {
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 1200);
+    const t = setTimeout(() => ctl.abort(), PROBE_TIMEOUT_MS);
     const r = await fetch(`${BRIDGE_URL}/health`, { signal: ctl.signal });
     clearTimeout(t);
     probe = { at: now, ok: r.ok };
@@ -67,6 +85,9 @@ export async function bridgeComplete(req) {
     if (!r.ok) throw new Error(`bridge ${r.status}`);
     const data = await r.json();
     if (!data.text) throw new Error("bridge returned no text");
+    // A completed call is far better evidence of health than a health check, and it costs
+    // nothing to record — the next call in a round skips probing entirely.
+    probe = { at: Date.now(), ok: true };
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("rxt-bridge-used", { detail: { backend: data.backend } })
