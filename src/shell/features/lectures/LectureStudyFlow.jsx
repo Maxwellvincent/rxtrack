@@ -10,7 +10,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
-import { fetchLectureContent, saveLectureAtoms } from "../../../supabase.js";
+import {
+  fetchLectureContent,
+  saveLectureAtoms,
+  saveLectureImages,
+  uploadLectureImages,
+} from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { selectBlockObjectives } from "../../logic/objectives.js";
@@ -46,6 +51,7 @@ function objectiveChips(objectiveIds, objectiveById) {
 export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
+  const [images, setImages] = useState([]);
   const [stage, setStage] = useState("loading"); // loading | upload | extract | quiz
   const [questions, setQuestions] = useState(null);
   const [busy, setBusy] = useState("");
@@ -72,7 +78,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     let alive = true;
     loadLecture(lecture, { fetchContent: fetchLectureContent, userId }).then((r) => {
       if (!alive) return;
-      setAtoms(r.atoms); setText(r.text); setStage(r.stage);
+      setAtoms(r.atoms); setText(r.text); setImages(r.images || []); setStage(r.stage);
       if (r.error) setError(r.error);
     });
     return () => { alive = false; };
@@ -132,6 +138,43 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     }
   }, [atoms, lectureObjectives, lecture, userId]);
 
+  /**
+   * Take the lecture's folder — `images.json` from the labeller plus the JPEGs beside it — and
+   * store the figures worth showing. Labelling happens offline against llm-bridge; this only
+   * uploads the result, because Storage writes need to run as the signed-in user.
+   */
+  const onFigures = useCallback(async (files) => {
+    const manifestFile = files.find((f) => f.name.toLowerCase().endsWith(".json"));
+    if (!manifestFile) {
+      setError("Pick images.json along with the lecture's images — run scripts/label-lecture-images.mjs first.");
+      return;
+    }
+    setError("");
+    let manifest;
+    try {
+      manifest = JSON.parse(await manifestFile.text());
+    } catch {
+      setError("That images.json could not be read.");
+      return;
+    }
+    const byName = new Map(files.map((f) => [f.name, f]));
+    setBusy("Uploading figures…");
+    const stored = await uploadLectureImages(userId, lecture?.id, manifest, byName, (n, total) =>
+      setBusy(`Uploading figures… ${n}/${total}`)
+    );
+    setBusy("");
+    if (!stored.length) {
+      setError("No usable figures in that folder — everything was labelled decorative.");
+      return;
+    }
+    setImages(stored);
+    try {
+      await saveLectureImages(userId, lecture?.id, stored);
+    } catch (e) {
+      setError(`Figures loaded for this session but not saved: ${e?.message || e}`);
+    }
+  }, [lecture, userId]);
+
   const rounds = useMemo(() => atomRounds(atoms), [atoms]);
 
   /** Questions for one round only — five atoms, not the whole lecture. */
@@ -139,7 +182,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     const roundAtoms = rounds[index];
     if (!roundAtoms?.length) return;
     setBusy("Writing questions…"); setError(""); setQuestions(null);
-    const r = await quizFromAtoms(lecture, roundAtoms, { callAIJSON, exemplars: readExemplars(userId) });
+    const r = await quizFromAtoms({ ...lecture, images }, roundAtoms, {
+      callAIJSON, exemplars: readExemplars(userId),
+    });
     setBusy("");
     if (r.error) { setError(r.error); return; }
     if (!r.questions?.length) {
@@ -151,7 +196,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     }
     setRound(index);
     setQuestions(r.questions);
-  }, [lecture, rounds, userId]);
+  }, [lecture, images, rounds, userId]);
 
   // You clicked Study, so studying is what should happen — land on question 1 rather than on a
   // wall of atoms to read. Fires once per lecture; `started` keeps a re-render from re-asking.
@@ -247,6 +292,15 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
           )}
           {lectureObjectives.length === 0 && (
             <span className="text-[10px] text-text-3">no objectives linked to this lecture — nothing to tag against</span>
+          )}
+          {images.length > 0 ? (
+            <span className="text-[10px] text-text-3">{images.length} figures — shown with the atoms they belong to</span>
+          ) : (
+            <label className="cursor-pointer font-mono text-[10px] text-text-3 underline decoration-dotted hover:text-text-1">
+              + add this lecture's figures
+              <input type="file" multiple accept=".jpeg,.jpg,.png,.json" className="hidden" disabled={!!busy}
+                onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; onFigures(f); }} />
+            </label>
           )}
         </div>
       )}

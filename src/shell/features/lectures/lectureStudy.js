@@ -11,6 +11,7 @@
 import { extractTypedHighYield } from "../../../engine/extractHighYield.js";
 import { generateFromAtoms } from "../../../engine/mcq.js";
 import { getChunkBody } from "../../../lectureText.js";
+import { imageForAtom, isUsableImage, attachImagesToQuestions } from "../../../lectureImages.js";
 
 /** Minimum characters worth sending to the extractor. */
 export const MIN_TEXT = 200;
@@ -42,20 +43,25 @@ export async function loadLecture(lecture, { fetchContent, userId }) {
   const local = lectureTextFrom(lecture);
   let atoms = Array.isArray(lecture?.atoms) ? lecture.atoms : [];
   let text = local;
+  // Labelled figures live with the lecture content, not on the list record, so they usually
+  // arrive with the same fetch that brings the text.
+  let images = Array.isArray(lecture?.images) ? lecture.images : [];
 
+  // Images ride along with a fetch we already needed — never worth a round trip on their own.
   if ((!atoms.length || !text) && fetchContent) {
     try {
       const remote = await fetchContent(userId, lecture?.id);
       if (remote) {
         if (!atoms.length) atoms = remote.atoms || [];
         if (!text) text = lectureTextFrom(remote);
+        if (!images.length) images = Array.isArray(remote.images) ? remote.images : [];
       }
     } catch (e) {
-      return { atoms, text, stage: flowStage({ atoms, text }), error: e?.message || String(e) };
+      return { atoms, text, images, stage: flowStage({ atoms, text }), error: e?.message || String(e) };
     }
   }
 
-  return { atoms, text, stage: flowStage({ atoms, text }), error: null };
+  return { atoms, text, images, stage: flowStage({ atoms, text }), error: null };
 }
 
 /**
@@ -86,18 +92,31 @@ export async function extractAtoms(lecture, text, deps = {}) {
   return { atoms, error: null, saved };
 }
 
-/** One Step-1 question per atom, in the school's style when exemplars exist. */
+/**
+ * One Step-1 question per atom, in the school's style when exemplars exist.
+ *
+ * When the lecture has labelled figures, the atoms that have one are flagged before generation
+ * so the stem can refer to the image, and the image is hung on the question afterwards so the
+ * quiz can render it. Both halves are no-ops for a lecture ingested without images.
+ */
 export async function quizFromAtoms(lecture, atoms, deps = {}) {
   const { callAIJSON, exemplars = [], difficulty = "medium" } = deps;
-  return generateFromAtoms(
+  const images = (lecture?.images || []).filter(isUsableImage);
+  const marked = images.length
+    ? atoms.map((a) => (imageForAtom(a, images) ? { ...a, hasImage: true } : a))
+    : atoms;
+
+  const result = await generateFromAtoms(
     {
-      atoms,
+      atoms: marked,
       subject: lecture?.lectureTitle || lecture?.title || "this lecture",
       difficulty,
       examples: exemplars,
     },
     { callAIJSON }
   );
+  if (result.error || !images.length) return result;
+  return { ...result, questions: attachImagesToQuestions(result.questions, atoms, images) };
 }
 
 /**

@@ -55,6 +55,16 @@ export function AtomQuiz({ questions, blockId = "lecture-extract" }) {
         <span>Calibrated quiz — from your atoms</span><span className="text-text-3">{i + 1}/{questions.length}</span>
       </div>
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
+        {/* Stimulus first, the way a real Step 1 item presents it: read the tissue, then the
+            stem. No caption — the label would answer the question. */}
+        {q.image?.url && (
+          <img
+            src={q.image.url}
+            alt="Histologic image accompanying this question"
+            loading="lazy"
+            className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
+          />
+        )}
         <div className="mb-2 text-sm text-text-1">{q.stem}</div>
         <div className="flex flex-col gap-1.5">
           {Object.entries(q.choices).map(([letter, txt]) => {

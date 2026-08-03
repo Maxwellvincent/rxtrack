@@ -83,11 +83,18 @@ export async function parseExemplarsFromMd(md, deps = {}) {
 // truncate the JSON. 10 keeps one response well within limits.
 export const ATOM_QUIZ_CAP = 10;
 
+const IMAGE_NOTE =
+  "  [AN IMAGE FROM THE LECTURE IS SHOWN WITH THIS QUESTION — have the stem refer to it " +
+  '("the photomicrograph shown", "the image shown") and do NOT describe or name what it depicts.]';
+
 export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], subject = "this lecture" } = {}) {
   const diff = String(difficulty).toLowerCase();
+  // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
+  // told an image is coming so the stem can point at it, but never told what it shows —
+  // naming the tissue in the stem is the answer.
   const factList = atoms
     .slice(0, ATOM_QUIZ_CAP)
-    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}`)
+    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.hasImage ? IMAGE_NOTE : ""}`)
     .join("\n");
 
   const examplesSection = examples.length

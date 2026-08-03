@@ -163,7 +163,7 @@ export async function fetchLectureContent(userId, lecId) {
   const snap = await getDoc(doc(db, "users", userId, "lectures", encodeDocId(lecId)));
   if (!snap.exists()) return null;
   const v = snap.data() || {};
-  return { chunks: v.chunks || [], atoms: v.atoms || [], meta: v.data || {} };
+  return { chunks: v.chunks || [], atoms: v.atoms || [], images: v.images || [], meta: v.data || {} };
 }
 
 /**
@@ -205,6 +205,24 @@ export async function saveLectureAtoms(userId, lecId, atoms) {
   await setDoc(
     doc(db, "users", userId, "lectures", encodeDocId(lecId)),
     { atoms: list, atomsUpdatedAt: serverTimestamp() },
+    { merge: true }
+  );
+  return { saved: list.length };
+}
+
+/**
+ * Store a lecture's labelled figures.
+ *
+ * Labels only — each entry is `{ file, url, kind, shows, context }` and the JPEG itself lives in
+ * Firebase Storage. Binaries can never go here: a Firestore doc caps at 1MB and one lecture
+ * carries fifty photomicrographs.
+ */
+export async function saveLectureImages(userId, lecId, images) {
+  if (!userId || !lecId) return { saved: 0 };
+  const list = Array.isArray(images) ? images : [];
+  await setDoc(
+    doc(db, "users", userId, "lectures", encodeDocId(lecId)),
+    { images: list, imagesUpdatedAt: serverTimestamp() },
     { merge: true }
   );
   return { saved: list.length };
@@ -876,6 +894,37 @@ export async function pushMcqBankToSupabase(userId) {
     errors.push({ store: "mcq", error: { message: e?.message || String(e) } });
   }
   return errors;
+}
+
+/**
+ * Upload a lecture's usable figures and return the entries to store on the lecture.
+ *
+ * `manifest` is the `images.json` written by `scripts/label-lecture-images.mjs`; `files` are the
+ * JPEGs from the same folder, keyed by filename. Decorative entries are dropped here rather
+ * than at label time so a re-classification never needs a re-upload.
+ *
+ * One failed upload skips that figure instead of failing the lecture — a study round with
+ * nineteen images is not worth losing over the twentieth.
+ */
+export async function uploadLectureImages(userId, lecId, manifest, files, onProgress) {
+  if (!userId || !lecId) return [];
+  const usable = (manifest || []).filter((m) => m && m.kind && m.kind !== "decorative");
+  const out = [];
+  for (let i = 0; i < usable.length; i++) {
+    const m = usable[i];
+    const file = files?.get?.(m.file) || files?.[m.file];
+    if (!file) continue;
+    const path = `lecture-images/${userId}/${encodeDocId(lecId)}/${m.file}`;
+    try {
+      await uploadBytes(storageRef(storage, path), file, { contentType: file.type || "image/jpeg" });
+      const url = await getDownloadURL(storageRef(storage, path));
+      out.push({ file: m.file, url, kind: m.kind, shows: m.shows || "", context: m.context || "" });
+    } catch (e) {
+      console.warn("lecture image upload failed:", m.file, e?.message);
+    }
+    onProgress?.(i + 1, usable.length);
+  }
+  return out;
 }
 
 // ─── QUESTION IMAGES ─────────────────────────────────
