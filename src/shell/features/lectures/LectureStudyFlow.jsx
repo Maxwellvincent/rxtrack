@@ -21,6 +21,14 @@ import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { selectBlockObjectives } from "../../logic/objectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
+import { FigureReview } from "./FigureReview.jsx";
+import { bridgeComplete } from "../../../llmBridge.js";
+import {
+  applyStoredLabels,
+  labelCandidates,
+  readStoredLabels,
+  selectCandidates,
+} from "../../../lectureFigures.js";
 import { readExemplars } from "../objectives/quizLaunch.js";
 import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundLabel } from "./lectureStudy.js";
 
@@ -52,6 +60,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
+  const [figures, setFigures] = useState(null); // in-review, not yet uploaded
   const [stage, setStage] = useState("loading"); // loading | upload | extract | quiz
   const [questions, setQuestions] = useState(null);
   const [busy, setBusy] = useState("");
@@ -139,41 +148,81 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   }, [atoms, lectureObjectives, lecture, userId]);
 
   /**
-   * Take the lecture's folder — `images.json` from the labeller plus the JPEGs beside it — and
-   * store the figures worth showing. Labelling happens offline against llm-bridge; this only
-   * uploads the result, because Storage writes need to run as the signed-in user.
+   * Pick the lecture's folder and get cards back: harvest the figures its markdown references,
+   * label them against the local bridge, and show them for review. Nothing is uploaded here —
+   * that waits for `confirmFigures`, so a figure you reject never leaves the machine.
+   *
+   * The lecture's own markdown is what says which images belong to it and what text surrounds
+   * them, so a folder without it cannot be placed.
    */
   const onFigures = useCallback(async (files) => {
-    const manifestFile = files.find((f) => f.name.toLowerCase().endsWith(".json"));
-    if (!manifestFile) {
-      setError("Pick images.json along with the lecture's images — run scripts/label-lecture-images.mjs first.");
-      return;
-    }
     setError("");
-    let manifest;
-    try {
-      manifest = JSON.parse(await manifestFile.text());
-    } catch {
-      setError("That images.json could not be read.");
+    const mdFile = files.find((f) => /\.(md|markdown)$/i.test(f.name));
+    const markdown = mdFile ? await mdFile.text() : text;
+    if (!markdown) {
+      setError("Include the lecture's .md in the selection — it says which figures belong where.");
       return;
     }
-    const byName = new Map(files.map((f) => [f.name, f]));
+
+    setBusy("Reading the folder…");
+    const candidates = await selectCandidates({ files, markdown });
+    if (!candidates.length) {
+      setBusy("");
+      setError("No figures in that folder — either it has none, or they are all too small to be content.");
+      return;
+    }
+
+    // Shown as soon as they exist: labelling adds captions, it is not what makes them reviewable.
+    setFigures(candidates.map((c) => ({ ...c, kind: "unlabelled", shows: "", keep: true })));
+
+    // A folder pre-labelled by scripts/label-lecture-images.mjs skips straight to review —
+    // relabelling it would spend minutes to arrive at the same captions.
+    const stored = await readStoredLabels(files);
+    if (stored) {
+      setFigures(applyStoredLabels(candidates, stored));
+      setBusy("");
+      return;
+    }
+
+    setBusy(`Labelling ${candidates.length} figures…`);
+    const labelled = await labelCandidates(candidates, {
+      complete: bridgeComplete,
+      onProgress: (n, total) => setBusy(`Labelling figures… ${n}/${total}`),
+    });
+    setFigures(labelled);
+    setBusy("");
+  }, [text]);
+
+  /** Upload only what survived review, then remember it on the lecture. */
+  const confirmFigures = useCallback(async () => {
+    const kept = figures.filter((f) => f.keep && f.kind !== "decorative");
+    if (!kept.length) return;
     setBusy("Uploading figures…");
+    const byName = new Map(kept.map((f) => [f.name, f.file]));
+    // A figure kept without a label still has to have a kind, or nothing will ever render it.
+    // "diagram" is the neutral choice: it claims the least about what the picture is.
+    const manifest = kept.map((f) => ({
+      file: f.name,
+      kind: f.kind === "unlabelled" ? "diagram" : f.kind,
+      shows: f.shows,
+      context: f.context,
+    }));
     const stored = await uploadLectureImages(userId, lecture?.id, manifest, byName, (n, total) =>
       setBusy(`Uploading figures… ${n}/${total}`)
     );
     setBusy("");
     if (!stored.length) {
-      setError("No usable figures in that folder — everything was labelled decorative.");
+      setError("Upload failed — the figures are still selected, try again.");
       return;
     }
     setImages(stored);
+    setFigures(null);
     try {
       await saveLectureImages(userId, lecture?.id, stored);
     } catch (e) {
       setError(`Figures loaded for this session but not saved: ${e?.message || e}`);
     }
-  }, [lecture, userId]);
+  }, [figures, lecture, userId]);
 
   const rounds = useMemo(() => atomRounds(atoms), [atoms]);
 
@@ -295,14 +344,31 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
           )}
           {images.length > 0 ? (
             <span className="text-[10px] text-text-3">{images.length} figures — shown with the atoms they belong to</span>
-          ) : (
+          ) : !figures && (
+            /* Whole folder: the .md says which figures belong to this lecture and what text
+               surrounds them, so the images alone are not enough to place anything. */
             <label className="cursor-pointer font-mono text-[10px] text-text-3 underline decoration-dotted hover:text-text-1">
               + add this lecture's figures
-              <input type="file" multiple accept=".jpeg,.jpg,.png,.json" className="hidden" disabled={!!busy}
+              <input type="file" multiple webkitdirectory="" directory="" className="hidden" disabled={!!busy}
                 onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; onFigures(f); }} />
             </label>
           )}
         </div>
+      )}
+
+      {figures && (
+        <FigureReview
+          figures={figures}
+          busy={busy}
+          onToggle={(i) => setFigures((prev) => prev.map((f, j) => (j === i ? { ...f, keep: !f.keep } : f)))}
+          onKind={(i, kind) =>
+            setFigures((prev) =>
+              prev.map((f, j) => (j === i ? { ...f, kind, keep: kind !== "decorative" } : f))
+            )
+          }
+          onConfirm={confirmFigures}
+          onCancel={() => setFigures(null)}
+        />
       )}
 
       {/* The atom list is reference, not the session. Reading it is the passive habit this

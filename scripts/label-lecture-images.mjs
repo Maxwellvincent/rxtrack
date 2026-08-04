@@ -1,6 +1,11 @@
 /**
- * Label the figures marker pulled out of a lecture deck, so the study flow can put real
- * histology in front of a question instead of a definition.
+ * Bulk pre-labelling of lecture figures, for doing a whole subject in one unattended run.
+ *
+ * The normal path is in the app: Study → "+ add this lecture's figures" picks the folder,
+ * labels it, and shows the cards for review, all without a terminal. This exists only for the
+ * overnight case — `--all` across a subject — and writes `images.json` next to each lecture,
+ * which the app reads instead of relabelling. The prompt and reply parsing are imported from
+ * `src/lectureFigures.js` so the two paths cannot drift apart.
  *
  * Marker already wrote every figure next to the lecture's .md and left an inline
  * `![](_page_5_Figure_1.jpeg)` where it sat on the slide, so WHERE an image belongs is already
@@ -21,7 +26,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { parseImageRefs } from "../src/lectureImages.js";
+import { parseImageRefs, IMAGE_KINDS } from "../src/lectureImages.js";
+import { buildLabelPrompt, parseLabelReply, LABEL_SYSTEM } from "../src/lectureFigures.js";
 
 const BRIDGE = process.env.RXT_BRIDGE_URL || "http://127.0.0.1:4319";
 
@@ -31,26 +37,8 @@ const MIN_BYTES = 20_000;
 /** Images per vision call. Higher is faster but the model starts losing track of the order. */
 const BATCH = 6;
 
-const SYSTEM = "You label figures extracted from medical lecture slides. Return ONLY valid JSON.";
-
 /** Kept in step with IMAGE_KINDS in src/lectureImages.js, plus the reject bucket. */
-const KINDS = ["histology", "clinical", "diagram", "decorative"];
-
-const PROMPT = (n) =>
-  `You are shown ${n} image(s) extracted from a medical school lecture slide deck, in order.\n` +
-  `Classify EACH one:\n` +
-  `- "histology"  — a micrograph: stained tissue or cells under a microscope, or a gross\n` +
-  `                 pathology specimen.\n` +
-  `- "clinical"   — a real patient or an image taken from one: physical findings, a rash, a\n` +
-  `                 goitre, exophthalmos, a radiograph, CT, MRI, ultrasound, ECG.\n` +
-  `- "diagram"    — a drawn teaching figure: pathway, chart, anatomical illustration, graph.\n` +
-  `- "decorative" — anything not testable: logos, crests, headshots of the lecturer, stock\n` +
-  `                 photos, slide furniture, screenshots of text, decorative borders.\n\n` +
-  `A photograph of a patient is "clinical", never "histology" — histology means magnified tissue.\n\n` +
-  `For "shows", name what is depicted in under 12 words, using the anatomical, histologic or\n` +
-  `clinical terms a physician would use. For "decorative", leave "shows" as "".\n\n` +
-  `Return ONLY a JSON array of exactly ${n} objects, in the same order as the images:\n` +
-  `[{"kind":"histology","shows":"thyroid follicles lined by cuboidal epithelium with colloid"}]`;
+const KINDS = [...IMAGE_KINDS, "decorative"];
 
 function parseArgs(argv) {
   const args = { dir: "", only: "", batch: BATCH, minBytes: MIN_BYTES, dry: false, all: false };
@@ -131,8 +119,8 @@ async function labelBatch(batch) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      system: SYSTEM,
-      prompt: PROMPT(batch.length),
+      system: LABEL_SYSTEM,
+      prompt: buildLabelPrompt(batch.length),
       images: batch.map((c) => ({
         mimeType: mimeOf(c.file),
         data: fs.readFileSync(c.path).toString("base64"),
@@ -142,22 +130,7 @@ async function labelBatch(batch) {
   });
   if (!res.ok) throw new Error(`bridge ${res.status}`);
   const { text } = await res.json();
-  const cleaned = String(text || "")
-    .replace(/^\s*```(?:json)?/i, "")
-    .replace(/```\s*$/, "")
-    .trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    const m = cleaned.match(/\[[\s\S]*\]/);
-    if (!m) throw new Error("reply was not JSON");
-    parsed = JSON.parse(m[0]);
-  }
-  const list = Array.isArray(parsed) ? parsed : parsed?.images || [];
-  // A short reply means the model lost the mapping; keeping it would caption the wrong slide.
-  if (list.length !== batch.length) throw new Error(`got ${list.length} labels for ${batch.length} images`);
-  return list;
+  return parseLabelReply(text, batch.length);
 }
 
 async function labelLecture(dir, name, args) {
