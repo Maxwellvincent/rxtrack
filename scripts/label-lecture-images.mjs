@@ -33,15 +33,22 @@ const BATCH = 6;
 
 const SYSTEM = "You label figures extracted from medical lecture slides. Return ONLY valid JSON.";
 
+/** Kept in step with IMAGE_KINDS in src/lectureImages.js, plus the reject bucket. */
+const KINDS = ["histology", "clinical", "diagram", "decorative"];
+
 const PROMPT = (n) =>
   `You are shown ${n} image(s) extracted from a medical school lecture slide deck, in order.\n` +
   `Classify EACH one:\n` +
-  `- "histology"  — a real micrograph: stained tissue, cells, a gross specimen, a radiograph.\n` +
+  `- "histology"  — a micrograph: stained tissue or cells under a microscope, or a gross\n` +
+  `                 pathology specimen.\n` +
+  `- "clinical"   — a real patient or an image taken from one: physical findings, a rash, a\n` +
+  `                 goitre, exophthalmos, a radiograph, CT, MRI, ultrasound, ECG.\n` +
   `- "diagram"    — a drawn teaching figure: pathway, chart, anatomical illustration, graph.\n` +
-  `- "decorative" — anything not testable: logos, crests, headshots, stock photos, slide\n` +
-  `                 furniture, screenshots of text, decorative borders.\n\n` +
-  `For "shows", name what is depicted in under 12 words, using the anatomical or histologic\n` +
-  `terms a pathologist would use. For "decorative", leave "shows" as "".\n\n` +
+  `- "decorative" — anything not testable: logos, crests, headshots of the lecturer, stock\n` +
+  `                 photos, slide furniture, screenshots of text, decorative borders.\n\n` +
+  `A photograph of a patient is "clinical", never "histology" — histology means magnified tissue.\n\n` +
+  `For "shows", name what is depicted in under 12 words, using the anatomical, histologic or\n` +
+  `clinical terms a physician would use. For "decorative", leave "shows" as "".\n\n` +
   `Return ONLY a JSON array of exactly ${n} objects, in the same order as the images:\n` +
   `[{"kind":"histology","shows":"thyroid follicles lined by cuboidal epithelium with colloid"}]`;
 
@@ -184,7 +191,7 @@ async function labelLecture(dir, name, args) {
       const l = labels[j] || {};
       manifest.push({
         file: c.file,
-        kind: ["histology", "diagram", "decorative"].includes(l.kind) ? l.kind : "decorative",
+        kind: KINDS.includes(l.kind) ? l.kind : "decorative",
         shows: String(l.shows || "").trim(),
         context: c.context,
         bytes: c.bytes,

@@ -48,10 +48,17 @@ export function parseImageRefs(markdown) {
   return out;
 }
 
-/** An image is worth showing only if a human labelled it as content and we can render it. */
+/**
+ * What a figure can be. Order is preference: given two images that match an atom equally well,
+ * the tissue beats the patient photo beats the redrawn diagram, because that is the order in
+ * which a Step 1 item is likely to show them.
+ */
+export const IMAGE_KINDS = ["histology", "clinical", "diagram"];
+
+/** An image is worth showing only if it was labelled as content and we can render it. */
 export function isUsableImage(img) {
   if (!img || !img.url) return false;
-  return img.kind === "histology" || img.kind === "diagram";
+  return IMAGE_KINDS.includes(img.kind);
 }
 
 function terms(text) {
@@ -84,7 +91,8 @@ export function imageForAtom(atom, images) {
       else if (inContext.includes(w)) score += 1;
     }
     if (!score) continue;
-    if (img.kind === "histology") score += 0.5; // real tissue beats a redrawn diagram
+    // Break ties by kind — a real specimen is a better stimulus than a drawing of one.
+    score += (IMAGE_KINDS.length - IMAGE_KINDS.indexOf(img.kind)) * 0.25;
     if (score > bestScore) {
       bestScore = score;
       best = img;

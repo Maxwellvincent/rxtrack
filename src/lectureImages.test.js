@@ -39,8 +39,9 @@ describe("parseImageRefs", () => {
 });
 
 describe("isUsableImage", () => {
-  it("keeps histology and diagrams", () => {
+  it("keeps histology, clinical photos and diagrams", () => {
     expect(isUsableImage({ kind: "histology", url: "u" })).toBe(true);
+    expect(isUsableImage({ kind: "clinical", url: "u" })).toBe(true);
     expect(isUsableImage({ kind: "diagram", url: "u" })).toBe(true);
   });
 
@@ -82,6 +83,12 @@ describe("imageForAtom", () => {
   it("prefers histology over a diagram when both match", () => {
     const dia = { ...other, shows: "Diagram of thyroid follicles", context: "" };
     expect(imageForAtom({ term: "thyroid follicles" }, [dia, histo])?.file).toBe("a.jpeg");
+  });
+
+  it("prefers a clinical photo over a diagram — the patient beats the drawing", () => {
+    const dia = { file: "d.jpeg", url: "u/d", kind: "diagram", shows: "Diagram of exophthalmos", context: "" };
+    const pic = { file: "c.jpeg", url: "u/c", kind: "clinical", shows: "Bilateral exophthalmos", context: "" };
+    expect(imageForAtom({ term: "exophthalmos" }, [dia, pic])?.file).toBe("c.jpeg");
   });
 
   it("returns null rather than forcing an unrelated picture onto the question", () => {
