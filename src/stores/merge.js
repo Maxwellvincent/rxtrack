@@ -168,3 +168,53 @@ export function mergeKvValue(cloud, local) {
   }
   return local;
 }
+
+/**
+ * Furthest-round-wins, per lecture.
+ *
+ * Study progress is monotonic by definition — you cannot un-answer a question — so the higher
+ * round is always the truer one and the two devices can never really conflict. Timestamps are
+ * carried for display only; they deliberately do not decide the winner, because a phone that
+ * reopened a lecture later has not therefore studied more of it.
+ */
+export function mergeRoundProgress(cloud, local) {
+  const out = {};
+  for (const side of [cloud || {}, local || {}]) {
+    for (const [lectureId, entry] of Object.entries(side)) {
+      const round = entry?.round;
+      if (!Number.isInteger(round) || round <= 0) continue;
+      if (!out[lectureId] || round > out[lectureId].round) {
+        out[lectureId] = { round, at: entry.at ?? Date.now() };
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Union of answered questions, per block.
+ *
+ * Calibration is an append-only log, so merging is a set union rather than a choice between
+ * copies. Identity is the concept plus the moment it was answered: the same concept twice at
+ * different times is a retest and both belong in the curve, while the same concept at the same
+ * timestamp is one answer that reached both devices.
+ */
+export function mergeCalibration(cloud, local) {
+  const out = {};
+  for (const side of [cloud || {}, local || {}]) {
+    for (const [blockId, records] of Object.entries(side)) {
+      if (!Array.isArray(records)) continue;
+      const seen = new Set((out[blockId] || []).map((r) => `${r.ts}|${r.concept}`));
+      const list = out[blockId] || (out[blockId] = []);
+      for (const r of records) {
+        if (!r || !r.concept || !Number.isFinite(r.ts)) continue;
+        const id = `${r.ts}|${r.concept}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        list.push(r);
+      }
+    }
+  }
+  for (const list of Object.values(out)) list.sort((a, b) => a.ts - b.ts);
+  return out;
+}

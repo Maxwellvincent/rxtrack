@@ -244,7 +244,7 @@ function ShellMain({ theme, toggle, userId }) {
               <button onClick={() => setQuiz(null)} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
                 ← back
               </button>
-              <AtomQuiz questions={quiz.questions} blockId={activeBlockId} />
+              <AtomQuiz questions={quiz.questions} blockId={activeBlockId} userId={userId} />
             </div>
           ) : studyLecture ? (
             <LectureStudyFlow

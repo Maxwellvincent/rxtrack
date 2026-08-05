@@ -74,7 +74,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [round, setRound] = useState(0);
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
-  const [done, setDone] = useState(() => readRoundProgress(lecture?.id));
+  const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
   const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -282,8 +282,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
         <AtomQuiz
           questions={questions}
           blockId={blockId}
+          userId={userId}
           onDone={() => {
-            saveRoundProgress(lecture?.id, round + 1);
+            saveRoundProgress(userId, lecture?.id, round + 1);
             setDone((prev) => Math.max(prev, round + 1));
           }}
         />
@@ -352,7 +353,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
           </span>
           {done > 0 && (
             <button
-              onClick={() => { clearRoundProgress(lecture?.id); setDone(0); setRound(0); }}
+              onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
               disabled={!!busy}
               className="font-mono text-[10px] text-text-3 underline decoration-dotted hover:text-text-1"
             >

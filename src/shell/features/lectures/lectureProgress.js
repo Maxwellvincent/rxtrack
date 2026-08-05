@@ -3,59 +3,35 @@
  *
  * The study screen is built on one promise: five atoms, then you may stop. That promise was
  * hollow while the round index lived in component state — leaving the screen sent you back to
- * round one, so stopping cost you your place and the cheapest move became "don't start". Your
- * answers were never lost (calibration writes on every question); only the bookmark was.
+ * round one, so stopping cost you your place and the cheapest move became "don't start".
  *
- * Stored per lecture as the number of rounds COMPLETED, which is also the index of the next one
- * to run. localStorage matches `calibrationStore` — the prototype keeps its own progress until
- * there is a Firestore schema for it.
+ * Storage is Firestore-first (src/stores/lectureRounds.js), so the bookmark follows you to the
+ * phone; signed out it falls back to localStorage. Progress is the number of rounds COMPLETED,
+ * which is also the index of the next one to run.
  */
-export const PROGRESS_KEY = "rxt-lecture-round";
+import * as store from "../../../stores/lectureRounds.js";
 
-function readAll() {
-  try {
-    const v = JSON.parse(localStorage.getItem(PROGRESS_KEY) || "{}");
-    return v && typeof v === "object" ? v : {};
-  } catch {
-    return {};
-  }
-}
+export const PROGRESS_KEY = store.key;
 
 /** Rounds completed for this lecture; 0 for one never studied. */
-export function readRoundProgress(lectureId) {
+export function readRoundProgress(userId, lectureId) {
   if (!lectureId) return 0;
-  const n = readAll()[lectureId]?.round;
+  const n = store.read(userId)?.[lectureId]?.round;
   return Number.isInteger(n) && n > 0 ? n : 0;
 }
 
 /**
  * Record that `round` rounds are done.
  *
- * Monotonic on purpose: re-running an earlier round to review it is a normal thing to do, and
- * it must not throw away the rest of the lecture.
+ * Monotonic on purpose: re-running an earlier round to review it is a normal thing to do, and it
+ * must not throw away the rest of the lecture — nor may a device that is behind undo one ahead.
  */
-export function saveRoundProgress(lectureId, round) {
-  if (!lectureId || !Number.isInteger(round) || round < 0) return;
-  const all = readAll();
-  const prev = all[lectureId]?.round || 0;
-  if (round <= prev) return;
-  all[lectureId] = { round, at: Date.now() };
-  try {
-    localStorage.setItem(PROGRESS_KEY, JSON.stringify(all));
-  } catch {
-    /* a full quota must not break studying */
-  }
+export function saveRoundProgress(userId, lectureId, round) {
+  store.markRoundDone(userId, lectureId, round);
 }
 
-export function clearRoundProgress(lectureId) {
-  if (!lectureId) return;
-  const all = readAll();
-  delete all[lectureId];
-  try {
-    localStorage.setItem(PROGRESS_KEY, JSON.stringify(all));
-  } catch {
-    /* ignore */
-  }
+export function clearRoundProgress(userId, lectureId) {
+  store.clearLecture(userId, lectureId);
 }
 
 /**

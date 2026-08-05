@@ -21,7 +21,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", onDone }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDone }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState(null);
   const [confidence, setConfidence] = useState(null);
@@ -40,7 +40,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", onDone }) {
     const isCorrect = picked === q.correct;
     setConfidence(level);
     const rec = { concept: q.topic || q.stem.slice(0, 40), confidence: level, correct: isCorrect };
-    appendCalibration(blockId, rec);
+    appendCalibration(userId, blockId, rec);
     setRecords((prev) => [...prev, rec]);
   };
 

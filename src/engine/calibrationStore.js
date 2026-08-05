@@ -1,25 +1,18 @@
-// calibrationStore.js — local (throwaway) persistence for calibration records.
-// Firestore schema is deferred (SP2); localStorage keeps the prototype self-contained.
+// calibrationStore.js — the study path's calibration records.
 // Record = { concept, confidence (1-5), correct (bool), ts }.
-const KEY = "rxt-calibration";
-
-function readAll() {
-  try { return JSON.parse(localStorage.getItem(KEY) || "{}"); }
-  catch { return {}; }
-}
+//
+// Storage is Firestore-first now (src/stores/calibrationByBlock.js), so the accuracy curve and
+// the landmine list are the same on the laptop and the phone. Signed out it falls back to
+// localStorage, which is what keeps the anon prototype path and the tests working.
+import * as store from "../stores/calibrationByBlock.js";
 
 /** Calibration records for a block (array), oldest first. */
-export function readCalibration(blockId) {
-  const all = readAll();
-  return Array.isArray(all[blockId]) ? all[blockId] : [];
+export function readCalibration(userId, blockId) {
+  return store.readBlock(userId, blockId);
 }
 
 /** Append one calibration record to a block and persist. */
-export function appendCalibration(blockId, record) {
+export function appendCalibration(userId, blockId, record) {
   if (!blockId || !record?.concept) return;
-  const all = readAll();
-  const list = Array.isArray(all[blockId]) ? [...all[blockId]] : [];
-  list.push({ ts: Date.now(), ...record });
-  all[blockId] = list;
-  try { localStorage.setItem(KEY, JSON.stringify(all)); } catch {}
+  store.appendRecord(userId, blockId, record);
 }

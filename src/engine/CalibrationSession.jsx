@@ -88,7 +88,7 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
     setRevealed(true);
 
     const rec = { concept, confidence: level, correct };
-    appendCalibration(blockId, rec);
+    appendCalibration(userId, blockId, rec);
     setRecords((prev) => [...prev, rec]);
 
     // Mastery unchanged by confidence (calibration-only): record correct/wrong as usual.
