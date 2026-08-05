@@ -21,7 +21,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract" }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", onDone }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState(null);
   const [confidence, setConfidence] = useState(null);
@@ -45,7 +45,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract" }) {
   };
 
   const next = () => {
-    if (i + 1 >= questions.length) { setDone(true); return; }
+    // Answering the last question is what completes a round — the caller bookmarks it here so
+    // leaving afterwards costs nothing.
+    if (i + 1 >= questions.length) { setDone(true); onDone?.(); return; }
     setI(i + 1); setPicked(null); setConfidence(null);
   };
 

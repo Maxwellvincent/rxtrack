@@ -31,6 +31,12 @@ import {
 } from "../../../lectureFigures.js";
 import { readExemplars } from "../objectives/quizLaunch.js";
 import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundLabel } from "./lectureStudy.js";
+import {
+  clearRoundProgress,
+  readRoundProgress,
+  resumeRound,
+  saveRoundProgress,
+} from "./lectureProgress.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -66,6 +72,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [round, setRound] = useState(0);
+  // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
+  // remounts (and re-reads) whenever you switch lectures.
+  const [done, setDone] = useState(() => readRoundProgress(lecture?.id));
   const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
 
@@ -225,6 +234,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
   }, [figures, lecture, userId]);
 
   const rounds = useMemo(() => atomRounds(atoms), [atoms]);
+  /** The round Study should open on — one value, so the button's label and its action agree. */
+  const nextRound = resumeRound(done, rounds.length);
 
   /** Questions for one round only — five atoms, not the whole lecture. */
   const runRound = useCallback(async (index) => {
@@ -249,11 +260,12 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
 
   // You clicked Study, so studying is what should happen — land on question 1 rather than on a
   // wall of atoms to read. Fires once per lecture; `started` keeps a re-render from re-asking.
+  // It opens where you stopped, because a bookmark you have to find again is not a bookmark.
   useEffect(() => {
     if (stage !== "quiz" || started || busy || questions || !rounds.length) return;
     setStarted(true);
-    runRound(0);
-  }, [stage, started, busy, questions, rounds, runRound]);
+    runRound(nextRound);
+  }, [stage, started, busy, questions, rounds, nextRound, runRound]);
 
   if (questions) {
     const hasNext = round + 1 < rounds.length;
@@ -267,7 +279,14 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
             round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)}
           </span>
         </div>
-        <AtomQuiz questions={questions} blockId={blockId} />
+        <AtomQuiz
+          questions={questions}
+          blockId={blockId}
+          onDone={() => {
+            saveRoundProgress(lecture?.id, round + 1);
+            setDone((prev) => Math.max(prev, round + 1));
+          }}
+        />
         <div className="mt-4 flex items-center gap-3">
           {hasNext ? (
             <>
@@ -318,12 +337,28 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
 
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
-          <Button onClick={() => runRound(round)} disabled={!!busy}>
-            {busyLabel || `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`}
+          <Button onClick={() => runRound(nextRound)} disabled={!!busy}>
+            {busyLabel ||
+              (nextRound > 0
+                ? `▸ Resume at round ${nextRound + 1}`
+                : `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`)}
           </Button>
           <span className="text-[10px] text-text-3">
-            {rounds.length} rounds of {ROUND_SIZE} · one calibrated Step-1 question per atom
+            {done >= rounds.length && rounds.length > 0
+              ? `all ${rounds.length} rounds done — studying again starts from the top`
+              : done > 0
+                ? `${done} of ${rounds.length} rounds done · picking up where you stopped`
+                : `${rounds.length} rounds of ${ROUND_SIZE} · one calibrated Step-1 question per atom`}
           </span>
+          {done > 0 && (
+            <button
+              onClick={() => { clearRoundProgress(lecture?.id); setDone(0); setRound(0); }}
+              disabled={!!busy}
+              className="font-mono text-[10px] text-text-3 underline decoration-dotted hover:text-text-1"
+            >
+              start over
+            </button>
+          )}
           {lectureObjectives.length > 0 && untagged > 0 && (
             <>
               <Button variant="outline" onClick={runTagging} disabled={!!busy}>
