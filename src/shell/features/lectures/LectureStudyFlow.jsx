@@ -378,18 +378,28 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
           {lectureObjectives.length === 0 && (
             <span className="text-[10px] text-text-3">no objectives linked to this lecture — nothing to tag against</span>
           )}
-          {images.length > 0 ? (
+          {images.length > 0 && (
             <span className="text-[10px] text-text-3">{images.length} figures — shown with the atoms they belong to</span>
-          ) : !figures && (
-            /* Whole folder: the .md says which figures belong to this lecture and what text
-               surrounds them, so the images alone are not enough to place anything. */
-            <label className="cursor-pointer font-mono text-[10px] text-text-3 underline decoration-dotted hover:text-text-1">
-              + add this lecture's figures
-              <input type="file" multiple webkitdirectory="" directory="" className="hidden" disabled={!!busy}
-                onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; onFigures(f); }} />
-            </label>
           )}
         </div>
+      )}
+
+      {/* The app cannot see your disk, so it can never say "this lecture has 21 figures waiting".
+          What it does know is that it holds none, which is enough to say so once and get out of
+          the way — figures are optional, and a lecture without them just asks text-only
+          questions. */}
+      {stage === "quiz" && atoms.length > 0 && !images.length && !figures && !busy && (
+        <label className="mb-4 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-dashed border-border px-4 py-2.5 hover:border-border-strong">
+          <span className="text-xs text-text-2">
+            No figures for this lecture yet — add its histology and diagrams
+            <span className="ml-1.5 text-text-3">
+              (pick the lecture's folder from your marker output · once per lecture · ~2 min)
+            </span>
+          </span>
+          <span className="font-mono text-[10px] text-text-3">browse</span>
+          <input type="file" multiple webkitdirectory="" directory="" className="hidden" disabled={!!busy}
+            onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; onFigures(f); }} />
+        </label>
       )}
 
       {figures && (
