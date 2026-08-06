@@ -418,16 +418,17 @@ function LecObjectiveGroup({
         {onStudyLecture && lectureId && (
           <button
             onClick={(e) => { e.stopPropagation(); onStudyLecture(lectureId); }}
-            title="Extract this lecture's high-yield atoms, then quiz them"
+            title="Work through this lecture in rounds of five questions. Remembers where you stopped, and shows the lecture's figures if you have added them."
             style={{
-              background: "none",
-              border: "1px solid " + T.border1,
-              color: T.text2,
-              padding: "11px 14px",
+              background: color,
+              border: "none",
+              color: "#fff",
+              padding: "12px 20px",
               borderRadius: 6,
               cursor: "pointer",
               fontFamily: MONO,
-              fontSize: 13,
+              fontSize: 14,
+              fontWeight: 700,
               flexShrink: 0,
             }}
           >
@@ -440,16 +441,16 @@ function LecObjectiveGroup({
             e.stopPropagation();
             onQuiz(objectives, group.lectureTitle, blockId, { lectureId });
           }}
+          title="One-off set of questions across this lecture's objectives. No rounds, no figures, and it does not remember where you stopped."
           style={{
-            background: isQuizLoading ? T.inputBg : isQuizError ? T.statusWarnBg || "#FAEEDA" : color,
-            border: isQuizLoading ? "1px solid " + T.border1 : isQuizError ? "1px solid " + (T.statusWarnBorder || "#D4A574") : "none",
-            color: isQuizLoading ? T.text3 : isQuizError ? T.statusWarn || "#633806" : "#fff",
-            padding: "12px 20px",
+            background: isQuizLoading ? T.inputBg : isQuizError ? T.statusWarnBg || "#FAEEDA" : "none",
+            border: isQuizError ? "1px solid " + (T.statusWarnBorder || "#D4A574") : "1px solid " + T.border1,
+            color: isQuizLoading ? T.text3 : isQuizError ? T.statusWarn || "#633806" : T.text2,
+            padding: "11px 14px",
             borderRadius: 6,
             cursor: isQuizLoading ? "not-allowed" : "pointer",
             fontFamily: MONO,
-            fontSize: 14,
-            fontWeight: 700,
+            fontSize: 13,
             flexShrink: 0,
             display: "flex",
             alignItems: "center",
