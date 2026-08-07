@@ -41,9 +41,22 @@ function TaskCard({ task, onQuiz, onStudy, onLog, busy }) {
             {task.struggling > 0 && ` · ${task.struggling} struggling`}
           </div>
         </div>
+        {/* Study is the main way in: rounds of five, resume, figures. Quiz is a one-off set of
+            questions that keeps no place — useful, but not what a lecture starts with, so it
+            must not be the button that looks like the action. */}
         <div className="flex flex-wrap gap-1.5">
-          <Button variant="outline" onClick={() => onStudy(task.lec.id)}>Study</Button>
-          <Button onClick={() => onQuiz(task)} disabled={busy === task.lec.id}>
+          <Button
+            onClick={() => onStudy(task.lec.id)}
+            title="Work through this lecture in rounds of five. Remembers where you stopped."
+          >
+            Study →
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => onQuiz(task)}
+            disabled={busy === task.lec.id}
+            title="One-off questions across this lecture's objectives. No rounds, no resume."
+          >
             {busy === task.lec.id ? "Generating…" : "Quiz"}
           </Button>
         </div>

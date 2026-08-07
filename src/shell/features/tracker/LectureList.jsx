@@ -42,8 +42,19 @@ function Row({ row, onStudy, onQuiz, onLog, busy }) {
           <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[10px] text-text-3 hover:text-text-1">
             log
           </button>
-          <Button variant="outline" onClick={() => onStudy(row.lectureId)}>Study</Button>
-          <Button onClick={() => onQuiz(row)} disabled={busy === row.lectureId}>
+          {/* Study leads — see the note in Today.jsx's TaskCard. */}
+          <Button
+            onClick={() => onStudy(row.lectureId)}
+            title="Work through this lecture in rounds of five. Remembers where you stopped."
+          >
+            Study →
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => onQuiz(row)}
+            disabled={busy === row.lectureId}
+            title="One-off questions across this lecture's objectives. No rounds, no resume."
+          >
             {busy === row.lectureId ? "Generating…" : "Quiz"}
           </Button>
         </div>
