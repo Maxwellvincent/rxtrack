@@ -290,6 +290,38 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
     </label>
   );
 
+  /*
+   * Reviewing figures takes over the screen, before the questions branch gets a look in.
+   *
+   * The prompt that starts this is reachable from the quiz — which is the whole point, since
+   * Study auto-starts there — so rendering the grid only on the atoms view meant clicking the
+   * prompt appeared to do nothing at all. Picking figures is a task, not a side panel: it owns
+   * the screen until you confirm or cancel, and the round is still there afterwards.
+   */
+  if (figures) {
+    return (
+      <div className="p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="font-mono text-xs text-text-3">{title} · figures</span>
+          {busyLabel && <span className="font-mono text-[11px] text-text-3">{busyLabel}</span>}
+        </div>
+        {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
+        <FigureReview
+          figures={figures}
+          busy={busy}
+          onToggle={(i) => setFigures((prev) => prev.map((f, j) => (j === i ? { ...f, keep: !f.keep } : f)))}
+          onKind={(i, kind) =>
+            setFigures((prev) =>
+              prev.map((f, j) => (j === i ? { ...f, kind, keep: kind !== "decorative" } : f))
+            )
+          }
+          onConfirm={confirmFigures}
+          onCancel={() => setFigures(null)}
+        />
+      </div>
+    );
+  }
+
   if (questions) {
     const hasNext = round + 1 < rounds.length;
     return (
@@ -409,21 +441,6 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
       )}
 
       {figuresPrompt}
-
-      {figures && (
-        <FigureReview
-          figures={figures}
-          busy={busy}
-          onToggle={(i) => setFigures((prev) => prev.map((f, j) => (j === i ? { ...f, keep: !f.keep } : f)))}
-          onKind={(i, kind) =>
-            setFigures((prev) =>
-              prev.map((f, j) => (j === i ? { ...f, kind, keep: kind !== "decorative" } : f))
-            )
-          }
-          onConfirm={confirmFigures}
-          onCancel={() => setFigures(null)}
-        />
-      )}
 
       {/* The atom list is reference, not the session. Reading it is the passive habit this
           screen used to force; it stays one click away for when you actually want it. */}

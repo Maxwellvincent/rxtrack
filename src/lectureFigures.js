@@ -32,7 +32,13 @@ export function buildLabelPrompt(n) {
     `- "diagram"    — a drawn teaching figure: pathway, chart, anatomical illustration, graph.\n` +
     `- "decorative" — anything not testable: logos, crests, headshots of the lecturer, stock\n` +
     `                 photos, slide furniture, screenshots of text, decorative borders.\n\n` +
-    `A photograph of a patient is "clinical", never "histology" — histology means magnified tissue.\n\n` +
+    `"histology" means TISSUE SEEN THROUGH A MICROSCOPE — stain colours, cells, nuclei. Nothing\n` +
+    `else qualifies, however medical it looks:\n` +
+    `- A CT, MRI or ultrasound is a cross-section of a LIVING patient, not a slide. It is\n` +
+    `  "clinical", even though it shows internal anatomy in greyscale.\n` +
+    `- A radiograph or ECG is "clinical".\n` +
+    `- A photograph of a patient, or of a gross organ on a bench, is "clinical".\n` +
+    `If you cannot see individual cells, it is not "histology".\n\n` +
     `For "shows", name what is depicted in under 12 words, using the anatomical, histologic or\n` +
     `clinical terms a physician would use. For "decorative", leave "shows" as "".\n\n` +
     `Return ONLY a JSON array of exactly ${n} objects, in the same order as the images:\n` +

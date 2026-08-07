@@ -1,6 +1,16 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    // A lecture's extracted figures, one folder per lecture. Same terms as question-images:
+    // yours only, images only, capped size — a marker JPEG is tens of KB, never megabytes.
+    match /lecture-images/{uid}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(png|jpeg|jpg|webp)');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
     match /question-images/{uid}/{allPaths=**} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if request.auth != null && request.auth.uid == uid
