@@ -1,93 +1,18 @@
 /**
- * Calibration log — tracks predicted confidence vs. actual correctness per answer.
- * Purpose: surface the "felt confident, scored average" gap.
+ * Deep Learn's confidence buckets.
  *
- * Stored under localStorage key `rxt-calibration-log` as an array of entries.
- * Synced to Supabase via user_kv (see supabase.js KV_KEYS).
+ * This file used to hold a second calibration log — `rxt-calibration-log`, a flat array of
+ * percent-confidence entries with its own stats and headline helpers. It was write-only: Deep
+ * Learn appended to it and nothing ever read it back, so none of those answers reached the
+ * accuracy curve or the landmine list, which are built from `rxt-calibration` instead.
+ *
+ * Deep Learn now records into that one store (see `submitMCQ`, via `engine/calibrationStore.js`),
+ * converting its percentage to the 1-5 scale with `confidenceFromPercent`. The buckets stay here
+ * because they are still what the UI offers.
+ *
+ * The old log is left where it is, in localStorage and in the cloud KV under
+ * `stores/calibration.js`. Nothing writes or reads it now. It is historical data rather than
+ * junk, and deleting a record of answered questions to tidy up a module is not a trade worth
+ * making — but do not build anything new on it.
  */
-
-import { getCurrentUser, scheduleDebouncedCloudPush } from "./supabase";
-import * as calibrationStore from "./stores/calibration.js";
-
-const STORAGE_KEY = "rxt-calibration-log";
-const MAX_ENTRIES = 5000;
-
 export const CALIBRATION_BUCKETS = [50, 70, 90];
-
-function loadLog() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveLog(log) {
-  try {
-    const trimmed = log.length > MAX_ENTRIES ? log.slice(-MAX_ENTRIES) : log;
-    calibrationStore.write(null, trimmed);
-    window.dispatchEvent(new CustomEvent("rxt-calibration-updated"));
-    getCurrentUser().then((user) => {
-      if (user?.id) scheduleDebouncedCloudPush(user.id);
-    }).catch(() => {});
-  } catch (e) {
-    console.error("saveCalibrationLog failed:", e);
-  }
-}
-
-export function recordCalibration({ predicted, correct, source = "", blockId = null, objectiveId = null, lectureId = null }) {
-  if (!CALIBRATION_BUCKETS.includes(predicted)) return;
-  const log = loadLog();
-  log.push({
-    date: new Date().toISOString(),
-    predicted,
-    correct: !!correct,
-    source,
-    blockId,
-    objectiveId,
-    lectureId,
-  });
-  saveLog(log);
-}
-
-/**
- * Returns stats per bucket: { 50: {n, accuracy, gap}, 70: {...}, 90: {...} }.
- * `gap` is (accuracy - predicted) — negative = overconfident, positive = underconfident.
- * Pass `filter` to scope by blockId or source.
- */
-export function getCalibrationStats(filter = {}) {
-  const log = loadLog();
-  const filtered = log.filter((e) => {
-    if (filter.blockId && e.blockId !== filter.blockId) return false;
-    if (filter.source && e.source !== filter.source) return false;
-    if (filter.sinceISO && e.date < filter.sinceISO) return false;
-    return true;
-  });
-  const stats = {};
-  for (const bucket of CALIBRATION_BUCKETS) {
-    const entries = filtered.filter((e) => e.predicted === bucket);
-    const n = entries.length;
-    const correct = entries.filter((e) => e.correct).length;
-    const accuracy = n > 0 ? Math.round((correct / n) * 100) : null;
-    const gap = accuracy != null ? accuracy - bucket : null;
-    stats[bucket] = { n, accuracy, gap };
-  }
-  stats.total = filtered.length;
-  return stats;
-}
-
-/** One-line summary like "Overconfident on 90s (72%, -18)" or "Well calibrated". */
-export function getCalibrationHeadline(filter = {}) {
-  const stats = getCalibrationStats(filter);
-  if (stats.total < 10) return `Not enough data yet (${stats.total}/10 minimum)`;
-  const worst = CALIBRATION_BUCKETS
-    .map((b) => ({ bucket: b, ...stats[b] }))
-    .filter((s) => s.n >= 3 && s.gap != null)
-    .sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))[0];
-  if (!worst || Math.abs(worst.gap) <= 5) return "Well calibrated";
-  const label = worst.gap < 0 ? "Overconfident" : "Underconfident";
-  return `${label} on ${worst.bucket}% (${worst.accuracy}% actual, ${worst.gap > 0 ? "+" : ""}${worst.gap})`;
-}

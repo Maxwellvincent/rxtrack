@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classify, isLandmine, summarize } from "./calibration.js";
+import { classify, confidenceFromPercent, isLandmine, summarize, CONFIDENT_THRESHOLD } from "./calibration.js";
 
 describe("classify", () => {
   it("confidence >= 4 and correct → confident-right", () => {
@@ -82,5 +82,24 @@ describe("summarize", () => {
       "unsure-right": 0,
       "unsure-wrong": 0,
     });
+  });
+});
+
+describe("confidenceFromPercent", () => {
+  it("maps Deep Learn's three buckets onto the 1-5 scale", () => {
+    expect(confidenceFromPercent(50)).toBe(2);
+    expect(confidenceFromPercent(70)).toBe(3);
+    expect(confidenceFromPercent(90)).toBe(5);
+  });
+
+  it("keeps the confident boundary where it was — only 90 counts as sure", () => {
+    expect(confidenceFromPercent(90)).toBeGreaterThanOrEqual(CONFIDENT_THRESHOLD);
+    expect(confidenceFromPercent(70)).toBeLessThan(CONFIDENT_THRESHOLD);
+    expect(confidenceFromPercent(50)).toBeLessThan(CONFIDENT_THRESHOLD);
+  });
+
+  it("so a 90%-sure miss is a landmine and a 70%-sure miss is not", () => {
+    expect(isLandmine({ confidence: confidenceFromPercent(90), correct: false })).toBe(true);
+    expect(isLandmine({ confidence: confidenceFromPercent(70), correct: false })).toBe(false);
   });
 });

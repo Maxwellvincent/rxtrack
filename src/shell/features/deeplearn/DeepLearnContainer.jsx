@@ -117,6 +117,7 @@ export function DeepLearnContainer({
   return (
     <DeepLearn
       blockId={blockId}
+      userId={userId}
       lecs={lecturesWithMaps}
       blockObjectives={blockObjectives}
       getBlockObjectives={getBlockObjectives}

@@ -4,6 +4,21 @@
 
 export const CONFIDENT_THRESHOLD = 4;
 
+/**
+ * Deep Learn asks for a predicted percentage (50 / 70 / 90); everything else rates 1–5.
+ * One scale has to win, and 1–5 is the one the curve, the landmine list and the stored records
+ * are all built on.
+ *
+ * The mapping is chosen to preserve the only boundary that carries meaning — CONFIDENT_THRESHOLD.
+ * Saying "90% sure" and being wrong is a landmine; saying "70%" and being wrong is not, because
+ * you already flagged the doubt. So 90 is the only bucket that lands at or above 4.
+ */
+export function confidenceFromPercent(predicted) {
+  if (predicted >= 90) return 5;
+  if (predicted >= 70) return 3;
+  return 2;
+}
+
 export function classify({ confidence, correct }) {
   const confident = confidence >= CONFIDENT_THRESHOLD;
   if (confident) return correct ? "confident-right" : "confident-wrong";

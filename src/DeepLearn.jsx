@@ -25,7 +25,9 @@ import {
 } from "./mcqUtils";
 import { renderAnnotatableStemNodes } from "./stemAnnotationUtils";
 import { recordWrongAnswer } from "./weakConcepts";
-import { recordCalibration, CALIBRATION_BUCKETS } from "./calibration";
+import { CALIBRATION_BUCKETS } from "./calibration";
+import { appendCalibration } from "./engine/calibrationStore.js";
+import { confidenceFromPercent } from "./engine/calibration.js";
 import * as completionStore from "./stores/completion.js";
 import * as performanceStore from "./stores/performance.js";
 import {
@@ -2154,6 +2156,7 @@ Patient case: ${getPatientCaseText(patientCase) || "No patient case available."}
 // ── Deep Learn Session — Testing Sandwich flow ─────────────────────────────
 function DeepLearnSession({
   topic,
+  userId = null,
   lectureTitle,
   objectives,
   blockId,
@@ -3391,13 +3394,13 @@ function DeepLearnSession({
     const correct = mcqSelected === q.correct;
     const questionId = q.id;
     if (predictedConfidence != null) {
-      recordCalibration({
-        predicted: predictedConfidence,
+      // Deep Learn asks for a percentage; the record store speaks 1-5. One curve, one landmine
+      // list — a confidence rated here has to land in the same place as one rated in AtomQuiz.
+      appendCalibration(userId, blockId || "deeplearn", {
+        concept: q.objectiveText || q.topic || String(q.question || q.stem || "").slice(0, 40),
+        confidence: confidenceFromPercent(predictedConfidence),
         correct,
         source: "deeplearn",
-        blockId: blockId || null,
-        objectiveId: q.objectiveId || null,
-        lectureId: lec?.id || null,
       });
     }
     const result = {
@@ -7395,6 +7398,7 @@ What is the clinical significance of this finding?`,
 // Wrapper: show Config then Session (mastery loop)
 export default function DeepLearn({
   blockId,
+  userId = null,
   lecs = [],
   blockObjectives = [],
   lecObjectives: lecObjectivesProp = [],
@@ -8923,6 +8927,7 @@ export default function DeepLearn({
       {phase === "session" && firstTopic && (
         <DeepLearnSession
           topic={firstTopic}
+          userId={userId}
           lectureTitle={
             sessionParams?.displayLectureTitle ||
             (sessionParams?.isCrossLecture && resumedCrossCtx
