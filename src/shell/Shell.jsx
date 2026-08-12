@@ -315,18 +315,21 @@ function ShellMain({ theme, toggle, userId }) {
                 questions={quiz.questions}
                 blockId={activeBlockId}
                 userId={userId}
-                onDone={() => {
+                onDone={({ correct = 0, total = 0 } = {}) => {
                   if (!quiz.lectureId) return;
+                  const passedQuiz = total > 0 && correct / total >= 0.8;
                   try {
                     const store = objectivesStore.read(userId) || {};
                     const blockObjs = selectBlockObjectives(store, activeBlockId);
                     const lecObjs = blockObjs.filter(
-                      (o) => o?.linkedLecId === quiz.lectureId && o.status === "untested"
+                      (o) => o?.linkedLecId === quiz.lectureId &&
+                        (o.status === "untested" || (passedQuiz && o.status === "developing"))
                     );
                     if (!lecObjs.length) return;
                     let updated = store;
                     for (const obj of lecObjs) {
-                      updated = setStatus(updated, obj.id, "developing", new Date());
+                      const next = passedQuiz && obj.status === "developing" ? "mastered" : "developing";
+                      updated = setStatus(updated, obj.id, next, new Date());
                     }
                     objectivesStore.write(userId, updated);
                   } catch { /* non-critical */ }

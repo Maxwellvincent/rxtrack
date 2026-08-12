@@ -340,37 +340,51 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClos
           questions={questions}
           blockId={blockId}
           userId={userId}
-          onDone={() => {
+          onDone={({ correct = 0, total = 0 } = {}) => {
             const nextDone = Math.max(done, round + 1);
             saveRoundProgress(userId, lecture?.id, nextDone);
             setDone(nextDone);
-            // On last round: auto-promote this lecture's untested objectives → developing.
-            if (nextDone >= rounds.length) {
-              try {
-                const store = objectivesStore.read(userId) || {};
-                let changed = false;
-                let updated = store;
-                for (const obj of lectureObjectives) {
-                  if (obj.status === "untested") {
-                    updated = setStatus(updated, obj.id, "developing", new Date());
-                    changed = true;
-                  }
+            const isLastRound = nextDone >= rounds.length;
+            const passedQuiz = total > 0 && correct / total >= 0.8;
+            try {
+              const store = objectivesStore.read(userId) || {};
+              let updated = store;
+              let changed = false;
+              for (const obj of lectureObjectives) {
+                const targetStatus = isLastRound && passedQuiz ? "mastered"
+                  : obj.status === "untested" ? "developing"
+                  : null;
+                if (targetStatus && obj.status !== targetStatus) {
+                  updated = setStatus(updated, obj.id, targetStatus, new Date());
+                  changed = true;
                 }
-                if (changed) objectivesStore.write(userId, updated);
-              } catch { /* non-critical */ }
-            }
+              }
+              if (changed) objectivesStore.write(userId, updated);
+            } catch { /* non-critical */ }
           }}
         />
         <div className="mt-4 flex items-center gap-3">
           {hasNext ? (
             <>
               <Button onClick={() => runRound(round + 1)} disabled={!!busy}>
-                {busyLabel || `▸ Next ${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)}`}
+                {busyLabel || `▸ Next round (${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)} atoms)`}
               </Button>
-              <span className="text-[10px] text-text-3">or stop here — the round is done</span>
+              <button onClick={onClose} className="font-mono text-[10px] text-text-3 hover:text-text-1">
+                stop here
+              </button>
             </>
           ) : (
-            <span className="text-[10px] text-text-3">that was the last round of this lecture</span>
+            <div className="flex flex-col gap-3 w-full">
+              <div className="rounded-lg border border-good/40 bg-good/5 px-4 py-3 text-sm font-semibold text-text-1">
+                ✓ Lecture complete — all {rounds.length} round{rounds.length === 1 ? "" : "s"} done
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={onClose}>← Back to Today</Button>
+                <Button variant="outline" onClick={() => { setQuestions(null); }}>
+                  Review atoms
+                </Button>
+              </div>
+            </div>
           )}
         </div>
         {figuresPrompt}
@@ -381,7 +395,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClos
   return (
     <div className="p-5">
       <button onClick={onClose} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
-        ← back to objectives
+        ← back
       </button>
       <h2 className="text-lg font-bold text-text-1">{title}</h2>
       <div className="mb-4 font-mono text-[11px] text-text-3">

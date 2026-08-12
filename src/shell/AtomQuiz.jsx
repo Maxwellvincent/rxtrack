@@ -45,9 +45,12 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
   };
 
   const next = () => {
-    // Answering the last question is what completes a round — the caller bookmarks it here so
-    // leaving afterwards costs nothing.
-    if (i + 1 >= questions.length) { setDone(true); onDone?.(); return; }
+    if (i + 1 >= questions.length) {
+      setDone(true);
+      const correctCount = records.filter((r) => r.correct).length;
+      onDone?.({ correct: correctCount, total: questions.length });
+      return;
+    }
     setI(i + 1); setPicked(null); setConfidence(null);
   };
 
