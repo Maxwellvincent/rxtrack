@@ -275,8 +275,32 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id });
   }, [objectivesForTask, onStartObjectiveQuiz, blockId]);
 
-  const doneCount = useMemo(() => todayTasks.filter((t) => checked.has(t.lec.id)).length, [todayTasks, checked]);
-  const firstUnchecked = useMemo(() => todayTasks.find((t) => !checked.has(t.lec.id))?.lec.id ?? null, [todayTasks, checked]);
+  // Day mode filters the raw task list without touching the scheduler
+  const filteredTasks = useMemo(() => {
+    if (!dayMode) return todayTasks;
+    if (dayMode === "lecture") {
+      // Prioritise scheduled-day; allow up to 2 spaced-rep-due on top; skip pure urgency fill
+      const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day");
+      const due = todayTasks.filter((t) => t.matchReason === "spaced-rep-due").slice(0, 2);
+      return [...scheduled, ...due];
+    }
+    if (dayMode === "review") {
+      // No new scheduled lectures — review overdue + highest urgency old material only
+      return todayTasks
+        .filter((t) => t.matchReason !== "scheduled-day")
+        .slice(0, 5);
+    }
+    if (dayMode === "triage") {
+      // Recovery: 2 highest-urgency tasks only, prefer ones already seen (sessions > 0)
+      const seen = todayTasks.filter((t) => (t.sessions ?? 0) > 0);
+      const pool = seen.length >= 2 ? seen : todayTasks;
+      return pool.slice(0, 2);
+    }
+    return todayTasks;
+  }, [dayMode, todayTasks]);
+
+  const doneCount = useMemo(() => filteredTasks.filter((t) => checked.has(t.lec.id)).length, [filteredTasks, checked]);
+  const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checked.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checked]);
 
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
@@ -308,8 +332,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       <DayModePicker mode={dayMode} onChange={handleDayMode} />
 
       {/* Progress */}
-      {todayTasks.length > 0 && (
-        <ProgressBar done={doneCount} total={todayTasks.length} />
+      {filteredTasks.length > 0 && (
+        <ProgressBar done={doneCount} total={filteredTasks.length} />
       )}
 
       {logFeedback && (
@@ -324,8 +348,14 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       )}
 
       {/* Task list */}
-      {todayTasks.length === 0 ? (
-        nextDay ? (
+      {filteredTasks.length === 0 ? (
+        todayTasks.length > 0 && dayMode ? (
+          <div className="rounded-lg border border-border p-4 text-xs text-text-3">
+            No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === dayMode)?.label}</span> today.
+            {dayMode === "review" && " All available lectures are scheduled for today — switch to Lecture day."}
+            {dayMode === "triage" && " No previously-studied lectures available — showing top pick below."}
+          </div>
+        ) : nextDay ? (
           <div className="rounded-lg border border-border p-4 text-xs text-text-3">
             Nothing due today. Block starts{" "}
             <span className="text-text-1">{nextDay.dateStr}</span> — {nextDay.daysFromNow} days away,{" "}
@@ -345,7 +375,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
         )
       ) : (
         <div className="flex flex-col gap-2">
-          {todayTasks.map((task) => (
+          {filteredTasks.map((task) => (
             <TaskRow
               key={task.lec.id}
               task={task}
