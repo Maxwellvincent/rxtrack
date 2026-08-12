@@ -102,9 +102,21 @@ export async function extractAtoms(lecture, text, deps = {}) {
 export async function quizFromAtoms(lecture, atoms, deps = {}) {
   const { callAIJSON, exemplars = [], difficulty = "medium" } = deps;
   const images = (lecture?.images || []).filter(isUsableImage);
-  const marked = images.length
-    ? atoms.map((a) => (imageForAtom(a, images) ? { ...a, hasImage: true } : a))
-    : atoms;
+
+  // Flag atoms that have a matching image, then cap image-questions at 35% so a
+  // histology lecture with images on every atom still produces a mix of vignette
+  // and photomicrograph questions rather than an all-image quiz.
+  let marked = atoms;
+  if (images.length) {
+    const withFlag = atoms.map((a) => (imageForAtom(a, images) ? { ...a, hasImage: true } : a));
+    const maxImages = Math.max(1, Math.round(atoms.length * 0.35));
+    let used = 0;
+    marked = withFlag.map((a) => {
+      if (!a.hasImage) return a;
+      if (used < maxImages) { used++; return a; }
+      return { ...a, hasImage: false };
+    });
+  }
 
   const result = await generateFromAtoms(
     {
