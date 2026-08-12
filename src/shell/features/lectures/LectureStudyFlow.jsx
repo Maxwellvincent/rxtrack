@@ -18,7 +18,7 @@ import {
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
-import { selectBlockObjectives } from "../../logic/objectives.js";
+import { selectBlockObjectives, setStatus } from "../../logic/objectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { FigureReview } from "./FigureReview.jsx";
@@ -256,7 +256,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClos
     }
     setRound(index);
     setQuestions(r.questions);
-  }, [lecture, images, rounds, userId]);
+    // Log as soon as a round starts — even if they don't finish every question, they studied.
+    logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+  }, [lecture, images, rounds, userId, logActivity]);
 
   // You clicked Study, so studying is what should happen — land on question 1 rather than on a
   // wall of atoms to read. Fires once per lecture; `started` keeps a re-render from re-asking.
@@ -339,9 +341,24 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClos
           blockId={blockId}
           userId={userId}
           onDone={() => {
-            saveRoundProgress(userId, lecture?.id, round + 1);
-            setDone((prev) => Math.max(prev, round + 1));
-            logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+            const nextDone = Math.max(done, round + 1);
+            saveRoundProgress(userId, lecture?.id, nextDone);
+            setDone(nextDone);
+            // On last round: auto-promote this lecture's untested objectives → developing.
+            if (nextDone >= rounds.length) {
+              try {
+                const store = objectivesStore.read(userId) || {};
+                let changed = false;
+                let updated = store;
+                for (const obj of lectureObjectives) {
+                  if (obj.status === "untested") {
+                    updated = setStatus(updated, obj.id, "developing", new Date());
+                    changed = true;
+                  }
+                }
+                if (changed) objectivesStore.write(userId, updated);
+              } catch { /* non-critical */ }
+            }
           }}
         />
         <div className="mt-4 flex items-center gap-3">
