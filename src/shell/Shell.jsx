@@ -9,6 +9,7 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms } from "./navPrefs.js";
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
+import { TabBar } from "./TabBar.jsx";
 import { BlockHome } from "./BlockHome.jsx";
 import { CommandPalette } from "../ui/CommandPalette.jsx";
 import { EngineSession } from "../engine/EngineSession.jsx";
@@ -45,6 +46,10 @@ import { useObjectives } from "./hooks/useObjectives.js";
  * pulls the user's data from the cloud on sign-in — it works on any origin,
  * not just the one where data was first created.
  */
+// Dev bypass: VITE_DEV_USER_ID in .env lets the MCP/headless browser skip
+// Google OAuth. Set to your Firebase UID. Ignored in production builds.
+const DEV_UID = import.meta.env.DEV ? (import.meta.env.VITE_DEV_USER_ID || null) : null;
+
 export default function Shell() {
   const { theme, toggle } = useTheme();
   const [phase, setPhase] = useState("checking"); // checking | signedout | loading | ready
@@ -52,6 +57,15 @@ export default function Shell() {
 
   useEffect(() => {
     let alive = true;
+
+    // Dev bypass: skip Firebase auth. No Firestore pull (no auth token = rules reject).
+    // MCP browser will show empty state; real browser still uses full auth flow.
+    if (DEV_UID) {
+      setUserId(DEV_UID);
+      setPhase("ready");
+      return () => { alive = false; };
+    }
+
     let booted = false;
     let shellUnsub = null;
     async function boot(uid) {
@@ -127,7 +141,8 @@ function ShellMain({ theme, toggle, userId }) {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
-  const [view, setView] = useState("home"); // home | objectives
+  const [tab, setTab] = useState("today"); // today | lectures | objectives | more
+  const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
@@ -196,6 +211,8 @@ function ShellMain({ theme, toggle, userId }) {
   const onContinue = useCallback(() => setSessionMode("engine"), []);
   const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
 
+  const switchTab = useCallback((t) => { setTab(t); setMoreView(null); setQuiz(null); }, []);
+
   // "Study →" on a lecture row: resolve the id to the stored lecture, then hand
   // it to the flow, which sources its text (locally or from Firestore) itself.
   const onStudyLecture = useCallback((lectureId) => {
@@ -240,9 +257,10 @@ function ShellMain({ theme, toggle, userId }) {
         onSelectBlock={(id) => {
           setSelectedBlockId(id);
           setSessionMode(null);
-          setView("home");
+          setTab("today");
+          setMoreView(null);
           setQuiz(null);
-          setStudyLecture(null); // a lecture from the old block must not survive the switch
+          setStudyLecture(null);
         }}
         onOpenPalette={() => setPaletteOpen(true)}
       />
@@ -261,9 +279,15 @@ function ShellMain({ theme, toggle, userId }) {
           onRoutine={() => setShowRoutine(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
+        {/* Tab bar — hidden while a full-screen overlay is active */}
+        {blocks.length > 0 && !sessionMode && !quiz?.questions?.length && !studyLecture && (
+          <TabBar active={tab} onChange={switchTab} />
+        )}
         <main className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
-            <div className="p-8 text-sm text-text-3">No terms found in your account yet. Import a term schedule (📅 Schedule) to get started.</div>
+            <div className="p-8 text-sm text-text-3">
+              No terms yet. Import a term schedule via ⋯ → Import schedule.
+            </div>
           ) : sessionMode && activeBlockId ? (
             sessionMode === "calibrate" ? (
               <CalibrationSession
@@ -283,8 +307,6 @@ function ShellMain({ theme, toggle, userId }) {
               />
             )
           ) : quiz?.questions?.length ? (
-            // Hoisted above the views: a quiz can be launched from Today or from
-            // the objectives tracker, and it takes over the pane either way.
             <div className="p-5">
               <button onClick={() => setQuiz(null)} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
                 ← back
@@ -320,47 +342,49 @@ function ShellMain({ theme, toggle, userId }) {
               logActivity={logActivity}
               onClose={() => setStudyLecture(null)}
             />
-          ) : view === "lectures" && activeBlockId ? (
+          ) : tab === "lectures" && activeBlockId ? (
             <LectureList
               blockId={activeBlockId}
               userId={userId}
               quizBusyLectureId={quiz?.loading ? quiz.lectureId : null}
               onStudyLecture={onStudyLecture}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
-              onBack={() => setView("home")}
+              onBack={() => switchTab("today")}
             />
-          ) : view === "deeplearn" && activeBlockId ? (
-            <DeepLearnContainer
-              blockId={activeBlockId}
-              userId={userId}
-              termColor={active?.termColor}
-              onBack={() => setView("home")}
-            />
-          ) : view === "weak" && activeBlockId ? (
-            <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setView("home")} />
-          ) : view === "objectives" && activeBlockId ? (
+          ) : tab === "objectives" && activeBlockId ? (
             <ObjectivesView
               blockId={activeBlockId}
               userId={userId}
               termColor={active?.termColor}
               T={legacyTheme}
               quiz={quiz}
-              onBack={() => { setView("home"); setQuiz(null); }}
+              onBack={() => { switchTab("today"); setQuiz(null); }}
               onCloseQuiz={() => setQuiz(null)}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onStudyLecture={onStudyLecture}
             />
+          ) : tab === "more" && activeBlockId ? (
+            moreView === "weak" ? (
+              <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setMoreView(null)} />
+            ) : moreView === "deeplearn" ? (
+              <DeepLearnContainer
+                blockId={activeBlockId}
+                userId={userId}
+                termColor={active?.termColor}
+                onBack={() => setMoreView(null)}
+              />
+            ) : (
+              <MoreTab
+                onContinue={onContinue}
+                onCalibrate={onCalibrate}
+                onWeak={() => setMoreView("weak")}
+                onDeepLearn={() => setMoreView("deeplearn")}
+              />
+            )
           ) : (
-            <BlockHome
-              blockId={activeBlockId}
-              userId={userId}
-              onContinue={onContinue}
-              onCalibrate={onCalibrate}
-              onObjectives={() => setView("objectives")}
-              onLectures={() => setView("lectures")}
-              onWeakConcepts={() => setView("weak")}
-              onDeepLearn={() => setView("deeplearn")}
-              today={
+            // Default: Today tab (also shown when tab === "today" or no block-specific tab)
+            <div className="flex flex-col gap-0">
+              <div className="p-5 pb-3">
                 <Today
                   blockId={activeBlockId}
                   userId={userId}
@@ -368,8 +392,13 @@ function ShellMain({ theme, toggle, userId }) {
                   onStudyLecture={onStudyLecture}
                   onStartObjectiveQuiz={onStartObjectiveQuiz}
                 />
-              }
-            />
+              </div>
+              <BlockHome
+                blockId={activeBlockId}
+                userId={userId}
+                statsOnly
+              />
+            </div>
           )}
         </main>
       </div>
@@ -377,7 +406,7 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setView("home"); setQuiz(null); setStudyLecture(null); }}
+        onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setTab("today"); setMoreView(null); setQuiz(null); setStudyLecture(null); }}
       />
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
       {showRecognize && (
@@ -415,9 +444,32 @@ function ShellMain({ theme, toggle, userId }) {
       <StudyRoutineModal
         open={showRoutine}
         onClose={() => setShowRoutine(false)}
-        onOpenWeakConcepts={() => { setShowRoutine(false); setView("weak"); }}
+        onOpenWeakConcepts={() => { setShowRoutine(false); setTab("more"); setMoreView("weak"); }}
       />
       <MissNoteToast />
+    </div>
+  );
+}
+
+function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
+  const items = [
+    { label: "▸ Continue learning", desc: "adaptive session — teaches, shows a case, then checks you", action: onContinue },
+    { label: "◎ Calibrate", desc: "rate confidence before each answer — surfaces sure-but-wrong gaps", action: onCalibrate },
+    { label: "🧬 Deep Learn", desc: "teach-then-test on one lecture with drills and rapid fire", action: onDeepLearn },
+    { label: "⚠ Weak concepts", desc: "what you keep missing, landmines first", action: onWeak },
+  ];
+  return (
+    <div className="flex flex-col gap-3 p-5">
+      {items.map((item) => (
+        <button
+          key={item.label}
+          onClick={item.action}
+          className="flex flex-col items-start rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left hover:border-accent/40 hover:bg-panel transition-colors"
+        >
+          <span className="text-sm text-text-1">{item.label}</span>
+          <span className="mt-0.5 font-mono text-[10px] text-text-3">{item.desc}</span>
+        </button>
+      ))}
     </div>
   );
 }

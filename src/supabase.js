@@ -44,10 +44,19 @@ const normalize = (u) => (u ? {
 export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider();
   try {
-    await signInWithPopup(auth, provider);            // primary (desktop-first)
+    await signInWithPopup(auth, provider);
   } catch (e) {
-    if (["auth/popup-blocked", "auth/popup-closed-by-user", "auth/cancelled-popup-request"].includes(e?.code)) {
-      await signInWithRedirect(auth, provider);        // fallback (mobile/blocked)
+    // Redirect fallback covers: popup blocked, third-party cookie restrictions
+    // (auth/web-storage-unavailable), and unsupported environments
+    const redirectCodes = [
+      "auth/popup-blocked",
+      "auth/popup-closed-by-user",
+      "auth/cancelled-popup-request",
+      "auth/web-storage-unavailable",
+      "auth/operation-not-supported-in-this-environment",
+    ];
+    if (redirectCodes.includes(e?.code)) {
+      await signInWithRedirect(auth, provider);
     } else throw e;
   }
 }

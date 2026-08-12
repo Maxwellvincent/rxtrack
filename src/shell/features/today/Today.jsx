@@ -1,208 +1,336 @@
-/**
- * SP1 T4.3 — Today, on the hooks and the pure schedulers.
- *
- * Every action here is the real path, not a stub: the quiz launches through the
- * same generator the objectives view uses, "Study" opens the lecture flow that
- * extracts and quizzes atoms, and logging writes to the completion store the
- * schedulers read back for urgency.
- */
-import { useCallback, useState } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
 import * as examDatesStore from "../../../stores/examDates.js";
 
-const CONFIDENCE = [
-  { key: "good", label: "Solid" },
-  { key: "okay", label: "OK" },
-  { key: "struggling", label: "Shaky" },
+// ─── Day mode ────────────────────────────────────────────────────────────────
+
+const DAY_MODES = [
+  { id: "lecture",  label: "Lecture day",  desc: "Pre-learn AM, lectures, review PM." },
+  { id: "review",   label: "Review",       desc: "No lectures. Qs + cumulative review." },
+  { id: "triage",   label: "Triage",       desc: "Recover. Less today, essentials only." },
 ];
 
-function TaskCard({ task, onQuiz, onStudy, onLog, busy }) {
-  const [logging, setLogging] = useState(null); // null | "anki" | "review"
-  const mode = task.studyMode;
-  const title = task.lec?.lectureTitle || task.lec?.fileName || task.lec?.filename || "Lecture";
+function dayModeKey(blockId) { return `rxt-day-mode-${blockId}`; }
+function readDayMode(blockId) { return localStorage.getItem(dayModeKey(blockId)) || null; }
+function writeDayMode(blockId, mode) { localStorage.setItem(dayModeKey(blockId), mode); }
 
+// ─── Checked state (session-scoped per block) ──────────────────────────────
+
+function checkedKey(blockId) { return `rxt-checked-${blockId}-${new Date().toDateString()}`; }
+function readChecked(blockId) {
+  try { return new Set(JSON.parse(sessionStorage.getItem(checkedKey(blockId)) || "[]")); }
+  catch { return new Set(); }
+}
+function writeChecked(blockId, set) {
+  sessionStorage.setItem(checkedKey(blockId), JSON.stringify([...set]));
+}
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const MODE_COLORS = { lecture: "#4ade80", review: "#fbbf24", triage: "#f87171" };
+
+function DayModePicker({ mode, onChange }) {
   return (
-    <div className="rounded-lg border border-border bg-bg-elevated p-3">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-text-1">
-            {mode?.icon ? `${mode.icon} ` : ""}{title}
-          </div>
-          <div className="mt-0.5 font-mono text-[10px] text-text-3">
-            {task.matchReason === "scheduled-day"
-              ? "on today's timetable"
-              : task.matchReason === "spaced-rep-due"
-                ? "spaced repetition due"
-                : task.matchReason === "urgency-fallback"
-                  ? "no date — picked by urgency"
-                  : "highest urgency"}
-            {" · "}urgency {Math.round(task.urgency)}
-            {task.total > 0 && ` · ${task.mastered}/${task.total} mastered`}
-            {task.struggling > 0 && ` · ${task.struggling} struggling`}
-          </div>
-        </div>
-        {/* Study is the main way in: rounds of five, resume, figures. Quiz is a one-off set of
-            questions that keeps no place — useful, but not what a lecture starts with, so it
-            must not be the button that looks like the action. */}
-        <div className="flex flex-wrap gap-1.5">
-          <Button
-            onClick={() => onStudy(task.lec.id)}
-            title="Work through this lecture in rounds of five. Remembers where you stopped."
-          >
-            Study →
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => onQuiz(task)}
-            disabled={busy === task.lec.id}
-            title="One-off questions across this lecture's objectives. No rounds, no resume."
-          >
-            {busy === task.lec.id ? "Generating…" : "Quiz"}
-          </Button>
-        </div>
+    <div className="grid grid-cols-3 gap-2">
+      {DAY_MODES.map((m) => (
+        <button
+          key={m.id}
+          onClick={() => onChange(m.id)}
+          className={[
+            "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors",
+            mode === m.id
+              ? "border-accent bg-panel text-text-1"
+              : "border-border bg-bg-elevated text-text-2 hover:border-accent/40",
+          ].join(" ")}
+        >
+          <span className="flex items-center gap-1.5 text-xs font-semibold">
+            {mode === m.id && (
+              <span
+                className="inline-block h-2 w-2 rounded-full flex-shrink-0"
+                style={{ background: MODE_COLORS[m.id] }}
+              />
+            )}
+            {m.label}
+          </span>
+          <span className="mt-0.5 font-mono text-[10px] text-text-3 leading-snug">{m.desc}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ProgressBar({ done, total }) {
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+  return (
+    <div>
+      <div className="flex justify-between font-mono text-[10px] text-text-3 mb-1">
+        <span>{done}/{total} done</span>
+        <span>{pct}%</span>
       </div>
-
-      {task.recommendedSessions?.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1">
-          {task.recommendedSessions.map((s, i) => (
-            <span key={i} title={s.reason} className="rounded border border-border px-1.5 py-0.5 font-mono text-[9px] text-text-3">
-              {s.label} · {s.duration}m
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {logging ? (
-          <>
-            <span className="font-mono text-[10px] text-text-3">how did the {logging} go?</span>
-            {CONFIDENCE.map((c) => (
-              <button
-                key={c.key}
-                onClick={() => { onLog(task.lec.id, logging, c.key); setLogging(null); }}
-                className="rounded border border-border px-2 py-0.5 text-[11px] text-text-2 hover:text-text-1"
-              >
-                {c.label}
-              </button>
-            ))}
-            <button onClick={() => setLogging(null)} className="font-mono text-[10px] text-text-3 hover:text-text-1">
-              cancel
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={() => setLogging("anki")} className="font-mono text-[10px] text-text-3 hover:text-text-1">
-              📇 log anki
-            </button>
-            <button onClick={() => setLogging("review")} className="font-mono text-[10px] text-text-3 hover:text-text-1">
-              ✓ log review
-            </button>
-          </>
-        )}
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-border">
+        <div
+          className="h-full rounded-full transition-all duration-300"
+          style={{
+            width: `${pct}%`,
+            background: pct === 100
+              ? "var(--color-good)"
+              : "linear-gradient(90deg, var(--color-accent), var(--color-accent-2, var(--color-accent)))",
+          }}
+        />
       </div>
     </div>
   );
 }
 
-export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, objectivesForTask } =
-    useToday(blockId, userId);
+function TaskRow({ task, checked, isNext, onCheck, onStudy, onQuiz, onLog, busy }) {
+  const [logging, setLogging] = useState(null);
+  const title = task.lec?.lectureTitle || task.lec?.fileName || task.lec?.filename || "Lecture";
 
-  // Two very different reasons to fall back, and saying the wrong one is worse
-  // than saying nothing: the block may have no dates at all, or simply have
-  // nothing scheduled for today.
-  const allUndated = (daily?.lecScores || []).length > 0 && daily.lecScores.every((ls) => ls.hasNoDate);
-  const [logged, setLogged] = useState(null);
+  return (
+    <div
+      className={[
+        "rounded-lg border px-4 py-3 transition-colors",
+        checked
+          ? "border-[var(--color-good,#4ade80)]/40 bg-[var(--color-good,#4ade80)]/5 opacity-70"
+          : isNext
+            ? "border-accent bg-panel shadow-sm"
+            : "border-border bg-bg-elevated hover:border-border-strong",
+      ].join(" ")}
+    >
+      <div className="flex items-start gap-3">
+        {/* Checkbox */}
+        <button
+          onClick={() => onCheck(task.lec.id)}
+          className={[
+            "mt-0.5 flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
+            checked
+              ? "border-[var(--color-good,#4ade80)] bg-[var(--color-good,#4ade80)] text-bg"
+              : "border-text-3 hover:border-accent",
+          ].join(" ")}
+          aria-label={checked ? "Mark incomplete" : "Mark complete"}
+        >
+          {checked && <span className="text-[11px] font-bold leading-none">✓</span>}
+        </button>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-w-0">
+              {isNext && !checked && (
+                <div className="mb-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
+                  Up next
+                </div>
+              )}
+              <div className={["text-[13.5px] font-semibold", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}>
+                {task.studyMode?.icon ? `${task.studyMode.icon} ` : ""}{title}
+              </div>
+              <div className="font-mono text-[10px] text-text-3">
+                {task.availableDate
+                  ? task.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  : task.lec.weekNumber
+                    ? `Wk ${task.lec.weekNumber}${task.lec.dayOfWeek ? ` · ${task.lec.dayOfWeek}` : ""}`
+                    : null}
+                {task.availableDate && " · "}
+                {task.matchReason === "scheduled-day"
+                  ? "on today's schedule"
+                  : task.matchReason === "spaced-rep-due"
+                    ? "spaced rep due"
+                    : "highest urgency"}
+                {task.total > 0 && ` · ${task.mastered}/${task.total} mastered`}
+              </div>
+            </div>
+            {!checked && (
+              <div className="flex gap-1.5">
+                <Button onClick={() => onStudy(task.lec.id)} title="Study rounds">Study →</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => onQuiz(task)}
+                  disabled={busy === task.lec.id}
+                >
+                  {busy === task.lec.id ? "…" : "Quiz"}
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {!checked && (
+            <div className="flex flex-wrap items-center gap-2">
+              {logging ? (
+                <>
+                  <span className="font-mono text-[10px] text-text-3">how did {logging} go?</span>
+                  {[{ key: "good", label: "Solid" }, { key: "okay", label: "OK" }, { key: "struggling", label: "Shaky" }].map((c) => (
+                    <button
+                      key={c.key}
+                      onClick={() => { onLog(task.lec.id, logging, c.key); setLogging(null); }}
+                      className="rounded border border-border px-2 py-0.5 text-[11px] text-text-2 hover:text-text-1"
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                  <button onClick={() => setLogging(null)} className="font-mono text-[10px] text-text-3 hover:text-text-1">✕</button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setLogging("anki")} className="font-mono text-[10px] text-text-3 hover:text-text-1">📇 log anki</button>
+                  <button onClick={() => setLogging("review")} className="font-mono text-[10px] text-text-3 hover:text-text-1">✓ log review</button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Exam date picker (shown when no date set) ────────────────────────────────
+
+function ExamDatePicker({ blockId, userId }) {
   const [dateInput, setDateInput] = useState("");
-  const [dateSaving, setDateSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const onLog = useCallback(
-    (lectureId, activityType, confidenceRating) => {
-      const entry = logActivity({ lectureId, activityType, confidenceRating });
-      setLogged(entry ? `Logged — next review ${entry.reviewDates?.[0] ?? "scheduled"}` : "Could not log that.");
-    },
-    [logActivity]
-  );
-
-  const onQuiz = useCallback(
-    (task) => {
-      const objectives = objectivesForTask(task.lec.id);
-      const title = task.lec?.lectureTitle || task.lec?.fileName || "Lecture";
-      onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id });
-    },
-    [objectivesForTask, onStartObjectiveQuiz, blockId]
-  );
-
-  const saveExamDate = useCallback(async () => {
+  const save = useCallback(async () => {
     if (!dateInput) return;
-    setDateSaving(true);
+    setSaving(true);
     try {
       const current = examDatesStore.read(userId) || {};
       await examDatesStore.write(userId, { ...current, [blockId]: dateInput });
     } finally {
-      setDateSaving(false);
+      setSaving(false);
     }
   }, [blockId, userId, dateInput]);
 
-  if (!examDate) {
-    return (
-      <div className="rounded-lg border border-border bg-bg-elevated p-3">
-        <div className="mb-2 text-xs font-semibold text-text-1">Set exam date</div>
-        <div className="mb-3 font-mono text-[10px] text-text-3">
-          Today plans backwards from the exam — set a date to see your schedule.
-        </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="date"
-            value={dateInput}
-            onChange={(e) => setDateInput(e.target.value)}
-            className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
-          />
-          <Button onClick={saveExamDate} disabled={!dateInput || dateSaving}>
-            {dateSaving ? "Saving…" : "Save"}
-          </Button>
-        </div>
+  return (
+    <div className="rounded-lg border border-border bg-bg-elevated p-4">
+      <div className="mb-1 text-sm font-semibold text-text-1">Set exam date</div>
+      <div className="mb-3 font-mono text-[10px] text-text-3">
+        Today plans backwards from the exam — set a date to see your schedule.
       </div>
-    );
+      <div className="flex items-center gap-2">
+        <input
+          type="date"
+          value={dateInput}
+          onChange={(e) => setDateInput(e.target.value)}
+          className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+        />
+        <Button onClick={save} disabled={!dateInput || saving}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Today component ─────────────────────────────────────────────────────
+
+export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
+  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, objectivesForTask } =
+    useToday(blockId, userId);
+
+  const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
+  const [checked, setChecked] = useState(() => readChecked(blockId));
+  const [logFeedback, setLogFeedback] = useState(null);
+
+  const handleDayMode = useCallback((m) => {
+    setDayMode(m);
+    writeDayMode(blockId, m);
+  }, [blockId]);
+
+  const handleCheck = useCallback((id) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      writeChecked(blockId, next);
+      return next;
+    });
+  }, [blockId]);
+
+  const onLog = useCallback((lectureId, activityType, confidenceRating) => {
+    const entry = logActivity({ lectureId, activityType, confidenceRating });
+    setLogFeedback(entry ? `Logged — next review ${entry.reviewDates?.[0] ?? "scheduled"}` : "Could not log.");
+    // Auto-check on log
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.add(lectureId);
+      writeChecked(blockId, next);
+      return next;
+    });
+    setTimeout(() => setLogFeedback(null), 4000);
+  }, [logActivity, blockId]);
+
+  const onStudy = useCallback((id) => {
+    onStudyLecture?.(id);
+    // Auto-check when study is launched
+    setChecked((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      writeChecked(blockId, next);
+      return next;
+    });
+  }, [onStudyLecture, blockId]);
+
+  const onQuiz = useCallback((task) => {
+    const objectives = objectivesForTask(task.lec.id);
+    const title = task.lec?.lectureTitle || task.lec?.fileName || "Lecture";
+    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id });
+  }, [objectivesForTask, onStartObjectiveQuiz, blockId]);
+
+  const doneCount = useMemo(() => todayTasks.filter((t) => checked.has(t.lec.id)).length, [todayTasks, checked]);
+  const firstUnchecked = useMemo(() => todayTasks.find((t) => !checked.has(t.lec.id))?.lec.id ?? null, [todayTasks, checked]);
+
+  const today = new Date();
+  const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+
+  if (!examDate) {
+    return <ExamDatePicker blockId={blockId} userId={userId} />;
   }
 
   return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between">
-        <h2 className="text-sm font-bold text-text-1">Today</h2>
-        <span className="font-mono text-[10px] text-text-3">
-          {daysLeft} days to exam · {study?.totalSessions ?? 0} sessions planned
-        </span>
+    <div className="flex flex-col gap-4">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-mono text-[11px] text-text-3">{dateStr}</div>
+          <h2 className="text-lg font-bold text-text-1">Daily Plan</h2>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <span className="rounded-full border border-border bg-panel px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-wide text-text-2">
+            {dayMode
+              ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[dayMode] }} />{DAY_MODES.find((m) => m.id === dayMode)?.label}</>
+              : "Pick a day type"
+            }
+          </span>
+          <span className="font-mono text-[10px] text-text-3">{daysLeft}d to exam</span>
+        </div>
       </div>
 
-      {logged && <div className="mb-2 font-mono text-[10px] text-good">{logged}</div>}
+      {/* Day mode picker */}
+      <DayModePicker mode={dayMode} onChange={handleDayMode} />
 
-      {todayReason === "urgency-fallback" && (
-        <div className="mb-2 font-mono text-[10px] text-text-3">
-          {allUndated ? (
-            <>
-              No lecture in this block has a date, so nothing can be placed on a calendar — showing the
-              highest-urgency lectures instead. Import the schedule, or add a block start date and week numbers.
-            </>
-          ) : nextDay ? (
-            <>
-              Nothing scheduled for today — next session {nextDay.dateStr}, in {nextDay.daysFromNow} days. Getting
-              ahead on the highest-urgency lectures:
-            </>
-          ) : (
-            <>Nothing scheduled for today — showing the highest-urgency lectures instead.</>
-          )}
+      {/* Progress */}
+      {todayTasks.length > 0 && (
+        <ProgressBar done={doneCount} total={todayTasks.length} />
+      )}
+
+      {logFeedback && (
+        <div className="font-mono text-[10px] text-good">{logFeedback}</div>
+      )}
+
+      {/* Urgency fallback notice */}
+      {todayReason === "urgency-fallback" && nextDay && (
+        <div className="font-mono text-[10px] text-text-3">
+          Nothing scheduled today — next session {nextDay.dateStr} ({nextDay.daysFromNow}d). Showing highest-urgency:
         </div>
       )}
 
+      {/* Task list */}
       {todayTasks.length === 0 ? (
         nextDay ? (
-          <div className="rounded-lg border border-border p-3 text-xs text-text-3">
-            Nothing due today. This block starts on{" "}
-            <span className="text-text-1">{nextDay.dateStr}</span> — in {nextDay.daysFromNow} days, with{" "}
-            {nextDay.tasks.length} lecture{nextDay.tasks.length === 1 ? "" : "s"} that day:
-            <div className="mt-1.5 flex flex-col gap-0.5">
+          <div className="rounded-lg border border-border p-4 text-xs text-text-3">
+            Nothing due today. Block starts{" "}
+            <span className="text-text-1">{nextDay.dateStr}</span> — {nextDay.daysFromNow} days away,{" "}
+            {nextDay.tasks.length} lecture{nextDay.tasks.length === 1 ? "" : "s"}.
+            <div className="mt-2 flex flex-col gap-0.5">
               {nextDay.tasks.slice(0, 4).map((t) => (
                 <span key={t.lec.id} className="font-mono text-[10px]">
                   {t.studyMode?.icon} {t.lec.lectureTitle || t.lec.fileName || t.lec.filename}
@@ -211,23 +339,36 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
             </div>
           </div>
         ) : (
-          <div className="rounded-lg border border-border p-3 text-xs text-text-3">
-            Nothing to do in this block yet — every lecture is either mastered or not yet available.
+          <div className="rounded-lg border border-border p-4 text-xs text-text-3">
+            Nothing to do — every lecture is mastered or not yet available.
           </div>
         )
       ) : (
         <div className="flex flex-col gap-2">
           {todayTasks.map((task) => (
-            <TaskCard
+            <TaskRow
               key={task.lec.id}
               task={task}
-              busy={quizBusyLectureId}
+              checked={checked.has(task.lec.id)}
+              isNext={task.lec.id === firstUnchecked}
+              onCheck={handleCheck}
+              onStudy={onStudy}
               onQuiz={onQuiz}
-              onStudy={onStudyLecture}
               onLog={onLog}
+              busy={quizBusyLectureId}
             />
           ))}
         </div>
+      )}
+
+      {/* Reset */}
+      {doneCount > 0 && (
+        <button
+          onClick={() => { setChecked(new Set()); writeChecked(blockId, new Set()); }}
+          className="self-start font-mono text-[10px] text-text-3 hover:text-text-1"
+        >
+          Reset checks
+        </button>
       )}
     </div>
   );

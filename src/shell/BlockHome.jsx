@@ -7,7 +7,7 @@ import { readCalibration } from "../engine/calibrationStore.js";
 import { summarize } from "../engine/calibration.js";
 import { useMemo } from "react";
 
-export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, onDeepLearn, today = null }) {
+export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, onDeepLearn, today = null, statsOnly = false }) {
   // Via the stores, not a one-shot localStorage read: the terms arrive from
   // Firestore after the first paint, so a memo over localStorage resolved to no
   // block and never re-ran — the pane sat on "Select a block" while the sidebar,
@@ -29,62 +29,64 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
   const cov = blockCoverage(objectives.data, block.id);
 
   return (
-    <div className="p-5">
-      <h1 className="text-xl font-bold text-text-1">{block.name}</h1>
-      <div className="mt-1 font-mono text-[11px] text-text-3">
-        {block.lectureCount} lectures{cov != null ? ` · ${cov}% covered` : ""}
-      </div>
-
-      {today && <div className="my-4 border-y border-border py-4">{today}</div>}
-
-      <div className="my-4 flex flex-col gap-3">
-        <div>
-          <Button onClick={onContinue}>▸ Continue learning</Button>
-          <div className="mt-1.5 font-mono text-[10px] text-text-3">
-            adaptive session — teaches, shows a case, then checks you
+    <div className={statsOnly ? "px-5 pb-4" : "p-5"}>
+      {!statsOnly && (
+        <>
+          <h1 className="text-xl font-bold text-text-1">{block.name}</h1>
+          <div className="mt-1 font-mono text-[11px] text-text-3">
+            {block.lectureCount} lectures{cov != null ? ` · ${cov}% covered` : ""}
           </div>
-        </div>
-        {onCalibrate && (
-          <div>
-            <Button variant="outline" onClick={onCalibrate}>◎ Calibrate</Button>
-            <div className="mt-1.5 font-mono text-[10px] text-text-3">
-              rate your confidence before each answer — surfaces sure-but-wrong gaps
+          {today && <div className="my-4 border-y border-border py-4">{today}</div>}
+          <div className="my-4 flex flex-col gap-3">
+            <div>
+              <Button onClick={onContinue}>▸ Continue learning</Button>
+              <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                adaptive session — teaches, shows a case, then checks you
+              </div>
             </div>
+            {onCalibrate && (
+              <div>
+                <Button variant="outline" onClick={onCalibrate}>◎ Calibrate</Button>
+                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                  rate your confidence before each answer — surfaces sure-but-wrong gaps
+                </div>
+              </div>
+            )}
+            {onObjectives && (
+              <div>
+                <Button variant="outline" onClick={onObjectives}>◇ Objectives</Button>
+                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                  per-lecture coverage, linking, and objective-targeted quizzes
+                </div>
+              </div>
+            )}
+            {onLectures && (
+              <div>
+                <Button variant="outline" onClick={onLectures}>▤ Lectures</Button>
+                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                  every lecture in the block — filter, search, quick-log a session
+                </div>
+              </div>
+            )}
+            {onWeakConcepts && (
+              <div>
+                <Button variant="outline" onClick={onWeakConcepts}>⚠ Weak concepts</Button>
+                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                  what you keep missing, landmines first
+                </div>
+              </div>
+            )}
+            {onDeepLearn && (
+              <div>
+                <Button variant="outline" onClick={onDeepLearn}>🧬 Deep Learn</Button>
+                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                  teach-then-test on one lecture, with drills and rapid fire
+                </div>
+              </div>
+            )}
           </div>
-        )}
-        {onObjectives && (
-          <div>
-            <Button variant="outline" onClick={onObjectives}>◇ Objectives</Button>
-            <div className="mt-1.5 font-mono text-[10px] text-text-3">
-              per-lecture coverage, linking, and objective-targeted quizzes
-            </div>
-          </div>
-        )}
-        {onLectures && (
-          <div>
-            <Button variant="outline" onClick={onLectures}>▤ Lectures</Button>
-            <div className="mt-1.5 font-mono text-[10px] text-text-3">
-              every lecture in the block — filter, search, quick-log a session
-            </div>
-          </div>
-        )}
-        {onWeakConcepts && (
-          <div>
-            <Button variant="outline" onClick={onWeakConcepts}>⚠ Weak concepts</Button>
-            <div className="mt-1.5 font-mono text-[10px] text-text-3">
-              what you keep missing, landmines first
-            </div>
-          </div>
-        )}
-        {onDeepLearn && (
-          <div>
-            <Button variant="outline" onClick={onDeepLearn}>🧬 Deep Learn</Button>
-            <div className="mt-1.5 font-mono text-[10px] text-text-3">
-              teach-then-test on one lecture, with drills and rapid fire
-            </div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       <div className="mt-2">
         {cov == null && <div className="text-xs text-text-3">No coverage data yet for this block.</div>}
