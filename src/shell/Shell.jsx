@@ -21,6 +21,7 @@ import { RecognitionContainer } from "./features/recognition/RecognitionContaine
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
+import { ImportObjectivesPdfModal } from "./features/objectives/ImportObjectivesPdfModal.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
@@ -141,6 +142,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
+  const [showImportObjectives, setShowImportObjectives] = useState(false);
   const [tab, setTab] = useState("today"); // today | lectures | objectives | more
   const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
   // Objective quiz: { lectureId, loading, error, questions, title }
@@ -365,6 +367,7 @@ function ShellMain({ theme, toggle, userId }) {
               onCloseQuiz={() => setQuiz(null)}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onStudyLecture={onStudyLecture}
+              onImportObjectives={() => setShowImportObjectives(true)}
             />
           ) : tab === "more" && activeBlockId ? (
             moreView === "weak" ? (
@@ -411,6 +414,16 @@ function ShellMain({ theme, toggle, userId }) {
         items={paletteItems}
         onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setTab("today"); setMoreView(null); setQuiz(null); setStudyLecture(null); }}
       />
+      {showImportObjectives && activeBlockId && (
+        <ImportObjectivesPdfModal
+          blockId={activeBlockId}
+          userId={userId}
+          onClose={() => setShowImportObjectives(false)}
+          onImported={(count) => {
+            setShowImportObjectives(false);
+          }}
+        />
+      )}
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
       {showRecognize && (
         <RecognitionContainer
@@ -482,7 +495,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
  * (ShellMain) so it behaves the same whether it was launched from here or from
  * Today.
  */
-function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartObjectiveQuiz, onStudyLecture }) {
+function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives }) {
   return (
     <div className="p-2">
       <ObjectivesContainer
@@ -495,9 +508,14 @@ function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartOb
         onStartObjectiveQuiz={onStartObjectiveQuiz}
         onStudyLecture={onStudyLecture}
         headerActions={
-          <button onClick={onBack} className="font-mono text-xs text-text-3 hover:text-text-1">
-            ← block
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={onBack} className="font-mono text-xs text-text-3 hover:text-text-1">
+              ← block
+            </button>
+            <button onClick={onImportObjectives} className="font-mono text-xs text-accent hover:text-accent-text">
+              + Import objectives PDF
+            </button>
+          </div>
         }
       />
       {quiz?.error && (

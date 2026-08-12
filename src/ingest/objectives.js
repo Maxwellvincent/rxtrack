@@ -855,6 +855,91 @@ export async function extractObjectivesFromLecture(rawText, lec, blockId) {
   return primaryFiltered;
 }
 
+/**
+ * Extract learning objectives from a standalone objectives document (not lecture slides).
+ * The document lists objectives grouped by lecture / DLA / TBL / lab.
+ * Auto-matches each objective to a lecture in blockLectures by lecture number or title keywords.
+ */
+export async function extractObjectivesFromStandaloneDoc(text, blockLectures, blockId) {
+  const systemPrompt =
+    "You extract learning objectives from medical school curriculum documents. Return ONLY valid JSON — no markdown, no prose.";
+
+  const userPrompt = `You are reading a standalone objectives document (not lecture slides). It lists objectives grouped by lecture, DLA, TBL, or lab.
+
+Extract EVERY learning objective. For each, identify:
+- "objective": the full objective text (start with action verb, strip numbering)
+- "lectureHint": the section header this objective falls under (e.g. "Lecture 3", "DLA 2", "Histology Lab", "Week 1 TBL")
+- "lectureNumber": a number if identifiable from the hint (null if not)
+- "activity": one of LEC/DLA/TBL/SG/LAB (infer from hint or text; default LEC)
+- "code": SOM code if present (e.g. "SOM.1.BMP.1"), else null
+- "bloom_level": 1-6 based on verb (1=recall/identify, 2=describe/explain, 3=apply/demonstrate, 4=analyze/compare, 5=evaluate/critique, 6=design/synthesize)
+
+Return ONLY valid JSON:
+{"objectives":[{"objective":"Describe...","lectureHint":"Lecture 3","lectureNumber":3,"activity":"LEC","code":null,"bloom_level":2}]}
+
+DOCUMENT:
+${text.slice(0, 14000)}`;
+
+  const fallback = { objectives: [] };
+  const result = await callAIJSON(systemPrompt, userPrompt, fallback, 6000);
+  const rows = Array.isArray(result) ? result : Array.isArray(result?.objectives) ? result.objectives : [];
+
+  const out = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const objective = (row.objective || "").trim();
+    if (!objective || objective.length < 10) continue;
+
+    const lectureNumber = row.lectureNumber != null ? parseInt(row.lectureNumber, 10) : null;
+    const lectureHint = (row.lectureHint || "").trim();
+
+    let matchedLecId = "imported";
+    let matchedLecNumber = null;
+
+    // 1. Exact lecture number match
+    if (lectureNumber != null && !isNaN(lectureNumber)) {
+      const exact = (blockLectures || []).find(
+        (lec) => parseInt(lec.lectureNumber, 10) === lectureNumber
+      );
+      if (exact) {
+        matchedLecId = exact.id;
+        matchedLecNumber = exact.lectureNumber;
+      }
+    }
+
+    // 2. Keyword match against lecture titles
+    if (matchedLecId === "imported" && lectureHint) {
+      const tokens = lectureHint.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((t) => t.length > 2);
+      let bestScore = 0;
+      let bestLec = null;
+      for (const lec of (blockLectures || [])) {
+        const title = (lec.lectureTitle || "").toLowerCase();
+        const score = tokens.filter((t) => title.includes(t)).length;
+        if (score > bestScore) { bestScore = score; bestLec = lec; }
+      }
+      if (bestLec && bestScore > 0) {
+        matchedLecId = bestLec.id;
+        matchedLecNumber = bestLec.lectureNumber;
+      }
+    }
+
+    const fakeMinimalLec = {
+      id: matchedLecId,
+      lectureType: row.activity || "LEC",
+      lectureNumber: matchedLecNumber,
+    };
+
+    const entry = {
+      ...buildObjEntry(row.code || "", objective, fakeMinimalLec, blockId),
+      bloom_level: row.bloom_level ?? undefined,
+      extractionMethod: "standalone-doc",
+    };
+    out.push(entry);
+  }
+
+  return out;
+}
+
 /** Primary + AI extraction only; inline SOM fallback is applied in extractObjectivesFromLecture after this returns. */
 async function _extractObjectivesFromLectureCore(rawText, lec, blockId, fullText) {
   const bid = blockId ?? lec?.blockId;
