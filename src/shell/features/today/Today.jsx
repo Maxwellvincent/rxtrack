@@ -9,6 +9,7 @@
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
+import * as examDatesStore from "../../../stores/examDates.js";
 
 const CONFIDENCE = [
   { key: "good", label: "Solid" },
@@ -113,6 +114,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   // nothing scheduled for today.
   const allUndated = (daily?.lecScores || []).length > 0 && daily.lecScores.every((ls) => ls.hasNoDate);
   const [logged, setLogged] = useState(null);
+  const [dateInput, setDateInput] = useState("");
+  const [dateSaving, setDateSaving] = useState(false);
 
   const onLog = useCallback(
     (lectureId, activityType, confidenceRating) => {
@@ -131,10 +134,35 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     [objectivesForTask, onStartObjectiveQuiz, blockId]
   );
 
+  const saveExamDate = useCallback(async () => {
+    if (!dateInput) return;
+    setDateSaving(true);
+    try {
+      const current = examDatesStore.read(userId) || {};
+      await examDatesStore.write(userId, { ...current, [blockId]: dateInput });
+    } finally {
+      setDateSaving(false);
+    }
+  }, [blockId, userId, dateInput]);
+
   if (!examDate) {
     return (
-      <div className="text-xs text-text-3">
-        No exam date on this block yet — Today plans backwards from the exam, so set one to see a schedule.
+      <div className="rounded-lg border border-border bg-bg-elevated p-3">
+        <div className="mb-2 text-xs font-semibold text-text-1">Set exam date</div>
+        <div className="mb-3 font-mono text-[10px] text-text-3">
+          Today plans backwards from the exam — set a date to see your schedule.
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={dateInput}
+            onChange={(e) => setDateInput(e.target.value)}
+            className="rounded border border-border bg-bg px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+          />
+          <Button onClick={saveExamDate} disabled={!dateInput || dateSaving}>
+            {dateSaving ? "Saving…" : "Save"}
+          </Button>
+        </div>
       </div>
     );
   }

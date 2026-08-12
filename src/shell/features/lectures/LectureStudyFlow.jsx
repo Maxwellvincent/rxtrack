@@ -62,7 +62,7 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
-export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
+export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClose }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
@@ -341,6 +341,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, onClose }) {
           onDone={() => {
             saveRoundProgress(userId, lecture?.id, round + 1);
             setDone((prev) => Math.max(prev, round + 1));
+            logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
         />
         <div className="mt-4 flex items-center gap-3">

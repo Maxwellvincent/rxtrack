@@ -16,3 +16,34 @@
  * making — but do not build anything new on it.
  */
 export const CALIBRATION_BUCKETS = [50, 70, 90];
+
+/**
+ * Reads rxt-calibration-log and returns per-bucket accuracy stats.
+ * Each entry in the log is expected to be { confidence: 50|70|90, correct: boolean, date?: string }.
+ * Returns { [bucket]: { n, accuracy, gap } } — gap = accuracy - bucket (negative = overconfident).
+ */
+export function getCalibrationStats({ sinceISO } = {}) {
+  try {
+    const raw = localStorage.getItem("rxt-calibration-log");
+    if (!raw) return {};
+    const log = JSON.parse(raw);
+    if (!Array.isArray(log)) return {};
+    const filtered = sinceISO ? log.filter((e) => e?.date && e.date >= sinceISO) : log;
+    const buckets = {};
+    for (const entry of filtered) {
+      const conf = entry?.confidence;
+      if (!CALIBRATION_BUCKETS.includes(conf)) continue;
+      if (!buckets[conf]) buckets[conf] = { n: 0, correct: 0 };
+      buckets[conf].n++;
+      if (entry.correct) buckets[conf].correct++;
+    }
+    const stats = {};
+    for (const [b, { n, correct }] of Object.entries(buckets)) {
+      const accuracy = n > 0 ? Math.round((correct / n) * 100) : null;
+      stats[Number(b)] = { n, accuracy, gap: accuracy != null ? accuracy - Number(b) : null };
+    }
+    return stats;
+  } catch {
+    return {};
+  }
+}

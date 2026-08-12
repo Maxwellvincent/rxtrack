@@ -25,12 +25,14 @@ import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
 import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
 import { Today } from "./features/today/Today.jsx";
+import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
 import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
+import { useToday } from "./features/today/useToday.js";
 import { themes } from "../theme.js";
 
 /**
@@ -119,12 +121,14 @@ function ShellMain({ theme, toggle, userId }) {
   const [showAddLecture, setShowAddLecture] = useState(false);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
+  const [showRoutine, setShowRoutine] = useState(false);
   const [view, setView] = useState("home"); // home | objectives
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
   const [studyLecture, setStudyLecture] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
+  const { logActivity } = useToday(activeBlockId, userId);
 
   // The block on screen is the one App must still find in localStorage: the
   // objectives store keeps only recently-worked blocks mirrored there.
@@ -214,6 +218,7 @@ function ShellMain({ theme, toggle, userId }) {
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
           onQuestionBanks={() => setShowQuestionBanks(true)}
+          onRoutine={() => setShowRoutine(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         <main className="flex-1 overflow-y-auto">
@@ -252,6 +257,7 @@ function ShellMain({ theme, toggle, userId }) {
               lecture={studyLecture}
               blockId={activeBlockId}
               userId={userId}
+              logActivity={logActivity}
               onClose={() => setStudyLecture(null)}
             />
           ) : view === "lectures" && activeBlockId ? (
@@ -346,6 +352,12 @@ function ShellMain({ theme, toggle, userId }) {
           onClose={() => setShowQuestionBanks(false)}
         />
       )}
+      <StudyRoutineModal
+        open={showRoutine}
+        onClose={() => setShowRoutine(false)}
+        onOpenWeakConcepts={() => { setShowRoutine(false); setView("weak"); }}
+      />
+      <MissNoteToast />
     </div>
   );
 }

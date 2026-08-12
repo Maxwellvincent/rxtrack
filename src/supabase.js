@@ -475,6 +475,9 @@ function mergeKvValue(cloud, local) {
 const KV_KEYS = [
   "rxt-exam-results",
   "rxt-exam-dates",
+  "rxt-study-routine",
+  "rxt-miss-notes",
+  "rxt-weak-drills",
   "rxt-learning-profile",
   "rxt-sessions",
   "rxt-analyses",
