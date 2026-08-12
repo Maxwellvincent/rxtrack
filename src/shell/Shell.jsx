@@ -34,6 +34,11 @@ import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { useToday } from "./features/today/useToday.js";
 import { themes } from "../theme.js";
+import * as objectivesStore from "../stores/blockObjectives.js";
+import * as lectureRoundsStore from "../stores/lectureRounds.js";
+import { selectBlockObjectives, setStatus } from "./logic/objectives.js";
+import { useLectures } from "./hooks/useLectures.js";
+import { useObjectives } from "./hooks/useObjectives.js";
 
 /**
  * Auth (Firebase) + cloud-load gate. localStorage is per-origin, so the shell
@@ -129,6 +134,8 @@ function ShellMain({ theme, toggle, userId }) {
   const [studyLecture, setStudyLecture] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
   const { logActivity } = useToday(activeBlockId, userId);
+  const allLectures = useLectures(null, userId);
+  const allObjectives = useObjectives(null, userId);
 
   // The block on screen is the one App must still find in localStorage: the
   // objectives store keeps only recently-worked blocks mirrored there.
@@ -139,6 +146,39 @@ function ShellMain({ theme, toggle, userId }) {
 
   // Store hooks read this when no explicit userId is passed.
   useEffect(() => { setStoreHookUserId(userId ?? null); }, [userId]);
+
+  // One-time backfill: any lecture with round progress > 0 should have its
+  // untested objectives promoted to "developing". Runs once per session when
+  // both data sets are loaded.
+  useEffect(() => {
+    if (!userId) return;
+    if (!allLectures.data?.length || !allObjectives.data) return;
+    const sessionKey = `rxt-backfill-done-${userId}`;
+    if (sessionStorage.getItem(sessionKey)) return;
+    sessionStorage.setItem(sessionKey, "1");
+    try {
+      const rounds = lectureRoundsStore.read(userId) || {};
+      const studiedIds = Object.entries(rounds)
+        .filter(([, v]) => Number.isInteger(v?.round) && v.round > 0)
+        .map(([id]) => id);
+      if (!studiedIds.length) return;
+      let store = allObjectives.data;
+      let changed = false;
+      for (const lecId of studiedIds) {
+        const lec = allLectures.data.find((l) => l.id === lecId);
+        if (!lec) continue;
+        const blockId = lec.blockId;
+        if (!blockId) continue;
+        const blockObjs = selectBlockObjectives(store, blockId);
+        const lecObjs = blockObjs.filter((o) => o?.linkedLecId === lecId && o.status === "untested");
+        for (const obj of lecObjs) {
+          store = setStatus(store, obj.id, "developing", new Date());
+          changed = true;
+        }
+      }
+      if (changed) objectivesStore.write(userId, store);
+    } catch { /* non-critical */ }
+  }, [userId, allLectures.data, allObjectives.data]);
 
   useEffect(() => {
     const onKey = (e) => {
@@ -249,7 +289,27 @@ function ShellMain({ theme, toggle, userId }) {
               <button onClick={() => setQuiz(null)} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
                 ← back
               </button>
-              <AtomQuiz questions={quiz.questions} blockId={activeBlockId} userId={userId} />
+              <AtomQuiz
+                questions={quiz.questions}
+                blockId={activeBlockId}
+                userId={userId}
+                onDone={() => {
+                  if (!quiz.lectureId) return;
+                  try {
+                    const store = objectivesStore.read(userId) || {};
+                    const blockObjs = selectBlockObjectives(store, activeBlockId);
+                    const lecObjs = blockObjs.filter(
+                      (o) => o?.linkedLecId === quiz.lectureId && o.status === "untested"
+                    );
+                    if (!lecObjs.length) return;
+                    let updated = store;
+                    for (const obj of lecObjs) {
+                      updated = setStatus(updated, obj.id, "developing", new Date());
+                    }
+                    objectivesStore.write(userId, updated);
+                  } catch { /* non-critical */ }
+                }}
+              />
             </div>
           ) : studyLecture ? (
             <LectureStudyFlow

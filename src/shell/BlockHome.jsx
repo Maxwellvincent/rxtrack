@@ -3,6 +3,9 @@ import { useBlocks } from "./hooks/useBlocks.js";
 import { useObjectives } from "./hooks/useObjectives.js";
 import { Button } from "../ui/Button.jsx";
 import { StatusGlyph } from "../ui/Badge.jsx";
+import { readCalibration } from "../engine/calibrationStore.js";
+import { summarize } from "../engine/calibration.js";
+import { useMemo } from "react";
 
 export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onObjectives, onLectures, onWeakConcepts, onDeepLearn, today = null }) {
   // Via the stores, not a one-shot localStorage read: the terms arrive from
@@ -12,6 +15,13 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
   const blocks = useBlocks(userId);
   const objectives = useObjectives(null, userId);
   const block = blocks.find((b) => b.id === blockId) || null;
+
+  const calibStats = useMemo(() => {
+    if (!blockId || !userId) return null;
+    const records = readCalibration(userId, blockId);
+    if (!records?.length) return null;
+    return summarize(records);
+  }, [blockId, userId]);
 
   if (!block) {
     return <div className="p-6 text-text-3">Select a block to begin.</div>;
@@ -90,6 +100,47 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
           </div>
         )}
       </div>
+
+      {calibStats && <CalibrationCard stats={calibStats} />}
+    </div>
+  );
+}
+
+const CONF_LABELS = ["", "Guess", "Unsure", "Leaning", "Confident", "Certain"];
+
+function CalibrationCard({ stats }) {
+  const { curve, landmines } = stats;
+  const total = curve.reduce((s, r) => s + r.count, 0);
+  if (!total) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-border bg-bg-elevated p-3">
+      <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-text-3">
+        Calibration · {total} answers
+      </div>
+      <div className="flex flex-col gap-1">
+        {[...curve].reverse().map((r) => r.count > 0 && (
+          <div key={r.level} className="flex items-center gap-2 text-[11px]">
+            <span className="w-16 text-text-2">{CONF_LABELS[r.level]}</span>
+            <div className="h-1.5 flex-1 overflow-hidden rounded bg-panel">
+              <div
+                className="h-full"
+                style={{
+                  width: r.accuracy == null ? 0 : r.accuracy * 100 + "%",
+                  background: r.accuracy >= 0.8 ? "var(--color-good)" : r.accuracy >= 0.5 ? "var(--color-accent)" : "var(--color-bad)",
+                }}
+              />
+            </div>
+            <span className="w-12 text-right font-mono text-text-3">
+              {r.accuracy == null ? "—" : Math.round(r.accuracy * 100) + "%"}
+            </span>
+          </div>
+        ))}
+      </div>
+      {landmines.length > 0 && (
+        <div className="mt-2 font-mono text-[10px] text-bad">
+          ⚠ {landmines.length} landmine{landmines.length > 1 ? "s" : ""} — sure but wrong
+        </div>
+      )}
     </div>
   );
 }
