@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 export function Header({
   termName, blockName, theme, onToggleTheme,
   onAnki, onRecognize, onImportSchedule, onAddLecture, onBulkImport,
-  onQuestionBanks, onRoutine, onSignOut,
+  onQuestionBanks, onRoutine, onSignOut, onExamDate,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -18,7 +18,8 @@ export function Header({
   }, [menuOpen]);
 
   const adminItems = [
-    onImportSchedule && { label: "📅 Import schedule", action: onImportSchedule },
+    onExamDate       && { label: "📆 Exam date",        action: onExamDate },
+    onImportSchedule && { label: "📅 Import schedule",  action: onImportSchedule },
     onAddLecture     && { label: "＋ Add lecture",      action: onAddLecture },
     onBulkImport     && { label: "⇉ Import folder",    action: onBulkImport },
     onQuestionBanks  && { label: "🗂 Question banks",  action: onQuestionBanks },

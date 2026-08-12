@@ -34,6 +34,40 @@ Get-ChildItem Week1 -Filter *.pdf | ForEach-Object { pdf2md $_.FullName }
 marker preserves **bold**, tables, and headings — exactly what objective/key-term
 extraction wants. Convert overnight; it is the only slow step.
 
+#### Flags that decide how long it takes
+
+```
+pdf2md [--ocr] [--llm claude|ollama|none] [--mode balanced|fast] <file>
+```
+
+- **`--ocr`** forces full-page OCR. Leave it off for slide decks and anything
+  exported from PowerPoint or Word — those carry a text layer, and marker only
+  block-OCRs the garbled parts. Turn it on for scanned or photographed handouts.
+- **`--llm`** picks the cleanup pass that repairs tables and section headers.
+  Default is `claude` when `ANTHROPIC_API_KEY` is set, else `ollama` when a
+  server answers, else `none`.
+
+Rough wall time for one ~12-page PDF on an M-series Mac, models already cached:
+
+| `--llm` | Time | When to use |
+| --- | --- | --- |
+| `none` | ~30s | Clean digital slides. Batch a whole block this way. |
+| `ollama` | ~9 min | Offline, or the deck is table-heavy and you cannot spend API credit. |
+| `claude` | in between | Table-heavy decks when the key is set. |
+
+Local cleanup is roughly 18x slower than skipping it, so do not reach for
+`--llm ollama` on a whole term's worth of files. Convert the folder with
+`--llm none`, skim, and re-run only the decks whose tables came out mangled.
+
+Secrets and overrides live in `~/.config/pdf2md/env` (chmod 600):
+`ANTHROPIC_API_KEY`, `PDF2MD_LLM`, `PDF2MD_CLAUDE_MODEL`, `PDF2MD_OLLAMA_MODEL`.
+
+The Ollama backend runs through a local subclass in
+`~/.config/pdf2md/pdf2md_services.py`, which works around two upstream marker
+bugs: the stock service drops `$defs` from nested response schemas, and it
+encodes page images as WEBP, which Ollama's image loader cannot decode. Both are
+fixed there rather than in the venv, so a marker upgrade will not undo them.
+
 ### 2. Name the files so the app reads the lecture number
 
 `detectLectureNumber()` reads the filename. Keep the OCR tool's name or rename to:

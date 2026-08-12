@@ -30,6 +30,7 @@ import { Today } from "./features/today/Today.jsx";
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
+import { ExamDateModal } from "./ExamDateModal.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
 import { callAIJSON } from "../aiClient.js";
@@ -143,6 +144,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
   const [showImportObjectives, setShowImportObjectives] = useState(false);
+  const [showExamDate, setShowExamDate] = useState(false);
   const [tab, setTab] = useState("today"); // today | lectures | objectives | more
   const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
   // Objective quiz: { lectureId, loading, error, questions, title }
@@ -274,6 +276,7 @@ function ShellMain({ theme, toggle, userId }) {
           onToggleTheme={toggle}
           onAnki={() => setShowAnki(true)}
           onRecognize={() => setShowRecognize(true)}
+          onExamDate={activeBlockId ? () => setShowExamDate(true) : null}
           onImportSchedule={() => setShowImport(true)}
           onAddLecture={activeBlockId ? () => setShowAddLecture(true) : null}
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
@@ -422,6 +425,14 @@ function ShellMain({ theme, toggle, userId }) {
           onImported={(count) => {
             setShowImportObjectives(false);
           }}
+        />
+      )}
+      {showExamDate && activeBlockId && (
+        <ExamDateModal
+          blockId={activeBlockId}
+          blockName={active?.name}
+          userId={userId}
+          onClose={() => setShowExamDate(false)}
         />
       )}
       {showAnki && <AnkiSyncModal T={legacyTheme} onClose={() => setShowAnki(false)} />}
