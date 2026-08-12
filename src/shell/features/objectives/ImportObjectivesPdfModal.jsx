@@ -31,8 +31,8 @@ function makeObjectiveCommands(userId) {
 }
 
 export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported }) {
-  const [blockLectures] = useLectures(blockId, userId);
-  const [existingObjectivesEntry] = useObjectives(blockId, userId);
+  const { data: blockLectures } = useLectures(blockId, userId);
+  const { data: existingObjectivesEntry } = useObjectives(blockId, userId);
 
   const [step, setStep] = useState("idle"); // idle | processing | preview
   const [progress, setProgress] = useState("");

@@ -112,6 +112,8 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     nextReview: entry?.reviewDates?.[0] ?? null,
     ankiInRotation: !!entry?.ankiInRotation,
     availableDate: score.availableDate ?? null,
+    weekNumber: lecture.weekNumber ?? null,
+    dayOfWeek: lecture.dayOfWeek ?? null,
     isFuture: !!score.isFuture,
     hasNoDate: !!score.hasNoDate,
     recommendedSessions: score.recommendedSessions || [],

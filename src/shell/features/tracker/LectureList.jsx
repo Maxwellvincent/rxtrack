@@ -30,12 +30,17 @@ function Row({ row, onStudy, onQuiz, onLog, busy }) {
           </span>{" "}
           <span className="text-sm text-text-1">{row.studyMode?.icon} {row.title}</span>
           <div className="mt-0.5 font-mono text-[10px] text-text-3">
+            {row.availableDate
+              ? row.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+              : row.weekNumber
+                ? `Wk ${row.weekNumber}${row.dayOfWeek ? ` · ${row.dayOfWeek}` : ""}`
+                : null}
+            {(row.availableDate || row.weekNumber) && " · "}
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
             {row.struggling > 0 && ` · ${row.struggling} struggling`}
             {row.sessions > 0 ? ` · ${row.sessions} session${row.sessions > 1 ? "s" : ""}` : " · never studied"}
             {row.lastActivityDate && ` · last ${row.lastActivityDate}`}
             {row.nextReview && ` · review ${row.nextReview}`}
-            {` · urgency ${Math.round(row.urgency)}`}
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
