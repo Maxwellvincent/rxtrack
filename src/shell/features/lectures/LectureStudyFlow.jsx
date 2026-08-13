@@ -22,6 +22,8 @@ import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../
 import { computeTargetStatus } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
+import * as atomTermIndex from "../../../stores/atomTermIndex.js";
+import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { FigureReview } from "./FigureReview.jsx";
 import { bridgeComplete } from "../../../llmBridge.js";
@@ -79,6 +81,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
   const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
+  const [skippedAtoms, setSkippedAtoms] = useState([]);
 
   // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
   // as a hung app, and the honest fix is to show the wait, not to hide it.
@@ -116,7 +119,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     if (r.saveError) setError(`Atoms ready, but saving them failed: ${r.saveError}`);
     setAtoms(r.atoms);
     setStage("quiz");
-  }, [lecture, userId]);
+    // Update cross-lecture atom index (non-blocking, non-critical)
+    try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, r.atoms); } catch { /* ok */ }
+  }, [lecture, userId, blockId]);
 
   const onFile = useCallback(async (file) => {
     if (!file) return;
@@ -138,6 +143,16 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   );
 
   const untagged = atoms.filter((a) => !a.objectiveIds?.length).length;
+
+  // Annotate display atoms with cross-lecture recurrence from the term index
+  const annotatedAtoms = useMemo(() => {
+    const termIndex = atomTermIndex.read(userId, blockId) || {};
+    return atoms.map((a) => {
+      const entry = termIndex[normAtomKey(a.term)];
+      const count = entry?.count ?? 1;
+      return count >= 2 ? { ...a, isHighYield: true, crossCount: count } : a;
+    });
+  }, [atoms, userId, blockId]);
 
   /**
    * Tag atoms to the objectives they serve. This is the join SP2's learner
@@ -239,12 +254,19 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   /** The round Study should open on — one value, so the button's label and its action agree. */
   const nextRound = resumeRound(done, rounds.length);
 
-  /** Questions for one round only — five atoms, not the whole lecture. */
+  /** Questions for one round only — five atoms, with mastered-objective skip + HY sort. */
   const runRound = useCallback(async (index) => {
     const roundAtoms = rounds[index];
     if (!roundAtoms?.length) return;
     setBusy("Writing questions…"); setError(""); setQuestions(null);
-    const r = await quizFromAtoms({ ...lecture, images }, roundAtoms, {
+
+    // Cross-lecture partition: skip atoms whose objectives are all mastered, flag recurring ones
+    const termIndex = atomTermIndex.read(userId, blockId) || {};
+    const { toQuiz, skipped } = partitionAtomsForRound(roundAtoms, termIndex, objectiveById);
+    setSkippedAtoms(skipped);
+
+    const quizAtoms = toQuiz.length ? toQuiz : roundAtoms; // fallback: quiz all if nothing left
+    const r = await quizFromAtoms({ ...lecture, images }, quizAtoms, {
       callAIJSON, exemplars: readExemplars(userId),
     });
     setBusy("");
@@ -256,11 +278,16 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       );
       return;
     }
+    // Stamp each question with _isHighYield from its source atom
+    const hyKeys = new Set(quizAtoms.filter((a) => a.isHighYield).map((a) => normAtomKey(a.term)));
+    const questions = (r.questions || []).map((q) =>
+      q.topic && hyKeys.has(normAtomKey(q.topic)) ? { ...q, _isHighYield: true } : q
+    );
+
     setRound(index);
-    setQuestions(r.questions);
-    // Log as soon as a round starts — even if they don't finish every question, they studied.
+    setQuestions(questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
-  }, [lecture, images, rounds, userId, logActivity]);
+  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity]);
 
   // You clicked Study, so studying is what should happen — land on question 1 rather than on a
   // wall of atoms to read. Fires once per lecture; `started` keeps a re-render from re-asking.
@@ -338,6 +365,20 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)}
           </span>
         </div>
+        {(skippedAtoms.length > 0 || questions?.some((q) => q._isHighYield)) && (
+          <div className="mb-3 flex flex-wrap gap-2 font-mono text-[10px]">
+            {skippedAtoms.length > 0 && (
+              <span className="rounded bg-good/10 px-2 py-0.5 text-good">
+                ✓ {skippedAtoms.length} atom{skippedAtoms.length === 1 ? "" : "s"} skipped — objectives already mastered
+              </span>
+            )}
+            {questions?.filter((q) => q._isHighYield).length > 0 && (
+              <span className="rounded bg-accent/10 px-2 py-0.5 text-accent">
+                ⭐ {questions.filter((q) => q._isHighYield).length} high-yield — recurring across lectures
+              </span>
+            )}
+          </div>
+        )}
         <AtomQuiz
           questions={questions}
           blockId={blockId}
@@ -514,7 +555,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           </summary>
           <div className="mt-3 space-y-4">
           {HY_TYPES.map((type) => {
-            const list = atoms.filter((a) => a.type === type);
+            const list = annotatedAtoms.filter((a) => a.type === type);
             if (!list.length) return null;
             const meta = TYPE_META[type];
             return (
@@ -526,6 +567,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                   {list.map((a, i) => (
                     <div key={i} className={"rounded-lg border-l-2 bg-bg-elevated px-3 py-2 text-xs " + meta.accent}>
                       <span className="font-semibold text-text-1">{a.term}</span>
+                      {a.isHighYield && (
+                        <span className="ml-1.5 rounded bg-accent/15 px-1 font-mono text-[9px] text-accent" title={`Appears in ${a.crossCount} lectures`}>
+                          ⭐ ×{a.crossCount}
+                        </span>
+                      )}
                       <span className="text-text-2"> — {a.content}</span>
                       {a.objectiveIds?.length > 0 && (
                         <div className="mt-1.5 flex flex-wrap gap-1">
