@@ -25,6 +25,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
   const [status, setStatus] = useState("");
   const [summary, setSummary] = useState(null);
   const [wrongOnly, setWrongOnly] = useState(false);
+  const [useLlm, setUseLlm] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const onFiles = useCallback(
@@ -36,7 +37,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
         for (const file of files) {
           try {
             setStatus(`${file.name} — reading…`);
-            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`));
+            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm });
             const questions = tagBankQuestions(parsed?.questions, {
               blockId,
               filename: file.name,
@@ -55,7 +56,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
         onUploaded?.();
       }
     },
-    [blockId, userId, wrongOnly, onUploaded]
+    [blockId, userId, wrongOnly, useLlm, onUploaded]
   );
 
   const remove = useCallback(
@@ -81,6 +82,11 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
         <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-text-2">
           <input type="checkbox" checked={wrongOnly} disabled={busy} onChange={(e) => setWrongOnly(e.target.checked)} />
           These are questions I got wrong
+        </label>
+
+        <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-text-2">
+          <input type="checkbox" checked={useLlm} disabled={busy} onChange={(e) => setUseLlm(e.target.checked)} />
+          LLM cleanup — slower, better for scanned/image-heavy PDFs
         </label>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">

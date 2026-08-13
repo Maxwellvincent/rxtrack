@@ -28,6 +28,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
   const [step, setStep] = useState("idle"); // idle | processing | preview
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
+  const [useLlm, setUseLlm] = useState(false);
   // groups: Array<{ lecId, lecTitle, objectives: Array<{...obj, _duplicate: bool}> }>
   const [groups, setGroups] = useState([]);
   const [totalFound, setTotalFound] = useState(0);
@@ -47,7 +48,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
           const { contentResult } = await extractWithSmartFallback(
             file,
             (msg) => setProgress(msg),
-            { userId }
+            { userId, useLlm }
           );
           text = contentResult?.fullText || "";
         } else {
@@ -147,16 +148,22 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
           )}
 
           {step === "idle" && (
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border px-4 py-8 text-sm hover:border-border-strong">
-              <span className="text-text-2">Choose a file to import</span>
-              <span className="mt-1 font-mono text-[10px] text-text-3">.pdf · .md · .txt</span>
-              <input
-                type="file"
-                accept=".pdf,.md,.markdown,.txt"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onFile(f); }}
-              />
-            </label>
+            <>
+              <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-text-2">
+                <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
+                LLM cleanup — slower, better for scanned/dense PDFs
+              </label>
+              <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border px-4 py-8 text-sm hover:border-border-strong">
+                <span className="text-text-2">Choose a file to import</span>
+                <span className="mt-1 font-mono text-[10px] text-text-3">.pdf · .md · .txt</span>
+                <input
+                  type="file"
+                  accept=".pdf,.md,.markdown,.txt"
+                  className="hidden"
+                  onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onFile(f); }}
+                />
+              </label>
+            </>
           )}
 
           {step === "processing" && (

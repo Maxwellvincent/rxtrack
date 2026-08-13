@@ -1,4 +1,5 @@
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
+import { extractWithSmartFallback } from "./ingest/pdfText.js";
 
 function detectLectureNumber(text) {
   const m =
@@ -511,7 +512,7 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
   }
 }
 
-export async function parseExamPDF(file, onProgress) {
+export async function parseExamPDF(file, onProgress, opts = {}) {
   // Markdown/text upload (e.g. pre-verified marker OCR output) — skip pdfjs entirely.
   // No per-page images, so force the standard AI-parse path (grid/slidedeck need PDF pages).
   const _n = (file?.name || "").toLowerCase();
@@ -534,6 +535,12 @@ export async function parseExamPDF(file, onProgress) {
     }
     pages = [{ num: 1, text, imgCount: 0, pdfPage: null }];
     fullText = text;
+  } else if (opts?.useLlm) {
+    onProgress?.("🔍 OCR chain (LLM cleanup)…");
+    const { contentResult } = await extractWithSmartFallback(file, onProgress, { useLlm: true });
+    fullText = contentResult?.fullText || "";
+    if (!fullText.trim()) throw new Error("OCR chain returned no text");
+    pages = [{ num: 1, text: fullText, imgCount: 0, pdfPage: null }];
   } else {
     await loadPDFJS();
     const arrayBuffer = await file.arrayBuffer();
