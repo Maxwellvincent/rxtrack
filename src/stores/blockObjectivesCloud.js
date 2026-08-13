@@ -16,7 +16,7 @@
  * this store has all the blocks regardless. Term 1 is finished and accounts for
  * 1.1MB of a ~5MB budget, which is what makes the trade worth making.
  */
-import { collection, doc, onSnapshot, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../firebase.js";
 import { encodeDocId, decodeDocId } from "../idCodec.js";
 import { notifyStoreChanged, subscribeToStore, writeJson, readJson } from "./base.js";
@@ -87,7 +87,8 @@ export const HOT_BLOCK_LIMIT = 1;
 
 const state = {
   userId: null,
-  blocks: new Map(), // blockId -> entry
+  blocks: new Map(),      // blockId -> entry
+  shardCounts: new Map(), // blockId -> last written shardCount
   hydrated: false,
   error: null,
   unsub: null,
@@ -100,13 +101,14 @@ export function __setObjectivesBackendForTests(fake) {
   resetObjectivesStore();
 }
 function api() {
-  return backend || { collection, doc, onSnapshot, setDoc, serverTimestamp };
+  return backend || { collection, doc, onSnapshot, setDoc, deleteDoc, serverTimestamp };
 }
 
 export function resetObjectivesStore() {
   try { state.unsub?.(); } catch { /* already gone */ }
   state.userId = null;
   state.blocks = new Map();
+  state.shardCounts = new Map();
   state.hydrated = false;
   state.error = null;
   state.unsub = null;
@@ -163,8 +165,10 @@ function ensureSubscribed(userId) {
       });
 
       const next = new Map();
+      const nextShardCounts = new Map();
       for (const [blockId, docData] of baseDocs) {
         const shardCount = docData?.shardCount ?? 1;
+        nextShardCounts.set(blockId, shardCount);
         if (shardCount > 1) {
           // Reassemble: base doc holds shard 0; subsequent shards are separate docs.
           const bucket = shardBuckets.get(blockId) || [];
@@ -178,6 +182,7 @@ function ensureSubscribed(userId) {
         }
       }
       state.blocks = next;
+      state.shardCounts = nextShardCounts;
       state.hydrated = true;
       state.error = null;
       mirrorHot();
@@ -210,7 +215,7 @@ export function write(userId, value) {
   if (!userId) return value;
   ensureSubscribed(userId);
   const next = value && typeof value === "object" ? value : {};
-  const { doc: docFn, setDoc: put, serverTimestamp: stamp } = api();
+  const { doc: docFn, setDoc: put, deleteDoc: del, serverTimestamp: stamp } = api();
 
   for (const [blockId, entry] of Object.entries(next)) {
     const before = state.blocks.get(blockId);
@@ -220,11 +225,18 @@ export function write(userId, value) {
 
     const clean = stripUndefined(entry);
     const serialized = JSON.stringify(clean);
+    const prevShardCount = state.shardCounts.get(blockId) ?? 1;
 
     if (serialized.length > SHARD_LIMIT_BYTES) {
       // Split flat objectives across shard docs; base doc holds shard 0.
       const flat = flattenEntry(entry);
       const shards = splitIntoShards(flat);
+      state.shardCounts.set(blockId, shards.length);
+      // Delete any shard docs from a previous write that used more shards.
+      const staleDeletes = [];
+      for (let i = shards.length; i < prevShardCount; i++) {
+        staleDeletes.push(del(docFn(db, "users", userId, "objectives", encodeDocId(`${blockId}${SHARD_SUFFIX}${i}`))));
+      }
       const basePayload = { data: stripUndefined(shards[0]), shardCount: shards.length, updatedAt: stamp() };
       Promise.all([
         put(docFn(db, "users", userId, "objectives", encodeDocId(blockId)), basePayload, { merge: false }),
@@ -235,15 +247,23 @@ export function write(userId, value) {
             { merge: false }
           )
         ),
+        ...staleDeletes,
       ]).catch((e) => console.warn(`block objectives: sharded write failed for ${blockId}`, e?.message || e));
     } else {
-      Promise.resolve(
+      state.shardCounts.set(blockId, 1);
+      // Delete any stale shard docs from a previous oversized write.
+      const staleDeletes = [];
+      for (let i = 1; i < prevShardCount; i++) {
+        staleDeletes.push(del(docFn(db, "users", userId, "objectives", encodeDocId(`${blockId}${SHARD_SUFFIX}${i}`))));
+      }
+      Promise.all([
         put(
           docFn(db, "users", userId, "objectives", encodeDocId(blockId)),
           { data: clean, updatedAt: stamp() },
           { merge: false }
-        )
-      ).catch((e) => console.warn(`block objectives: write failed for ${blockId}`, e?.message || e));
+        ),
+        ...staleDeletes,
+      ]).catch((e) => console.warn(`block objectives: write failed for ${blockId}`, e?.message || e));
     }
   }
 

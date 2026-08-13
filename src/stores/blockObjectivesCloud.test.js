@@ -28,6 +28,7 @@ function makeBackend() {
       doc: (_db, ...segments) => segments.join("/"),
       onSnapshot: (_path, next, error) => { listeners.push({ next, error }); return () => {}; },
       setDoc: (path, value) => { writes.push({ path, value }); return Promise.resolve(); },
+      deleteDoc: (path) => { writes.push({ path, value: null }); return Promise.resolve(); },
       serverTimestamp: () => "TS",
     },
   };
