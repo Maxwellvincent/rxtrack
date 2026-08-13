@@ -17,6 +17,7 @@ export function flattenBlocks(terms, lectures) {
       id: b.id,
       name: b.name,
       status: b.status,
+      startDate: b.startDate ?? null,
       termId: t.id,
       termName: t.name,
       termColor: t.color,

@@ -431,6 +431,8 @@ function ShellMain({ theme, toggle, userId }) {
         <ExamDateModal
           blockId={activeBlockId}
           blockName={active?.name}
+          termId={active?.termId}
+          currentStartDate={active?.startDate}
           userId={userId}
           onClose={() => setShowExamDate(false)}
         />
