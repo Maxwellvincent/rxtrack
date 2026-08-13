@@ -405,7 +405,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             if (!isLastRound) return;
             try {
               const perfStore = performanceStore.read(userId) || {};
-              const perfKey = `lecture_quiz__${lecture?.id}__${blockId}`;
+              const perfKey = `${lecture?.id}__${blockId}`;
               const sessions = perfStore[perfKey]?.sessions || [];
 
               const blockExamDate = examDates?.[blockId] ?? null;

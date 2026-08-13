@@ -41,13 +41,14 @@ export function merge(userId, incoming) {
 
 /**
  * Append one quiz session outcome for a lecture.
- * Key format: `lecture_quiz__${lectureId}__${blockId}` — matches the merger.
+ * Key format: `${lectureId}__${blockId}` — matches what lecturePerformanceFor and
+ * buildStudySchedule read. Sessions are prepended (newest first) and capped at 50.
  * Session shape: { score, avgConfidence, hasLandmines, at }
  */
 export function appendSession(userId, { lectureId, blockId, score, avgConfidence, hasLandmines }) {
   if (!userId || !lectureId || !blockId) return;
   const store = read(userId) || {};
-  const storeKey = `lecture_quiz__${lectureId}__${blockId}`;
+  const storeKey = `${lectureId}__${blockId}`;
   const prev = store[storeKey] || {};
   const session = {
     score,
