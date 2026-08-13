@@ -1,14 +1,3 @@
-/**
- * Upload past exams so generated questions sound like the real thing.
- *
- * Every parsed bank is stored under its filename and read back as few-shot
- * exemplars by the quiz generators. Marking an upload "questions I got wrong"
- * tags the bank so those questions weigh differently.
- *
- * This is the one exam surface that outlived App.jsx. App also ran the banks
- * through a model to attach testable facts to lectures and weak concepts; that
- * layer went with it.
- */
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { parseExamPDF } from "../../../examParser.js";
@@ -17,9 +6,6 @@ import * as questionBanksStore from "../../../stores/questionBanks.js";
 import { summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
 
 export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded }) {
-  // Through the hook, not a useState initializer: the banks arrive from
-  // Firestore after the first paint, so a one-shot read showed "0 banks" on an
-  // account with 51 of them.
   const banksRes = useQuestionBanks(userId);
   const banks = banksRes.data;
   const [status, setStatus] = useState("");
@@ -27,6 +13,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
   const [wrongOnly, setWrongOnly] = useState(false);
   const [useLlm, setUseLlm] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [showManage, setShowManage] = useState(false);
 
   const onFiles = useCallback(
     async (files) => {
@@ -38,11 +25,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
           try {
             setStatus(`${file.name} — reading…`);
             const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm });
-            const questions = tagBankQuestions(parsed?.questions, {
-              blockId,
-              filename: file.name,
-              wrongOnly,
-            });
+            const questions = tagBankQuestions(parsed?.questions, { blockId, filename: file.name, wrongOnly });
             if (questions.length) questionBanksStore.saveBank(userId, file.name, questions);
             results.push({ filename: file.name, questions });
           } catch (e) {
@@ -60,10 +43,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
   );
 
   const remove = useCallback(
-    (filename) => {
-      questionBanksStore.removeBank(userId, filename);
-      onUploaded?.();
-    },
+    (filename) => { questionBanksStore.removeBank(userId, filename); onUploaded?.(); },
     [userId, onUploaded]
   );
 
@@ -72,33 +52,33 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={busy ? undefined : onClose}>
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 text-lg font-bold text-text-1">Exam question banks</div>
-        <div className="mb-3 text-xs text-text-3">
-          Upload past exam PDFs. The questions are parsed and kept as style exemplars, so generated
-          questions match the way your school actually writes them. Nothing here is quizzed directly.
+      <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="mb-1 text-lg font-bold text-text-1">Question banks</div>
+        <div className="mb-4 font-mono text-[10px] text-text-3">
+          Past exam PDFs — parsed as style exemplars so generated questions match how your school writes them.
+          {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
         </div>
 
-        <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-text-2">
-          <input type="checkbox" checked={wrongOnly} disabled={busy} onChange={(e) => setWrongOnly(e.target.checked)} />
-          These are questions I got wrong
-        </label>
-
-        <label className="mb-3 flex cursor-pointer items-center gap-2 text-xs text-text-2">
-          <input type="checkbox" checked={useLlm} disabled={busy} onChange={(e) => setUseLlm(e.target.checked)} />
-          LLM cleanup — slower, better for scanned/image-heavy PDFs
-        </label>
+        <div className="mb-3 flex flex-col gap-2">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
+            <input type="checkbox" checked={wrongOnly} disabled={busy} onChange={(e) => setWrongOnly(e.target.checked)} />
+            These are questions I got wrong
+          </label>
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
+            <input type="checkbox" checked={useLlm} disabled={busy} onChange={(e) => setUseLlm(e.target.checked)} />
+            LLM cleanup — for scanned/image-heavy PDFs
+          </label>
+        </div>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{busy ? "Parsing…" : "Choose exam PDFs"}</span>
-          <span className="font-mono text-[10px] text-text-3">pdf</span>
+          <span className="text-text-2">{busy ? "Parsing…" : "Add exam PDFs"}</span>
+          <span className="font-mono text-[10px] text-text-3">pdf · md · txt</span>
           <input
             type="file"
             multiple
-            accept=".pdf"
+            accept=".pdf,.md,.txt"
             className="hidden"
             disabled={busy}
-            // e.target.files is a live FileList — copy before clearing the input.
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
           />
         </label>
@@ -106,36 +86,37 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
         {status && <div className="mb-3 font-mono text-[11px] text-text-2">{status}</div>}
         {summary && (
           <div className="mb-3 font-mono text-[11px]">
-            <div className="text-good">{summary.saved} of {summary.files} files · {summary.questions} questions</div>
+            <div className="text-good">{summary.saved} of {summary.files} files · {summary.questions} questions added</div>
             {summary.empty.map((f) => <div key={f} className="text-text-3">⚠ {f} — no questions detected</div>)}
             {summary.failed.map((f) => <div key={f} className="text-bad">✕ {f}</div>)}
           </div>
         )}
 
-        <div className="mb-3 flex-1 overflow-y-auto rounded-lg border border-border">
-          {names.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-text-3">No banks uploaded yet.</div>
-          ) : (
-            <table className="w-full text-left text-[11px]">
-              <tbody>
+        {names.length > 0 && (
+          <div className="mb-3">
+            <button
+              onClick={() => setShowManage((s) => !s)}
+              className="font-mono text-[10px] text-text-3 hover:text-text-1"
+            >
+              {showManage ? "▾ hide" : "▸ manage"} {names.length} bank{names.length === 1 ? "" : "s"}
+            </button>
+            {showManage && (
+              <div className="mt-2 rounded-lg border border-border">
                 {names.map((name) => (
-                  <tr key={name} className="border-b border-border last:border-0">
-                    <td className="px-2 py-1 text-text-1">{name}</td>
-                    <td className="px-2 py-1 font-mono text-text-3">{banks[name]?.length || 0} q</td>
-                    <td className="px-2 py-1 font-mono text-text-3">{banks[name]?.[0]?.bankType === "wrong" ? "missed" : ""}</td>
-                    <td className="px-2 py-1 text-right">
-                      <button className="text-bad hover:underline" disabled={busy} onClick={() => remove(name)}>remove</button>
-                    </td>
-                  </tr>
+                  <div key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-0 text-[11px]">
+                    <span className="flex-1 truncate text-text-2">{name}</span>
+                    <span className="font-mono text-text-3">{banks[name]?.length || 0} q</span>
+                    {banks[name]?.[0]?.bankType === "wrong" && <span className="font-mono text-[9px] text-warn">missed</span>}
+                    <button className="text-bad hover:underline" disabled={busy} onClick={() => remove(name)}>✕</button>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+              </div>
+            )}
+          </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          <span className="flex-1 font-mono text-[11px] text-text-3">{names.length} banks · {totalQuestions} questions</span>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose} disabled={busy}>Done</Button>
         </div>
       </div>
     </div>
