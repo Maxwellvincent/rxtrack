@@ -9,6 +9,7 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
   const examDates = useExamDates(userId);
   const terms = useTerms(userId);
   const currentExam = examDates.data?.[blockId] ?? null;
+  const currentComprehensive = examDates.data?.__comprehensive ?? null;
 
   // Try to find block startDate from terms if not passed directly
   const blockInTerms = terms.data
@@ -18,18 +19,21 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
 
   const [examInput, setExamInput] = useState(currentExam || "");
   const [startInput, setStartInput] = useState(resolvedStartDate || "");
+  const [compInput, setCompInput] = useState(currentComprehensive || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const save = useCallback(async () => {
-    if (!examInput && !startInput) return;
+    if (!examInput && !startInput && !compInput) return;
     setSaving(true);
     try {
-      // Save exam date
-      if (examInput) {
-        const store = examDatesStore.read(userId) || {};
-        await examDatesStore.write(userId, { ...store, [blockId]: examInput });
-      }
+      const store = examDatesStore.read(userId) || {};
+      const nextStore = {
+        ...store,
+        ...(examInput ? { [blockId]: examInput } : {}),
+        ...(compInput ? { __comprehensive: compInput } : {}),
+      };
+      if (examInput || compInput) await examDatesStore.write(userId, nextStore);
 
       // Save block start date into the terms tree
       if (startInput) {
@@ -52,7 +56,7 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
     } finally {
       setSaving(false);
     }
-  }, [blockId, termId, userId, examInput, startInput, blockInTerms, onClose]);
+  }, [blockId, termId, userId, examInput, startInput, compInput, blockInTerms, onClose]);
 
   const fmt = (d) =>
     d ? new Date(d + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" }) : null;
@@ -79,11 +83,11 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
             />
           </div>
 
-          {/* Exam date */}
+          {/* Block exam date */}
           <div>
-            <div className="mb-1 text-xs font-semibold text-text-1">Exam date</div>
+            <div className="mb-1 text-xs font-semibold text-text-1">Block exam date</div>
             <div className="mb-1.5 font-mono text-[10px] text-text-3">
-              Today schedules backwards from this. Spaced-rep windows are sized by days remaining.
+              Schedules backwards from this. Spaced-rep windows sized by days remaining.
               {currentExam && <> Currently: <span className="text-text-2">{fmt(currentExam)}</span></>}
             </div>
             <input
@@ -93,11 +97,26 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
               className="w-full rounded border border-border bg-panel px-2 py-1.5 font-mono text-sm text-text-1 focus:border-border-strong focus:outline-none"
             />
           </div>
+
+          {/* Comprehensive / semester exam date */}
+          <div>
+            <div className="mb-1 text-xs font-semibold text-text-1">Comprehensive exam date</div>
+            <div className="mb-1.5 font-mono text-[10px] text-text-3">
+              Semester-wide final. Mastered lectures re-enter review queue 30 days before this date.
+              {currentComprehensive && <> Currently: <span className="text-text-2">{fmt(currentComprehensive)}</span></>}
+            </div>
+            <input
+              type="date"
+              value={compInput}
+              onChange={(e) => setCompInput(e.target.value)}
+              className="w-full rounded border border-border bg-panel px-2 py-1.5 font-mono text-sm text-text-1 focus:border-border-strong focus:outline-none"
+            />
+          </div>
         </div>
 
         <div className="mt-5 flex items-center justify-between">
           <button onClick={onClose} className="font-mono text-[10px] text-text-3 hover:text-text-1">cancel</button>
-          <Button onClick={save} disabled={(!examInput && !startInput) || saving || saved}>
+          <Button onClick={save} disabled={(!examInput && !startInput && !compInput) || saving || saved}>
             {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
           </Button>
         </div>

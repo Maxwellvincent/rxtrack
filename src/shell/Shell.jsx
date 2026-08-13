@@ -350,6 +350,7 @@ function ShellMain({ theme, toggle, userId }) {
               blockId={activeBlockId}
               userId={userId}
               logActivity={logActivity}
+              examDates={examDates.data}
               onClose={() => setStudyLecture(null)}
             />
           ) : tab === "lectures" && activeBlockId ? (

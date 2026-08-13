@@ -76,6 +76,8 @@ export function buildStudySchedule(context) {
   const examDate = context.examDate ?? context.examDates?.[blockId];
   if (!examDate) return null;
 
+  const comprehensiveExamDate = context.examDates?.__comprehensive ?? null;
+
   const exam = new Date(examDate);
   const today = startOfDay(context.now ?? new Date());
   const daysLeft = daysBetween(today, exam);
@@ -93,9 +95,24 @@ export function buildStudySchedule(context) {
     const confidence = lecPerf?.confidenceLevel || "Low";
 
     const isStruggling = struggling > 0 || (lastScore !== null && lastScore < 60);
+    // Fully mastered lectures still get one comprehensive-exam review pass when
+    // the comp exam is within 30 days and the lecture hasn't been touched in > 14d.
+    const isFullyMastered = total > 0 && mastered === total && !isStruggling;
+    const lastSessionAt = lecPerf?.sessions?.[0]?.at ?? null;
+    const daysSinceLast = lastSessionAt
+      ? Math.round((today - new Date(lastSessionAt)) / DAY_MS)
+      : 999;
+    const compDaysLeft = comprehensiveExamDate
+      ? Math.max(0, daysBetween(today, startOfDay(comprehensiveExamDate)))
+      : Infinity;
+    const needsCompReview = isFullyMastered && comprehensiveExamDate && compDaysLeft < 30 && daysSinceLast > 14;
+
     const requiredReps = isStruggling ? 5 : confidence === "High" ? 3 : 4;
-    const repsRemaining = Math.max(0, requiredReps - sessionsDone);
-    const baseIntervals = isStruggling ? [1, 2, 4, 7, 12] : [1, 3, 7, 14, 21];
+    const baseRequired = needsCompReview ? 1 : requiredReps;
+    const repsRemaining = needsCompReview
+      ? (daysSinceLast > 14 ? 1 : 0)
+      : Math.max(0, requiredReps - sessionsDone);
+    const baseIntervals = isStruggling ? [1, 2, 4, 7, 12] : needsCompReview ? [Math.max(1, Math.round(compDaysLeft / 2))] : [1, 3, 7, 14, 21];
 
     return {
       lec,
@@ -108,7 +125,9 @@ export function buildStudySchedule(context) {
       sessionsDone,
       confidence,
       isStruggling,
-      requiredReps,
+      isFullyMastered,
+      needsCompReview,
+      requiredReps: baseRequired,
       repsRemaining,
       baseIntervals,
       studyMode: context.studyModeByLecture?.[lec.id] ?? null,
@@ -353,6 +372,8 @@ export function generateDailySchedule(context) {
   const examDate = context.examDate ?? context.examDates?.[blockId];
   if (!examDate) return null;
 
+  const comprehensiveExamDate = context.examDates?.__comprehensive ?? null;
+
   const today = startOfDay(context.now ?? new Date());
   const exam = startOfDay(examDate);
   const daysLeft = daysBetween(today, exam);
@@ -386,18 +407,23 @@ export function generateDailySchedule(context) {
     const sessions = perf?.sessions?.length || 0;
     const lecCompletion = completion[`${lec.id}__${blockId}`] || null;
 
-    const urgency = lectureUrgency({
-      tally,
-      avgBloom,
-      lastScore,
-      confidence,
-      sessions,
-      nextReview,
-      today,
-      reviewed: !!reviewedLectures[`${lec.id}__${blockId}`],
-      completion: lecCompletion,
-      zone,
-    });
+    const isFullyMastered = tally.total > 0 && tally.mastered === tally.total;
+    const lastSessionAt = perf?.sessions?.[0]?.at ?? null;
+    const daysSinceLast = lastSessionAt ? Math.round((today - new Date(lastSessionAt)) / DAY_MS) : 999;
+    const compDaysLeft = comprehensiveExamDate
+      ? Math.max(0, daysBetween(today, startOfDay(comprehensiveExamDate)))
+      : Infinity;
+    const needsCompReview = isFullyMastered && comprehensiveExamDate && compDaysLeft < 30 && daysSinceLast > 14;
+
+    const urgency = needsCompReview
+      ? lectureUrgency({ tally, avgBloom, lastScore, confidence, sessions, nextReview, today,
+          reviewed: !!reviewedLectures[`${lec.id}__${blockId}`], completion: lecCompletion, zone }) + 15
+      : lectureUrgency({ tally, avgBloom, lastScore, confidence, sessions, nextReview, today,
+          reviewed: !!reviewedLectures[`${lec.id}__${blockId}`], completion: lecCompletion, zone });
+
+    const recommendedSessions = needsCompReview
+      ? [{ label: "Comprehensive review", reason: "Mastered — review before semester final" }]
+      : recommendedSessionsFor({ sessions, tally, nextReview, today, lastScore });
 
     return {
       lec,
@@ -408,7 +434,8 @@ export function generateDailySchedule(context) {
       confidence,
       nextReview,
       sessions,
-      recommendedSessions: recommendedSessionsFor({ sessions, tally, nextReview, today, lastScore }),
+      needsCompReview,
+      recommendedSessions,
       availableDate,
       isAvailableToday,
       isFuture,

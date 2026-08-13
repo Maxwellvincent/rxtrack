@@ -39,6 +39,37 @@ export function merge(userId, incoming) {
   return write(userId, mergePerformance(read(userId) || fallback, incoming));
 }
 
+/**
+ * Append one quiz session outcome for a lecture.
+ * Key format: `lecture_quiz__${lectureId}__${blockId}` — matches the merger.
+ * Session shape: { score, avgConfidence, hasLandmines, at }
+ */
+export function appendSession(userId, { lectureId, blockId, score, avgConfidence, hasLandmines }) {
+  if (!userId || !lectureId || !blockId) return;
+  const store = read(userId) || {};
+  const storeKey = `lecture_quiz__${lectureId}__${blockId}`;
+  const prev = store[storeKey] || {};
+  const session = {
+    score,
+    avgConfidence,
+    hasLandmines: !!hasLandmines,
+    at: new Date().toISOString(),
+    sessionType: "lecture_quiz",
+    lectureId,
+  };
+  const sessions = [session, ...(Array.isArray(prev.sessions) ? prev.sessions : [])].slice(0, 50);
+  const scores = sessions.map((s) => s.score).filter((s) => typeof s === "number");
+  const updated = {
+    ...prev,
+    lectureId,
+    blockId,
+    sessions,
+    lastScore: score,
+    score: scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : score,
+  };
+  return write(userId, { ...store, [storeKey]: updated });
+}
+
 export function subscribe(cb) {
   return subscribeToCloudStore(key, cb);
 }

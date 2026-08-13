@@ -19,7 +19,9 @@ import {
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
+import { computeTargetStatus } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
+import * as performanceStore from "../../../stores/performance.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { FigureReview } from "./FigureReview.jsx";
 import { bridgeComplete } from "../../../llmBridge.js";
@@ -62,7 +64,7 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
-export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClose }) {
+export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
@@ -340,29 +342,54 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClos
           questions={questions}
           blockId={blockId}
           userId={userId}
-          onDone={({ correct = 0, total = 0 } = {}) => {
+          onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false } = {}) => {
             const nextDone = Math.max(done, round + 1);
             saveRoundProgress(userId, lecture?.id, nextDone);
             setDone(nextDone);
             const isLastRound = nextDone >= rounds.length;
-            const passedQuiz = total > 0 && correct / total >= 0.8;
+            const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+            // Write session outcome to performance store after every completed round
             try {
-              const store = objectivesStore.read(userId) || {};
-              let objs = selectBlockObjectives(store, blockId);
+              performanceStore.appendSession(userId, {
+                lectureId: lecture?.id,
+                blockId,
+                score,
+                avgConfidence,
+                hasLandmines,
+              });
+            } catch { /* non-critical */ }
+
+            // Only update objective status after the final round of a session
+            if (!isLastRound) return;
+            try {
+              const perfStore = performanceStore.read(userId) || {};
+              const perfKey = `lecture_quiz__${lecture?.id}__${blockId}`;
+              const sessions = perfStore[perfKey]?.sessions || [];
+
+              const blockExamDate = examDates?.[blockId] ?? null;
+              const comprehensiveExamDate = examDates?.__comprehensive ?? null;
+
+              const objStore = objectivesStore.read(userId) || {};
+              let objs = selectBlockObjectives(objStore, blockId);
               let changed = false;
+
               for (const obj of lectureObjectives) {
-                const targetStatus = isLastRound && passedQuiz ? "mastered"
-                  : obj.status === "untested" ? "developing"
-                  : null;
-                if (targetStatus && obj.status !== targetStatus) {
-                  objs = setStatus(objs, obj.id, targetStatus, new Date());
+                const target = computeTargetStatus({
+                  sessions,
+                  blockExamDate,
+                  comprehensiveExamDate,
+                  currentStatus: obj.status ?? "untested",
+                });
+                if (target && obj.status !== target) {
+                  objs = setStatus(objs, obj.id, target, new Date());
                   changed = true;
                 }
               }
               if (changed) {
-                const storeKey = storageKeyFor(store, blockId);
-                const nextEntry = toEntry(store[storeKey], objs);
-                objectivesStore.write(userId, { ...store, [storeKey]: nextEntry });
+                const storeKey = storageKeyFor(objStore, blockId);
+                const nextEntry = toEntry(objStore[storeKey], objs);
+                objectivesStore.write(userId, { ...objStore, [storeKey]: nextEntry });
               }
             } catch { /* non-critical */ }
           }}
