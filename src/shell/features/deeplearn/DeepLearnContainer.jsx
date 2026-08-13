@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 // eslint-disable-next-line no-restricted-imports -- bounded legacy adapter: DeepLearn's own port is a later chunk.
 import DeepLearn from "../../../DeepLearn.jsx";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
+import * as performanceStore from "../../../stores/performance.js";
 import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
@@ -101,6 +102,47 @@ export function DeepLearnContainer({
 
   const questionBanksByFile = useQuestionBanks(userId).data;
 
+  // Sync DeepLearn's localStorage objective writes to Firestore, normalizing
+  // "inprogress" (DeepLearn vocab) → "developing" (Study / scheduler vocab).
+  const syncObjectivesToCloud = useCallback(() => {
+    const uid = userId ?? getStoreHookUserId();
+    if (!uid || !blockId) return;
+    try {
+      const rawObjs = JSON.parse(localStorage.getItem("rxt-block-objectives") || "{}");
+      const blockObjs = rawObjs[blockId];
+      if (!Array.isArray(blockObjs) || !blockObjs.length) return;
+      const normalized = blockObjs.map((o) =>
+        o.status === "inprogress" ? { ...o, status: "developing" } : o
+      );
+      objectivesStore.write(uid, { [blockId]: normalized });
+    } catch (e) {
+      console.warn("DeepLearn objective sync failed:", e?.message || e);
+    }
+  }, [userId, blockId]);
+
+  const syncPerfToCloud = useCallback(() => {
+    const uid = userId ?? getStoreHookUserId();
+    if (!uid) return;
+    try {
+      const rawPerf = JSON.parse(localStorage.getItem("rxt-performance") || "{}");
+      if (Object.keys(rawPerf).length) performanceStore.write(uid, rawPerf);
+    } catch (e) {
+      console.warn("DeepLearn perf sync failed:", e?.message || e);
+    }
+  }, [userId]);
+
+  // Cross-lecture and Rapid Fire sessions write to localStorage and dispatch
+  // these events — catch them here and push to Firestore.
+  useEffect(() => {
+    const handler = () => { syncObjectivesToCloud(); syncPerfToCloud(); };
+    window.addEventListener("rxt-objectives-updated", handler);
+    window.addEventListener("rxt-completion-updated", handler);
+    return () => {
+      window.removeEventListener("rxt-objectives-updated", handler);
+      window.removeEventListener("rxt-completion-updated", handler);
+    };
+  }, [syncObjectivesToCloud, syncPerfToCloud]);
+
   const questionContext = useCallback(
     (bid, lectureId, banksArg, _mode = "quiz", options = {}) =>
       buildQuestionContext({
@@ -113,6 +155,45 @@ export function DeepLearnContainer({
       }),
     [lecturesWithMaps, getBlockObjectives, questionBanksByFile]
   );
+
+  // DeepLearn calls onBack(results, meta) when a session ends — results and meta
+  // are set only for single-lecture sessions; cross-lecture calls onBack() with
+  // no args after finalizeCrossSession has already written to localStorage.
+  const handleDeepLearnBack = useCallback((results, meta) => {
+    const uid = userId ?? getStoreHookUserId();
+    if (uid && meta?.lectureId) {
+      // Single-lecture session: DeepLearn doesn't write objectives or a
+      // performance record — do it here from the session's reported score.
+      const score = meta.postMCQScore ?? meta.preSAQScore ?? 0;
+      const newStatus =
+        score >= 80 ? "mastered" : score >= 55 ? "developing" : "struggling";
+      const now = new Date().toISOString();
+      const rawStore = objectivesStore.read(uid) || {};
+      const rawBlockObjs = rawStore[blockId] || [];
+      const updatedObjs = rawBlockObjs.map((o) =>
+        o.linkedLecId === meta.lectureId
+          ? { ...o, status: newStatus, lastQuizzed: now, lastQuizScore: score }
+          : o
+      );
+      objectivesStore.write(uid, { [blockId]: updatedObjs });
+      performanceStore.appendSession(uid, {
+        lectureId: meta.lectureId,
+        blockId,
+        score,
+        avgConfidence:
+          meta.confidenceLevel === "High" ? 0.85
+          : meta.confidenceLevel === "Medium" ? 0.6
+          : 0.3,
+        hasLandmines: false,
+      });
+    } else if (uid) {
+      // Cross-lecture / rapid-fire or plain back navigation: pick up any
+      // localStorage writes that DeepLearn made before calling us.
+      syncObjectivesToCloud();
+      syncPerfToCloud();
+    }
+    onBack(results, meta);
+  }, [userId, blockId, onBack, syncObjectivesToCloud, syncPerfToCloud]);
 
   return (
     <DeepLearn
@@ -131,8 +212,8 @@ export function DeepLearnContainer({
       preselectLecId={preselectLecId}
       deeplinkObjectiveId={deeplinkObjectiveId}
       initialRapidFireMode={initialRapidFireMode}
-      onBack={onBack}
-      onRelaunch={onBack}
+      onBack={handleDeepLearnBack}
+      onRelaunch={handleDeepLearnBack}
     />
   );
 }

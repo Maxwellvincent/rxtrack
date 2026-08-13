@@ -59,7 +59,7 @@ function countByStatus(objs) {
   for (const o of objs || []) {
     const s = o.status;
     if (s === "mastered") m++;
-    else if (s === "inprogress") ip++;
+    else if (s === "inprogress" || s === "developing") ip++;
     else if (s === "struggling") st++;
     else ut++;
   }
@@ -800,7 +800,7 @@ export default function ObjectiveTracker({
   }, [linkedObjectives, blockLectures]);
 
   const countStruggling = linkedObjectives.filter((o) => o.status === "struggling").length;
-  const countInprogress = linkedObjectives.filter((o) => o.status === "inprogress").length;
+  const countInprogress = linkedObjectives.filter((o) => o.status === "inprogress" || o.status === "developing").length;
   const countUntested = linkedObjectives.filter((o) => !o.status || o.status === "untested").length;
   const countMastered = linkedObjectives.filter((o) => o.status === "mastered").length;
   const totalAll = linkedObjectives.length;
@@ -852,7 +852,7 @@ export default function ObjectiveTracker({
     setUnlinkedFilter("all");
     setBulkAssignLecId("");
     const str = linkedObjectives.filter((o) => o.status === "struggling").length;
-    const ip = linkedObjectives.filter((o) => o.status === "inprogress").length;
+    const ip = linkedObjectives.filter((o) => o.status === "inprogress" || o.status === "developing").length;
     setStatusFilter(str > 0 ? "struggling" : ip > 0 ? "inprogress" : "untested");
     // Intentionally block only: do not reset filter when objectives update (e.g. after quiz).
   }, [blockId]);
@@ -875,7 +875,7 @@ export default function ObjectiveTracker({
     if (statusFilter === "struggling")
       return linkedObjectives.filter((o) => o.status === "struggling");
     if (statusFilter === "inprogress")
-      return linkedObjectives.filter((o) => o.status === "inprogress");
+      return linkedObjectives.filter((o) => o.status === "inprogress" || o.status === "developing");
     if (statusFilter === "mastered")
       return linkedObjectives.filter((o) => o.status === "mastered");
     return linkedObjectives.filter((o) => !o.status || o.status === "untested");
@@ -926,7 +926,7 @@ export default function ObjectiveTracker({
       const lecObjs = covSrc.filter((o) => o.linkedLecId === lec.id);
       const total = lecObjs.length;
       const mastered = lecObjs.filter((o) => o.status === "mastered").length;
-      const inprogress = lecObjs.filter((o) => o.status === "inprogress").length;
+      const inprogress = lecObjs.filter((o) => o.status === "inprogress" || o.status === "developing").length;
       const struggling = lecObjs.filter((o) => o.status === "struggling").length;
       const untested = Math.max(0, total - mastered - inprogress - struggling);
       const coverage = total ? Math.round(((mastered + inprogress) / total) * 100) : 0;

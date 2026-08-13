@@ -59,7 +59,8 @@ export function statusTally(lectureObjectives) {
   const list = lectureObjectives || [];
   return {
     struggling: list.filter((o) => o.status === "struggling").length,
-    untested: list.filter((o) => o.status === "untested").length,
+    // "inprogress" is DeepLearn's legacy vocab for "developing" — treat them the same
+    untested: list.filter((o) => !o.status || o.status === "untested").length,
     mastered: list.filter((o) => o.status === "mastered").length,
     total: list.length,
   };

@@ -66,7 +66,7 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
-export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose }) {
+export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
@@ -82,6 +82,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
+  // Track last round result to surface "Go Deep" prompt on completion
+  const [lastResult, setLastResult] = useState(null);
 
   // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
   // as a hung app, and the honest fix is to show the wait, not to hide it.
@@ -389,6 +391,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             setDone(nextDone);
             const isLastRound = nextDone >= rounds.length;
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+            if (isLastRound) setLastResult({ score, hasLandmines });
 
             // Write session outcome to performance store after every completed round
             try {
@@ -450,6 +453,18 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <div className="rounded-lg border border-good/40 bg-good/5 px-4 py-3 text-sm font-semibold text-text-1">
                 ✓ Lecture complete — all {rounds.length} round{rounds.length === 1 ? "" : "s"} done
               </div>
+              {onGoDeep && lastResult && (lastResult.score < 70 || lastResult.hasLandmines) && (
+                <div className="rounded-lg border border-warn/40 bg-warn/5 px-4 py-3">
+                  <div className="mb-2 font-mono text-[11px] text-warn">
+                    {lastResult.hasLandmines
+                      ? "Confident wrong answers detected — deep study recommended"
+                      : `Score ${lastResult.score}% — reinforce with clinical application`}
+                  </div>
+                  <Button onClick={() => onGoDeep(lecture?.id)}>
+                    Go Deep on this lecture →
+                  </Button>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button onClick={onClose}>← Back to Today</Button>
                 <Button variant="outline" onClick={() => { setQuestions(null); }}>

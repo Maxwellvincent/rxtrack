@@ -149,6 +149,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showExamDate, setShowExamDate] = useState(false);
   const [tab, setTab] = useState("today"); // today | lectures | objectives | more
   const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
+  const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
@@ -352,6 +353,12 @@ function ShellMain({ theme, toggle, userId }) {
               logActivity={logActivity}
               examDates={examDates.data}
               onClose={() => setStudyLecture(null)}
+              onGoDeep={(lecId) => {
+                setStudyLecture(null);
+                setDeepLearnPreselectId(lecId);
+                switchTab("more");
+                setMoreView("deeplearn");
+              }}
             />
           ) : tab === "lectures" && activeBlockId ? (
             <LectureList
@@ -384,7 +391,8 @@ function ShellMain({ theme, toggle, userId }) {
                 blockId={activeBlockId}
                 userId={userId}
                 termColor={active?.termColor}
-                onBack={() => setMoreView(null)}
+                preselectLecId={deepLearnPreselectId}
+                onBack={() => { setMoreView(null); setDeepLearnPreselectId(null); }}
               />
             ) : (
               <MoreTab
