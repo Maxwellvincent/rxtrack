@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
+  extractObjectivesFromStandaloneDoc,
   chunkText,
   tryParseObjectivesJSON,
   deduplicateExtractedObjectives,
@@ -15,6 +16,13 @@ import {
 
 /** The AI-free half of the extractor. The passes that call a model are covered
  *  by the live upload, not here — what is worth pinning is the parsing. */
+
+// No test here wants a model. A stub that returns nothing keeps any AI pass
+// visible as an empty result rather than a network call.
+vi.mock("../aiClient.js", () => ({
+  callAI: vi.fn(async () => ""),
+  callAIJSON: vi.fn(async (_s, _u, fallback) => fallback),
+}));
 
 const lec = { id: "lec1", lectureType: "LEC", lectureNumber: 3, lectureTitle: "The Back" };
 
@@ -301,5 +309,72 @@ describe("extractFromTableText", () => {
   it("never emits a code with no objective text", () => {
     expect(extractFromTableText("SOM.MK.I.BPM1.0001\nSOM.MK.I.BPM1.0002", lec, "b1")).toEqual([]);
     expect(extractFromTableText("", lec, "b1")).toEqual([]);
+  });
+});
+
+describe("extractObjectivesFromStandaloneDoc — the block objectives document", () => {
+  /** A coded objectives doc, long enough that a first-N-chars prompt would clip it. */
+  function longCodedDoc() {
+    const rows = [];
+    rows.push("| Lecture PHYS | Endocrine Overview |");
+    for (let i = 1; i <= 160; i++) {
+      const code = `SOM.MK.I.BPM2.2.ER.1.HCB.${1000 + i}`;
+      rows.push(`| ${code} | Describe endocrine structure number ${i} and its clinical relevance in detail. |`);
+    }
+    rows.push("| Lecture ANAT | Female Perineum |");
+    rows.push("| SOM.MK.I.BPM2.2.ER.9.ANAT.9999 | Identify the boundaries of the perineum. |");
+    return rows.join("\n");
+  }
+
+  it("reads objectives past the first 14000 characters", async () => {
+    const doc = longCodedDoc();
+    expect(doc.length).toBeGreaterThan(14000);
+
+    const objs = await extractObjectivesFromStandaloneDoc(doc, [], "b1");
+
+    expect(objs.map((o) => o.code)).toContain("SOM.MK.I.BPM2.2.ER.9.ANAT.9999");
+    expect(objs.length).toBe(161);
+  });
+});
+
+describe("extractObjectivesFromStandaloneDoc — matching a section to a lecture", () => {
+  const lectures = [
+    { id: "lec23", lectureType: "LEC", lectureNumber: 23, lectureTitle: "Nutritional Aspects of Pregnancy, Lactation and Infant Nutrition" },
+    { id: "dla1", lectureType: "DLA", lectureNumber: 1, lectureTitle: "Nutrition and Aging" },
+  ];
+
+  const doc = [
+    "| DLA PHYS | Nutrition & Aging |",
+    "| SOM.MK.III.BPM2.2.ER.3.BCHM.1008 | Review protein-energy malnutrition (PEM) in older adults and describe its management. |",
+    "| Lecture BCHM | Nutritional Aspects of Pregnancy, Lactation and Infant Nutrition |",
+    "| SOM.MK.III.BPM2.2.ER.3.BCHM.1010 | Explain the role of docosahexaenoic acid in brain growth and neurodevelopment. |",
+    "| SOM.MK.III.BPM2.2.ER.3.BCHM.1011 | Compare the macronutrients in human breast milk and cow's milk. |",
+  ].join("\n");
+
+  it("keeps a DLA section on the DLA", async () => {
+    const objs = await extractObjectivesFromStandaloneDoc(doc, lectures, "b1");
+    const pem = objs.find((o) => o.code.endsWith("1008"));
+
+    expect(pem.linkedLecId).toBe("dla1");
+    expect(pem.activity).toBe("DLA");
+  });
+
+  it("leaves a DLA section unlinked rather than binding it to a lecture that shares a word", async () => {
+    // The DLA has not been uploaded yet — only the lecture is in the block. A
+    // title-only match would hand every aging objective to LEC 23 on "nutrition".
+    const lectureOnly = lectures.filter((l) => l.lectureType === "LEC");
+
+    const objs = await extractObjectivesFromStandaloneDoc(doc, lectureOnly, "b1");
+    const pem = objs.find((o) => o.code.endsWith("1008"));
+
+    expect(pem.linkedLecId).toBe("imported");
+    expect(pem.activity).toBe("DLA");
+  });
+
+  it("still matches the lecture section to its lecture", async () => {
+    const objs = await extractObjectivesFromStandaloneDoc(doc, lectures, "b1");
+
+    expect(objs.find((o) => o.code.endsWith("1010")).linkedLecId).toBe("lec23");
+    expect(objs.find((o) => o.code.endsWith("1011")).linkedLecId).toBe("lec23");
   });
 });

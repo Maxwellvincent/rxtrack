@@ -860,7 +860,120 @@ export async function extractObjectivesFromLecture(rawText, lec, blockId) {
  * The document lists objectives grouped by lecture / DLA / TBL / lab.
  * Auto-matches each objective to a lecture in blockLectures by lecture number or title keywords.
  */
+/** "Lecture PHYS" → LEC, "Small group HCB;ANAT" → SG. The discipline is noise here. */
+export function normalizeSectionActivity(label) {
+  const l = String(label || "").toLowerCase();
+  if (l.startsWith("small group") || /\bsg\b/.test(l)) return "SG";
+  if (l.startsWith("dla")) return "DLA";
+  if (l.startsWith("tbl")) return "TBL";
+  if (l.startsWith("lab")) return "LAB";
+  return "LEC";
+}
+
+/**
+ * Split the objectives document into its `activity :: title` sections.
+ *
+ * The document is one table per session, and each session's header row carries
+ * the activity in the first cell and the title in the second — the same cell
+ * positions the objective rows use for code and text.
+ */
+export function parseObjectiveDocSections(text) {
+  const src = String(text || "");
+  const headers = [];
+  const headerRe = /^\|?[^\S\n]*((?:Lecture|DLA|TBL|Small group|Lab)[^|\n]*?)[^\S\n]*\|[^\S\n]*([^|\n]+?)[^\S\n]*\|?[^\S\n]*$/gim;
+  for (const m of src.matchAll(headerRe)) {
+    if (/^SOM\./i.test(m[1].trim())) continue;
+    headers.push({
+      pos: m.index,
+      end: m.index + m[0].length,
+      activity: normalizeSectionActivity(m[1]),
+      // A header cell can carry stray codes when the row wraps; they are not the title.
+      title: m[2].replace(/SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}/g, "").trim(),
+    });
+  }
+  if (!headers.length) return [{ activity: null, title: "", body: src }];
+
+  const sections = [];
+  if (headers[0].pos > 0) sections.push({ activity: null, title: "", body: src.slice(0, headers[0].pos) });
+  headers.forEach((h, i) => {
+    const stop = i + 1 < headers.length ? headers[i + 1].pos : src.length;
+    sections.push({ activity: h.activity, title: h.title, body: src.slice(h.end, stop) });
+  });
+  return sections;
+}
+
+/**
+ * The lecture a section belongs to, matched on title — but only among lectures
+ * of the same activity.
+ *
+ * Without the activity gate a single shared word decides it: "DLA Nutrition &
+ * Aging" scores a hit on "Nutritional Aspects of Pregnancy, Lactation and Infant
+ * Nutrition" through `nutrition` alone and every aging objective lands on that
+ * lecture instead of the DLA.
+ */
+export function matchLectureToSection(section, blockLectures) {
+  const lectures = blockLectures || [];
+  const activity = section?.activity || null;
+  const pool = activity ? lectures.filter((l) => (l.lectureType || "LEC") === activity) : lectures;
+  if (!pool.length) return null;
+
+  const title = String(section?.title || "");
+  const tokens = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length > 3);
+  if (!tokens.length) return null;
+
+  let best = null;
+  let bestScore = 0;
+  for (const lec of pool) {
+    const lecTitle = String(lec.lectureTitle || "").toLowerCase();
+    const score = tokens.filter((t) => lecTitle.includes(t)).length;
+    if (score > bestScore) { bestScore = score; best = lec; }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+/**
+ * The SOM codes in an objectives document, read directly.
+ *
+ * The document is the school's own curriculum, printed as `CODE text` rows, so
+ * the codes are already in the text verbatim — the same reasoning that moved the
+ * lecture path off the model. Reading them here also removes the prompt's
+ * `slice(0, 14000)` ceiling: against the ER module that window held 104 of 459
+ * objectives, and the other 355 were never sent.
+ */
+export function extractCodedObjectivesFromDoc(text, blockLectures, blockId) {
+  const out = [];
+  for (const section of parseObjectiveDocSections(text)) {
+    const matched = matchLectureToSection(section, blockLectures);
+    const sectionLec = {
+      id: matched?.id || "imported",
+      lectureType: section.activity || matched?.lectureType || "LEC",
+      lectureNumber: matched?.lectureNumber ?? null,
+    };
+    for (const entry of extractCodeDelimited(section.body, sectionLec, blockId)) {
+      out.push({ ...entry, lectureHint: section.title || undefined, extractionMethod: "standalone-doc" });
+    }
+  }
+
+  // Sections repeat their header across page breaks, so the same code can appear twice.
+  const seen = new Set();
+  return out.filter((o) => {
+    if (!o.code || seen.has(o.code)) return !o.code;
+    seen.add(o.code);
+    return true;
+  });
+}
+
 export async function extractObjectivesFromStandaloneDoc(text, blockLectures, blockId) {
+  const coded = extractCodedObjectivesFromDoc(text, blockLectures, blockId);
+  if (coded.length >= 3) {
+    console.log(`Extracted ${coded.length} coded objectives from the objectives doc without AI`);
+    return coded;
+  }
+
   const systemPrompt =
     "You extract learning objectives from medical school curriculum documents. Return ONLY valid JSON — no markdown, no prose.";
 
