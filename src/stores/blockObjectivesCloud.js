@@ -23,6 +23,57 @@ import { notifyStoreChanged, subscribeToStore, writeJson, readJson } from "./bas
 import { mergeObjectivesMap } from "./merge.js";
 import { stripUndefined } from "./cloudBase.js";
 
+// Firestore hard limit is 1 MB per document. Stay safely under it.
+const SHARD_LIMIT_BYTES = 800_000;
+const SHARD_SUFFIX = "__s";
+
+// Inlined from shell/logic/objectives.js to avoid cross-layer imports.
+function flattenEntry(entry) {
+  if (entry == null) return [];
+  if (Array.isArray(entry)) return [...entry];
+  const values = Object.values(entry);
+  if (values.length === 0) return [];
+  if (Array.isArray(values[0])) return values.filter(Array.isArray).flat();
+  if (values[0] && typeof values[0] === "object" && values[0].id != null)
+    return values.filter((v) => v && typeof v === "object" && v.id != null);
+  const out = [];
+  values.forEach((val) => { if (Array.isArray(val)) out.push(...val); });
+  return out;
+}
+
+function isShardDocId(decoded) {
+  return new RegExp(`${SHARD_SUFFIX}\\d+$`).test(decoded);
+}
+function baseBlockId(shardDecoded) {
+  return shardDecoded.replace(new RegExp(`${SHARD_SUFFIX}\\d+$`), "");
+}
+function shardIndex(shardDecoded) {
+  return parseInt(shardDecoded.match(new RegExp(`${SHARD_SUFFIX}(\\d+)$`))[1], 10);
+}
+
+/**
+ * Split a flat objectives array into chunks, each serialising under SHARD_LIMIT_BYTES.
+ * Returns an array of arrays (length >= 1).
+ */
+function splitIntoShards(flat) {
+  const shards = [];
+  let current = [];
+  let currentBytes = 2; // "[]"
+  for (const obj of flat) {
+    const objBytes = JSON.stringify(obj).length + 1; // +1 for comma
+    if (current.length > 0 && currentBytes + objBytes > SHARD_LIMIT_BYTES) {
+      shards.push(current);
+      current = [obj];
+      currentBytes = 2 + objBytes;
+    } else {
+      current.push(obj);
+      currentBytes += objBytes;
+    }
+  }
+  if (current.length > 0) shards.push(current);
+  return shards.length > 0 ? shards : [[]];
+}
+
 export const key = "rxt-block-objectives";
 
 /**
@@ -96,8 +147,36 @@ function ensureSubscribed(userId) {
   state.unsub = watch(
     coll(db, "users", userId, "objectives"),
     (snap) => {
+      // Collect base docs and shard docs separately, then merge shards in.
+      const baseDocs = new Map(); // blockId -> full doc data
+      const shardBuckets = new Map(); // blockId -> sparse array indexed by shard number
+      snap.forEach((d) => {
+        const decoded = decodeDocId(d.id);
+        if (isShardDocId(decoded)) {
+          const base = baseBlockId(decoded);
+          const idx = shardIndex(decoded);
+          if (!shardBuckets.has(base)) shardBuckets.set(base, []);
+          shardBuckets.get(base)[idx] = d.data()?.data;
+        } else {
+          baseDocs.set(decoded, d.data());
+        }
+      });
+
       const next = new Map();
-      snap.forEach((d) => next.set(decodeDocId(d.id), d.data()?.data));
+      for (const [blockId, docData] of baseDocs) {
+        const shardCount = docData?.shardCount ?? 1;
+        if (shardCount > 1) {
+          // Reassemble: base doc holds shard 0; subsequent shards are separate docs.
+          const bucket = shardBuckets.get(blockId) || [];
+          const allObjs = [...flattenEntry(docData?.data)];
+          for (let i = 1; i < shardCount; i++) {
+            allObjs.push(...flattenEntry(bucket[i] ?? []));
+          }
+          next.set(blockId, allObjs);
+        } else {
+          next.set(blockId, docData?.data);
+        }
+      }
       state.blocks = next;
       state.hydrated = true;
       state.error = null;
@@ -138,13 +217,34 @@ export function write(userId, value) {
     if (before !== undefined && JSON.stringify(before) === JSON.stringify(entry)) continue;
     state.blocks.set(blockId, entry);
     touchBlock(blockId);
-    Promise.resolve(
-      put(
-        docFn(db, "users", userId, "objectives", encodeDocId(blockId)),
-        { data: stripUndefined(entry), updatedAt: stamp() },
-        { merge: false }
-      )
-    ).catch((e) => console.warn(`block objectives: write failed for ${blockId}`, e?.message || e));
+
+    const clean = stripUndefined(entry);
+    const serialized = JSON.stringify(clean);
+
+    if (serialized.length > SHARD_LIMIT_BYTES) {
+      // Split flat objectives across shard docs; base doc holds shard 0.
+      const flat = flattenEntry(entry);
+      const shards = splitIntoShards(flat);
+      const basePayload = { data: stripUndefined(shards[0]), shardCount: shards.length, updatedAt: stamp() };
+      Promise.all([
+        put(docFn(db, "users", userId, "objectives", encodeDocId(blockId)), basePayload, { merge: false }),
+        ...shards.slice(1).map((chunk, i) =>
+          put(
+            docFn(db, "users", userId, "objectives", encodeDocId(`${blockId}${SHARD_SUFFIX}${i + 1}`)),
+            { data: stripUndefined(chunk), updatedAt: stamp() },
+            { merge: false }
+          )
+        ),
+      ]).catch((e) => console.warn(`block objectives: sharded write failed for ${blockId}`, e?.message || e));
+    } else {
+      Promise.resolve(
+        put(
+          docFn(db, "users", userId, "objectives", encodeDocId(blockId)),
+          { data: clean, updatedAt: stamp() },
+          { merge: false }
+        )
+      ).catch((e) => console.warn(`block objectives: write failed for ${blockId}`, e?.message || e));
+    }
   }
 
   state.hydrated = true;
