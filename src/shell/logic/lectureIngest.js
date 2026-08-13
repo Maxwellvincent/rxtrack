@@ -19,18 +19,21 @@ export function parseLectureFilename(filename) {
   const type = typeMatch ? typeMatch[1].toUpperCase() : "LEC";
 
   // The number that follows the type word, else the first standalone number.
+  // A trailing letter is part of the number ("DLA 2a"), not the start of the
+  // title — the course splits a single DLA into 2a and 2b.
   const afterType = typeMatch ? base.slice(base.indexOf(typeMatch[0]) + typeMatch[0].length) : base;
   const numMatch =
-    afterType.match(/\s*0*(\d{1,3})\b/) ||
-    base.match(/\b(?:lecture|lec)\s*0*(\d{1,3})\b/i) ||
-    base.match(/\b0*(\d{1,3})\b/);
+    afterType.match(/\s*0*(\d{1,3})([a-z])?\b/i) ||
+    base.match(/\b(?:lecture|lec)\s*0*(\d{1,3})([a-z])?\b/i) ||
+    base.match(/\b0*(\d{1,3})([a-z])?\b/i);
   const number = numMatch ? parseInt(numMatch[1], 10) : null;
+  const suffix = numMatch?.[2] ? numMatch[2].toLowerCase() : null;
 
   // Title = whatever follows the first " - " / " — ", else the whole name.
   const dash = base.match(/\s[-—–]\s(.+)$/);
   const title = (dash ? dash[1] : base).trim();
 
-  return { type, number, title: title || base };
+  return { type, number, suffix, title: title || base };
 }
 
 /** One chunk per markdown heading block, so long lectures stay navigable. */
@@ -68,7 +71,7 @@ export function buildLectureRecord({ filename, text, blockId, termId = null, lec
   const body = String(text || "").trim();
   if (body.length < 50) return { error: "That file has almost no text in it." };
 
-  const { type, number, title } = parseLectureFilename(filename);
+  const { type, number, suffix, title } = parseLectureFilename(filename);
   const newId =
     idgen?.() ??
     (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `lec_${Date.now()}`);
@@ -80,6 +83,7 @@ export function buildLectureRecord({ filename, text, blockId, termId = null, lec
       termId,
       lectureType: type,
       lectureNumber: number,
+      lectureSuffix: suffix,
       lectureTitle: title,
       filename,
       lectureDate,
@@ -131,7 +135,7 @@ export function buildLectureFromExtraction({
     };
   }
 
-  const { type, number, title } = parseLectureFilename(filename);
+  const { type, number, suffix, title } = parseLectureFilename(filename);
   const base = String(filename || "").replace(/\.[a-z0-9]+$/i, "").trim();
   // A filename like "ER LEC 02" carries no title of its own; take the extractor's.
   const titleIsBareSlot = title === base;
@@ -150,6 +154,7 @@ export function buildLectureFromExtraction({
       termId,
       lectureType: type,
       lectureNumber: number ?? contentResult?.lectureNumber ?? null,
+      lectureSuffix: suffix,
       lectureTitle,
       filename,
       lectureDate,

@@ -14,12 +14,29 @@ describe("parseLectureFilename", () => {
     expect(parseLectureFilename("MSK Lecture 27 - Histology of the Skin.md")).toEqual({
       type: "LEC",
       number: 27,
+      suffix: null,
       title: "Histology of the Skin",
     });
     expect(parseLectureFilename("DLA 07 - Development of the body cavities.pdf")).toMatchObject({
       type: "DLA",
       number: 7,
     });
+  });
+
+  it("splits a lettered number like 2a into a number and a suffix", () => {
+    expect(parseLectureFilename("DLA 2a - Developmental Genetics.md")).toMatchObject({
+      type: "DLA",
+      number: 2,
+      suffix: "a",
+    });
+  });
+
+  it("does not read a number out of url-encoded punctuation", () => {
+    // Downloaded straight from the course site: spaces are "+" and "&" is "%26",
+    // whose digits used to win over the real lecture number.
+    expect(
+      parseLectureFilename("ER+DLA+2a-Developmental+Genetics-Terminology+%26+Sonic+Hedgehog.pdf")
+    ).toMatchObject({ type: "DLA", number: 2, suffix: "a" });
   });
 
   it("defaults to LEC and copes with no number", () => {
@@ -57,6 +74,28 @@ describe("chunkMarkdown", () => {
 
 describe("buildLectureRecord", () => {
   const text = "# Thyroid\n" + "content ".repeat(30);
+
+  it("keeps the lettered part on the pdf path too", () => {
+    const { lecture } = buildLectureFromExtraction({
+      filename: "DLA 2a - Sonic Hedgehog.pdf",
+      contentResult: { fullText: text, chunks: [{ markdown: text }] },
+      blockId: "b1",
+      idgen: () => "new-id",
+    });
+
+    expect(lecture).toMatchObject({ lectureType: "DLA", lectureNumber: 2, lectureSuffix: "a" });
+  });
+
+  it("keeps the lettered part of a split lecture on the record", () => {
+    const { lecture } = buildLectureRecord({
+      filename: "DLA 2b - Hox Genes.md",
+      text,
+      blockId: "b1",
+      idgen: () => "new-id",
+    });
+
+    expect(lecture).toMatchObject({ lectureType: "DLA", lectureNumber: 2, lectureSuffix: "b" });
+  });
 
   it("builds a record the rest of the app can read", () => {
     const { lecture } = buildLectureRecord({
