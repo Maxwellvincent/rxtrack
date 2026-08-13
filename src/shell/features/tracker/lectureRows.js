@@ -9,6 +9,7 @@
 
 import {
   availableDateFor,
+  lecDateMap,
   lectureUrgency,
   objectivesForLecture,
   pressureZone,
@@ -40,6 +41,7 @@ export function scoreLectures(context) {
   const blockStart = context?.blockMeta?.startDate ? new Date(context.blockMeta.startDate) : null;
   if (blockStart) blockStart.setHours(0, 0, 0, 0);
 
+  const _lecDates = lecDateMap(lectures);
   return lectures.map((lec) => {
     const lecObjs = objectivesForLecture(objectives, lec);
     const tally = statusTally(lecObjs);
@@ -50,7 +52,9 @@ export function scoreLectures(context) {
     const nextReview = perf?.nextReview ? new Date(perf.nextReview) : null;
     const avgBloom =
       tally.total > 0 ? lecObjs.reduce((s, o) => s + (o.bloom_level ?? 2), 0) / tally.total : 2;
-    const { date: availableDate } = availableDateFor(lec, blockStart);
+    const pairedDate = (!lec.lectureDate && !lec.date && lec.lectureType === "DLA" && lec.lectureNumber != null)
+      ? (_lecDates[lec.lectureNumber] ?? null) : null;
+    const { date: availableDate } = availableDateFor(lec, blockStart, pairedDate);
 
     return {
       lec,

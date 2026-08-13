@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { availableDateFor, buildStudySchedule, generateDailySchedule } from "./schedule.js";
+import { availableDateFor, lecDateMap, buildStudySchedule, generateDailySchedule } from "./schedule.js";
 import { studyScheduleShape, dailyScheduleShape } from "./scheduleFixtureShape.js";
 
 const FIXTURE_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "__fixtures__");
@@ -35,6 +35,29 @@ describe("local date parsing", () => {
 
   it("still reads the legacy `date` field records were imported with", () => {
     expect(availableDateFor({ id: "l", date: "2026-09-01" }, null).date.getDate()).toBe(1);
+  });
+
+  it("DLA with no date inherits the same-numbered LEC date via pairedDate", () => {
+    const lectures = [
+      { id: "lec1", lectureType: "LEC", lectureNumber: 3, lectureDate: "2026-09-10" },
+      { id: "dla1", lectureType: "DLA", lectureNumber: 3, lectureDate: null, date: null },
+    ];
+    const map = lecDateMap(lectures);
+    const paired = map[3] ?? null;
+    const { date, source } = availableDateFor(lectures[1], null, paired);
+    expect(date.getDate()).toBe(10);
+    expect(source).toBe("explicit");
+  });
+
+  it("DLA with its own date is not overridden by the paired LEC", () => {
+    const lectures = [
+      { id: "lec1", lectureType: "LEC", lectureNumber: 5, lectureDate: "2026-09-10" },
+      { id: "dla1", lectureType: "DLA", lectureNumber: 5, lectureDate: "2026-09-15" },
+    ];
+    const map = lecDateMap(lectures);
+    const paired = (!lectures[1].lectureDate && !lectures[1].date) ? (map[5] ?? null) : null;
+    const { date } = availableDateFor(lectures[1], null, paired);
+    expect(date.getDate()).toBe(15);
   });
 });
 

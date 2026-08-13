@@ -222,11 +222,26 @@ export function pressureZone(examDate, now) {
 
 const DOW = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 0 };
 
+/**
+ * Map lectureNumber → ISO date string for LEC-type lectures.
+ * Used to inherit dates onto DLAs that share the same lecture number.
+ */
+export function lecDateMap(lectures) {
+  const map = {};
+  for (const l of (lectures || [])) {
+    if ((l.lectureType ?? "LEC").toUpperCase() === "LEC" && l.lectureNumber != null) {
+      const d = l.lectureDate || l.date;
+      if (d) map[l.lectureNumber] = d;
+    }
+  }
+  return map;
+}
+
 /** When a lecture becomes studiable: explicit date, else derived from the block start. */
-export function availableDateFor(lecture, blockStart) {
+export function availableDateFor(lecture, blockStart, pairedDate = null) {
   // `date` is what the schedule importer wrote before it was fixed to write
   // `lectureDate`; records from before that fix still only carry `date`.
-  const explicit = lecture.lectureDate || lecture.date;
+  const explicit = lecture.lectureDate || lecture.date || pairedDate;
   if (explicit) return { date: startOfDay(explicit), source: "explicit" };
 
   if (lecture.weekNumber && lecture.dayOfWeek && blockStart) {
@@ -388,8 +403,11 @@ export function generateDailySchedule(context) {
     context.blockMeta ?? terms.flatMap((t) => t.blocks || []).find((b) => b.id === blockId) ?? null;
   const blockStart = block?.startDate ? startOfDay(block.startDate) : null;
 
+  const _lecDates = lecDateMap(lectures);
   const lecScores = lectures.map((lec) => {
-    const { date: availableDate } = availableDateFor(lec, blockStart);
+    const pairedDate = (!lec.lectureDate && !lec.date && lec.lectureType === "DLA" && lec.lectureNumber != null)
+      ? (_lecDates[lec.lectureNumber] ?? null) : null;
+    const { date: availableDate } = availableDateFor(lec, blockStart, pairedDate);
     const isAvailableToday = availableDate && availableDate <= today;
     const isFuture = availableDate && availableDate > today;
     const daysUntilAvailable = availableDate ? Math.max(0, daysBetween(today, availableDate)) : null;
