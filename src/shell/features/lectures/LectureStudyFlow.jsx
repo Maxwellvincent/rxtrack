@@ -18,7 +18,7 @@ import {
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
-import { selectBlockObjectives, setStatus } from "../../logic/objectives.js";
+import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
 import { FigureReview } from "./FigureReview.jsx";
@@ -348,18 +348,22 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, onClos
             const passedQuiz = total > 0 && correct / total >= 0.8;
             try {
               const store = objectivesStore.read(userId) || {};
-              let updated = store;
+              let objs = selectBlockObjectives(store, blockId);
               let changed = false;
               for (const obj of lectureObjectives) {
                 const targetStatus = isLastRound && passedQuiz ? "mastered"
                   : obj.status === "untested" ? "developing"
                   : null;
                 if (targetStatus && obj.status !== targetStatus) {
-                  updated = setStatus(updated, obj.id, targetStatus, new Date());
+                  objs = setStatus(objs, obj.id, targetStatus, new Date());
                   changed = true;
                 }
               }
-              if (changed) objectivesStore.write(userId, updated);
+              if (changed) {
+                const storeKey = storageKeyFor(store, blockId);
+                const nextEntry = toEntry(store[storeKey], objs);
+                objectivesStore.write(userId, { ...store, [storeKey]: nextEntry });
+              }
             } catch { /* non-critical */ }
           }}
         />
