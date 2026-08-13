@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromStandaloneDoc } from "../../../ingest/objectives.js";
-import { createObjectiveCommands, dedupeByText } from "../../logic/objectives.js";
+import { flattenEntry, readEntry, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { overwriteObjectivesInCloud } from "../../../supabase.js";
 import { useLectures } from "../../hooks/useLectures.js";
@@ -20,15 +20,6 @@ function normKey(text) {
   return (text || "").slice(0, 60).toLowerCase().replace(/\W/g, "");
 }
 
-function makeObjectiveCommands(userId) {
-  return createObjectiveCommands({
-    read: () => objectivesStore.read(userId) || {},
-    write: (next) => objectivesStore.write(userId, next),
-    notify: () => {
-      try { window.dispatchEvent(new CustomEvent("rxt-objectives-updated")); } catch { /* non-DOM */ }
-    },
-  });
-}
 
 export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported }) {
   const { data: blockLectures } = useLectures(blockId, userId);
@@ -112,26 +103,22 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
 
   const onConfirm = useCallback(async () => {
     if (!newObjectives.length) return;
-    const cmds = makeObjectiveCommands(userId);
-    // Append new objectives into each lecture's slot without touching existing ones
-    for (const obj of newObjectives) {
-      const { _duplicate, ...clean } = obj;
-      void _duplicate; // consumed
-      // Use replaceLectureObjectives would overwrite — instead append via the store directly
-      const store = objectivesStore.read(userId) || {};
-      const blockEntry = store[blockId] || { objectives: [] };
-      const current = Array.isArray(blockEntry) ? blockEntry : (blockEntry.objectives || []);
-      const key = normKey(clean.objective || clean.text);
-      const alreadyIn = current.some((o) => normKey(o.objective || o.text) === key);
-      if (!alreadyIn) {
-        const next = [...current, clean];
-        objectivesStore.write(userId, { ...store, [blockId]: { objectives: next } });
-      }
-    }
+    // Read store once, flatten existing entries, append non-duplicates, fold back
+    // into the original shape (imported/extracted buckets preserved by toEntry).
+    const store = objectivesStore.read(userId) || {};
+    const existing = flattenEntry(readEntry(store, blockId));
+    const existingKeys = new Set(existing.map((o) => normKey(o.objective || o.text)));
+    const toAdd = newObjectives
+      .map(({ _duplicate, ...clean }) => clean)
+      .filter((o) => !existingKeys.has(normKey(o.objective || o.text)));
+    if (!toAdd.length) { onImported?.(0); return; }
+    const storeKey = storageKeyFor(store, blockId);
+    const nextEntry = toEntry(store[storeKey], [...existing, ...toAdd]);
+    objectivesStore.write(userId, { ...store, [storeKey]: nextEntry });
     if (userId) {
       try { await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {}); } catch { /* non-critical */ }
     }
-    onImported?.(newObjectives.length);
+    onImported?.(toAdd.length);
   }, [newObjectives, blockId, userId, onImported]);
 
   return (
