@@ -47,6 +47,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
   const [rows, setRows] = useState({}); // filename -> { status, note }
   const [running, setRunning] = useState(false);
   const [skipped, setSkipped] = useState(0);
+  const [useLlm, setUseLlm] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
   const cancelled = useRef(false);
@@ -100,6 +101,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         const { contentResult, method } = await extractWithSmartFallback(entry.file, null, {
           detectNumber: (name) => parseLectureFilename(name).number,
           userId,
+          useLlm,
         });
         const quality = assessTextQuality(contentResult?.fullText || "");
         built = buildLectureFromExtraction({ filename: entry.filename, contentResult, method, blockId, termId });
@@ -165,7 +167,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       setRow(entry.filename, { status: "done", note: `${objectiveCount} objectives · ${sections} sections` });
       return { objectiveCount, sections };
     },
-    [blockId, termId, userId, setRow]
+    [blockId, termId, userId, useLlm, setRow]
   );
 
   const run = useCallback(async () => {
@@ -209,6 +211,17 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         {summary && <div className="mb-3 font-mono text-[11px] text-good">{summary}</div>}
+
+        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[11px] text-text-2">
+          <input
+            type="checkbox"
+            checked={useLlm}
+            onChange={(e) => setUseLlm(e.target.checked)}
+            disabled={running}
+            className="accent-accent"
+          />
+          LLM cleanup (slower, better quality for dense slides)
+        </label>
 
         <div className="mb-3 grid grid-cols-2 gap-2">
           <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">

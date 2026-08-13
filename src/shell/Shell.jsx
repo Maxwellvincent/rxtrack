@@ -22,6 +22,7 @@ import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
 import { ImportObjectivesPdfModal } from "./features/objectives/ImportObjectivesPdfModal.jsx";
+import { ReExtractAllModal } from "./features/objectives/ReExtractAllModal.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
@@ -144,6 +145,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
   const [showImportObjectives, setShowImportObjectives] = useState(false);
+  const [showReExtractAll, setShowReExtractAll] = useState(false);
   const [showExamDate, setShowExamDate] = useState(false);
   const [tab, setTab] = useState("today"); // today | lectures | objectives | more
   const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
@@ -371,6 +373,7 @@ function ShellMain({ theme, toggle, userId }) {
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onStudyLecture={onStudyLecture}
               onImportObjectives={() => setShowImportObjectives(true)}
+              onReExtractAll={() => setShowReExtractAll(true)}
             />
           ) : tab === "more" && activeBlockId ? (
             moreView === "weak" ? (
@@ -425,6 +428,14 @@ function ShellMain({ theme, toggle, userId }) {
           onImported={(count) => {
             setShowImportObjectives(false);
           }}
+        />
+      )}
+      {showReExtractAll && activeBlockId && (
+        <ReExtractAllModal
+          blockId={activeBlockId}
+          userId={userId}
+          onClose={() => setShowReExtractAll(false)}
+          onDone={() => setShowReExtractAll(false)}
         />
       )}
       {showExamDate && activeBlockId && (
@@ -508,7 +519,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
  * (ShellMain) so it behaves the same whether it was launched from here or from
  * Today.
  */
-function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives }) {
+function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
   return (
     <div className="p-2">
       <ObjectivesContainer
@@ -524,6 +535,9 @@ function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartOb
           <div className="flex items-center gap-3">
             <button onClick={onBack} className="font-mono text-xs text-text-3 hover:text-text-1">
               ← block
+            </button>
+            <button onClick={onReExtractAll} className="font-mono text-xs text-text-3 hover:text-text-1">
+              ↺ Re-extract all
             </button>
             <button onClick={onImportObjectives} className="font-mono text-xs text-accent hover:text-accent-text">
               + Import objectives PDF

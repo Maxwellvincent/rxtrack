@@ -46,6 +46,7 @@ function lectureText(lecture) {
 export function AddLectureModal({ blockId, termId = null, userId = null, onClose, onAdded }) {
   const [preview, setPreview] = useState(null); // { lecture, action, replacedId }
   const [lectureDate, setLectureDate] = useState("");
+  const [useLlm, setUseLlm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
@@ -70,7 +71,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           const { contentResult, method } = await extractWithSmartFallback(
             file,
             (msg) => setProgress(msg),
-            { detectNumber: (name) => parseLectureFilename(name).number, userId }
+            { detectNumber: (name) => parseLectureFilename(name).number, userId, useLlm }
           );
           quality = assessTextQuality(contentResult?.fullText || "");
           built = buildLectureFromExtraction({ filename: file.name, contentResult, method, blockId, termId });
@@ -241,6 +242,17 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         {done && <div className="mb-3 font-mono text-[11px] text-good">{done}</div>}
         {progress && <div className="mb-3 font-mono text-[11px] text-text-2">{progress}</div>}
+
+        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[11px] text-text-2">
+          <input
+            type="checkbox"
+            checked={useLlm}
+            onChange={(e) => setUseLlm(e.target.checked)}
+            disabled={busy}
+            className="accent-accent"
+          />
+          LLM cleanup (slower, better quality for dense slides)
+        </label>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
           <span className="text-text-2">{preview?.lecture?.filename || "Choose a lecture .pdf / .md / .txt"}</span>
