@@ -155,8 +155,8 @@ const DIFF_LINE = {
   expert: "Hardest USMLE level — synthesis across topics, all distractors plausible.",
 };
 
-/** Assemble the generation prompt. Exemplars + objectives + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], difficulty = "medium", count = 10 } = {}) {
+/** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10 } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const examplesSection = examples.length
@@ -172,8 +172,13 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
       objectives.map((o, i) => `${i + 1}. [${o.code || o.id || ""}] ${o.objective || o.text || ""}`).join("\n")
     : "";
 
+  const atomsSection = atoms.length
+    ? "\n\nKEY FACTS EXTRACTED FROM THE LECTURE (ground your questions in these specific concepts):\n" +
+      atoms.slice(0, 50).map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}`).join("\n")
+    : "";
+
   const contentSection = lectureText
-    ? "\n\nLECTURE CONTENT TO BASE QUESTIONS ON (markdown; **bold** = high-yield):\n" + String(lectureText).slice(0, 6000)
+    ? "\n\nLECTURE CONTENT (markdown; **bold** = high-yield):\n" + String(lectureText).slice(0, 4000)
     : "";
 
   return (
@@ -183,6 +188,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `Exactly 4 options A-D, each a complete answer. Explanation covers why right + why each wrong.` +
     examplesSection +
     objectivesSection +
+    atomsSection +
     contentSection +
     `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; distribute correct answers evenly across A/B/C/D — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +

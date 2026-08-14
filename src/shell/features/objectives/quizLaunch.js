@@ -67,13 +67,14 @@ export function buildQuizConfig({
   blockId,
   lectures = [],
   exemplars = [],
+  atoms = [],
   difficulty = "medium",
   questionCount,
 }) {
   const pool = sortWeakestFirst(objectives);
-  if (!pool.length) return { error: "No objectives to quiz." };
+  const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
-  const count = resolveQuestionCount(questionCount, pool.length);
+  // When no objectives, fall through to atom/text-based generation
   const selected = pool.slice(0, Math.min(count, pool.length));
   const lecture = findLectureForQuiz(lectures, blockId, lectureTitle);
   const lectureText = lecture ? getLecText(lecture) : "";
@@ -82,10 +83,11 @@ export function buildQuizConfig({
     config: {
       subject: lectureTitle || "these objectives",
       objectives: selected,
+      atoms,
       lectureText,
       examples: exemplars,
       difficulty,
-      count: Math.max(count, selected.length),
+      count,
     },
     lectureId: lecture?.id ?? selected.map((o) => o?.linkedLecId).find(Boolean) ?? null,
   };
@@ -115,21 +117,32 @@ export function objectivesAsAtoms(objectives) {
  * question each, rather than failing the launch outright.
  */
 export async function startObjectiveQuiz(args, deps = {}) {
+  const atoms = Array.isArray(args.atoms) ? args.atoms : [];
   const built = buildQuizConfig(args);
-  if (built.error) return { error: built.error, questions: [] };
+  // Only error out if no objectives AND no atoms AND no lecture text hint
+  if (built.error && !atoms.length) return { error: built.error, questions: [] };
 
   const { config, lectureId } = built;
-  const result =
-    String(config.lectureText || "").trim().length >= MIN_LECTURE_TEXT
-      ? await generateMcqs(config, deps)
-      : await generateFromAtoms(
-          {
-            atoms: objectivesAsAtoms(config.objectives),
-            difficulty: config.difficulty,
-            examples: config.examples,
-            subject: config.subject,
-          },
-          deps
-        );
-  return { ...result, lectureId };
+  const hasText = String(config?.lectureText || "").trim().length >= MIN_LECTURE_TEXT;
+  const hasObjectives = (config?.objectives || []).length > 0;
+
+  // Prefer the full MCQ generator when we have text or objectives (or atoms as context)
+  if (hasText || hasObjectives || atoms.length) {
+    const result = await generateMcqs({ ...config, atoms }, deps);
+    return { ...result, lectureId };
+  }
+
+  // Pure fallback: objectives-as-atoms when nothing else is available
+  return {
+    ...(await generateFromAtoms(
+      {
+        atoms: objectivesAsAtoms(config?.objectives || []),
+        difficulty: config?.difficulty,
+        examples: config?.examples,
+        subject: config?.subject,
+      },
+      deps
+    )),
+    lectureId,
+  };
 }

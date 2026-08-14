@@ -83,6 +83,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Track last round result to surface "Go Deep" prompt on completion
   const [lastResult, setLastResult] = useState(null);
+  // Inline quiz config picker state
+  const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
 
   // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
   // as a hung app, and the honest fix is to show the wait, not to hide it.
@@ -514,58 +516,107 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       )}
 
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <Button onClick={() => runRound(nextRound)} disabled={!!busy}>
-            {busyLabel ||
-              (nextRound > 0
-                ? `▸ Resume at round ${nextRound + 1}`
-                : `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`)}
-          </Button>
-          {onStartObjectiveQuiz && (
-            <Button
-              variant="outline"
-              onClick={() => onStartObjectiveQuiz(lectureObjectives, title, blockId, { lectureId: lecture?.id })}
-              disabled={!!busy}
-            >
-              Quiz
-            </Button>
-          )}
-          <span className="text-[12px] text-text-3">
-            {done >= rounds.length && rounds.length > 0
-              ? `all ${rounds.length} rounds done — studying again starts from the top`
-              : done > 0
-                ? `${done} of ${rounds.length} rounds done · picking up where you stopped`
-                : `${rounds.length} rounds of ${ROUND_SIZE} · one calibrated Step-1 question per atom`}
-          </span>
-          {done > 0 && (
-            <button
-              onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
-              disabled={!!busy}
-              className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
-            >
-              start over
-            </button>
-          )}
-          {lectureObjectives.length > 0 && untagged > 0 && (
-            <>
-              <Button variant="outline" onClick={runTagging} disabled={!!busy}>
-                ◇ Tag to objectives
+        <div className="mb-4 flex flex-col gap-3">
+          {/* Unified generate button — opens inline picker */}
+          {!quizPicker ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <Button onClick={() => setQuizPicker({ count: 10, difficulty: "medium" })} disabled={!!busy}>
+                {busyLabel || "▸ Generate questions"}
               </Button>
               <span className="text-[12px] text-text-3">
-                {untagged} of {atoms.length} untagged · {lectureObjectives.length} objectives on this lecture
+                {atoms.length} atoms · {lectureObjectives.length} objectives
+                {done > 0 ? ` · ${done}/${rounds.length} rounds done` : ""}
               </span>
-            </>
+              {done > 0 && (
+                <button
+                  onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
+                  disabled={!!busy}
+                  className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
+                >
+                  reset progress
+                </button>
+              )}
+            </div>
+          ) : (
+            /* Inline count + difficulty picker */
+            <div className="rounded-sm border border-border bg-bg-elevated p-4 flex flex-col gap-3">
+              <div className="flex items-center gap-4">
+                <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3 w-20">Questions</span>
+                <div className="flex gap-1.5">
+                  {[5, 10, 25, 50, 100].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => setQuizPicker((p) => ({ ...p, count: n }))}
+                      className={[
+                        "rounded-sm border px-2.5 py-1 font-mono text-[12px] transition-colors",
+                        quizPicker.count === n
+                          ? "border-accent bg-accent-soft text-accent"
+                          : "border-border text-text-2 hover:border-border-strong",
+                      ].join(" ")}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3 w-20">Difficulty</span>
+                <div className="flex gap-1.5">
+                  {["easy", "medium", "hard", "expert"].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => setQuizPicker((p) => ({ ...p, difficulty: d }))}
+                      className={[
+                        "rounded-sm border px-2.5 py-1 font-condensed text-[12px] uppercase tracking-wide transition-colors",
+                        quizPicker.difficulty === d
+                          ? "border-accent bg-accent-soft text-accent"
+                          : "border-border text-text-2 hover:border-border-strong",
+                      ].join(" ")}
+                    >
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button
+                  onClick={() => {
+                    const { count, difficulty } = quizPicker;
+                    setQuizPicker(null);
+                    onStartObjectiveQuiz(lectureObjectives, title, blockId, {
+                      lectureId: lecture?.id,
+                      atoms,
+                      difficulty,
+                      count,
+                    });
+                  }}
+                  disabled={!!busy}
+                >
+                  Generate {quizPicker.count} questions
+                </Button>
+                <button onClick={() => setQuizPicker(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
+                  cancel
+                </button>
+                <span className="font-mono text-[12px] text-text-3">
+                  school style{lectureObjectives.length > 0 ? " + objectives" : ""} + USMLE · grounded in {atoms.length} key facts
+                </span>
+              </div>
+            </div>
           )}
-          {lectureObjectives.length > 0 && untagged === 0 && (
-            <span className="text-[12px] text-text-3">
-              all {atoms.length} atoms tagged to objectives
-            </span>
-          )}
-          {lectureObjectives.length === 0 && (
-            <span className="text-[12px] text-text-3">no objectives linked to this lecture — nothing to tag against</span>
+
+          {/* Tagging */}
+          {lectureObjectives.length > 0 && untagged > 0 && (
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={runTagging} disabled={!!busy}>
+                ◇ Tag atoms to objectives
+              </Button>
+              <span className="text-[12px] text-text-3">
+                {untagged} of {atoms.length} untagged · {lectureObjectives.length} objectives
+              </span>
+            </div>
           )}
           {images.length > 0 && (
-            <span className="text-[12px] text-text-3">{images.length} figures — shown with the atoms they belong to</span>
+            <span className="text-[12px] text-text-3">{images.length} figures attached</span>
           )}
         </div>
       )}

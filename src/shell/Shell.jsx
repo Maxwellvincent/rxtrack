@@ -235,25 +235,13 @@ function ShellMain({ theme, toggle, userId }) {
     if (lecture) setStudyLecture(lecture);
   }, [userId]);
 
-  // Step 1: intercept quiz launch — show config modal instead of generating immediately.
-  const onStartObjectiveQuiz = useCallback(
-    (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
-      setPendingQuiz({ objectives, lectureTitle, blockId: optionalBlockId ?? activeBlockId, extraMeta });
-    },
-    [activeBlockId]
-  );
-
-  // Step 2: user confirmed in QuizConfigModal — resolve from store or generate.
-  const onConfirmQuiz = useCallback(
-    async ({ count, difficulty, useStored }) => {
-      if (!pendingQuiz) return;
-      const { objectives, lectureTitle, blockId: bid, extraMeta } = pendingQuiz;
+  // Core generation — called directly (pre-specified count) or after modal confirmation.
+  const runQuizGeneration = useCallback(
+    async ({ objectives, lectureTitle, blockId: bid, extraMeta = {} }, { count, difficulty, useStored = false }) => {
       const lectureId =
         extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
-      setPendingQuiz(null);
       setQuiz({ lectureId, loading: true, title: lectureTitle });
 
-      // Try stored pool first when user opted in and there's enough saved.
       if (useStored && lectureId) {
         const stored = generatedQuestionsStore.questionsForLecture(userId, lectureId);
         if (stored.length >= count) {
@@ -270,6 +258,7 @@ function ShellMain({ theme, toggle, userId }) {
           blockId: bid,
           lectures: lecturesStore.read(userId) || [],
           exemplars: readExemplars(userId),
+          atoms: extraMeta?.atoms || [],
           questionCount: count,
           difficulty,
         },
@@ -279,13 +268,37 @@ function ShellMain({ theme, toggle, userId }) {
         setQuiz({ lectureId, error: result.error || "No questions came back.", title: lectureTitle });
         return;
       }
-      // Persist to the generated question bank before showing — next quiz can draw from store.
       if (lectureId && result.questions?.length) {
         generatedQuestionsStore.addQuestions(userId, lectureId, result.questions);
       }
       setQuiz({ lectureId, questions: result.questions, title: lectureTitle });
     },
-    [pendingQuiz, userId]
+    [userId]
+  );
+
+  // Step 1: intercept quiz launch — skip modal when caller pre-specifies count+difficulty.
+  const onStartObjectiveQuiz = useCallback(
+    (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
+      const quizCtx = { objectives, lectureTitle, blockId: optionalBlockId ?? activeBlockId, extraMeta };
+      if (extraMeta.count && extraMeta.difficulty) {
+        // Inline picker already decided — generate directly, no modal.
+        runQuizGeneration(quizCtx, { count: extraMeta.count, difficulty: extraMeta.difficulty });
+      } else {
+        setPendingQuiz(quizCtx);
+      }
+    },
+    [activeBlockId, runQuizGeneration]
+  );
+
+  // Step 2: QuizConfigModal confirmed.
+  const onConfirmQuiz = useCallback(
+    async ({ count, difficulty, useStored }) => {
+      if (!pendingQuiz) return;
+      const { objectives, lectureTitle, blockId: bid, extraMeta } = pendingQuiz;
+      setPendingQuiz(null);
+      await runQuizGeneration({ objectives, lectureTitle, blockId: bid, extraMeta }, { count, difficulty, useStored });
+    },
+    [pendingQuiz, runQuizGeneration]
   );
 
   return (
