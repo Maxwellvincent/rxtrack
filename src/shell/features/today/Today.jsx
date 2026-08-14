@@ -15,6 +15,78 @@ function dayModeKey(blockId) { return `rxt-day-mode-${blockId}`; }
 function readDayMode(blockId) { return localStorage.getItem(dayModeKey(blockId)) || null; }
 function writeDayMode(blockId, mode) { localStorage.setItem(dayModeKey(blockId), mode); }
 
+function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${new Date().toDateString()}`; }
+function readSleepWake(blockId) {
+  try { return JSON.parse(localStorage.getItem(sleepWakeKey(blockId)) || "{}"); }
+  catch { return {}; }
+}
+function writeSleepWake(blockId, val) { localStorage.setItem(sleepWakeKey(blockId), JSON.stringify(val)); }
+
+// Sleep hours → floor mode per spec
+function sleepFloorMode(hours) {
+  if (hours == null || isNaN(hours)) return null;
+  if (hours >= 6) return "lecture";   // ≥6h — default or soft warning, no penalty
+  if (hours >= 5) return "review";    // 5–6h — compressed
+  return "triage";                    // <5h — salvage/triage
+}
+
+// Wake time "HH:MM" → mode per spec
+function wakeTimeMode(wakeStr) {
+  if (!wakeStr) return null;
+  const h = parseInt(wakeStr.split(":")[0], 10);
+  if (h < 8)  return "lecture";   // before 8am → default
+  if (h < 10) return "review";    // 8–10am → compressed
+  return "triage";                // 10am+ → salvage/triage
+}
+
+const MODE_RANK = { lecture: 0, review: 1, triage: 2 };
+function worstOf(a, b) {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return MODE_RANK[a] >= MODE_RANK[b] ? a : b;
+}
+
+// ─── Schedule blocks per mode (from rxtrack-study-routine.md) ─────────────────
+
+const SCHEDULE_BLOCKS = {
+  lecture: [
+    { time: "07:00–07:30", label: "Wake + Anki reviews", note: "Reviews only. No new unsuspends." },
+    { time: "08:00–11:30", label: "Pre-learn Lec A", note: "Full subroutine — mechanism map, teach-back, self-test on pre-made deck.", key: true },
+    { time: "11:30–12:00", label: "Skim Lec B", note: "5 min on objectives + 3 questions." },
+    { time: "12:00–13:00", label: "Lunch", note: "Off." },
+    { time: "13:00–14:00", label: "Lecture A — filter", note: "Tag ⭐ ❗. No heavy notes. No live unsuspends.", key: true },
+    { time: "14:00–15:00", label: "Lecture B — primary teaching", note: "Engaged note-taking OK. No live unsuspends.", key: true },
+    { time: "15:00–15:30", label: "Old-lecture review", note: "2–3 stalest. Self-test or rapid pull." },
+    { time: "15:30–16:00", label: "Break", note: "" },
+    { time: "16:00–18:30", label: "Targeted review + Anki unsuspend", note: "Fix Lec A ❗ tags. Deep-learn Lec B. ~20–30 cards/sub-deck (≤50 total).", key: true },
+    { time: "18:30–19:00", label: "DLA (if pending)", note: "Slot one DLA if any due ≤5 days. Two max." },
+    { time: "19:00–20:30", label: "Dinner + life", note: "Off." },
+    { time: "20:30–21:30", label: "Practice Qs", note: "Optional: 5–15 questions." },
+    { time: "21:30–22:30", label: "Wind-down", note: "Set tomorrow's must-dos. Screens off." },
+    { time: "00:00", label: "Sleep target", note: "Earlier if small group before 8am tomorrow.", key: true },
+  ],
+  review: [
+    { time: "07:00–07:30", label: "Wake + Anki reviews", note: "Mandatory. Cap 45 min if buried. No new unsuspends." },
+    { time: "08:00–10:00", label: "Old-lecture review (deep)", note: "3–5 stalest lectures. Self-test on pre-made deck.", key: true },
+    { time: "10:00–12:00", label: "Weak-concept drills", note: "Pick 3 struggling objectives. Quiz, don't re-read.", key: true },
+    { time: "12:00–13:00", label: "Lunch", note: "Off." },
+    { time: "13:00–15:00", label: "Practice Qs block", note: "15–30 questions. Review each miss.", key: true },
+    { time: "15:00–16:00", label: "Anki catch-up", note: "Mature reviews + targeted unsuspends (filter-passed only)." },
+    { time: "16:00–16:30", label: "DLA (if pending)", note: "Slot one or two DLAs if overdue." },
+    { time: "16:30–18:30", label: "Dinner + life", note: "Off." },
+    { time: "18:30–20:00", label: "Second review pass", note: "Optional: 2 more stalest lectures or Q bank topic." },
+    { time: "21:30–22:30", label: "Wind-down", note: "Set tomorrow's must-dos. Screens off." },
+    { time: "00:00", label: "Sleep target", note: "", key: true },
+  ],
+  triage: [
+    { time: "30–45 min", label: "Anki mature reviews", note: "Non-negotiable. Zero new unsuspends.", key: true },
+    { time: "60 min", label: "One thing only", note: "(a) skim 1 critical topic, (b) 20 practice Qs, or (c) 3 weak-concept drills.", key: true },
+    { time: "13:00–15:00", label: "Lectures — light filter only", note: "Tag ⭐ ❗ only. Skip if recorded. No deep work." },
+    { time: "30 min", label: "Reset + plan", note: "RxTrack audit. Set tomorrow's must-dos.", key: true },
+    { time: "23:00", label: "Bed — non-negotiable", note: "Sleep is the recovery. DLAs and old-lecture review dropped today.", key: true },
+  ],
+};
+
 // ─── Checked + session state (day-scoped per block) ───────────────────────
 
 function checkedKey(blockId) { return `rxt-checked-${blockId}-${new Date().toDateString()}`; }
@@ -39,32 +111,41 @@ function writeSessionCounts(blockId, map) {
 
 const MODE_COLORS = { lecture: "#4ade80", review: "#fbbf24", triage: "#f87171" };
 
-function DayModePicker({ mode, onChange }) {
+function DayModePicker({ mode, onChange, suggested }) {
   return (
     <div className="grid grid-cols-3 gap-2">
-      {DAY_MODES.map((m) => (
-        <button
-          key={m.id}
-          onClick={() => onChange(m.id)}
-          className={[
-            "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors",
-            mode === m.id
-              ? "border-accent bg-panel text-text-1"
-              : "border-border bg-bg-elevated text-text-2 hover:border-accent/40",
-          ].join(" ")}
-        >
-          <span className="flex items-center gap-1.5 text-xs font-semibold">
-            {mode === m.id && (
-              <span
-                className="inline-block h-2 w-2 rounded-full flex-shrink-0"
-                style={{ background: MODE_COLORS[m.id] }}
-              />
-            )}
-            {m.label}
-          </span>
-          <span className="mt-0.5 font-mono text-[10px] text-text-3 leading-snug">{m.desc}</span>
-        </button>
-      ))}
+      {DAY_MODES.map((m) => {
+        const isSelected = mode === m.id;
+        const isSuggested = suggested === m.id;
+        return (
+          <button
+            key={m.id}
+            onClick={() => onChange(m.id)}
+            className={[
+              "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors",
+              isSelected
+                ? "border-accent bg-panel text-text-1"
+                : isSuggested
+                  ? "border-accent/40 bg-bg-elevated text-text-2 hover:border-accent/60"
+                  : "border-border bg-bg-elevated text-text-2 hover:border-border-strong",
+            ].join(" ")}
+          >
+            <span className="flex items-center gap-1.5 text-xs font-semibold">
+              {(isSelected || isSuggested) && (
+                <span
+                  className="inline-block h-2 w-2 rounded-full flex-shrink-0"
+                  style={{ background: MODE_COLORS[m.id], opacity: isSelected ? 1 : 0.5 }}
+                />
+              )}
+              {m.label}
+              {isSuggested && !isSelected && (
+                <span className="ml-auto font-mono text-[8px] text-text-3">suggested</span>
+              )}
+            </span>
+            <span className="mt-0.5 font-mono text-[10px] text-text-3 leading-snug">{m.desc}</span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -106,6 +187,110 @@ function RoundDots({ done, total }) {
         />
       ))}
       <span className="ml-1 font-mono text-[10px] text-text-3">{done}/{total}</span>
+    </div>
+  );
+}
+
+function SleepWakeInput({ sleepHours, wakeTime, onChange }) {
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-bg-elevated px-3 py-2">
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] text-text-3">slept</span>
+        <input
+          type="number"
+          min="0" max="16" step="0.5"
+          value={sleepHours ?? ""}
+          placeholder="—"
+          onChange={(e) => onChange({ sleepHours: e.target.value === "" ? null : parseFloat(e.target.value), wakeTime })}
+          className="w-14 rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+        />
+        <span className="font-mono text-[10px] text-text-3">hrs</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] text-text-3">up at</span>
+        <input
+          type="time"
+          value={wakeTime ?? ""}
+          onChange={(e) => onChange({ sleepHours, wakeTime: e.target.value || null })}
+          className="rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+        />
+      </div>
+    </div>
+  );
+}
+
+function ClassificationBadge({ sleepHours, wakeTime, mode }) {
+  const floor = sleepFloorMode(sleepHours);
+  const wake = wakeTimeMode(wakeTime);
+  const suggested = worstOf(floor, wake);
+  if (!suggested && !mode) return null;
+
+  const parts = [];
+  if (sleepHours != null && !isNaN(sleepHours)) {
+    if (sleepHours < 5)       parts.push(`${sleepHours}h sleep → triage floor`);
+    else if (sleepHours < 6)  parts.push(`${sleepHours}h sleep → compressed floor`);
+    else                      parts.push(`${sleepHours}h sleep ✓`);
+  }
+  if (wakeTime) {
+    const h = parseInt(wakeTime.split(":")[0], 10);
+    if (h < 8)       parts.push(`up before 8am → default`);
+    else if (h < 10) parts.push(`up ${wakeTime} → compressed`);
+    else             parts.push(`up ${wakeTime} → salvage`);
+  }
+
+  const effective = mode ?? suggested;
+  if (!effective) return null;
+  const modeName = DAY_MODES.find((m) => m.id === effective)?.label ?? effective;
+  const isOverride = mode && suggested && mode !== suggested;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
+      <span className="text-text-3">{suggested ? "suggested" : "mode"}:</span>
+      <span
+        className="rounded px-1.5 py-0.5 font-bold text-bg text-[10px]"
+        style={{ background: MODE_COLORS[effective] }}
+      >
+        {modeName}
+      </span>
+      {isOverride && <span className="text-text-3">(overriding suggestion)</span>}
+      {parts.length > 0 && <span className="text-text-3">{parts.join(" · ")}</span>}
+    </div>
+  );
+}
+
+function RoutineSchedulePanel({ mode }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const blocks = SCHEDULE_BLOCKS[mode];
+  if (!blocks) return null;
+  return (
+    <div className="rounded-lg border border-border bg-bg-elevated overflow-hidden">
+      <button
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex w-full items-center justify-between border-b border-border px-3 py-2 text-left"
+      >
+        <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">
+          Today's routine
+        </span>
+        <span className="font-mono text-[10px] text-text-3">{collapsed ? "▸" : "▾"}</span>
+      </button>
+      {!collapsed && (
+        <div className="divide-y divide-border/40">
+          {blocks.map((b, i) => (
+            <div
+              key={i}
+              className={["flex items-start gap-3 px-3 py-2", b.key ? "bg-panel/40" : ""].join(" ")}
+            >
+              <span className="w-[88px] flex-shrink-0 font-mono text-[9px] text-text-3 pt-0.5 leading-snug">{b.time}</span>
+              <div className="flex-1 min-w-0">
+                <div className={["text-[11.5px] leading-snug", b.key ? "font-semibold text-text-1" : "text-text-2"].join(" ")}>
+                  {b.label}
+                </div>
+                {b.note && <div className="font-mono text-[9.5px] text-text-3 mt-0.5 leading-snug">{b.note}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -326,11 +511,28 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
   const [checked, setChecked] = useState(() => readChecked(blockId));
   const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
+  const [sleepWake, setSleepWake] = useState(() => readSleepWake(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
+
+  const suggestedMode = useMemo(
+    () => worstOf(sleepFloorMode(sleepWake.sleepHours), wakeTimeMode(sleepWake.wakeTime)),
+    [sleepWake]
+  );
 
   const handleDayMode = useCallback((m) => {
     setDayMode(m);
     writeDayMode(blockId, m);
+  }, [blockId]);
+
+  const handleSleepWake = useCallback((val) => {
+    setSleepWake(val);
+    writeSleepWake(blockId, val);
+    // Auto-apply suggestion if user hasn't manually overridden
+    const suggested = worstOf(sleepFloorMode(val.sleepHours), wakeTimeMode(val.wakeTime));
+    if (suggested && !readDayMode(blockId)) {
+      setDayMode(suggested);
+      writeDayMode(blockId, suggested);
+    }
   }, [blockId]);
 
   const handleCheck = useCallback((id) => {
@@ -380,29 +582,30 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id });
   }, [objectivesForTask, onStartObjectiveQuiz, blockId]);
 
+  // Effective mode: manual pick or auto-suggestion
+  const effectiveMode = dayMode ?? suggestedMode;
+
   // Day mode filters the raw task list without touching the scheduler
   const filteredTasks = useMemo(() => {
-    if (!dayMode) return todayTasks;
-    if (dayMode === "lecture") {
-      // Prioritise scheduled-day; allow up to 2 spaced-rep-due on top; skip pure urgency fill
+    const mode = effectiveMode;
+    if (!mode) return todayTasks;
+    if (mode === "lecture") {
       const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day");
       const due = todayTasks.filter((t) => t.matchReason === "spaced-rep-due").slice(0, 2);
       return [...scheduled, ...due];
     }
-    if (dayMode === "review") {
-      // No new scheduled lectures — review overdue + highest urgency old material only
+    if (mode === "review") {
       return todayTasks
         .filter((t) => t.matchReason !== "scheduled-day")
         .slice(0, 5);
     }
-    if (dayMode === "triage") {
-      // Recovery: 2 highest-urgency tasks only, prefer ones already seen (sessions > 0)
+    if (mode === "triage") {
       const seen = todayTasks.filter((t) => (t.sessions ?? 0) > 0);
       const pool = seen.length >= 2 ? seen : todayTasks;
       return pool.slice(0, 2);
     }
     return todayTasks;
-  }, [dayMode, todayTasks]);
+  }, [effectiveMode, todayTasks]);
 
   const doneCount = useMemo(() => filteredTasks.filter((t) => checked.has(t.lec.id)).length, [filteredTasks, checked]);
   const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checked.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checked]);
@@ -424,17 +627,29 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="rounded-full border border-border bg-panel px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-wide text-text-2">
-            {dayMode
-              ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[dayMode] }} />{DAY_MODES.find((m) => m.id === dayMode)?.label}</>
-              : "Pick a day type"
+            {effectiveMode
+              ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[effectiveMode] }} />{DAY_MODES.find((m) => m.id === effectiveMode)?.label}{!dayMode && <span className="ml-1 text-[9px] font-normal opacity-60">auto</span>}</>
+              : "Set day type"
             }
           </span>
           <span className="font-mono text-[10px] text-text-3">{daysLeft}d to exam</span>
         </div>
       </div>
 
+      {/* Sleep / wake inputs + classification */}
+      <SleepWakeInput
+        sleepHours={sleepWake.sleepHours ?? null}
+        wakeTime={sleepWake.wakeTime ?? null}
+        onChange={handleSleepWake}
+      />
+      <ClassificationBadge
+        sleepHours={sleepWake.sleepHours ?? null}
+        wakeTime={sleepWake.wakeTime ?? null}
+        mode={dayMode}
+      />
+
       {/* Day mode picker */}
-      <DayModePicker mode={dayMode} onChange={handleDayMode} />
+      <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />
 
       {/* Progress */}
       {filteredTasks.length > 0 && (
@@ -452,13 +667,16 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
         </div>
       )}
 
+      {/* Routine schedule for selected mode */}
+      {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} />}
+
       {/* Task list */}
       {filteredTasks.length === 0 ? (
-        todayTasks.length > 0 && dayMode ? (
+        todayTasks.length > 0 && effectiveMode ? (
           <div className="rounded-lg border border-border p-4 text-xs text-text-3">
-            No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === dayMode)?.label}</span> today.
-            {dayMode === "review" && " All available lectures are scheduled for today — switch to Lecture day."}
-            {dayMode === "triage" && " No previously-studied lectures available — showing top pick below."}
+            No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === effectiveMode)?.label}</span> today.
+            {effectiveMode === "review" && " All available lectures are scheduled for today — switch to Lecture day."}
+            {effectiveMode === "triage" && " No previously-studied lectures available — showing top pick below."}
           </div>
         ) : nextDay ? (
           <div className="rounded-lg border border-border p-4 text-xs text-text-3">
