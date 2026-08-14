@@ -46,46 +46,79 @@ function worstOf(a, b) {
   return MODE_RANK[a] >= MODE_RANK[b] ? a : b;
 }
 
-// ─── Schedule blocks per mode (from rxtrack-study-routine.md) ─────────────────
+// ─── Lecture time (block-scoped, not day-scoped — doesn't change daily) ───────
 
-const SCHEDULE_BLOCKS = {
-  lecture: [
-    { time: "07:00–07:30", label: "Wake + Anki reviews", note: "Reviews only. No new unsuspends." },
-    { time: "08:00–11:30", label: "Pre-learn Lec A", note: "Full subroutine — mechanism map, teach-back, self-test on pre-made deck.", key: true },
-    { time: "11:30–12:00", label: "Skim Lec B", note: "5 min on objectives + 3 questions." },
-    { time: "12:00–13:00", label: "Lunch", note: "Off." },
-    { time: "13:00–14:00", label: "Lecture A — filter", note: "Tag ⭐ ❗. No heavy notes. No live unsuspends.", key: true },
-    { time: "14:00–15:00", label: "Lecture B — primary teaching", note: "Engaged note-taking OK. No live unsuspends.", key: true },
-    { time: "15:00–15:30", label: "Old-lecture review", note: "2–3 stalest. Self-test or rapid pull." },
-    { time: "15:30–16:00", label: "Break", note: "" },
-    { time: "16:00–18:30", label: "Targeted review + Anki unsuspend", note: "Fix Lec A ❗ tags. Deep-learn Lec B. ~20–30 cards/sub-deck (≤50 total).", key: true },
-    { time: "18:30–19:00", label: "DLA (if pending)", note: "Slot one DLA if any due ≤5 days. Two max." },
-    { time: "19:00–20:30", label: "Dinner + life", note: "Off." },
-    { time: "20:30–21:30", label: "Practice Qs", note: "Optional: 5–15 questions." },
-    { time: "21:30–22:30", label: "Wind-down", note: "Set tomorrow's must-dos. Screens off." },
-    { time: "00:00", label: "Sleep target", note: "Earlier if small group before 8am tomorrow.", key: true },
-  ],
-  review: [
-    { time: "07:00–07:30", label: "Wake + Anki reviews", note: "Mandatory. Cap 45 min if buried. No new unsuspends." },
-    { time: "08:00–10:00", label: "Old-lecture review (deep)", note: "3–5 stalest lectures. Self-test on pre-made deck.", key: true },
-    { time: "10:00–12:00", label: "Weak-concept drills", note: "Pick 3 struggling objectives. Quiz, don't re-read.", key: true },
-    { time: "12:00–13:00", label: "Lunch", note: "Off." },
-    { time: "13:00–15:00", label: "Practice Qs block", note: "15–30 questions. Review each miss.", key: true },
-    { time: "15:00–16:00", label: "Anki catch-up", note: "Mature reviews + targeted unsuspends (filter-passed only)." },
-    { time: "16:00–16:30", label: "DLA (if pending)", note: "Slot one or two DLAs if overdue." },
-    { time: "16:30–18:30", label: "Dinner + life", note: "Off." },
-    { time: "18:30–20:00", label: "Second review pass", note: "Optional: 2 more stalest lectures or Q bank topic." },
-    { time: "21:30–22:30", label: "Wind-down", note: "Set tomorrow's must-dos. Screens off." },
-    { time: "00:00", label: "Sleep target", note: "", key: true },
-  ],
-  triage: [
-    { time: "30–45 min", label: "Anki mature reviews", note: "Non-negotiable. Zero new unsuspends.", key: true },
-    { time: "60 min", label: "One thing only", note: "(a) skim 1 critical topic, (b) 20 practice Qs, or (c) 3 weak-concept drills.", key: true },
-    { time: "13:00–15:00", label: "Lectures — light filter only", note: "Tag ⭐ ❗ only. Skip if recorded. No deep work." },
-    { time: "30 min", label: "Reset + plan", note: "RxTrack audit. Set tomorrow's must-dos.", key: true },
-    { time: "23:00", label: "Bed — non-negotiable", note: "Sleep is the recovery. DLAs and old-lecture review dropped today.", key: true },
-  ],
-};
+function lecTimeKey(blockId) { return `rxt-lectime-${blockId}`; }
+function readLecTime(blockId) { return localStorage.getItem(lecTimeKey(blockId)) || null; }
+function writeLecTime(blockId, val) {
+  if (val) localStorage.setItem(lecTimeKey(blockId), val);
+  else localStorage.removeItem(lecTimeKey(blockId));
+}
+
+// ─── Schedule time helpers ─────────────────────────────────────────────────────
+
+function toMins(hhmm) {
+  if (!hhmm) return null;
+  const parts = hhmm.split(":");
+  return parseInt(parts[0], 10) * 60 + (parseInt(parts[1], 10) || 0);
+}
+
+function fromMins(totalMins) {
+  const norm = ((totalMins % 1440) + 1440) % 1440;
+  const h = Math.floor(norm / 60);
+  const m = norm % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function fmtRange(s, e) { return `${fromMins(s)}–${fromMins(e)}`; }
+
+// ─── Schedule blocks per mode — computed from actual wake + lecture times ──────
+
+function computeSchedule(mode, wakeTime, lectureTime) {
+  const w = toMins(wakeTime) ?? 7 * 60;   // fallback 07:00
+  const l = toMins(lectureTime) ?? 13 * 60; // fallback 13:00
+
+  if (mode === "lecture") return [
+    { time: fmtRange(w, w + 30),       label: "Wake + Anki reviews",           note: "Reviews only. No new unsuspends." },
+    { time: fmtRange(w + 30, l - 90),  label: "Pre-learn Lec A",               note: "Mechanism map, teach-back, self-test on pre-made deck.", key: true },
+    { time: fmtRange(l - 90, l - 60),  label: "Skim Lec B",                    note: "5 min on objectives + 3 questions." },
+    { time: fmtRange(l - 60, l),       label: "Lunch",                          note: "Off." },
+    { time: fmtRange(l, l + 60),       label: "Lecture A — filter",            note: "Tag ⭐ ❗. No heavy notes. No live unsuspends.", key: true },
+    { time: fmtRange(l + 60, l + 120), label: "Lecture B — primary teaching",  note: "Engaged note-taking OK. No live unsuspends.", key: true },
+    { time: fmtRange(l + 120, l + 150),label: "Old-lecture review",            note: "2–3 stalest. Self-test or rapid pull." },
+    { time: fmtRange(l + 150, l + 180),label: "Break",                         note: "" },
+    { time: fmtRange(l + 180, l + 330),label: "Targeted review + Anki unsuspend", note: "Fix Lec A ❗ tags. Deep-learn Lec B. ~20–30 cards/sub-deck (≤50 total).", key: true },
+    { time: fmtRange(l + 330, l + 360),label: "DLA (if pending)",              note: "Slot one DLA if any due ≤5 days. Two max." },
+    { time: fmtRange(l + 360, l + 450),label: "Dinner + life",                 note: "Off." },
+    { time: fmtRange(l + 450, l + 510),label: "Practice Qs",                   note: "Optional: 5–15 questions." },
+    { time: fmtRange(l + 510, l + 570),label: "Wind-down",                     note: "Set tomorrow's must-dos. Screens off." },
+    { time: fromMins(24 * 60),          label: "Sleep target",                  note: "Earlier if small group before 8am tomorrow.", key: true },
+  ];
+
+  if (mode === "review") return [
+    { time: fmtRange(w, w + 30),       label: "Wake + Anki reviews",           note: "Mandatory. Cap 45 min if buried. No new unsuspends." },
+    { time: fmtRange(w + 30, w + 150), label: "Old-lecture review (deep)",     note: "3–5 stalest lectures. Self-test on pre-made deck.", key: true },
+    { time: fmtRange(w + 150, w + 270),label: "Weak-concept drills",           note: "Pick 3 struggling objectives. Quiz, don't re-read.", key: true },
+    { time: fmtRange(w + 270, w + 330),label: "Lunch",                         note: "Off." },
+    { time: fmtRange(w + 330, w + 450),label: "Practice Qs block",             note: "15–30 questions. Review each miss.", key: true },
+    { time: fmtRange(w + 450, w + 510),label: "Anki catch-up",                 note: "Mature reviews + targeted unsuspends (filter-passed only)." },
+    { time: fmtRange(w + 510, w + 540),label: "DLA (if pending)",              note: "Slot one or two DLAs if overdue." },
+    { time: fmtRange(w + 540, w + 650),label: "Dinner + life",                 note: "Off." },
+    { time: fmtRange(w + 650, w + 740),label: "Second review pass",            note: "Optional: 2 more stalest lectures or Q bank topic." },
+    { time: fmtRange(w + 740, w + 800),label: "Wind-down",                     note: "Set tomorrow's must-dos. Screens off." },
+    { time: fromMins(24 * 60),          label: "Sleep target",                  note: "", key: true },
+  ];
+
+  if (mode === "triage") return [
+    { time: fmtRange(w, w + 45),       label: "Anki mature reviews",           note: "Non-negotiable. Zero new unsuspends.", key: true },
+    { time: fmtRange(w + 45, w + 105), label: "One thing only",               note: "(a) skim 1 critical topic, (b) 20 practice Qs, or (c) 3 weak-concept drills.", key: true },
+    { time: fmtRange(l, l + 120),      label: "Lectures — light filter only",  note: "Tag ⭐ ❗ only. Skip if recorded. No deep work." },
+    { time: "after lectures",           label: "Reset + plan",                  note: "RxTrack audit. Set tomorrow's must-dos.", key: true },
+    { time: "23:00",                    label: "Bed — non-negotiable",          note: "Sleep is the recovery. DLAs and old-lecture review dropped today.", key: true },
+  ];
+
+  return [];
+}
 
 // ─── Checked + session state (day-scoped per block) ───────────────────────
 
@@ -191,7 +224,7 @@ function RoundDots({ done, total }) {
   );
 }
 
-function SleepWakeInput({ sleepHours, wakeTime, onChange }) {
+function SleepWakeInput({ sleepHours, wakeTime, lectureTime, onChangeSleepWake, onChangeLecTime }) {
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-lg border border-border bg-bg-elevated px-3 py-2">
       <div className="flex items-center gap-2">
@@ -201,7 +234,7 @@ function SleepWakeInput({ sleepHours, wakeTime, onChange }) {
           min="0" max="16" step="0.5"
           value={sleepHours ?? ""}
           placeholder="—"
-          onChange={(e) => onChange({ sleepHours: e.target.value === "" ? null : parseFloat(e.target.value), wakeTime })}
+          onChange={(e) => onChangeSleepWake({ sleepHours: e.target.value === "" ? null : parseFloat(e.target.value), wakeTime })}
           className="w-14 rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
         />
         <span className="font-mono text-[10px] text-text-3">hrs</span>
@@ -211,7 +244,16 @@ function SleepWakeInput({ sleepHours, wakeTime, onChange }) {
         <input
           type="time"
           value={wakeTime ?? ""}
-          onChange={(e) => onChange({ sleepHours, wakeTime: e.target.value || null })}
+          onChange={(e) => onChangeSleepWake({ sleepHours, wakeTime: e.target.value || null })}
+          className="rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+        />
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-[10px] text-text-3">lectures at</span>
+        <input
+          type="time"
+          value={lectureTime ?? ""}
+          onChange={(e) => onChangeLecTime(e.target.value || null)}
           className="rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
         />
       </div>
@@ -258,10 +300,10 @@ function ClassificationBadge({ sleepHours, wakeTime, mode }) {
   );
 }
 
-function RoutineSchedulePanel({ mode }) {
-  const [collapsed, setCollapsed] = useState(false);
-  const blocks = SCHEDULE_BLOCKS[mode];
-  if (!blocks) return null;
+function RoutineSchedulePanel({ mode, wakeTime, lectureTime }) {
+  const [collapsed, setCollapsed] = useState(true);
+  const blocks = computeSchedule(mode, wakeTime, lectureTime);
+  if (!blocks.length) return null;
   return (
     <div className="rounded-lg border border-border bg-bg-elevated overflow-hidden">
       <button
@@ -512,6 +554,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   const [checked, setChecked] = useState(() => readChecked(blockId));
   const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
   const [sleepWake, setSleepWake] = useState(() => readSleepWake(blockId));
+  const [lectureTime, setLectureTime] = useState(() => readLecTime(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
 
   const suggestedMode = useMemo(
@@ -533,6 +576,11 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       setDayMode(suggested);
       writeDayMode(blockId, suggested);
     }
+  }, [blockId]);
+
+  const handleLecTime = useCallback((val) => {
+    setLectureTime(val);
+    writeLecTime(blockId, val);
   }, [blockId]);
 
   const handleCheck = useCallback((id) => {
@@ -636,11 +684,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
         </div>
       </div>
 
-      {/* Sleep / wake inputs + classification */}
+      {/* Sleep / wake / lecture time inputs + classification */}
       <SleepWakeInput
         sleepHours={sleepWake.sleepHours ?? null}
         wakeTime={sleepWake.wakeTime ?? null}
-        onChange={handleSleepWake}
+        lectureTime={lectureTime}
+        onChangeSleepWake={handleSleepWake}
+        onChangeLecTime={handleLecTime}
       />
       <ClassificationBadge
         sleepHours={sleepWake.sleepHours ?? null}
@@ -668,7 +718,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       )}
 
       {/* Routine schedule for selected mode */}
-      {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} />}
+      {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={sleepWake.wakeTime ?? null} lectureTime={lectureTime} />}
 
       {/* Task list */}
       {filteredTasks.length === 0 ? (
