@@ -7,7 +7,7 @@
  * upload path survives here as the fallback for chunk-light lectures — which is
  * most of them, since only the active term keeps chunks in localStorage.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import {
@@ -34,6 +34,8 @@ import {
   selectCandidates,
 } from "../../../lectureFigures.js";
 import { readExemplars } from "../objectives/quizLaunch.js";
+import { generateStudyGuide } from "../../../engine/studyGuide.js";
+import * as studyGuideStore from "../../../stores/studyGuide.js";
 import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundLabel } from "./lectureStudy.js";
 import {
   clearRoundProgress,
@@ -86,6 +88,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
 
+  // Study guide — auto-generated searchable topic list, one per lecture mount
+  const [studyGuide, setStudyGuide] = useState(null);
+  const [generatingGuide, setGeneratingGuide] = useState(false);
+  const guideGenRef = useRef(false);
+
   // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
   // as a hung app, and the honest fix is to show the wait, not to hide it.
   useEffect(() => {
@@ -97,6 +104,31 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const busyLabel = busy ? `${busy}${elapsed ? ` ${elapsed}s` : ""}` : "";
 
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
+
+  const generateGuide = useCallback(async (currentAtoms, currentObjectives) => {
+    setGeneratingGuide(true);
+    const result = await generateStudyGuide(
+      { objectives: currentObjectives, atoms: currentAtoms, subject: title },
+      { callAIJSON }
+    );
+    setGeneratingGuide(false);
+    if (!result.topics?.length) return;
+    const guide = {
+      topics: result.topics.map((text, i) => ({ id: `t${i}`, text, checked: false })),
+      generated: Date.now(),
+    };
+    studyGuideStore.write(userId, lecture?.id, guide);
+    setStudyGuide(guide);
+  }, [title, userId, lecture?.id]);
+
+  // Auto-trigger: load cached guide or generate when atoms first populate
+  useEffect(() => {
+    if (!atoms.length || guideGenRef.current) return;
+    guideGenRef.current = true;
+    const stored = studyGuideStore.read(userId, lecture?.id);
+    if (stored?.topics?.length) { setStudyGuide(stored); return; }
+    generateGuide(atoms, lectureObjectives);
+  }, [atoms]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Shell keys this component by lecture id, so switching lectures remounts it
   // with fresh state instead of needing a synchronous reset in here.
@@ -625,8 +657,58 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
 
       {/* The atom list is reference, not the session. Reading it is the passive habit this
           screen used to force; it stays one click away for when you actually want it. */}
+      {/* Study guide — auto-generated searchable topics, checkable */}
+      {(studyGuide || generatingGuide) && (
+        <div className="mt-5 border-t border-border pt-4">
+          <div className="mb-2 flex items-center gap-3">
+            <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">
+              Study guide
+              {studyGuide && !generatingGuide && (
+                <span className="ml-1.5 text-text-3 font-normal normal-case font-mono">
+                  · {studyGuide.topics.filter((t) => !t.checked).length} remaining
+                </span>
+              )}
+            </span>
+            {!generatingGuide && studyGuide && (
+              <button
+                onClick={() => { guideGenRef.current = false; generateGuide(atoms, lectureObjectives); }}
+                className="font-mono text-[11px] text-text-3 underline decoration-dotted hover:text-text-1"
+              >
+                regenerate
+              </button>
+            )}
+          </div>
+          {generatingGuide && (
+            <span className="font-mono text-[12px] text-text-3">building study guide…</span>
+          )}
+          {studyGuide && (
+            <div className="flex flex-col gap-1.5">
+              {studyGuide.topics.map((t) => (
+                <label key={t.id} className="flex cursor-pointer items-start gap-2.5 group">
+                  <input
+                    type="checkbox"
+                    checked={t.checked || false}
+                    className="mt-0.5 accent-accent shrink-0"
+                    onChange={(e) => {
+                      const next = studyGuideStore.setTopicChecked(userId, lecture?.id, t.id, e.target.checked);
+                      setStudyGuide(next);
+                    }}
+                  />
+                  <span className={[
+                    "text-sm leading-snug",
+                    t.checked ? "text-text-3 line-through" : "text-text-1",
+                  ].join(" ")}>
+                    {t.text}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {atoms.length > 0 && (
-        <details className="group">
+        <details className="group mt-4">
           <summary className="cursor-pointer list-none font-mono text-[13px] text-text-3 hover:text-text-1">
             ▸ review all {atoms.length} atoms
           </summary>
