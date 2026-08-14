@@ -210,9 +210,9 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         </div>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
-        {summary && <div className="mb-3 font-mono text-[11px] text-good">{summary}</div>}
+        {summary && <div className="mb-3 font-mono text-[13px] text-good">{summary}</div>}
 
-        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[11px] text-text-2">
+        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[13px] text-text-2">
           <input
             type="checkbox"
             checked={useLlm}
@@ -226,7 +226,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         <div className="mb-3 grid grid-cols-2 gap-2">
           <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
             <span className="text-text-2">Choose the whole folder</span>
-            <span className="font-mono text-[10px] text-text-3">folder</span>
+            <span className="font-mono text-[12px] text-text-3">folder</span>
             <input
               type="file"
               webkitdirectory=""
@@ -241,7 +241,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
           </label>
           <label className="flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
             <span className="text-text-2">Pick files instead</span>
-            <span className="font-mono text-[10px] text-text-3">files</span>
+            <span className="font-mono text-[12px] text-text-3">files</span>
             <input
               type="file"
               multiple
@@ -253,18 +253,18 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
           </label>
         </div>
         {plan.length > 0 && (
-          <div className="mb-3 font-mono text-[11px] text-text-3">
+          <div className="mb-3 font-mono text-[13px] text-text-3">
             {counts.total} lectures{skipped > 0 && ` · ignored ${skipped} other files (source PDFs, images, marker subfolders)`}
           </div>
         )}
 
         {plan.length > 0 && (
           <>
-            <div className="mb-2 font-mono text-[11px] text-text-3">
+            <div className="mb-2 font-mono text-[13px] text-text-3">
               {counts.fill} filling an existing lecture ({counts.dated} of them scheduled) · {counts.add} new
             </div>
             <div className="mb-3 flex-1 overflow-y-auto rounded-lg border border-border">
-              <table className="w-full text-left text-[11px]">
+              <table className="w-full text-left text-[13px]">
                 <tbody>
                   {plan.map((p) => {
                     const row = rows[p.filename] || {};

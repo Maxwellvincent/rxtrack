@@ -31,7 +31,7 @@ export function FigureReview({ figures, onToggle, onKind, onConfirm, onCancel, b
         <Button variant="outline" onClick={onCancel} disabled={!!busy}>
           Cancel
         </Button>
-        <span className="text-[10px] text-text-3">
+        <span className="text-[12px] text-text-3">
           {kept.length} of {figures.length} kept · untick anything that would not make a good
           question — nothing is uploaded until you confirm
         </span>
@@ -57,26 +57,26 @@ export function FigureReview({ figures, onToggle, onKind, onConfirm, onCancel, b
               {f.url ? (
                 <img src={f.url} alt="" loading="lazy" className="h-40 w-full bg-panel object-contain" />
               ) : (
-                <div className="flex h-40 w-full items-center justify-center bg-panel text-[10px] text-text-3">
+                <div className="flex h-40 w-full items-center justify-center bg-panel text-[12px] text-text-3">
                   no preview
                 </div>
               )}
             </button>
             <div className="p-2">
               <div className="mb-1 flex items-center gap-1.5">
-                <span className="font-mono text-[10px] text-text-3">{f.keep ? "✓" : "○"}</span>
+                <span className="font-mono text-[12px] text-text-3">{f.keep ? "✓" : "○"}</span>
                 <select
                   value={f.kind}
                   disabled={!!busy}
                   onChange={(e) => onKind(i, e.target.value)}
-                  className="rounded border border-border bg-bg px-1 py-0.5 font-mono text-[10px] text-text-2"
+                  className="rounded border border-border bg-bg px-1 py-0.5 font-mono text-[12px] text-text-2"
                 >
                   {(f.kind === "unlabelled" ? ["unlabelled", ...KINDS] : KINDS).map((k) => (
                     <option key={k} value={k}>{k}</option>
                   ))}
                 </select>
               </div>
-              <div className="text-[11px] leading-snug text-text-2">
+              <div className="text-[13px] leading-snug text-text-2">
                 {f.shows || <span className="text-text-3">{KIND_HINT[f.kind]}</span>}
               </div>
             </div>

@@ -138,11 +138,11 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
   return (
     <div className="mx-auto max-w-2xl p-5">
       <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-accent-text">
+        <span className="font-mono text-[13px] uppercase tracking-wider text-accent-text">
           Calibrate
           {current.item?.lecture && <span className="ml-2 normal-case tracking-normal text-text-3">· {current.item.lecture}</span>}
         </span>
-        <span className="font-mono text-[11px] text-text-3">{session.index + 1}/{session.size}</span>
+        <span className="font-mono text-[13px] text-text-3">{session.index + 1}/{session.size}</span>
       </div>
 
       {!q && <Centered>No case available for this concept.<div className="mt-3"><Button onClick={advance}>Skip</Button></div></Centered>}
@@ -175,7 +175,7 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
           {/* Confidence step — appears after pick, before reveal. THE mechanism. */}
           {picked != null && !revealed && (
             <div className="rounded-lg border border-border-strong bg-panel p-3">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-text-3">How sure are you? (1–5)</div>
+              <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">How sure are you? (1–5)</div>
               <div className="flex gap-2">
                 {CONF.map((c) => (
                   <button
@@ -184,7 +184,7 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
                     className="flex flex-1 flex-col items-center gap-0.5 rounded-lg border border-border px-2 py-2 text-center hover:border-accent"
                   >
                     <span className="font-mono text-sm text-text-1">{c.level}</span>
-                    <span className="text-[10px] text-text-3">{c.label}</span>
+                    <span className="text-[12px] text-text-3">{c.label}</span>
                   </button>
                 ))}
               </div>
@@ -217,7 +217,7 @@ function Summary({ records, onAnother, onExit }) {
       <div className="text-lg font-bold text-text-1">Session complete · {records.length} items</div>
 
       <div className="mt-4 rounded-lg border border-border bg-bg-elevated p-4">
-        <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-text-3">Calibration — accuracy by confidence</div>
+        <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">Calibration — accuracy by confidence</div>
         <div className="flex flex-col gap-1.5">
           {[...s.curve].reverse().map((r) => (
             <div key={r.level} className="flex items-center gap-2 text-xs">
@@ -229,17 +229,17 @@ function Summary({ records, onAnother, onExit }) {
             </div>
           ))}
         </div>
-        <div className="mt-1 text-[10px] text-text-3">Well-calibrated = higher confidence → higher accuracy.</div>
+        <div className="mt-1 text-[12px] text-text-3">Well-calibrated = higher confidence → higher accuracy.</div>
       </div>
 
       {s.landmines.length > 0 && (
         <div className="mt-4 rounded-lg border border-bad bg-bg-elevated p-4">
-          <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-bad">⚠ Review first — sure but wrong</div>
+          <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-bad">⚠ Review first — sure but wrong</div>
           <ul className="flex flex-col gap-1 text-sm text-text-1">
             {s.landmines.map((l, i) => (
               <li key={i} className="flex items-center gap-2">
                 <span className="text-bad">•</span>{l.concept}
-                <span className="ml-auto font-mono text-[10px] text-text-3">{CONF[l.confidence - 1].label}</span>
+                <span className="ml-auto font-mono text-[12px] text-text-3">{CONF[l.confidence - 1].label}</span>
               </li>
             ))}
           </ul>
@@ -257,7 +257,7 @@ function Summary({ records, onAnother, onExit }) {
 function Panel({ label, children }) {
   return (
     <div className="rounded-lg border-l-2 border-accent bg-bg-elevated p-3">
-      <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-text-3">{label}</div>
+      <div className="mb-1 font-mono text-[12px] uppercase tracking-wider text-text-3">{label}</div>
       <div className="text-sm leading-relaxed text-text-1 whitespace-pre-wrap">{children}</div>
     </div>
   );

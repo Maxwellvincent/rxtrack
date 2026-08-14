@@ -60,7 +60,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
 
   return (
     <div className="mb-5 space-y-3">
-      <div className="flex items-center justify-between font-mono text-[10px] uppercase tracking-wider text-accent-text">
+      <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Calibrated quiz — from your atoms</span><span className="text-text-3">{i + 1}/{questions.length}</span>
       </div>
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
@@ -112,7 +112,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
                     })}
                     title={isCrossed ? "Restore" : "Eliminate"}
                     className={[
-                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border font-mono text-[10px] transition-colors",
+                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border font-mono text-[12px] transition-colors",
                       isCrossed
                         ? "border-border bg-panel text-text-2 hover:border-border-strong"
                         : "border-border text-text-3 hover:border-border-strong hover:text-bad",
@@ -128,13 +128,13 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
 
         {picked != null && !revealed && (
           <div className="mt-3 rounded-lg border border-border-strong bg-panel p-2">
-            <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-text-3">How sure? (1–5)</div>
+            <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-text-3">How sure? (1–5)</div>
             <div className="flex gap-1.5">
               {CONF.map((c) => (
                 <button key={c.level} onClick={() => rate(c.level)}
                   className="flex flex-1 flex-col items-center rounded-lg border border-border py-1.5 hover:border-accent">
                   <span className="font-mono text-xs text-text-1">{c.level}</span>
-                  <span className="text-[9px] text-text-3">{c.label}</span>
+                  <span className="text-[13px] text-text-3">{c.label}</span>
                 </button>
               ))}
             </div>
@@ -146,7 +146,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
             <div className={"text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
             </div>
-            {q.explanation && <div className="rounded border-l-2 border-accent bg-panel p-2 text-[11px] leading-relaxed text-text-2">{q.explanation}</div>}
+            {q.explanation && <div className="rounded border-l-2 border-accent bg-panel p-2 text-[13px] leading-relaxed text-text-2">{q.explanation}</div>}
             <Button onClick={next}>{i + 1 >= questions.length ? "See calibration" : "Next →"}</Button>
           </div>
         )}
@@ -162,7 +162,7 @@ function Summary({ records }) {
     <div className="mb-5 space-y-3">
       <div className="text-sm font-bold text-text-1">Calibration · {records.length} answered</div>
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
-        <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-text-3">Accuracy by confidence</div>
+        <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">Accuracy by confidence</div>
         {[...s.curve].reverse().map((r) => (
           <div key={r.level} className="flex items-center gap-2 text-xs">
             <span className="w-16 text-text-2">{CONF[r.level - 1].label}</span>
@@ -175,7 +175,7 @@ function Summary({ records }) {
       </div>
       {s.landmines.length > 0 && (
         <div className="rounded-lg border border-bad bg-bg-elevated p-3">
-          <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-bad">⚠ Review first — sure but wrong</div>
+          <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-bad">⚠ Review first — sure but wrong</div>
           <ul className="flex flex-col gap-1 text-xs text-text-1">
             {s.landmines.map((l, i) => <li key={i}>• {l.concept}</li>)}
           </ul>

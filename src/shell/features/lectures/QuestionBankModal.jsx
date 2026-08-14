@@ -54,7 +54,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={busy ? undefined : onClose}>
       <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">Question banks</div>
-        <div className="mb-4 font-mono text-[10px] text-text-3">
+        <div className="mb-4 font-mono text-[12px] text-text-3">
           Past exam PDFs — parsed as style exemplars so generated questions match how your school writes them.
           {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
         </div>
@@ -72,7 +72,7 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
           <span className="text-text-2">{busy ? "Parsing…" : "Add exam PDFs"}</span>
-          <span className="font-mono text-[10px] text-text-3">pdf · md · txt</span>
+          <span className="font-mono text-[12px] text-text-3">pdf · md · txt</span>
           <input
             type="file"
             multiple
@@ -83,9 +83,9 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
           />
         </label>
 
-        {status && <div className="mb-3 font-mono text-[11px] text-text-2">{status}</div>}
+        {status && <div className="mb-3 font-mono text-[13px] text-text-2">{status}</div>}
         {summary && (
-          <div className="mb-3 font-mono text-[11px]">
+          <div className="mb-3 font-mono text-[13px]">
             <div className="text-good">{summary.saved} of {summary.files} files · {summary.questions} questions added</div>
             {summary.empty.map((f) => <div key={f} className="text-text-3">⚠ {f} — no questions detected</div>)}
             {summary.failed.map((f) => <div key={f} className="text-bad">✕ {f}</div>)}
@@ -96,17 +96,17 @@ export function QuestionBankModal({ blockId, userId = null, onClose, onUploaded 
           <div className="mb-3">
             <button
               onClick={() => setShowManage((s) => !s)}
-              className="font-mono text-[10px] text-text-3 hover:text-text-1"
+              className="font-mono text-[12px] text-text-3 hover:text-text-1"
             >
               {showManage ? "▾ hide" : "▸ manage"} {names.length} bank{names.length === 1 ? "" : "s"}
             </button>
             {showManage && (
               <div className="mt-2 rounded-lg border border-border">
                 {names.map((name) => (
-                  <div key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-0 text-[11px]">
+                  <div key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-0 text-[13px]">
                     <span className="flex-1 truncate text-text-2">{name}</span>
                     <span className="font-mono text-text-3">{banks[name]?.length || 0} q</span>
-                    {banks[name]?.[0]?.bankType === "wrong" && <span className="font-mono text-[9px] text-warn">missed</span>}
+                    {banks[name]?.[0]?.bankType === "wrong" && <span className="font-mono text-[13px] text-warn">missed</span>}
                     <button className="text-bad hover:underline" disabled={busy} onClick={() => remove(name)}>✕</button>
                   </div>
                 ))}

@@ -156,13 +156,13 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
         {lines.length > 0 && (
           <div className="mb-3 flex-1 overflow-y-auto rounded-lg border border-border bg-bg-elevated p-3">
             {lines.map((line, i) => (
-              <div key={i} className="font-mono text-[11px] text-text-2">{line}</div>
+              <div key={i} className="font-mono text-[13px] text-text-2">{line}</div>
             ))}
           </div>
         )}
 
         {done && (
-          <div className="mb-3 font-mono text-[11px] text-good">
+          <div className="mb-3 font-mono text-[13px] text-good">
             Re-extracted {totalObjectives} objective{totalObjectives === 1 ? "" : "s"} across {lectures.length} lecture{lectures.length === 1 ? "" : "s"}.
           </div>
         )}

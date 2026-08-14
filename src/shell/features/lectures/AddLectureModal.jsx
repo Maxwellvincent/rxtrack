@@ -240,10 +240,10 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         </div>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
-        {done && <div className="mb-3 font-mono text-[11px] text-good">{done}</div>}
-        {progress && <div className="mb-3 font-mono text-[11px] text-text-2">{progress}</div>}
+        {done && <div className="mb-3 font-mono text-[13px] text-good">{done}</div>}
+        {progress && <div className="mb-3 font-mono text-[13px] text-text-2">{progress}</div>}
 
-        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[11px] text-text-2">
+        <label className="mb-3 flex cursor-pointer items-center gap-2 font-mono text-[13px] text-text-2">
           <input
             type="checkbox"
             checked={useLlm}
@@ -256,7 +256,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
           <span className="text-text-2">{preview?.lecture?.filename || "Choose a lecture .pdf / .md / .txt"}</span>
-          <span className="font-mono text-[10px] text-text-3">browse</span>
+          <span className="font-mono text-[12px] text-text-3">browse</span>
           <input
             type="file"
             accept=".pdf,.md,.markdown,.txt"
@@ -271,7 +271,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             <div className="font-semibold text-text-1">
               {preview.lecture.lectureType} {preview.lecture.lectureNumber ?? "—"} · {preview.lecture.lectureTitle}
             </div>
-            <div className="mt-1 font-mono text-[10px] text-text-3">
+            <div className="mt-1 font-mono text-[12px] text-text-3">
               {preview.chars.toLocaleString()} chars · {preview.lecture.chunks.length} chunk
               {preview.lecture.chunks.length === 1 ? "" : "s"}
               {preview.lecture.extractionMethod !== "markdown-upload" &&
@@ -282,17 +282,17 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
                   : " · fills the existing lecture in this slot")}
             </div>
             {preview.quality?.quality === "poor" && (
-              <div className="mt-2 text-[11px] text-warn">
+              <div className="mt-2 text-[13px] text-warn">
                 ⚠ {preview.quality.reason}. Convert it with pdf2md instead if the text looks wrong.
               </div>
             )}
-            <label className="mt-2 flex items-center gap-2 font-mono text-[10px] text-text-3">
+            <label className="mt-2 flex items-center gap-2 font-mono text-[12px] text-text-3">
               date (optional — lets Today schedule it)
               <input
                 type="date"
                 value={lectureDate}
                 onChange={(e) => setLectureDate(e.target.value)}
-                className="rounded border border-border bg-panel px-1.5 py-0.5 text-[11px] text-text-1"
+                className="rounded border border-border bg-panel px-1.5 py-0.5 text-[13px] text-text-1"
               />
             </label>
           </div>
@@ -300,11 +300,11 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
         {saved && (
           <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3">
-            <div className="font-mono text-[11px] text-text-3">what came out of it</div>
-            <div className={`mt-1 font-mono text-[11px] ${objectiveResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
+            <div className="font-mono text-[13px] text-text-3">what came out of it</div>
+            <div className={`mt-1 font-mono text-[13px] ${objectiveResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◇ {objectiveResult || (busy ? "reading objectives…" : "—")}
             </div>
-            <div className={`mt-1 font-mono text-[11px] ${mapResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
+            <div className={`mt-1 font-mono text-[13px] ${mapResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◈ {mapResult || (busy ? "waiting on the teaching map…" : "—")}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">

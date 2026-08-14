@@ -44,7 +44,7 @@ export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, o
         <div className="flex flex-col gap-4">
           {/* Question count */}
           <div>
-            <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-wider text-text-3">
+            <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">
               Questions
             </label>
             <div className="flex items-center gap-2">
@@ -56,20 +56,20 @@ export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, o
                 onChange={(e) => setCount(e.target.value)}
                 className="w-20 rounded border border-border bg-bg-elevated px-2 py-1 font-mono text-sm text-text-1 focus:border-border-strong focus:outline-none"
               />
-              <span className="font-mono text-[10px] text-text-3">max 100</span>
+              <span className="font-mono text-[12px] text-text-3">max 100</span>
             </div>
           </div>
 
           {/* Difficulty */}
           <div>
-            <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-3">Difficulty</div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Difficulty</div>
             <div className="flex gap-1.5">
               {DIFFICULTIES.map((d) => (
                 <button
                   key={d}
                   onClick={() => setDifficulty(d)}
                   className={[
-                    "rounded border px-2.5 py-1 font-mono text-[11px] capitalize transition-colors",
+                    "rounded border px-2.5 py-1 font-mono text-[13px] capitalize transition-colors",
                     difficulty === d
                       ? "border-accent bg-panel text-text-1"
                       : "border-border text-text-3 hover:border-border-strong hover:text-text-2",
@@ -86,10 +86,10 @@ export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, o
             <div className="rounded-lg border border-border bg-bg-elevated px-3 py-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div>
-                  <div className="font-mono text-[11px] text-text-1">
+                  <div className="font-mono text-[13px] text-text-1">
                     {storedCount} question{storedCount !== 1 ? "s" : ""} saved
                   </div>
-                  <div className="font-mono text-[10px] text-text-3">
+                  <div className="font-mono text-[12px] text-text-3">
                     {storedCount >= parsed
                       ? "Enough to serve without regenerating"
                       : `${parsed - storedCount} more will be generated`}
@@ -98,7 +98,7 @@ export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, o
                 <button
                   onClick={() => setUseStored((v) => !v)}
                   className={[
-                    "rounded border px-2 py-1 font-mono text-[10px] transition-colors",
+                    "rounded border px-2 py-1 font-mono text-[12px] transition-colors",
                     useStored
                       ? "border-accent text-accent"
                       : "border-border text-text-3 hover:border-border-strong",
@@ -111,12 +111,12 @@ export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, o
           )}
 
           {willGenerate && (
-            <div className="font-mono text-[10px] text-text-3">
+            <div className="font-mono text-[12px] text-text-3">
               AI will generate{storedCount > 0 && useStored ? ` ${parsed - storedCount} more` : ` ${parsed}`} question{parsed !== 1 ? "s" : ""}. Questions are saved to your bank automatically.
             </div>
           )}
           {storedCount === 0 && (
-            <div className="font-mono text-[10px] text-text-3">
+            <div className="font-mono text-[12px] text-text-3">
               {userKeyActive
                 ? "No saved questions yet — AI will generate and save them for next time."
                 : <>No saved questions yet. AI will generate via shared server.{" "}

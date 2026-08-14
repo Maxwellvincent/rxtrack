@@ -168,11 +168,11 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
   return (
     <div className="mx-auto max-w-2xl p-5">
       <div className="mb-3 flex items-center justify-between">
-        <span className="font-mono text-[11px] uppercase tracking-wider text-accent-text">
+        <span className="font-mono text-[13px] uppercase tracking-wider text-accent-text">
           {modeLabel}
           {current.item?.lecture && <span className="ml-2 normal-case tracking-normal text-text-3">· {current.item.lecture}</span>}
         </span>
-        <span className="font-mono text-[11px] text-text-3">{session.index + 1}/{session.size}</span>
+        <span className="font-mono text-[13px] text-text-3">{session.index + 1}/{session.size}</span>
       </div>
 
       {!q && <Centered>No case available for this concept.<div className="mt-3"><Button onClick={() => submit("exposure")}>Skip</Button></div></Centered>}
@@ -183,7 +183,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
           <div className="rounded-lg border border-border bg-bg-elevated p-4 text-sm leading-relaxed text-text-1 whitespace-pre-wrap">{q.vignette}</div>
           <div className="flex items-baseline justify-between">
             <div className="text-sm font-semibold text-text-1">{q.leadIn || "Most likely diagnosis?"}</div>
-            {!revealed && <span className="font-mono text-[10px] text-text-3">A–E or 1–5 · ✕ eliminate</span>}
+            {!revealed && <span className="font-mono text-[12px] text-text-3">A–E or 1–5 · ✕ eliminate</span>}
           </div>
           <div className="flex flex-col gap-2">
             {(q.options || []).map((o) => {
@@ -232,7 +232,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
                 {(current.mode === "teach" || current.mode === "recognize") &&
                   (q.options || []).some((o) => !o.isCorrect && o.whyWrong) && (
                     <div className="rounded-lg border border-border bg-bg-elevated p-3">
-                      <div className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-text-3">Why not the others</div>
+                      <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-text-3">Why not the others</div>
                       <div className="flex flex-col gap-1.5 text-xs leading-relaxed text-text-2">
                         {(q.options || [])
                           .filter((o) => !o.isCorrect && o.whyWrong)
@@ -279,7 +279,7 @@ the 1-2 facts most likely tested. JSON: {"teaching":"string (3-6 sentences, mech
 function Panel({ label, children }) {
   return (
     <div className="rounded-lg border-l-2 border-accent bg-bg-elevated p-3">
-      <div className="mb-1 font-mono text-[10px] uppercase tracking-wider text-text-3">{label}</div>
+      <div className="mb-1 font-mono text-[12px] uppercase tracking-wider text-text-3">{label}</div>
       <div className="text-sm leading-relaxed text-text-1 whitespace-pre-wrap">{children}</div>
     </div>
   );

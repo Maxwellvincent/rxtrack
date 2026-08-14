@@ -22,21 +22,21 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
       {!statsOnly && (
         <>
           <h1 className="font-condensed text-xl font-bold uppercase tracking-wide text-text-1">{block.name}</h1>
-          <div className="mt-1 font-mono text-[11px] text-text-3">
+          <div className="mt-1 font-mono text-[13px] text-text-3">
             {block.lectureCount} lectures{cov != null ? ` · ${cov}% covered` : ""}
           </div>
           {today && <div className="my-4 border-y border-border py-4">{today}</div>}
           <div className="my-4 flex flex-col gap-3">
             <div>
               <Button onClick={onContinue}>▸ Continue learning</Button>
-              <div className="mt-1.5 font-mono text-[10px] text-text-3">
+              <div className="mt-1.5 font-mono text-[12px] text-text-3">
                 adaptive session — teaches, shows a case, then checks you
               </div>
             </div>
             {onCalibrate && (
               <div>
                 <Button variant="outline" onClick={onCalibrate}>◎ Calibrate</Button>
-                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                <div className="mt-1.5 font-mono text-[12px] text-text-3">
                   rate your confidence before each answer — surfaces sure-but-wrong gaps
                 </div>
               </div>
@@ -44,7 +44,7 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
             {onObjectives && (
               <div>
                 <Button variant="outline" onClick={onObjectives}>◇ Objectives</Button>
-                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                <div className="mt-1.5 font-mono text-[12px] text-text-3">
                   per-lecture coverage, linking, and objective-targeted quizzes
                 </div>
               </div>
@@ -52,7 +52,7 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
             {onLectures && (
               <div>
                 <Button variant="outline" onClick={onLectures}>▤ Lectures</Button>
-                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                <div className="mt-1.5 font-mono text-[12px] text-text-3">
                   every lecture in the block — filter, search, quick-log a session
                 </div>
               </div>
@@ -60,7 +60,7 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
             {onWeakConcepts && (
               <div>
                 <Button variant="outline" onClick={onWeakConcepts}>⚠ Weak concepts</Button>
-                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                <div className="mt-1.5 font-mono text-[12px] text-text-3">
                   what you keep missing, landmines first
                 </div>
               </div>
@@ -68,7 +68,7 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
             {onDeepLearn && (
               <div>
                 <Button variant="outline" onClick={onDeepLearn}>🧬 Deep Learn</Button>
-                <div className="mt-1.5 font-mono text-[10px] text-text-3">
+                <div className="mt-1.5 font-mono text-[12px] text-text-3">
                   teach-then-test on one lecture, with drills and rapid fire
                 </div>
               </div>

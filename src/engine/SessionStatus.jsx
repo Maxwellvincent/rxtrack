@@ -25,7 +25,7 @@ export function BuildStatus({ build, blockName }) {
     return (
       <>
         <div className="text-text-1">Preparing {blockName}…</div>
-        <div className="mt-2 font-mono text-[11px] text-text-3">
+        <div className="mt-2 font-mono text-[13px] text-text-3">
           collecting this block&apos;s objectives as source facts
         </div>
       </>
@@ -35,12 +35,12 @@ export function BuildStatus({ build, blockName }) {
   return (
     <>
       <div className="text-text-1">Writing your first questions…</div>
-      <div className="mt-2 font-mono text-[11px] text-text-3">
+      <div className="mt-2 font-mono text-[13px] text-text-3">
         {build.generated
           ? `${build.generated} written from ${build.pooled} objectives`
           : `${build.pooled} objectives queued`}
       </div>
-      <div className="mt-1 font-mono text-[10px] text-text-3">
+      <div className="mt-1 font-mono text-[12px] text-text-3">
         one-off for this block — a minute or two. Later sessions start instantly.
       </div>
     </>
@@ -55,7 +55,7 @@ export function NothingToStudy({ blockName, build = null, onExit }) {
       <div className="text-text-1">
         {failed ? `Could not build questions for ${blockName}.` : `Nothing to study in ${blockName} yet.`}
       </div>
-      <div className="mt-2 max-w-md font-mono text-[11px] text-text-3">
+      <div className="mt-2 max-w-md font-mono text-[13px] text-text-3">
         {failed ? (
           <>
             {messageOf(build.error)}

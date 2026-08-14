@@ -1,67 +1,67 @@
-/* Design tokens. Scoped to the shell root via .theme-dark / .theme-light so the
-   legacy app (which does not use these vars) is never affected. */
+/* Design tokens — Variant C: Chrome Scholar
+   Sidebar + Header use .shell-chrome (always dark, not theme-toggled).
+   Main content area uses .theme-dark / .theme-light. */
 
-/* Shell base type scale. This file loads ONLY with the new shell (imported by
-   Shell.jsx via dynamic import), so it never affects the legacy app. Bumping the
-   root font-size scales every rem-based Tailwind size up uniformly — comfortable
-   on large desktop displays instead of the cramped default. */
 html {
   font-size: 18px;
 }
 
-.theme-dark {
-  /* Clinical jade — 3AM study command center.
-     Near-black base with jade chroma bleed so the bg and accent live in the
-     same hue family; surfaces feel coherent, not pasted-on. */
-  --bg:           oklch(0.095 0.008 145);
-  --bg-elevated:  oklch(0.130 0.011 145);
-  --panel:        oklch(0.160 0.014 145);
-  --border:       oklch(0.230 0.020 145);
-  --border-strong:oklch(0.300 0.024 145);
-  --text-1:       oklch(0.920 0.012 145);
-  --text-2:       oklch(0.650 0.022 145);
-  --text-3:       oklch(0.470 0.018 145);
-
-  /* Jade accent — seed colour from palette.mjs */
+/* ── Always-dark chrome frame (Sidebar, Header, TabBar) ─────────────────── */
+.shell-chrome {
+  --bg:           oklch(0.080 0.006 145);
+  --bg-elevated:  oklch(0.112 0.008 145);
+  --panel:        oklch(0.065 0.005 145);
+  --border:       oklch(0.178 0.012 145);
+  --border-strong:oklch(0.240 0.016 145);
+  --text-1:       oklch(0.940 0.006 145);
+  --text-2:       oklch(0.640 0.014 145);
+  --text-3:       oklch(0.400 0.010 145);
+  /* Accent stays bright for the dark chrome context */
   --accent:       oklch(0.650 0.150 145);
-  --accent-soft:  oklch(0.180 0.045 145);
+  --accent-soft:  oklch(0.170 0.042 145);
   --accent-text:  oklch(0.760 0.130 145);
+}
 
-  /* Colorblind-safe status palette */
+/* ── Dark theme (main content area) ─────────────────────────────────────── */
+.theme-dark {
+  --bg:           oklch(0.110 0.008 145);
+  --bg-elevated:  oklch(0.148 0.010 145);
+  --panel:        oklch(0.175 0.012 145);
+  --border:       oklch(0.240 0.018 145);
+  --border-strong:oklch(0.310 0.022 145);
+  --text-1:       oklch(0.920 0.010 145);
+  --text-2:       oklch(0.650 0.020 145);
+  --text-3:       oklch(0.460 0.016 145);
+  --accent:       oklch(0.650 0.150 145);
+  --accent-soft:  oklch(0.185 0.042 145);
+  --accent-text:  oklch(0.760 0.128 145);
   --status-blue:  oklch(0.640 0.170 255);
   --status-amber: oklch(0.760 0.130 85);
   --status-purple:oklch(0.680 0.160 295);
   --status-cyan:  oklch(0.750 0.130 200);
-
-  /* Semantic: correct / warn / wrong */
   --good: oklch(0.720 0.155 162);
   --warn: oklch(0.760 0.130 85);
   --bad:  oklch(0.630 0.185 25);
 }
 
+/* ── Light theme (main content area) ────────────────────────────────────── */
 .theme-light {
-  /* Pure white base; jade tint bleeds into elevated surfaces so the accent
-     doesn't feel foreign when it appears. */
-  --bg:           oklch(1.000 0.000 0);
-  --bg-elevated:  oklch(0.975 0.006 145);
-  --panel:        oklch(0.955 0.010 145);
-  --border:       oklch(0.895 0.016 145);
-  --border-strong:oklch(0.820 0.022 145);
-  --text-1:       oklch(0.150 0.020 145);
-  --text-2:       oklch(0.360 0.025 145);
-  --text-3:       oklch(0.430 0.018 145);
-
-  /* Darker jade on white — enough contrast for text/interactive elements */
-  --accent:       oklch(0.490 0.155 145);
-  --accent-soft:  oklch(0.935 0.032 145);
-  --accent-text:  oklch(0.440 0.155 145);
-
+  --bg:           oklch(0.930 0.008 145);
+  --bg-elevated:  oklch(1.000 0.000 0);
+  --panel:        oklch(0.958 0.010 145);
+  --border:       oklch(0.880 0.016 145);
+  --border-strong:oklch(0.800 0.022 145);
+  --text-1:       oklch(0.130 0.018 145);
+  --text-2:       oklch(0.350 0.024 145);
+  --text-3:       oklch(0.490 0.016 145);
+  --accent:       oklch(0.480 0.155 145);
+  --accent-soft:  oklch(0.930 0.030 145);
+  --accent-text:  oklch(0.420 0.155 145);
   --status-blue:  oklch(0.480 0.175 255);
   --status-amber: oklch(0.580 0.155 85);
   --status-purple:oklch(0.510 0.165 295);
   --status-cyan:  oklch(0.540 0.150 200);
-
-  --good: oklch(0.480 0.160 162);
-  --warn: oklch(0.580 0.155 85);
-  --bad:  oklch(0.480 0.195 25);
+  --good: oklch(0.460 0.160 162);
+  --warn: oklch(0.560 0.155 85);
+  --bad:  oklch(0.470 0.195 25);
 }

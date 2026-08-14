@@ -10,7 +10,7 @@ export function Button({ variant = "primary", className, ...rest }) {
   return (
     <button
       className={cn(
-        "inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-semibold font-mono cursor-pointer transition-colors",
+        "inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 font-condensed text-sm font-semibold uppercase tracking-wide cursor-pointer transition-colors",
         VARIANTS[variant], className
       )}
       {...rest}

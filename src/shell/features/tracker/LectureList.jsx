@@ -41,7 +41,7 @@ function DateEdit({ row, onUpdateDate }) {
           if (e.key === "Enter") commit(e.target.value);
           if (e.key === "Escape") setEditing(false);
         }}
-        className="rounded border border-accent bg-bg px-1 py-0 font-mono text-[10px] text-text-1 focus:outline-none"
+        className="rounded border border-accent bg-bg px-1 py-0 font-mono text-[12px] text-text-1 focus:outline-none"
       />
     );
   }
@@ -56,7 +56,7 @@ function DateEdit({ row, onUpdateDate }) {
     <button
       onClick={() => setEditing(true)}
       title="Click to edit date"
-      className="font-mono text-[10px] text-text-3 hover:text-accent"
+      className="font-mono text-[12px] text-text-3 hover:text-accent"
     >
       {label} <span className="opacity-50">✎</span>
     </button>
@@ -70,11 +70,11 @@ function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
     <div className="flex flex-col gap-1.5 border-b border-border py-2 last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
-          <span className="font-mono text-[10px] text-text-3">
+          <span className="font-mono text-[12px] text-text-3">
             {row.type} {row.number ?? ""}
           </span>{" "}
           <span className="text-sm text-text-1">{row.studyMode?.icon} {row.title}</span>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-text-3">
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             <span>·</span>
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
@@ -85,7 +85,7 @@ function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
-          <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[10px] text-text-3 hover:text-text-1">
+          <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">
             log
           </button>
           {/* Study leads — see the note in Today.jsx's TaskCard. */}
@@ -113,19 +113,19 @@ function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
               key={type}
               onClick={() => setLogging(type)}
               className={
-                "rounded border px-2 py-0.5 text-[11px] " +
+                "rounded border px-2 py-0.5 text-[13px] " +
                 (logging === type ? "border-accent text-text-1" : "border-border text-text-3")
               }
             >
               {type}
             </button>
           ))}
-          <span className="font-mono text-[10px] text-text-3">how did it go?</span>
+          <span className="font-mono text-[12px] text-text-3">how did it go?</span>
           {CONFIDENCE.map((c) => (
             <button
               key={c.key}
               onClick={() => { onLog(row.lectureId, logging, c.key); setLogging(null); }}
-              className="rounded border border-border px-2 py-0.5 text-[11px] text-text-2 hover:text-text-1"
+              className="rounded border border-border px-2 py-0.5 text-[13px] text-text-2 hover:text-text-1"
             >
               {c.label}
             </button>
@@ -187,9 +187,9 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
     <div className="p-5">
       <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
       <h2 className="text-sm font-bold text-text-1">Lectures</h2>
-      <div className="mb-3 font-mono text-[10px] text-text-3">{counts.all} in this block</div>
+      <div className="mb-3 font-mono text-[12px] text-text-3">{counts.all} in this block</div>
 
-      {logged && <div className="mb-2 font-mono text-[10px] text-good">{logged}</div>}
+      {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}
 
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         {FILTERS.map((f) => (
@@ -197,7 +197,7 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
             key={f}
             onClick={() => setFilter(f)}
             className={
-              "rounded border px-2 py-0.5 font-mono text-[10px] " +
+              "rounded border px-2 py-0.5 font-mono text-[12px] " +
               (filter === f ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
             }
           >
@@ -208,12 +208,12 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="search…"
-          className="ml-auto rounded border border-border bg-panel px-2 py-0.5 text-[11px] text-text-1"
+          className="ml-auto rounded border border-border bg-panel px-2 py-0.5 text-[13px] text-text-1"
         />
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value)}
-          className="rounded border border-border bg-panel px-1.5 py-0.5 font-mono text-[10px] text-text-2"
+          className="rounded border border-border bg-panel px-1.5 py-0.5 font-mono text-[12px] text-text-2"
         >
           {Object.entries(SORT_LABELS).map(([key, label]) => (
             <option key={key} value={key}>{label}</option>

@@ -155,7 +155,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
               </label>
               <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-border px-4 py-8 text-sm hover:border-border-strong">
                 <span className="text-text-2">Choose a file to import</span>
-                <span className="mt-1 font-mono text-[10px] text-text-3">.pdf · .md · .txt</span>
+                <span className="mt-1 font-mono text-[12px] text-text-3">.pdf · .md · .txt</span>
                 <input
                   type="file"
                   accept=".pdf,.md,.markdown,.txt"
@@ -172,7 +172,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
 
           {step === "preview" && (
             <>
-              <div className="mb-3 font-mono text-[11px] text-text-2">
+              <div className="mb-3 font-mono text-[13px] text-text-2">
                 Found{" "}
                 <span className="text-text-1">{totalFound}</span> objectives
                 {" · "}
@@ -187,7 +187,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
                   const newInGroup = group.objectives.filter((o) => !o._duplicate);
                   return (
                     <div key={group.lecId} className="rounded-lg border border-border bg-bg-elevated p-3">
-                      <div className="mb-2 text-[11px] font-semibold text-text-1">
+                      <div className="mb-2 text-[13px] font-semibold text-text-1">
                         {group.lecTitle}
                         {newInGroup.length < group.objectives.length && (
                           <span className="ml-2 font-normal text-text-3">
@@ -202,7 +202,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
                             className={`flex items-start gap-2 text-xs ${obj._duplicate ? "opacity-40 line-through" : "text-text-2"}`}
                           >
                             <span
-                              className={`mt-px shrink-0 rounded px-1 font-mono text-[9px] font-bold ${
+                              className={`mt-px shrink-0 rounded px-1 font-mono text-[13px] font-bold ${
                                 ACTIVITY_COLORS[obj.activity] || "text-text-3"
                               }`}
                             >

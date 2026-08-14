@@ -90,7 +90,7 @@ export function UserApiKeyModal({ onClose }) {
         </div>
 
         {/* Explanation */}
-        <div className="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-2.5 font-mono text-[10px] text-text-3 leading-relaxed">
+        <div className="mb-4 rounded-lg border border-border bg-bg-elevated px-3 py-2.5 font-mono text-[12px] text-text-3 leading-relaxed">
           RxTrack uses AI to generate USMLE-style questions and extract lecture objectives.
           By default it runs through a shared server — adding your own key bypasses it so
           your usage doesn't count against shared quotas.
@@ -105,7 +105,7 @@ export function UserApiKeyModal({ onClose }) {
               key={p.id}
               onClick={() => { setProvider(p.id); setKey(existing?.provider === p.id ? (existing?.key ?? "") : ""); }}
               className={[
-                "rounded border px-2.5 py-1 font-mono text-[11px] transition-colors",
+                "rounded border px-2.5 py-1 font-mono text-[13px] transition-colors",
                 provider === p.id
                   ? "border-accent bg-panel text-text-1"
                   : "border-border text-text-3 hover:text-text-2",
@@ -117,7 +117,7 @@ export function UserApiKeyModal({ onClose }) {
         </div>
 
         {/* How to get it */}
-        <div className="mb-3 font-mono text-[10px] text-text-3 leading-relaxed">
+        <div className="mb-3 font-mono text-[12px] text-text-3 leading-relaxed">
           <span className="text-text-2">{selectedProvider.howTo}</span>
           <br />
           <span className="text-text-3">{selectedProvider.hint}</span>
@@ -141,7 +141,7 @@ export function UserApiKeyModal({ onClose }) {
           {existing?.key && (
             <button
               onClick={clear}
-              className="rounded border border-border px-2 py-1 font-mono text-[10px] text-text-3 hover:text-warn"
+              className="rounded border border-border px-2 py-1 font-mono text-[12px] text-text-3 hover:text-warn"
               title="Remove saved key"
             >
               clear
@@ -150,7 +150,7 @@ export function UserApiKeyModal({ onClose }) {
         </div>
 
         {existing?.key && (
-          <div className="mb-3 font-mono text-[10px] text-good">
+          <div className="mb-3 font-mono text-[12px] text-good">
             ✓ {PROVIDERS.find((p) => p.id === existing.provider)?.label ?? existing.provider} key active
           </div>
         )}
@@ -160,7 +160,7 @@ export function UserApiKeyModal({ onClose }) {
             href={selectedProvider.url}
             target="_blank"
             rel="noreferrer"
-            className="font-mono text-[10px] text-accent hover:underline"
+            className="font-mono text-[12px] text-accent hover:underline"
           >
             {selectedProvider.urlLabel}
           </a>

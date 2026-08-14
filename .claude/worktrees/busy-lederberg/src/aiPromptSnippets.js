@@ -1,0 +1,5 @@
+/** Top of system prompts for MCQ / SAQ / walkthrough / objective extraction. */
+export const LECTURE_MARKDOWN_SYSTEM_INSTRUCTION = `The lecture content uses markdown formatting. **Bold terms** are high-yield vocabulary — always test these. Tables represent comparisons between structures or concepts — generate at least one comparison question per table found. Headers indicate major topic sections.`;
+
+/** Appended to prompts that consume lecture text (may include Mistral OCR markdown). */
+export const LECTURE_MARKDOWN_CONTEXT_FOR_AI = `The lecture content below may include markdown formatting. Bold terms (**term**) indicate high-yield vocabulary. Tables (lines with | characters) represent comparison data between structures or concepts. Use these to generate material that tests: definitions of bolded terms; comparisons between items shown in tables; clinical significance of highlighted concepts. Do NOT generate questions or teaching about formatting, markdown syntax, or headings themselves.`;

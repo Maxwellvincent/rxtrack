@@ -223,7 +223,7 @@ function DayModePicker({ mode, onChange, suggested }) {
                 <span className="ml-auto font-mono text-[8px] text-text-3 normal-case tracking-normal">suggested</span>
               )}
             </span>
-            <span className="mt-0.5 font-mono text-[10px] text-text-3 leading-snug normal-case tracking-normal">{m.desc}</span>
+            <span className="mt-0.5 font-mono text-[12px] text-text-3 leading-snug normal-case tracking-normal">{m.desc}</span>
           </button>
         );
       })}
@@ -235,7 +235,7 @@ function ProgressBar({ done, total }) {
   const pct = total === 0 ? 0 : Math.round((done / total) * 100);
   return (
     <div>
-      <div className="flex justify-between font-mono text-[10px] text-text-3 mb-1">
+      <div className="flex justify-between font-mono text-[12px] text-text-3 mb-1">
         <span>{done}/{total} done</span>
         <span>{pct}%</span>
       </div>
@@ -267,7 +267,7 @@ function RoundDots({ done, total }) {
           ].join(" ")}
         />
       ))}
-      <span className="ml-1 font-mono text-[10px] text-text-3">{done}/{total}</span>
+      <span className="ml-1 font-mono text-[12px] text-text-3">{done}/{total}</span>
     </div>
   );
 }
@@ -291,10 +291,10 @@ function ClassificationBadge({ wakeTime, mode }) {
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2 font-mono text-[10px]">
+    <div className="flex flex-wrap items-center gap-2 font-mono text-[12px]">
       <span className="text-text-3">{suggested ? "suggested" : "mode"}:</span>
       <span
-        className="rounded px-1.5 py-0.5 font-bold text-bg text-[10px]"
+        className="rounded px-1.5 py-0.5 font-bold text-bg text-[12px]"
         style={{ background: MODE_COLORS[effective] }}
       >
         {modeName}
@@ -315,10 +315,10 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
         onClick={() => setCollapsed((c) => !c)}
         className="flex w-full items-center justify-between border-b border-border px-3 py-2 text-left"
       >
-        <span className="font-condensed text-[10px] font-bold uppercase tracking-wider text-text-3">
+        <span className="font-condensed text-[12px] font-bold uppercase tracking-wider text-text-3">
           Today's routine
         </span>
-        <span className="font-mono text-[10px] text-text-3">{collapsed ? "▸" : "▾"}</span>
+        <span className="font-mono text-[12px] text-text-3">{collapsed ? "▸" : "▾"}</span>
       </button>
       {!collapsed && (
         <div className="divide-y divide-border/40">
@@ -327,12 +327,12 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
               key={i}
               className={["flex items-start gap-3 px-3 py-2", b.key ? "bg-panel/40" : ""].join(" ")}
             >
-              <span className="w-[88px] flex-shrink-0 font-mono text-[9px] text-text-3 pt-0.5 leading-snug">{b.time}</span>
+              <span className="w-[88px] flex-shrink-0 font-mono text-[13px] text-text-3 pt-0.5 leading-snug">{b.time}</span>
               <div className="flex-1 min-w-0">
-                <div className={["text-[11.5px] leading-snug", b.key ? "font-semibold text-text-1" : "text-text-2"].join(" ")}>
+                <div className={["text-[13px] leading-snug", b.key ? "font-semibold text-text-1" : "text-text-2"].join(" ")}>
                   {b.label}
                 </div>
-                {b.note && <div className="font-mono text-[9.5px] text-text-3 mt-0.5 leading-snug">{b.note}</div>}
+                {b.note && <div className="font-mono text-[13px] text-text-3 mt-0.5 leading-snug">{b.note}</div>}
               </div>
             </div>
           ))}
@@ -380,9 +380,9 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           aria-label={checked ? "Mark incomplete" : "Mark complete"}
         >
           {checked
-            ? <span className="text-[11px] font-bold leading-none">✓</span>
+            ? <span className="text-[13px] font-bold leading-none">✓</span>
             : partiallyDone
-              ? <span className="text-[10px] font-bold leading-none">~</span>
+              ? <span className="text-[12px] font-bold leading-none">~</span>
               : null}
         </button>
 
@@ -391,7 +391,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
             {/* Title navigates into lecture; chevron toggles details */}
             <div className="min-w-0 flex-1">
               {isNext && !checked && (
-                <div className="mb-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
+                <div className="mb-0.5 font-mono text-[13px] font-bold uppercase tracking-wider text-accent">
                   Up next
                 </div>
               )}
@@ -405,13 +405,13 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
                 </button>
                 <button
                   onClick={() => setExpanded((e) => !e)}
-                  className="text-[10px] text-text-3 hover:text-text-2 px-0.5"
+                  className="text-[12px] text-text-3 hover:text-text-2 px-0.5"
                   title={expanded ? "Hide details" : "Show details"}
                 >
                   {expanded ? "▴" : "▾"}
                 </button>
               </div>
-              <div className="font-mono text-[10px] text-text-3">
+              <div className="font-mono text-[12px] text-text-3">
                 {task.availableDate
                   ? task.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
                   : task.lec.weekNumber
@@ -459,22 +459,22 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
             <div className="flex flex-wrap items-center gap-2">
               {logging ? (
                 <>
-                  <span className="font-mono text-[10px] text-text-3">how did {logging} go?</span>
+                  <span className="font-mono text-[12px] text-text-3">how did {logging} go?</span>
                   {[{ key: "good", label: "Solid" }, { key: "okay", label: "OK" }, { key: "struggling", label: "Shaky" }].map((c) => (
                     <button
                       key={c.key}
                       onClick={() => { onLog(task.lec.id, logging, c.key); setLogging(null); }}
-                      className="rounded border border-border px-2 py-0.5 text-[11px] text-text-2 hover:text-text-1"
+                      className="rounded border border-border px-2 py-0.5 text-[13px] text-text-2 hover:text-text-1"
                     >
                       {c.label}
                     </button>
                   ))}
-                  <button onClick={() => setLogging(null)} className="font-mono text-[10px] text-text-3 hover:text-text-1">✕</button>
+                  <button onClick={() => setLogging(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">✕</button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setLogging("anki")} className="font-mono text-[10px] text-text-3 hover:text-text-1">📇 log anki</button>
-                  <button onClick={() => setLogging("review")} className="font-mono text-[10px] text-text-3 hover:text-text-1">✓ log review</button>
+                  <button onClick={() => setLogging("anki")} className="font-mono text-[12px] text-text-3 hover:text-text-1">📇 log anki</button>
+                  <button onClick={() => setLogging("review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">✓ log review</button>
                 </>
               )}
             </div>
@@ -488,8 +488,8 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           {/* Objectives breakdown */}
           {task.total > 0 && (
             <div>
-              <div className="mb-1.5 font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">Objectives</div>
-              <div className="flex flex-wrap gap-3 font-mono text-[11px]">
+              <div className="mb-1.5 font-mono text-[13px] font-bold uppercase tracking-wider text-text-3">Objectives</div>
+              <div className="flex flex-wrap gap-3 font-mono text-[13px]">
                 {task.mastered > 0 && <span className="text-good">✓ {task.mastered} mastered</span>}
                 {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress} learning</span>}
                 {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling} struggling</span>}
@@ -501,15 +501,15 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           {/* Recommended sessions for today */}
           {recommended.length > 0 && (
             <div>
-              <div className="mb-1.5 font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">Today's sessions</div>
+              <div className="mb-1.5 font-mono text-[13px] font-bold uppercase tracking-wider text-text-3">Today's sessions</div>
               <div className="flex flex-col gap-1">
                 {recommended.map((s, i) => (
-                  <div key={i} className={["flex items-start gap-2 font-mono text-[11px]", i < roundsDone ? "text-text-3 line-through" : "text-text-2"].join(" ")}>
-                    <span className="mt-px text-[9px] text-text-3 flex-shrink-0">{i + 1}.</span>
+                  <div key={i} className={["flex items-start gap-2 font-mono text-[13px]", i < roundsDone ? "text-text-3 line-through" : "text-text-2"].join(" ")}>
+                    <span className="mt-px text-[13px] text-text-3 flex-shrink-0">{i + 1}.</span>
                     <div>
                       <span>{s.label}</span>
-                      {s.reason && <span className="ml-1.5 text-[10px] text-text-3">— {s.reason}</span>}
-                      {s.duration && <span className="ml-1.5 text-[9px] text-text-3">~{s.duration}m</span>}
+                      {s.reason && <span className="ml-1.5 text-[12px] text-text-3">— {s.reason}</span>}
+                      {s.duration && <span className="ml-1.5 text-[13px] text-text-3">~{s.duration}m</span>}
                     </div>
                   </div>
                 ))}
@@ -518,7 +518,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           )}
 
           {/* Sessions done lifetime + confidence */}
-          <div className="flex gap-4 font-mono text-[10px] text-text-3">
+          <div className="flex gap-4 font-mono text-[12px] text-text-3">
             {task.sessions > 0 && <span>{task.sessions} session{task.sessions !== 1 ? "s" : ""} total</span>}
             {task.confidence && task.confidence !== "Low" && <span>confidence: {task.confidence.toLowerCase()}</span>}
             {task.lastScore != null && <span>last score: {task.lastScore}%</span>}
@@ -549,7 +549,7 @@ function ExamDatePicker({ blockId, userId }) {
   return (
     <div className="rounded-sm border border-border bg-bg-elevated p-4">
       <div className="mb-1 font-condensed text-sm font-semibold uppercase tracking-wide text-text-1">Set exam date</div>
-      <div className="mb-3 font-mono text-[10px] text-text-3">
+      <div className="mb-3 font-mono text-[12px] text-text-3">
         Today plans backwards from the exam — set a date to see your schedule.
       </div>
       <div className="flex items-center gap-2">
@@ -685,17 +685,17 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="font-mono text-[11px] text-text-3">{dateStr}</div>
+          <div className="font-mono text-[13px] text-text-3">{dateStr}</div>
           <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Daily Plan</h2>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className="rounded-sm border border-border bg-panel px-3 py-1 font-condensed text-[11px] font-bold uppercase tracking-wide text-text-2">
+          <span className="rounded-sm border border-border bg-panel px-3 py-1 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">
             {effectiveMode
-              ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[effectiveMode] }} />{DAY_MODES.find((m) => m.id === effectiveMode)?.label}{!dayMode && <span className="ml-1 text-[9px] font-normal opacity-60">auto</span>}</>
+              ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[effectiveMode] }} />{DAY_MODES.find((m) => m.id === effectiveMode)?.label}{!dayMode && <span className="ml-1 text-[13px] font-normal opacity-60">auto</span>}</>
               : "Set day type"
             }
           </span>
-          <span className="font-mono text-[10px] text-text-3">{daysLeft}d to exam</span>
+          <span className="font-mono text-[12px] text-text-3">{daysLeft}d to exam</span>
         </div>
       </div>
 
@@ -708,12 +708,12 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       )}
 
       {logFeedback && (
-        <div className="font-mono text-[10px] text-good">{logFeedback}</div>
+        <div className="font-mono text-[12px] text-good">{logFeedback}</div>
       )}
 
       {/* Urgency fallback notice */}
       {todayReason === "urgency-fallback" && nextDay && (
-        <div className="font-mono text-[10px] text-text-3">
+        <div className="font-mono text-[12px] text-text-3">
           Nothing scheduled today — next session {nextDay.dateStr} ({nextDay.daysFromNow}d). Showing highest-urgency:
         </div>
       )}
@@ -736,7 +736,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
             {nextDay.tasks.length} lecture{nextDay.tasks.length === 1 ? "" : "s"}.
             <div className="mt-2 flex flex-col gap-0.5">
               {nextDay.tasks.slice(0, 4).map((t) => (
-                <span key={t.lec.id} className="font-mono text-[10px]">
+                <span key={t.lec.id} className="font-mono text-[12px]">
                   {t.studyMode?.icon} {t.lec.lectureTitle || t.lec.fileName || t.lec.filename}
                 </span>
               ))}
@@ -770,7 +770,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       {doneCount > 0 && (
         <button
           onClick={() => { setChecked(new Set()); writeChecked(blockId, new Set()); }}
-          className="self-start font-mono text-[10px] text-text-3 hover:text-text-1"
+          className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
         >
           Reset checks
         </button>

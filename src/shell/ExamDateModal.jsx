@@ -65,13 +65,13 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">Block dates</div>
-        <div className="mb-4 font-mono text-[10px] text-text-3">{blockName || blockId}</div>
+        <div className="mb-4 font-mono text-[12px] text-text-3">{blockName || blockId}</div>
 
         <div className="flex flex-col gap-4">
           {/* Block start date */}
           <div>
             <div className="mb-1 text-xs font-semibold text-text-1">Block start date</div>
-            <div className="mb-1.5 font-mono text-[10px] text-text-3">
+            <div className="mb-1.5 font-mono text-[12px] text-text-3">
               First day of class — used to compute lecture dates from week numbers.
               {resolvedStartDate && <> Currently: <span className="text-text-2">{fmt(resolvedStartDate)}</span></>}
             </div>
@@ -86,7 +86,7 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
           {/* Block exam date */}
           <div>
             <div className="mb-1 text-xs font-semibold text-text-1">Block exam date</div>
-            <div className="mb-1.5 font-mono text-[10px] text-text-3">
+            <div className="mb-1.5 font-mono text-[12px] text-text-3">
               Schedules backwards from this. Spaced-rep windows sized by days remaining.
               {currentExam && <> Currently: <span className="text-text-2">{fmt(currentExam)}</span></>}
             </div>
@@ -101,7 +101,7 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
           {/* Comprehensive / semester exam date */}
           <div>
             <div className="mb-1 text-xs font-semibold text-text-1">Comprehensive exam date</div>
-            <div className="mb-1.5 font-mono text-[10px] text-text-3">
+            <div className="mb-1.5 font-mono text-[12px] text-text-3">
               Semester-wide final. Mastered lectures re-enter review queue 30 days before this date.
               {currentComprehensive && <> Currently: <span className="text-text-2">{fmt(currentComprehensive)}</span></>}
             </div>
@@ -115,7 +115,7 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
         </div>
 
         <div className="mt-5 flex items-center justify-between">
-          <button onClick={onClose} className="font-mono text-[10px] text-text-3 hover:text-text-1">cancel</button>
+          <button onClick={onClose} className="font-mono text-[12px] text-text-3 hover:text-text-1">cancel</button>
           <Button onClick={save} disabled={(!examInput && !startInput && !compInput) || saving || saved}>
             {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
           </Button>

@@ -43,8 +43,8 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
 
         <div className="flex flex-col gap-4">
           <div>
-            <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-3">Wake time</div>
-            <div className="mb-2 font-mono text-[10px] text-text-3">Today only — drives mode suggestion.</div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Wake time</div>
+            <div className="mb-2 font-mono text-[12px] text-text-3">Today only — drives mode suggestion.</div>
             <input
               type="time"
               value={wakeTime}
@@ -54,11 +54,11 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
           </div>
 
           <div>
-            <div className="mb-1 font-mono text-[10px] font-bold uppercase tracking-wider text-text-3">Lecture schedule</div>
-            <div className="mb-2 font-mono text-[10px] text-text-3">Block-scoped — set once per term.</div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Lecture schedule</div>
+            <div className="mb-2 font-mono text-[12px] text-text-3">Block-scoped — set once per term.</div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-text-3">starts at</span>
+                <span className="font-mono text-[12px] text-text-3">starts at</span>
                 <input
                   type="time"
                   value={lecConfig.time ?? ""}
@@ -67,7 +67,7 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
                 />
               </div>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-[10px] text-text-3">each</span>
+                <span className="font-mono text-[12px] text-text-3">each</span>
                 <input
                   type="number"
                   min="10" max="180" step="5"
@@ -76,7 +76,7 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
                   onChange={(e) => setLecConfig((c) => ({ ...c, duration: e.target.value === "" ? 50 : parseInt(e.target.value, 10) }))}
                   className="w-14 rounded border border-border bg-bg-elevated px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
                 />
-                <span className="font-mono text-[10px] text-text-3">min</span>
+                <span className="font-mono text-[12px] text-text-3">min</span>
               </div>
             </div>
           </div>

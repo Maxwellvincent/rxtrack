@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Variant A — Zen Dojo Ink</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;1,9..144,400&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 16px; }
+
+  /* ── Light ─────────────────────────── */
+  .light {
+    --bg: #F7F4EC;
+    --bg-elevated: #FFFDF7;
+    --panel: #EFEAE0;
+    --border: #E4DFD4;
+    --border-strong: #CFC8BA;
+    --text-1: #1E1E1C;
+    --text-2: #55554F;
+    --text-3: #8A8A85;
+    --accent: #4E8A58;
+    --accent-soft: rgba(168,195,160,0.18);
+    --accent-text: #3D7446;
+    --good: #4E8A58;
+    --warn: #B87333;
+    --bad: #B85555;
+    --shadow: 0 1px 2px rgba(0,0,0,.04);
+  }
+  /* ── Dark ──────────────────────────── */
+  .dark {
+    --bg: #16160F;
+    --bg-elevated: #1E1E15;
+    --panel: #191910;
+    --border: #2C2C22;
+    --border-strong: #3C3C30;
+    --text-1: #E8E4D4;
+    --text-2: #9A9590;
+    --text-3: #686360;
+    --accent: #7FBA84;
+    --accent-soft: rgba(127,186,132,0.12);
+    --accent-text: #9ACC9E;
+    --good: #7FBA84;
+    --warn: #C89050;
+    --bad: #C87070;
+    --shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+
+  body { font-family: 'IBM Plex Sans', sans-serif; background: var(--bg); color: var(--text-1); display: flex; height: 100vh; overflow: hidden; }
+
+  /* sidebar */
+  aside { width: 228px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 0; }
+  .sidebar-logo { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
+  .sidebar-logo-name { font-family: 'Fraunces', serif; font-size: 17px; color: var(--text-1); letter-spacing: -0.01em; }
+  .sidebar-logo-sub { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); margin-top: 2px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .sidebar-search { margin: 12px 14px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+  .sidebar-search span { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-3); }
+  .sidebar-nav { flex: 1; overflow-y: auto; padding: 6px 10px; }
+  .sidebar-term { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-3); padding: 10px 10px 4px; }
+  .sidebar-item { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; border-radius: 7px; font-size: 12.5px; color: var(--text-2); cursor: pointer; border: 1px solid transparent; margin-bottom: 1px; }
+  .sidebar-item:hover { background: var(--bg-elevated); }
+  .sidebar-item.active { background: var(--accent-soft); color: var(--text-1); border-color: rgba(78,138,88,0.25); }
+  .sidebar-item.active .item-label { color: var(--accent); font-weight: 600; }
+  .sidebar-item .item-right { display: flex; align-items: center; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); }
+  .sidebar-footer { padding: 12px 20px; border-top: 1px solid var(--border); font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); display: flex; justify-content: space-between; }
+
+  /* main */
+  main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  header { height: 48px; background: var(--bg-elevated); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+  .breadcrumb { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-3); }
+  .breadcrumb b { color: var(--text-2); font-weight: 500; }
+  .header-actions { display: flex; align-items: center; gap: 16px; }
+  .header-btn { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--text-3); cursor: pointer; background: none; border: none; }
+  .header-btn:hover { color: var(--text-1); }
+
+  /* tab bar */
+  .tabbar { height: 38px; background: var(--bg); border-bottom: 1px solid var(--border); padding: 0 20px; display: flex; align-items: flex-end; gap: 0; flex-shrink: 0; }
+  .tab { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 8px 14px; color: var(--text-3); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* content */
+  .content { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 20px; }
+
+  /* cards */
+  .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; box-shadow: var(--shadow); }
+  .card-header { padding: 14px 18px 10px; border-bottom: 1px solid var(--border); }
+  .card-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.09em; color: var(--text-3); }
+  .card-title { font-size: 20px; font-weight: 600; color: var(--text-1); margin-top: 2px; }
+  .card-sub { font-size: 12px; color: var(--text-3); margin-top: 1px; }
+  .card-body { padding: 14px 18px; }
+
+  /* day mode picker */
+  .day-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .day-mode { border: 1px solid var(--border); border-radius: 9px; padding: 12px 14px; cursor: pointer; background: var(--bg); }
+  .day-mode.selected { border-color: var(--accent); background: var(--accent-soft); }
+  .day-mode-name { font-size: 12px; font-weight: 600; color: var(--text-1); display: flex; align-items: center; gap-6px; }
+  .day-mode-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; }
+  .day-mode-desc { font-size: 11px; color: var(--text-3); margin-top: 4px; line-height: 1.4; }
+
+  /* lecture task */
+  .task-card { background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+  .task-inner { padding: 14px 18px; display: flex; align-items: flex-start; gap: 12px; }
+  .task-check { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid var(--text-3); flex-shrink: 0; margin-top: 2px; }
+  .task-info { flex: 1; }
+  .task-badge { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--accent); margin-bottom: 3px; }
+  .task-name { font-size: 14px; font-weight: 600; color: var(--text-1); }
+  .task-meta { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); margin-top: 3px; }
+  .task-actions { display: flex; gap: 8px; align-items: center; }
+  .btn-primary { background: var(--accent); color: var(--bg-elevated); border: none; border-radius: 7px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; }
+  .btn-outline { background: none; color: var(--text-2); border: 1px solid var(--border); border-radius: 7px; padding: 7px 14px; font-size: 12px; cursor: pointer; font-family: 'IBM Plex Sans', sans-serif; }
+
+  /* progress */
+  .progress-row { display: flex; align-items: center; gap: 12px; }
+  .progress-bar { flex: 1; height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+  .progress-label { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-3); }
+
+  /* ink illustration hint */
+  .ink-accent { font-family: 'Fraunces', serif; font-size: 11px; font-style: italic; color: var(--text-3); opacity: 0.6; text-align: right; padding: 6px 18px 12px; }
+
+  /* theme toggle */
+  .toggle-bar { display: flex; gap: 8px; justify-content: center; padding: 8px; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .toggle-btn { font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--border); background: none; color: var(--text-3); cursor: pointer; }
+  .toggle-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+</style>
+</head>
+<body class="light" id="root">
+<aside>
+  <div class="sidebar-logo">
+    <div class="sidebar-logo-name">RxTrack</div>
+    <div class="sidebar-logo-sub">Study · Year 2</div>
+  </div>
+  <div class="sidebar-search">
+    <span>Search…</span><span>⌘K</span>
+  </div>
+  <div class="sidebar-nav">
+    <div class="sidebar-term">Term 4</div>
+    <div class="sidebar-item active">
+      <span class="item-label">Renal Pathology</span>
+      <span class="item-right"><span>82%</span><span style="font-size:10px;">›</span></span>
+    </div>
+    <div class="sidebar-item">
+      <span>Nephrology</span>
+      <span class="item-right">64%</span>
+    </div>
+    <div class="sidebar-item">
+      <span>Cardiology</span>
+      <span class="item-right">51%</span>
+    </div>
+    <div class="sidebar-term" style="margin-top:8px;">Term 3</div>
+    <div class="sidebar-item">
+      <span>Neuro Block</span>
+      <span class="item-right">91%</span>
+    </div>
+    <div class="sidebar-item">
+      <span>GI Path</span>
+      <span class="item-right">78%</span>
+    </div>
+  </div>
+  <div class="sidebar-footer">
+    <span>5 blocks</span>
+    <span style="cursor:pointer;">this term only</span>
+  </div>
+</aside>
+
+<main>
+  <div class="toggle-bar">
+    <button class="toggle-btn on" onclick="document.getElementById('root').className='light'">◑ Light</button>
+    <button class="toggle-btn" onclick="document.getElementById('root').className='dark'">◐ Dark</button>
+  </div>
+
+  <header>
+    <span class="breadcrumb">Term 4 / <b>Renal Pathology</b></span>
+    <div class="header-actions">
+      <button class="header-btn">📋 Routine</button>
+      <button class="header-btn">◑ light</button>
+      <button class="header-btn">⋯</button>
+    </div>
+  </header>
+
+  <div class="tabbar">
+    <div class="tab active">Today</div>
+    <div class="tab">Objectives</div>
+    <div class="tab">Lectures</div>
+    <div class="tab">More</div>
+  </div>
+
+  <div class="content">
+
+    <!-- header -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+      <div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-3);">Thursday, Aug 14</div>
+        <div style="font-size:22px;font-weight:700;color:var(--text-1);margin-top:2px;">Daily Plan</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--border);border-radius:20px;padding:5px 12px;font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.07em;color:var(--text-2);">
+          <span style="width:7px;height:7px;border-radius:50%;background:#4E8A58;display:inline-block;"></span>Lecture Day
+          <span style="font-size:8px;opacity:0.6;">auto</span>
+        </div>
+        <div style="font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--text-3);margin-top:4px;">47d to exam</div>
+      </div>
+    </div>
+
+    <!-- day mode -->
+    <div class="day-modes">
+      <div class="day-mode selected">
+        <div class="day-mode-name"><span class="day-mode-dot" style="background:#4E8A58;"></span>Lecture Day</div>
+        <div class="day-mode-desc">Pre-learn AM, lectures, review PM.</div>
+      </div>
+      <div class="day-mode">
+        <div class="day-mode-name"><span class="day-mode-dot" style="background:#B87333;"></span>Review</div>
+        <div class="day-mode-desc">No lectures. Qs + cumulative review.</div>
+      </div>
+      <div class="day-mode">
+        <div class="day-mode-name"><span class="day-mode-dot" style="background:#B85555;"></span>Triage</div>
+        <div class="day-mode-desc">Recover. Less today, essentials only.</div>
+      </div>
+    </div>
+
+    <!-- progress -->
+    <div class="progress-row">
+      <div class="progress-bar"><div class="progress-fill" style="width:33%;"></div></div>
+      <span class="progress-label">1/3</span>
+    </div>
+
+    <!-- lecture task -->
+    <div class="task-card">
+      <div class="task-inner">
+        <div class="task-check"></div>
+        <div class="task-info">
+          <div class="task-badge">Up next</div>
+          <div class="task-name">🩺 Glomerulonephritis — Mechanisms</div>
+          <div class="task-meta">Wk 3 · Mon · on today's schedule · 3 untested</div>
+        </div>
+        <div class="task-actions">
+          <button class="btn-primary">Study →</button>
+          <button class="btn-outline">Quiz</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- second task -->
+    <div class="card">
+      <div class="task-inner">
+        <div class="task-check"></div>
+        <div class="task-info">
+          <div class="task-name">Nephrotic Syndrome — Clinical</div>
+          <div class="task-meta">Wk 3 · Mon · on today's schedule · 2 learning · 1 struggling</div>
+        </div>
+        <div class="task-actions">
+          <button class="btn-primary">Study →</button>
+          <button class="btn-outline">Quiz</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- objectives coverage -->
+    <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:16px;">
+      <span style="font-size:12px;color:var(--text-2);">● Objectives coverage</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:90px;height:5px;background:var(--border);border-radius:2px;overflow:hidden;"><div style="width:82%;height:100%;background:var(--accent);border-radius:2px;"></div></div>
+        <b style="font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent-text);">82%</b>
+      </div>
+    </div>
+
+    <div class="ink-accent">— study with intention —</div>
+
+  </div>
+</main>
+
+</body>
+</html>

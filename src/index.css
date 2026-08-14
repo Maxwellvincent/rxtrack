@@ -8,6 +8,7 @@
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code",
     "Roboto Mono", Menlo, Consolas, monospace;
   --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-condensed: "Barlow Condensed", "Arial Narrow", Arial, sans-serif;
 }
 
 html,

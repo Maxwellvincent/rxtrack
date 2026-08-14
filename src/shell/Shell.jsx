@@ -387,6 +387,7 @@ function ShellMain({ theme, toggle, userId }) {
               logActivity={logActivity}
               examDates={examDates.data}
               onClose={() => setStudyLecture(null)}
+              onStartObjectiveQuiz={onStartObjectiveQuiz}
               onGoDeep={(lecId) => {
                 setStudyLecture(null);
                 setDeepLearnPreselectId(lecId);
@@ -569,7 +570,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
           className="flex flex-col items-start rounded-sm border border-border bg-bg-elevated px-4 py-3 text-left hover:border-accent/40 hover:bg-panel transition-colors"
         >
           <span className="font-condensed text-sm font-semibold uppercase tracking-wide text-text-1">{item.label}</span>
-          <span className="mt-0.5 font-mono text-[10px] normal-case tracking-normal text-text-3">{item.desc}</span>
+          <span className="mt-0.5 font-mono text-[12px] normal-case tracking-normal text-text-3">{item.desc}</span>
         </button>
       ))}
     </div>

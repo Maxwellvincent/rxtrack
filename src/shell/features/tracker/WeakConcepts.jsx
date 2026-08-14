@@ -27,11 +27,11 @@ function ConceptRow({ concept }) {
           {landmine && <span title="missed repeatedly, never yet correct">⚠ </span>}
           {concept.concept || concept.description}
         </span>
-        <span className={"font-mono text-[10px] " + (MASTERY_STYLE[concept.masteryLevel] || "text-text-3")}>
+        <span className={"font-mono text-[12px] " + (MASTERY_STYLE[concept.masteryLevel] || "text-text-3")}>
           {concept.masteryLevel || "unknown"}
         </span>
       </div>
-      <div className="mt-0.5 font-mono text-[10px] text-text-3">
+      <div className="mt-0.5 font-mono text-[12px] text-text-3">
         {misses} miss{misses === 1 ? "" : "es"}
         {attempts > 0 && ` of ${attempts} attempt${attempts === 1 ? "" : "s"}`}
         {concept.consecutiveCorrect > 0 && ` · ${concept.consecutiveCorrect} correct in a row`}
@@ -59,7 +59,7 @@ export function WeakConcepts({ blockId, userId, onBack }) {
     <div className="p-5">
       <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
       <h2 className="text-sm font-bold text-text-1">Weak concepts</h2>
-      <div className="mb-3 font-mono text-[10px] text-text-3">
+      <div className="mb-3 font-mono text-[12px] text-text-3">
         {view.counts.total} tracked · {view.counts.struggling || 0} struggling · {view.counts.landmines} landmines
       </div>
 
@@ -72,7 +72,7 @@ export function WeakConcepts({ blockId, userId, onBack }) {
             key={s.key}
             onClick={() => setScope(s.key)}
             className={
-              "rounded border px-2 py-0.5 font-mono text-[10px] " +
+              "rounded border px-2 py-0.5 font-mono text-[12px] " +
               (scope === s.key ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
             }
           >
@@ -82,7 +82,7 @@ export function WeakConcepts({ blockId, userId, onBack }) {
         <button
           onClick={() => setLandminesOnly((v) => !v)}
           className={
-            "rounded border px-2 py-0.5 font-mono text-[10px] " +
+            "rounded border px-2 py-0.5 font-mono text-[12px] " +
             (landminesOnly ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
           }
         >
@@ -91,7 +91,7 @@ export function WeakConcepts({ blockId, userId, onBack }) {
         <button
           onClick={() => setIncludeMastered((v) => !v)}
           className={
-            "rounded border px-2 py-0.5 font-mono text-[10px] " +
+            "rounded border px-2 py-0.5 font-mono text-[12px] " +
             (includeMastered ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
           }
         >
@@ -109,7 +109,7 @@ export function WeakConcepts({ blockId, userId, onBack }) {
             <ConceptRow key={concept.id || `${concept.concept}-${i}`} concept={concept} />
           ))}
           {shown.length > 200 && (
-            <div className="py-2 font-mono text-[10px] text-text-3">
+            <div className="py-2 font-mono text-[12px] text-text-3">
               showing the worst 200 of {shown.length}
             </div>
           )}

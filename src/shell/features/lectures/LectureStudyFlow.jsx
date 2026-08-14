@@ -66,7 +66,7 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
-export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep }) {
+export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep, onStartObjectiveQuiz }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
@@ -308,7 +308,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           (pick the lecture's folder from your marker output · once per lecture · ~2 min)
         </span>
       </span>
-      <span className="font-mono text-[10px] text-text-3">browse</span>
+      <span className="font-mono text-[12px] text-text-3">browse</span>
       <input type="file" multiple webkitdirectory="" directory="" className="hidden" disabled={!!busy}
         onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ""; onFigures(f); }} />
     </label>
@@ -327,7 +327,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       <div className="p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
           <span className="font-mono text-xs text-text-3">{title} · figures</span>
-          {busyLabel && <span className="font-mono text-[11px] text-text-3">{busyLabel}</span>}
+          {busyLabel && <span className="font-mono text-[13px] text-text-3">{busyLabel}</span>}
         </div>
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         <FigureReview
@@ -354,12 +354,12 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           <button onClick={() => setQuestions(null)} className="font-mono text-xs text-text-3 hover:text-text-1">
             ← back to atoms
           </button>
-          <span className="font-mono text-[11px] text-text-3">
+          <span className="font-mono text-[13px] text-text-3">
             round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)}
           </span>
         </div>
         {(skippedAtoms.length > 0 || questions?.some((q) => q._isHighYield)) && (
-          <div className="mb-3 flex flex-wrap gap-2 font-mono text-[10px]">
+          <div className="mb-3 flex flex-wrap gap-2 font-mono text-[12px]">
             {skippedAtoms.length > 0 && (
               <span className="rounded bg-good/10 px-2 py-0.5 text-good">
                 ✓ {skippedAtoms.length} atom{skippedAtoms.length === 1 ? "" : "s"} skipped — objectives already mastered
@@ -435,7 +435,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <Button onClick={() => runRound(round + 1)} disabled={!!busy}>
                 {busyLabel || `▸ Next round (${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)} atoms)`}
               </Button>
-              <button onClick={() => setQuestions(null)} className="font-mono text-[10px] text-text-3 hover:text-text-1">
+              <button onClick={() => setQuestions(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
                 stop here
               </button>
             </>
@@ -446,7 +446,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               </div>
               {onGoDeep && lastResult && (lastResult.score < 70 || lastResult.hasLandmines) && (
                 <div className="rounded-lg border border-warn/40 bg-warn/5 px-4 py-3">
-                  <div className="mb-2 font-mono text-[11px] text-warn">
+                  <div className="mb-2 font-mono text-[13px] text-warn">
                     {lastResult.hasLandmines
                       ? "Confident wrong answers detected — deep study recommended"
                       : `Score ${lastResult.score}% — reinforce with clinical application`}
@@ -476,7 +476,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
         ← back
       </button>
       <h2 className="text-lg font-bold text-text-1">{title}</h2>
-      <div className="mb-4 font-mono text-[11px] text-text-3">
+      <div className="mb-4 font-mono text-[13px] text-text-3">
         {stage === "loading" ? "loading lecture…" : `${atoms.length} high-yield atoms`}
       </div>
 
@@ -487,7 +487,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           <span className="text-text-2">
             No stored text for this lecture — choose its .md {busy ? "" : "(from pdf2md)"}
           </span>
-          <span className="font-mono text-[10px] text-text-3">{busy || "browse"}</span>
+          <span className="font-mono text-[12px] text-text-3">{busy || "browse"}</span>
           <input type="file" accept=".md,.markdown,.txt" className="hidden" disabled={!!busy}
             onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onFile(f); }} />
         </label>
@@ -498,7 +498,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           <Button onClick={() => runExtract(text)} disabled={!!busy}>
             {busyLabel || "▸ Extract the signal"}
           </Button>
-          <span className="text-[10px] text-text-3">definitions, mechanisms, relationships, results — fluff dropped</span>
+          <span className="text-[12px] text-text-3">definitions, mechanisms, relationships, results — fluff dropped</span>
         </div>
       )}
 
@@ -510,7 +510,16 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                 ? `▸ Resume at round ${nextRound + 1}`
                 : `▸ Study ${Math.min(ROUND_SIZE, atoms.length)}`)}
           </Button>
-          <span className="text-[10px] text-text-3">
+          {onStartObjectiveQuiz && (
+            <Button
+              variant="outline"
+              onClick={() => onStartObjectiveQuiz(lectureObjectives, title, blockId, { lectureId: lecture?.id })}
+              disabled={!!busy}
+            >
+              Quiz
+            </Button>
+          )}
+          <span className="text-[12px] text-text-3">
             {done >= rounds.length && rounds.length > 0
               ? `all ${rounds.length} rounds done — studying again starts from the top`
               : done > 0
@@ -521,7 +530,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             <button
               onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
               disabled={!!busy}
-              className="font-mono text-[10px] text-text-3 underline decoration-dotted hover:text-text-1"
+              className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
             >
               start over
             </button>
@@ -531,21 +540,21 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <Button variant="outline" onClick={runTagging} disabled={!!busy}>
                 ◇ Tag to objectives
               </Button>
-              <span className="text-[10px] text-text-3">
+              <span className="text-[12px] text-text-3">
                 {untagged} of {atoms.length} untagged · {lectureObjectives.length} objectives on this lecture
               </span>
             </>
           )}
           {lectureObjectives.length > 0 && untagged === 0 && (
-            <span className="text-[10px] text-text-3">
+            <span className="text-[12px] text-text-3">
               all {atoms.length} atoms tagged to objectives
             </span>
           )}
           {lectureObjectives.length === 0 && (
-            <span className="text-[10px] text-text-3">no objectives linked to this lecture — nothing to tag against</span>
+            <span className="text-[12px] text-text-3">no objectives linked to this lecture — nothing to tag against</span>
           )}
           {images.length > 0 && (
-            <span className="text-[10px] text-text-3">{images.length} figures — shown with the atoms they belong to</span>
+            <span className="text-[12px] text-text-3">{images.length} figures — shown with the atoms they belong to</span>
           )}
         </div>
       )}
@@ -556,7 +565,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           screen used to force; it stays one click away for when you actually want it. */}
       {atoms.length > 0 && (
         <details className="group">
-          <summary className="cursor-pointer list-none font-mono text-[11px] text-text-3 hover:text-text-1">
+          <summary className="cursor-pointer list-none font-mono text-[13px] text-text-3 hover:text-text-1">
             ▸ review all {atoms.length} atoms
           </summary>
           <div className="mt-3 space-y-4">
@@ -574,7 +583,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                     <div key={i} className={"rounded-lg border-l-2 bg-bg-elevated px-3 py-2 text-xs " + meta.accent}>
                       <span className="font-semibold text-text-1">{a.term}</span>
                       {a.isHighYield && (
-                        <span className="ml-1.5 rounded bg-accent/15 px-1 font-mono text-[9px] text-accent" title={`Appears in ${a.crossCount} lectures`}>
+                        <span className="ml-1.5 rounded bg-accent/15 px-1 font-mono text-[13px] text-accent" title={`Appears in ${a.crossCount} lectures`}>
                           ⭐ ×{a.crossCount}
                         </span>
                       )}
@@ -585,7 +594,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                             <span
                               key={chip.key}
                               title={chip.title}
-                              className="rounded border border-border px-1.5 py-0.5 font-mono text-[9px] text-text-3"
+                              className="rounded border border-border px-1.5 py-0.5 font-mono text-[13px] text-text-3"
                             >
                               {chip.label}
                             </span>

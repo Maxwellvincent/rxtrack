@@ -12,10 +12,7 @@ import {
 } from "./navPrefs.js";
 
 export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = null }) {
-  // Reactive: a schedule import or lecture upload updates the nav without a reload.
   const blocks = useBlocks(userId);
-  // Every block's objectives, from the store — the mirrored localStorage copy
-  // holds only the hot block, so coverage was blank for all the others.
   const objectives = useObjectives(null, userId);
   const [collapsed, setCollapsed] = useState(() => readCollapsedTerms());
 
@@ -42,19 +39,35 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
     activeTermId != null && byTerm.every((t) => t.id === activeTermId || collapsed.has(t.id));
 
   return (
-    <aside className="flex w-60 flex-col border-r border-border bg-bg-elevated text-text-2">
-      <div className="p-2.5">
+    <aside className="shell-chrome flex w-56 flex-col border-r border-border bg-bg text-text-2">
+      {/* Logo */}
+      <div className="border-b border-border px-5 py-4">
+        <div
+          className="font-condensed text-xl font-bold uppercase tracking-wider"
+          style={{ color: "var(--text-1)" }}
+        >
+          Rx<span style={{ color: "var(--accent)" }}>Track</span>
+        </div>
+        <div className="mt-0.5 font-mono text-[13px] uppercase tracking-widest text-text-3">
+          Study Dashboard
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="px-3 py-2.5">
         <button
           onClick={onOpenPalette}
-          className="flex w-full items-center justify-between rounded-md border border-border bg-panel px-2.5 py-1.5 text-xs text-text-3 font-mono"
+          className="flex w-full items-center justify-between rounded-sm border border-border bg-panel px-3 py-1.5 text-text-3 transition-colors hover:border-border-strong hover:text-text-2"
         >
-          Search… <span>⌘K</span>
+          <span className="font-mono text-[12px]">Search…</span>
+          <span className="font-mono text-[12px]">⌘K</span>
         </button>
       </div>
 
+      {/* Nav */}
       <div className="flex-1 overflow-y-auto">
         {byTerm.length === 0 && (
-          <div className="px-3.5 py-6 text-xs text-text-3">No terms yet.</div>
+          <div className="px-5 py-6 font-mono text-[12px] text-text-3">No terms yet.</div>
         )}
         {byTerm.map((term) => {
           const open = isTermVisible(term, { collapsed, activeBlockId });
@@ -64,13 +77,13 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
               <button
                 onClick={() => persist(toggleTerm(collapsed, term.id))}
                 title={collapsed.has(term.id) ? "Expand term" : "Collapse term"}
-                className="flex w-full items-center justify-between px-3.5 pt-2 pb-1 text-[9px] font-bold uppercase tracking-wider text-text-3 hover:text-text-1"
+                className="flex w-full items-center justify-between px-5 pb-1 pt-3 font-condensed text-[12px] font-bold uppercase tracking-widest text-text-3 hover:text-text-2"
               >
                 <span className="flex items-center gap-1.5 truncate">
                   <span className={"transition-transform " + (open ? "" : "-rotate-90")}>▾</span>
                   {term.name}
                 </span>
-                <span className="font-mono opacity-70">
+                <span className="font-mono text-[13px] opacity-60">
                   {open ? term.blocks.length : `${term.blocks.length} hidden`}
                 </span>
               </button>
@@ -83,43 +96,46 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                     <button
                       key={b.id}
                       onClick={() => onSelectBlock(b.id)}
-                      className={
-                        "flex w-full items-center justify-between px-3.5 py-1.5 text-xs rounded-sm " +
-                        (active
-                          ? "bg-accent-soft text-text-1"
-                          : "text-text-2 hover:bg-panel")
-                      }
+                      className={[
+                        "flex w-full items-center justify-between border-l-[3px] px-4 py-2 text-left text-xs transition-colors",
+                        active
+                          ? "border-accent bg-accent-soft text-text-1"
+                          : "border-transparent text-text-2 hover:bg-bg-elevated hover:text-text-1",
+                      ].join(" ")}
                     >
                       <span className="flex items-center gap-2 truncate">
                         <StatusGlyph status={b.status} />
-                        {b.name}
+                        <span className="truncate">{b.name}</span>
                       </span>
                       {cov != null && (
-                        <span className={active ? "text-accent-text font-bold" : "opacity-60"}>{cov}%</span>
+                        <span className={[
+                          "ml-2 flex-shrink-0 font-mono text-[12px]",
+                          active ? "font-bold text-accent-text" : "text-text-3",
+                        ].join(" ")}>
+                          {cov}%
+                        </span>
                       )}
                     </button>
                   );
                 })}
 
-              {/* A collapsed term still shows the block you are on — hiding it
-                  would make the nav disagree with the pane next to it. */}
               {!open && hasActive && (
-                <div className="px-3.5 pb-1 font-mono text-[10px] text-text-3">(showing current block)</div>
+                <div className="px-5 pb-1 font-mono text-[13px] text-text-3">(showing current)</div>
               )}
             </div>
           );
         })}
       </div>
 
-      <div className="flex items-center justify-between border-t border-border px-3.5 py-2.5 text-[10px] text-text-3 font-mono">
+      {/* Footer */}
+      <div className="flex items-center justify-between border-t border-border px-5 py-3 font-mono text-[13px] text-text-3">
         <span>{blocks.length} blocks</span>
         {byTerm.length > 1 && activeTermId && (
           <button
             onClick={() => persist(othersCollapsed ? new Set() : collapseAllExcept(byTerm, activeTermId))}
-            className="hover:text-text-1"
-            title={othersCollapsed ? "Show every term" : "Collapse every other term"}
+            className="uppercase tracking-wider hover:text-text-2"
           >
-            {othersCollapsed ? "show all" : "this term only"}
+            {othersCollapsed ? "show all" : "this term"}
           </button>
         )}
       </div>

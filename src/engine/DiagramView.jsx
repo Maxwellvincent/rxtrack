@@ -36,7 +36,7 @@ export function DiagramView({ diagram }) {
             onClick={() => setSel(n.id === sel ? null : n.id)}
             style={{ left: `${n.x}%`, top: `${n.y}%`, transform: "translate(-50%,-50%)" }}
             className={
-              "absolute max-w-[30%] rounded-md border px-2 py-1 text-[11px] leading-tight " +
+              "absolute max-w-[30%] rounded-md border px-2 py-1 text-[13px] leading-tight " +
               (sel === n.id
                 ? "border-accent bg-accent-soft text-text-1"
                 : "border-border-strong bg-panel text-text-2 hover:text-text-1")
@@ -51,7 +51,7 @@ export function DiagramView({ diagram }) {
           {selNode.detail}
         </div>
       )}
-      <div className="mt-1 text-[10px] text-text-3">Click a step to see what happens there.</div>
+      <div className="mt-1 text-[12px] text-text-3">Click a step to see what happens there.</div>
     </div>
   );
 }

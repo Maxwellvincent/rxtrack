@@ -90,7 +90,7 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
         {!done && (
           <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
             <span className="text-text-2">{fileName || "Choose schedule .md / .txt"}</span>
-            <span className="font-mono text-[10px] text-text-3">browse</span>
+            <span className="font-mono text-[12px] text-text-3">browse</span>
             <input type="file" accept=".md,.markdown,.txt" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) onFile(f); }} />
           </label>
@@ -101,7 +101,7 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
         {preview && !done && (
           <>
             <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3">
-              <div className="mb-2 font-mono text-[10px] uppercase tracking-wider text-text-3">
+              <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
                 {preview.events.length} of your events · will change:
               </div>
               <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-2">
@@ -112,7 +112,7 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
                 {preview.blocks.map((b) => (
                   <div key={b.system} className="flex items-baseline justify-between text-xs">
                     <span className="text-text-1">{b.name}</span>
-                    <span className="font-mono text-[10px] text-text-3">
+                    <span className="font-mono text-[12px] text-text-3">
                       {b.lectures.length} lec · start {b.startDate} · test {b.examDate || "—"}
                     </span>
                   </div>
@@ -126,7 +126,7 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
               </Button>
               <Button variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
             </div>
-            <div className="mt-2 text-[10px] text-text-3">.ics → Google Calendar: Settings › Import &amp; export › Import.</div>
+            <div className="mt-2 text-[12px] text-text-3">.ics → Google Calendar: Settings › Import &amp; export › Import.</div>
           </>
         )}
 

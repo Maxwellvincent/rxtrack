@@ -7,16 +7,16 @@ const TABS = [
 
 export function TabBar({ active, onChange }) {
   return (
-    <nav className="flex border-b border-border bg-bg px-4">
+    <nav className="shell-chrome flex flex-shrink-0 border-b border-border bg-bg px-2">
       {TABS.map((t) => (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
           className={[
-            "px-4 py-2.5 text-xs font-mono transition-colors",
+            "px-4 py-2.5 font-condensed text-xs font-semibold uppercase tracking-widest transition-colors",
             active === t.id
               ? "border-b-2 border-accent text-text-1"
-              : "text-text-3 hover:text-text-2",
+              : "border-b-2 border-transparent text-text-3 hover:text-text-2",
           ].join(" ")}
         >
           {t.label}
