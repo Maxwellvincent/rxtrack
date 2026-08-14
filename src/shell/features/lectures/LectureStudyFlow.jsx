@@ -79,7 +79,6 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
-  const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Track last round result to surface "Go Deep" prompt on completion
@@ -291,14 +290,6 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity]);
 
-  // You clicked Study, so studying is what should happen — land on question 1 rather than on a
-  // wall of atoms to read. Fires once per lecture; `started` keeps a re-render from re-asking.
-  // It opens where you stopped, because a bookmark you have to find again is not a bookmark.
-  useEffect(() => {
-    if (stage !== "quiz" || started || busy || questions || !rounds.length) return;
-    setStarted(true);
-    runRound(nextRound);
-  }, [stage, started, busy, questions, rounds, nextRound, runRound]);
 
   /*
    * The app cannot see your disk, so it can never say "this lecture has 21 figures waiting".
@@ -444,7 +435,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <Button onClick={() => runRound(round + 1)} disabled={!!busy}>
                 {busyLabel || `▸ Next round (${Math.min(ROUND_SIZE, atoms.length - (round + 1) * ROUND_SIZE)} atoms)`}
               </Button>
-              <button onClick={onClose} className="font-mono text-[10px] text-text-3 hover:text-text-1">
+              <button onClick={() => setQuestions(null)} className="font-mono text-[10px] text-text-3 hover:text-text-1">
                 stop here
               </button>
             </>
