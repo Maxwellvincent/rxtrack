@@ -566,10 +566,10 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
         <button
           key={item.label}
           onClick={item.action}
-          className="flex flex-col items-start rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left hover:border-accent/40 hover:bg-panel transition-colors"
+          className="flex flex-col items-start rounded-sm border border-border bg-bg-elevated px-4 py-3 text-left hover:border-accent/40 hover:bg-panel transition-colors"
         >
-          <span className="text-sm text-text-1">{item.label}</span>
-          <span className="mt-0.5 font-mono text-[10px] text-text-3">{item.desc}</span>
+          <span className="font-condensed text-sm font-semibold uppercase tracking-wide text-text-1">{item.label}</span>
+          <span className="mt-0.5 font-mono text-[10px] normal-case tracking-normal text-text-3">{item.desc}</span>
         </button>
       ))}
     </div>

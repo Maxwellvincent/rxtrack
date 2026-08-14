@@ -203,7 +203,7 @@ function DayModePicker({ mode, onChange, suggested }) {
             key={m.id}
             onClick={() => onChange(m.id)}
             className={[
-              "flex flex-col items-start rounded-lg border px-3 py-2.5 text-left transition-colors",
+              "flex flex-col items-start rounded-sm border px-3 py-2.5 text-left transition-colors",
               isSelected
                 ? "border-accent bg-panel text-text-1"
                 : isSuggested
@@ -211,7 +211,7 @@ function DayModePicker({ mode, onChange, suggested }) {
                   : "border-border bg-bg-elevated text-text-2 hover:border-border-strong",
             ].join(" ")}
           >
-            <span className="flex items-center gap-1.5 text-xs font-semibold">
+            <span className="flex items-center gap-1.5 font-condensed text-xs font-semibold uppercase tracking-wide">
               {(isSelected || isSuggested) && (
                 <span
                   className="inline-block h-2 w-2 rounded-full flex-shrink-0"
@@ -220,10 +220,10 @@ function DayModePicker({ mode, onChange, suggested }) {
               )}
               {m.label}
               {isSuggested && !isSelected && (
-                <span className="ml-auto font-mono text-[8px] text-text-3">suggested</span>
+                <span className="ml-auto font-mono text-[8px] text-text-3 normal-case tracking-normal">suggested</span>
               )}
             </span>
-            <span className="mt-0.5 font-mono text-[10px] text-text-3 leading-snug">{m.desc}</span>
+            <span className="mt-0.5 font-mono text-[10px] text-text-3 leading-snug normal-case tracking-normal">{m.desc}</span>
           </button>
         );
       })}
@@ -310,12 +310,12 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
   const blocks = computeSchedule(mode, wakeTime, lecConfig?.time, lecConfig?.duration);
   if (!blocks.length) return null;
   return (
-    <div className="rounded-lg border border-border bg-bg-elevated overflow-hidden">
+    <div className="rounded-sm border border-border bg-bg-elevated overflow-hidden">
       <button
         onClick={() => setCollapsed((c) => !c)}
         className="flex w-full items-center justify-between border-b border-border px-3 py-2 text-left"
       >
-        <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">
+        <span className="font-condensed text-[10px] font-bold uppercase tracking-wider text-text-3">
           Today's routine
         </span>
         <span className="font-mono text-[10px] text-text-3">{collapsed ? "▸" : "▾"}</span>
@@ -354,7 +354,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
   return (
     <div
       className={[
-        "rounded-lg border transition-colors",
+        "rounded-sm border transition-colors",
         checked
           ? "border-[var(--color-good,#4ade80)]/40 bg-[var(--color-good,#4ade80)]/5 opacity-70"
           : partiallyDone
@@ -547,8 +547,8 @@ function ExamDatePicker({ blockId, userId }) {
   }, [blockId, userId, dateInput]);
 
   return (
-    <div className="rounded-lg border border-border bg-bg-elevated p-4">
-      <div className="mb-1 text-sm font-semibold text-text-1">Set exam date</div>
+    <div className="rounded-sm border border-border bg-bg-elevated p-4">
+      <div className="mb-1 font-condensed text-sm font-semibold uppercase tracking-wide text-text-1">Set exam date</div>
       <div className="mb-3 font-mono text-[10px] text-text-3">
         Today plans backwards from the exam — set a date to see your schedule.
       </div>
@@ -686,10 +686,10 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[11px] text-text-3">{dateStr}</div>
-          <h2 className="text-lg font-bold text-text-1">Daily Plan</h2>
+          <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Daily Plan</h2>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <span className="rounded-full border border-border bg-panel px-3 py-1 font-mono text-[11px] font-bold uppercase tracking-wide text-text-2">
+          <span className="rounded-sm border border-border bg-panel px-3 py-1 font-condensed text-[11px] font-bold uppercase tracking-wide text-text-2">
             {effectiveMode
               ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[effectiveMode] }} />{DAY_MODES.find((m) => m.id === effectiveMode)?.label}{!dayMode && <span className="ml-1 text-[9px] font-normal opacity-60">auto</span>}</>
               : "Set day type"
@@ -724,13 +724,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       {/* Task list */}
       {filteredTasks.length === 0 ? (
         todayTasks.length > 0 && effectiveMode ? (
-          <div className="rounded-lg border border-border p-4 text-xs text-text-3">
+          <div className="rounded-sm border border-border p-4 text-xs text-text-3">
             No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === effectiveMode)?.label}</span> today.
             {effectiveMode === "review" && " All available lectures are scheduled for today — switch to Lecture day."}
             {effectiveMode === "triage" && " No previously-studied lectures available — showing top pick below."}
           </div>
         ) : nextDay ? (
-          <div className="rounded-lg border border-border p-4 text-xs text-text-3">
+          <div className="rounded-sm border border-border p-4 text-xs text-text-3">
             Nothing due today. Block starts{" "}
             <span className="text-text-1">{nextDay.dateStr}</span> — {nextDay.daysFromNow} days away,{" "}
             {nextDay.tasks.length} lecture{nextDay.tasks.length === 1 ? "" : "s"}.
@@ -743,7 +743,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
             </div>
           </div>
         ) : (
-          <div className="rounded-lg border border-border p-4 text-xs text-text-3">
+          <div className="rounded-sm border border-border p-4 text-xs text-text-3">
             Nothing to do — every lecture is mastered or not yet available.
           </div>
         )

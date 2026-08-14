@@ -21,7 +21,7 @@ export function BlockHome({ blockId, userId = null, onContinue, onCalibrate, onO
     <div className={statsOnly ? "px-5 pb-4" : "p-5"}>
       {!statsOnly && (
         <>
-          <h1 className="text-xl font-bold text-text-1">{block.name}</h1>
+          <h1 className="font-condensed text-xl font-bold uppercase tracking-wide text-text-1">{block.name}</h1>
           <div className="mt-1 font-mono text-[11px] text-text-3">
             {block.lectureCount} lectures{cov != null ? ` · ${cov}% covered` : ""}
           </div>
