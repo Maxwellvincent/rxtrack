@@ -8,6 +8,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "../today/useToday.js";
+import { useLectures } from "../../hooks/useLectures.js";
 import { buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 
 const CONFIDENCE = [
@@ -18,7 +19,51 @@ const CONFIDENCE = [
 
 const SORT_LABELS = { urgency: "urgency", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
 
-function Row({ row, onStudy, onQuiz, onLog, busy }) {
+function DateEdit({ row, onUpdateDate }) {
+  const [editing, setEditing] = useState(false);
+  const dateVal = row.availableDate instanceof Date && !isNaN(row.availableDate)
+    ? row.availableDate.toISOString().slice(0, 10)
+    : "";
+
+  const commit = (val) => {
+    onUpdateDate(row.lectureId, val || null);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        type="date"
+        defaultValue={dateVal}
+        autoFocus
+        onBlur={(e) => commit(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit(e.target.value);
+          if (e.key === "Escape") setEditing(false);
+        }}
+        className="rounded border border-accent bg-bg px-1 py-0 font-mono text-[10px] text-text-1 focus:outline-none"
+      />
+    );
+  }
+
+  const label = row.availableDate instanceof Date && !isNaN(row.availableDate)
+    ? row.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : row.weekNumber
+      ? `Wk ${row.weekNumber}${row.dayOfWeek ? ` · ${row.dayOfWeek}` : ""}`
+      : "set date";
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      title="Click to edit date"
+      className="font-mono text-[10px] text-text-3 hover:text-accent"
+    >
+      {label} <span className="opacity-50">✎</span>
+    </button>
+  );
+}
+
+function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
   const [logging, setLogging] = useState(null);
 
   return (
@@ -29,13 +74,9 @@ function Row({ row, onStudy, onQuiz, onLog, busy }) {
             {row.type} {row.number ?? ""}
           </span>{" "}
           <span className="text-sm text-text-1">{row.studyMode?.icon} {row.title}</span>
-          <div className="mt-0.5 font-mono text-[10px] text-text-3">
-            {row.availableDate
-              ? row.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
-              : row.weekNumber
-                ? `Wk ${row.weekNumber}${row.dayOfWeek ? ` · ${row.dayOfWeek}` : ""}`
-                : null}
-            {(row.availableDate || row.weekNumber) && " · "}
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-text-3">
+            <DateEdit row={row} onUpdateDate={onUpdateDate} />
+            <span>·</span>
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
             {row.struggling > 0 && ` · ${row.struggling} struggling`}
             {row.sessions > 0 ? ` · ${row.sessions} session${row.sessions > 1 ? "s" : ""}` : " · never studied"}
@@ -97,6 +138,7 @@ function Row({ row, onStudy, onQuiz, onLog, busy }) {
 
 export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null, onBack }) {
   const { context, logActivity, objectivesForTask } = useToday(blockId, userId);
+  const lecturesResource = useLectures(null, userId);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("urgency");
@@ -128,6 +170,17 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
       onStartObjectiveQuiz?.(objectivesForTask(row.lectureId), row.title, blockId, { lectureId: row.lectureId });
     },
     [objectivesForTask, onStartObjectiveQuiz, blockId]
+  );
+
+  const onUpdateDate = useCallback(
+    (lectureId, dateStr) => {
+      const all = lecturesResource.data || [];
+      const next = all.map((lec) =>
+        lec.id === lectureId ? { ...lec, lectureDate: dateStr || null } : lec
+      );
+      lecturesResource.mutate(next);
+    },
+    [lecturesResource]
   );
 
   return (
@@ -180,6 +233,7 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
               onStudy={onStudyLecture}
               onQuiz={onQuiz}
               onLog={onLog}
+              onUpdateDate={onUpdateDate}
             />
           ))}
         </div>
