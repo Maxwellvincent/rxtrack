@@ -15,7 +15,7 @@ function dayModeKey(blockId) { return `rxt-day-mode-${blockId}`; }
 function readDayMode(blockId) { return localStorage.getItem(dayModeKey(blockId)) || null; }
 function writeDayMode(blockId, mode) { localStorage.setItem(dayModeKey(blockId), mode); }
 
-// ─── Checked state (session-scoped per block) ──────────────────────────────
+// ─── Checked + session state (day-scoped per block) ───────────────────────
 
 function checkedKey(blockId) { return `rxt-checked-${blockId}-${new Date().toDateString()}`; }
 function readChecked(blockId) {
@@ -24,6 +24,15 @@ function readChecked(blockId) {
 }
 function writeChecked(blockId, set) {
   sessionStorage.setItem(checkedKey(blockId), JSON.stringify([...set]));
+}
+
+function sessionsKey(blockId) { return `rxt-rounds-${blockId}-${new Date().toDateString()}`; }
+function readSessionCounts(blockId) {
+  try { return JSON.parse(sessionStorage.getItem(sessionsKey(blockId)) || "{}"); }
+  catch { return {}; }
+}
+function writeSessionCounts(blockId, map) {
+  sessionStorage.setItem(sessionsKey(blockId), JSON.stringify(map));
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -83,46 +92,83 @@ function ProgressBar({ done, total }) {
   );
 }
 
-function TaskRow({ task, checked, isNext, onCheck, onStudy, onQuiz, onLog, busy }) {
+function RoundDots({ done, total }) {
+  if (total <= 0) return null;
+  return (
+    <div className="flex items-center gap-1">
+      {Array.from({ length: total }).map((_, i) => (
+        <span
+          key={i}
+          className={[
+            "h-2 w-2 rounded-full transition-colors",
+            i < done ? "bg-accent" : "bg-border",
+          ].join(" ")}
+        />
+      ))}
+      <span className="ml-1 font-mono text-[10px] text-text-3">{done}/{total}</span>
+    </div>
+  );
+}
+
+function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz, onLog, busy }) {
   const [logging, setLogging] = useState(null);
+  const [expanded, setExpanded] = useState(false);
   const title = task.lec?.lectureTitle || task.lec?.fileName || task.lec?.filename || "Lecture";
+  const recommended = task.recommendedSessions || [];
+  const targetRounds = recommended.length;
+  const roundsDone = Math.min(sessionCount ?? 0, targetRounds);
+  const partiallyDone = roundsDone > 0 && roundsDone < targetRounds;
 
   return (
     <div
       className={[
-        "rounded-lg border px-4 py-3 transition-colors",
+        "rounded-lg border transition-colors",
         checked
           ? "border-[var(--color-good,#4ade80)]/40 bg-[var(--color-good,#4ade80)]/5 opacity-70"
-          : isNext
-            ? "border-accent bg-panel shadow-sm"
-            : "border-border bg-bg-elevated hover:border-border-strong",
+          : partiallyDone
+            ? "border-accent/50 bg-panel"
+            : isNext
+              ? "border-accent bg-panel shadow-sm"
+              : "border-border bg-bg-elevated hover:border-border-strong",
       ].join(" ")}
     >
-      <div className="flex items-start gap-3">
-        {/* Checkbox */}
+      {/* Main row */}
+      <div className="flex items-start gap-3 px-4 py-3">
+        {/* Checkbox / partial indicator */}
         <button
           onClick={() => onCheck(task.lec.id)}
           className={[
             "mt-0.5 flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
             checked
               ? "border-[var(--color-good,#4ade80)] bg-[var(--color-good,#4ade80)] text-bg"
-              : "border-text-3 hover:border-accent",
+              : partiallyDone
+                ? "border-accent bg-accent/20 text-accent"
+                : "border-text-3 hover:border-accent",
           ].join(" ")}
           aria-label={checked ? "Mark incomplete" : "Mark complete"}
         >
-          {checked && <span className="text-[11px] font-bold leading-none">✓</span>}
+          {checked
+            ? <span className="text-[11px] font-bold leading-none">✓</span>
+            : partiallyDone
+              ? <span className="text-[10px] font-bold leading-none">~</span>
+              : null}
         </button>
 
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="min-w-0">
+            {/* Title + meta — clicking title toggles expanded */}
+            <button
+              className="min-w-0 text-left"
+              onClick={() => setExpanded((e) => !e)}
+            >
               {isNext && !checked && (
                 <div className="mb-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
                   Up next
                 </div>
               )}
-              <div className={["text-[13.5px] font-semibold", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}>
+              <div className={["flex items-center gap-1.5 text-[13.5px] font-semibold", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}>
                 {task.studyMode?.icon ? `${task.studyMode.icon} ` : ""}{title}
+                <span className="text-[10px] text-text-3 font-normal">{expanded ? "▴" : "▾"}</span>
               </div>
               <div className="font-mono text-[10px] text-text-3">
                 {task.availableDate
@@ -138,10 +184,11 @@ function TaskRow({ task, checked, isNext, onCheck, onStudy, onQuiz, onLog, busy 
                     : "highest urgency"}
                 {task.total > 0 && ` · ${task.mastered}/${task.total} mastered`}
               </div>
-            </div>
+            </button>
+
             {!checked && (
               <div className="flex gap-1.5">
-                <Button onClick={() => onStudy(task.lec.id)} title="Study rounds">Study →</Button>
+                <Button onClick={() => onStudy(task.lec.id, targetRounds)} title="Study rounds">Study →</Button>
                 <Button
                   variant="outline"
                   onClick={() => onQuiz(task)}
@@ -153,6 +200,12 @@ function TaskRow({ task, checked, isNext, onCheck, onStudy, onQuiz, onLog, busy 
             )}
           </div>
 
+          {/* Round progress dots */}
+          {!checked && targetRounds > 0 && (
+            <RoundDots done={roundsDone} total={targetRounds} />
+          )}
+
+          {/* Log row */}
           {!checked && (
             <div className="flex flex-wrap items-center gap-2">
               {logging ? (
@@ -179,6 +232,49 @@ function TaskRow({ task, checked, isNext, onCheck, onStudy, onQuiz, onLog, busy 
           )}
         </div>
       </div>
+
+      {/* Expanded detail panel */}
+      {expanded && (
+        <div className="border-t border-border px-4 py-3 flex flex-col gap-3">
+          {/* Objectives breakdown */}
+          {task.total > 0 && (
+            <div>
+              <div className="mb-1.5 font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">Objectives</div>
+              <div className="flex gap-3 font-mono text-[11px]">
+                {task.mastered > 0 && <span className="text-good">✓ {task.mastered} mastered</span>}
+                {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling} struggling</span>}
+                {task.untested > 0 && <span className="text-text-3">· {task.untested} untested</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Recommended sessions for today */}
+          {recommended.length > 0 && (
+            <div>
+              <div className="mb-1.5 font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">Today's sessions</div>
+              <div className="flex flex-col gap-1">
+                {recommended.map((s, i) => (
+                  <div key={i} className={["flex items-start gap-2 font-mono text-[11px]", i < roundsDone ? "text-text-3 line-through" : "text-text-2"].join(" ")}>
+                    <span className="mt-px text-[9px] text-text-3 flex-shrink-0">{i + 1}.</span>
+                    <div>
+                      <span>{s.label}</span>
+                      {s.reason && <span className="ml-1.5 text-[10px] text-text-3">— {s.reason}</span>}
+                      {s.duration && <span className="ml-1.5 text-[9px] text-text-3">~{s.duration}m</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sessions done lifetime + confidence */}
+          <div className="flex gap-4 font-mono text-[10px] text-text-3">
+            {task.sessions > 0 && <span>{task.sessions} session{task.sessions !== 1 ? "s" : ""} total</span>}
+            {task.confidence && task.confidence !== "Low" && <span>confidence: {task.confidence.toLowerCase()}</span>}
+            {task.lastScore != null && <span>last score: {task.lastScore}%</span>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -229,6 +325,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
 
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
   const [checked, setChecked] = useState(() => readChecked(blockId));
+  const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
 
   const handleDayMode = useCallback((m) => {
@@ -258,13 +355,21 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     setTimeout(() => setLogFeedback(null), 4000);
   }, [logActivity, blockId]);
 
-  const onStudy = useCallback((id) => {
+  const onStudy = useCallback((id, targetRounds) => {
     onStudyLecture?.(id);
-    // Auto-check when study is launched
-    setChecked((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      writeChecked(blockId, next);
+    setSessionCounts((prev) => {
+      const newCount = (prev[id] ?? 0) + 1;
+      const next = { ...prev, [id]: newCount };
+      writeSessionCounts(blockId, next);
+      // Auto-check only when all recommended rounds are done
+      if (newCount >= (targetRounds || 1)) {
+        setChecked((c) => {
+          const ns = new Set(c);
+          ns.add(id);
+          writeChecked(blockId, ns);
+          return ns;
+        });
+      }
       return next;
     });
   }, [onStudyLecture, blockId]);
@@ -381,6 +486,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
               task={task}
               checked={checked.has(task.lec.id)}
               isNext={task.lec.id === firstUnchecked}
+              sessionCount={sessionCounts[task.lec.id] ?? 0}
               onCheck={handleCheck}
               onStudy={onStudy}
               onQuiz={onQuiz}
