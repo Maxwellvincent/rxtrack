@@ -467,7 +467,15 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
                   : task.matchReason === "spaced-rep-due"
                     ? "spaced rep due"
                     : "highest urgency"}
-                {task.total > 0 && ` · ${task.mastered}/${task.total} mastered`}
+                {task.total > 0 && (
+                  <>
+                    {" · "}
+                    {task.mastered > 0 && <span className="text-good">{task.mastered} mastered</span>}
+                    {task.inprogress > 0 && <span className="text-accent"> · {task.inprogress} learning</span>}
+                    {task.struggling > 0 && <span className="text-warn"> · {task.struggling} struggling</span>}
+                    {(task.mastered === 0 && task.inprogress === 0 && task.struggling === 0) && <span>{task.untested} untested</span>}
+                  </>
+                )}
               </div>
             </button>
 
@@ -525,8 +533,9 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           {task.total > 0 && (
             <div>
               <div className="mb-1.5 font-mono text-[9px] font-bold uppercase tracking-wider text-text-3">Objectives</div>
-              <div className="flex gap-3 font-mono text-[11px]">
+              <div className="flex flex-wrap gap-3 font-mono text-[11px]">
                 {task.mastered > 0 && <span className="text-good">✓ {task.mastered} mastered</span>}
+                {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress} learning</span>}
                 {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling} struggling</span>}
                 {task.untested > 0 && <span className="text-text-3">· {task.untested} untested</span>}
               </div>

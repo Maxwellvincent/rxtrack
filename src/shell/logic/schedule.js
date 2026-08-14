@@ -58,11 +58,11 @@ export function objectivesForLecture(objectives, lecture) {
 export function statusTally(lectureObjectives) {
   const list = lectureObjectives || [];
   return {
+    mastered:   list.filter((o) => o.status === "mastered").length,
+    inprogress: list.filter((o) => o.status === "inprogress" || o.status === "developing" || o.status === "in_progress").length,
     struggling: list.filter((o) => o.status === "struggling").length,
-    // "inprogress" is DeepLearn's legacy vocab for "developing" — treat them the same
-    untested: list.filter((o) => !o.status || o.status === "untested").length,
-    mastered: list.filter((o) => o.status === "mastered").length,
-    total: list.length,
+    untested:   list.filter((o) => !o.status || o.status === "untested").length,
+    total:      list.length,
   };
 }
 
