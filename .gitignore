@@ -27,6 +27,13 @@ dist-ssr
 # brainstorm visual companion
 .superpowers/
 
+# Claude Code internal files
+.claude/
+
+# Local dev artifacts
+design-variants/
+explore.mjs
+
 # Firebase functions params/secrets
 functions/.env
 functions/.env.*
