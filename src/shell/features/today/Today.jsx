@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
 import * as examDatesStore from "../../../stores/examDates.js";
@@ -20,7 +20,6 @@ function readSleepWake(blockId) {
   try { return JSON.parse(localStorage.getItem(sleepWakeKey(blockId)) || "{}"); }
   catch { return {}; }
 }
-function writeSleepWake(blockId, val) { localStorage.setItem(sleepWakeKey(blockId), JSON.stringify(val)); }
 
 // Wake time "HH:MM" → suggested mode
 function wakeTimeMode(wakeStr) {
@@ -43,7 +42,6 @@ function readLecConfig(blockId) {
     return { time: oldTime || null, duration: 50 };
   } catch { return { time: null, duration: 50 }; }
 }
-function writeLecConfig(blockId, val) { localStorage.setItem(lecConfigKey(blockId), JSON.stringify(val)); }
 
 // ─── Schedule time helpers ─────────────────────────────────────────────────────
 
@@ -274,57 +272,6 @@ function RoundDots({ done, total }) {
   );
 }
 
-function DayInputs({ wakeTime, lecConfig, onChangeWake, onChangeLecConfig }) {
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  return (
-    <div className="flex flex-col gap-1.5">
-      {/* Wake time — changes daily, stays visible */}
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-bg-elevated px-3 py-2">
-        <span className="font-mono text-[10px] text-text-3">up at</span>
-        <input
-          type="time"
-          value={wakeTime ?? ""}
-          onChange={(e) => onChangeWake(e.target.value || null)}
-          className="rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
-        />
-        <button
-          onClick={() => setSettingsOpen((s) => !s)}
-          className="ml-auto font-mono text-[10px] text-text-3 hover:text-text-1"
-          title="Lecture settings"
-        >
-          ⚙ settings {settingsOpen ? "▴" : "▾"}
-        </button>
-      </div>
-      {/* Lecture settings — block-scoped, set once per term */}
-      {settingsOpen && (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-bg-elevated px-3 py-2">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] text-text-3">lectures at</span>
-            <input
-              type="time"
-              value={lecConfig.time ?? ""}
-              onChange={(e) => onChangeLecConfig({ ...lecConfig, time: e.target.value || null })}
-              className="rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[10px] text-text-3">each lecture</span>
-            <input
-              type="number"
-              min="10" max="180" step="5"
-              value={lecConfig.duration ?? ""}
-              placeholder="50"
-              onChange={(e) => onChangeLecConfig({ ...lecConfig, duration: e.target.value === "" ? 50 : parseInt(e.target.value, 10) })}
-              className="w-14 rounded border border-border bg-bg px-2 py-0.5 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
-            />
-            <span className="font-mono text-[10px] text-text-3">min</span>
-          </div>
-          <span className="font-mono text-[9px] text-text-3 w-full">Saved per block — set once, not daily.</span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 function ClassificationBadge({ wakeTime, mode }) {
   const suggested = wakeTimeMode(wakeTime);
@@ -441,19 +388,28 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
 
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Title + meta — clicking title toggles expanded */}
-            <button
-              className="min-w-0 text-left"
-              onClick={() => setExpanded((e) => !e)}
-            >
+            {/* Title navigates into lecture; chevron toggles details */}
+            <div className="min-w-0 flex-1">
               {isNext && !checked && (
                 <div className="mb-0.5 font-mono text-[9px] font-bold uppercase tracking-wider text-accent">
                   Up next
                 </div>
               )}
-              <div className={["flex items-center gap-1.5 text-[13.5px] font-semibold", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}>
-                {task.studyMode?.icon ? `${task.studyMode.icon} ` : ""}{title}
-                <span className="text-[10px] text-text-3 font-normal">{expanded ? "▴" : "▾"}</span>
+              <div className="flex items-center gap-1">
+                <button
+                  className={["text-left text-[13.5px] font-semibold hover:underline", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}
+                  onClick={() => !checked && onStudy(task.lec.id, targetRounds)}
+                  title="Open lecture"
+                >
+                  {task.studyMode?.icon ? `${task.studyMode.icon} ` : ""}{title}
+                </button>
+                <button
+                  onClick={() => setExpanded((e) => !e)}
+                  className="text-[10px] text-text-3 hover:text-text-2 px-0.5"
+                  title={expanded ? "Hide details" : "Show details"}
+                >
+                  {expanded ? "▴" : "▾"}
+                </button>
               </div>
               <div className="font-mono text-[10px] text-text-3">
                 {task.availableDate
@@ -477,7 +433,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
                   </>
                 )}
               </div>
-            </button>
+            </div>
 
             {!checked && (
               <div className="flex gap-1.5">
@@ -626,24 +582,20 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
 
   const suggestedMode = useMemo(() => wakeTimeMode(wakeTime), [wakeTime]);
 
+  // Sync when the Daily Plan Settings modal saves new values
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.detail?.blockId && e.detail.blockId !== blockId) return;
+      setWakeTime(readSleepWake(blockId).wakeTime ?? null);
+      setLecConfig(readLecConfig(blockId));
+    };
+    window.addEventListener("rxt-dayplan-settings-changed", handler);
+    return () => window.removeEventListener("rxt-dayplan-settings-changed", handler);
+  }, [blockId]);
+
   const handleDayMode = useCallback((m) => {
     setDayMode(m);
     writeDayMode(blockId, m);
-  }, [blockId]);
-
-  const handleWakeTime = useCallback((val) => {
-    setWakeTime(val);
-    writeSleepWake(blockId, { wakeTime: val });
-    const suggested = wakeTimeMode(val);
-    if (suggested && !readDayMode(blockId)) {
-      setDayMode(suggested);
-      writeDayMode(blockId, suggested);
-    }
-  }, [blockId]);
-
-  const handleLecConfig = useCallback((val) => {
-    setLecConfig(val);
-    writeLecConfig(blockId, val);
   }, [blockId]);
 
   const handleCheck = useCallback((id) => {
@@ -746,15 +698,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
           <span className="font-mono text-[10px] text-text-3">{daysLeft}d to exam</span>
         </div>
       </div>
-
-      {/* Wake time + lecture settings (collapsible) */}
-      <DayInputs
-        wakeTime={wakeTime}
-        lecConfig={lecConfig}
-        onChangeWake={handleWakeTime}
-        onChangeLecConfig={handleLecConfig}
-      />
-      <ClassificationBadge wakeTime={wakeTime} mode={dayMode} />
 
       {/* Day mode picker */}
       <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />

@@ -1,10 +1,146 @@
 // Unified AI client — Task 7b: every browser AI call proxies through the
 // `aiComplete` Cloud Function (Task 7a). No API keys live in the client
 // anymore; provider selection/fallback happens server-side.
+//
+// User-provided keys (Gemini / OpenAI) stored in localStorage are tried
+// before the Cloud Function so power users can use their own quota.
 
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase.js";
 import { bridgeComplete, parseBridgeJSON } from "./llmBridge.js";
+
+// ── User-provided key helpers ─────────────────────────────────────────────────
+
+function readUserApiKey() {
+  try { return JSON.parse(localStorage.getItem("rxt-user-api-key") || "null"); }
+  catch { return null; }
+}
+
+/**
+ * Direct Gemini REST call from the browser (supports CORS).
+ * Returns parsed JSON content string, or throws on failure.
+ */
+async function callGeminiDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+  const { key } = readUserApiKey() || {};
+  if (!key) throw new Error("no-key");
+  const model = "gemini-2.0-flash";
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    generationConfig: {
+      maxOutputTokens: maxTokens,
+      ...(json ? { responseMimeType: "application/json" } : {}),
+    },
+  };
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `Gemini ${res.status}`);
+  }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+}
+
+/**
+ * Direct OpenAI REST call from the browser (supports CORS).
+ */
+async function callOpenAIDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+  const { key } = readUserApiKey() || {};
+  if (!key) throw new Error("no-key");
+  const body = {
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+    ...(json ? { response_format: { type: "json_object" } } : {}),
+  };
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `OpenAI ${res.status}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? "";
+}
+
+/**
+ * Direct Anthropic REST call.
+ * NOTE: Anthropic blocks browser-origin CORS requests — this will throw in a
+ * browser but works fine when called from the local bridge or a server context.
+ * We attempt it anyway; CORS failure falls through to the Cloud Function.
+ */
+async function callAnthropicDirect(systemPrompt, userPrompt, maxTokens = 8000) {
+  const { key } = readUserApiKey() || {};
+  if (!key) throw new Error("no-key");
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": key,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: maxTokens,
+      system: systemPrompt,
+      messages: [{ role: "user", content: userPrompt }],
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `Anthropic ${res.status}`);
+  }
+  const data = await res.json();
+  return data?.content?.[0]?.text ?? "";
+}
+
+/**
+ * Kimi (Moonshot AI) — OpenAI-compatible endpoint.
+ */
+async function callKimiDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+  const { key } = readUserApiKey() || {};
+  if (!key) throw new Error("no-key");
+  const body = {
+    model: "moonshot-v1-32k",
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    max_tokens: maxTokens,
+    ...(json ? { response_format: { type: "json_object" } } : {}),
+  };
+  const res = await fetch("https://api.moonshot.cn/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `Kimi ${res.status}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content ?? "";
+}
+
+async function callUserKeyDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+  const creds = readUserApiKey();
+  if (!creds?.key) return null;
+  if (creds.provider === "openai") return callOpenAIDirect(systemPrompt, userPrompt, json, maxTokens);
+  if (creds.provider === "anthropic") return callAnthropicDirect(systemPrompt, userPrompt, maxTokens);
+  if (creds.provider === "kimi") return callKimiDirect(systemPrompt, userPrompt, json, maxTokens);
+  return callGeminiDirect(systemPrompt, userPrompt, json, maxTokens);
+}
 
 export const AI_PROVIDERS = {
   GEMINI: "gemini",
@@ -120,10 +256,17 @@ export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explici
     explicitProvider !== undefined && explicitProvider !== null ? explicitProvider : DEFAULT_PROVIDER;
   const model = providerToModel(provider);
 
-  // Free path first: the local bridge runs on your own subscriptions. Returns null when it
-  // is not running, which is not an error — fall through to the Cloud Function.
+  // Free path first: the local bridge runs on your own subscriptions.
   const bridged = await bridgeComplete({ system: systemPrompt, prompt: userPrompt });
   if (bridged !== null) return bridged;
+
+  // User-provided key: direct REST call, bypasses shared Cloud Function quota.
+  try {
+    const userResult = await callUserKeyDirect(systemPrompt, userPrompt, false, maxTokens);
+    if (userResult !== null) return userResult;
+  } catch (e) {
+    if (e.message !== "no-key") console.warn("user key call failed, using cloud:", e.message);
+  }
 
   try {
     const res = await withRetry(() =>
@@ -156,8 +299,7 @@ export async function callAIJSON(
     explicitProvider !== undefined && explicitProvider !== null ? explicitProvider : DEFAULT_PROVIDER;
   const model = providerToModel(provider);
 
-  // Free path first. A bridge reply that will not parse is treated as a bridge failure and
-  // falls through to the cloud, rather than silently handing back `fallback`.
+  // Free path first. A bridge reply that will not parse falls through to next tier.
   try {
     const bridged = await bridgeComplete({
       system: systemPrompt,
@@ -167,6 +309,17 @@ export async function callAIJSON(
     if (bridged !== null) return parseBridgeJSON(bridged);
   } catch (err) {
     console.warn("bridge JSON parse failed, using cloud:", err.message);
+  }
+
+  // User-provided key: direct REST call before Cloud Function.
+  try {
+    const userResult = await callUserKeyDirect(systemPrompt, userPrompt, true, maxTokens);
+    if (userResult !== null) {
+      try { return JSON.parse(userResult); }
+      catch { return safeFallback; }
+    }
+  } catch (e) {
+    if (e.message !== "no-key") console.warn("user key JSON call failed, using cloud:", e.message);
   }
 
   try {

@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 export function Header({
   termName, blockName, theme, onToggleTheme,
   onAnki, onRecognize, onImportSchedule, onAddLecture, onBulkImport,
-  onQuestionBanks, onRoutine, onSignOut, onExamDate,
+  onQuestionBanks, onRoutine, onDailyPlanSettings, onApiKeySettings, onSignOut, onExamDate,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -18,13 +18,15 @@ export function Header({
   }, [menuOpen]);
 
   const adminItems = [
-    onExamDate       && { label: "📆 Exam date",        action: onExamDate },
-    onImportSchedule && { label: "📅 Import schedule",  action: onImportSchedule },
-    onAddLecture     && { label: "＋ Add lecture",      action: onAddLecture },
-    onBulkImport     && { label: "⇉ Import folder",    action: onBulkImport },
-    onQuestionBanks  && { label: "🗂 Question banks",  action: onQuestionBanks },
-    onAnki           && { label: "🃏 Anki sync",       action: onAnki },
-    onRecognize      && { label: "🩺 Recognize",       action: onRecognize },
+    onExamDate           && { label: "📆 Exam date",          action: onExamDate },
+    onDailyPlanSettings  && { label: "⏰ Daily plan settings", action: onDailyPlanSettings },
+    onApiKeySettings     && { label: "🔑 AI settings",         action: onApiKeySettings },
+    onImportSchedule     && { label: "📅 Import schedule",    action: onImportSchedule },
+    onAddLecture         && { label: "＋ Add lecture",        action: onAddLecture },
+    onBulkImport         && { label: "⇉ Import folder",      action: onBulkImport },
+    onQuestionBanks      && { label: "🗂 Question banks",    action: onQuestionBanks },
+    onAnki               && { label: "🃏 Anki sync",         action: onAnki },
+    onRecognize          && { label: "🩺 Recognize",         action: onRecognize },
   ].filter(Boolean);
 
   return (

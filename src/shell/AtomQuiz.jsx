@@ -27,6 +27,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
   const [confidence, setConfidence] = useState(null);
   const [records, setRecords] = useState([]);
   const [done, setDone] = useState(false);
+  const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
 
   if (done) return <Summary records={records} />;
 
@@ -54,7 +55,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
       onDone?.({ correct: correctCount, total: questions.length, avgConfidence, hasLandmines });
       return;
     }
-    setI(i + 1); setPicked(null); setConfidence(null);
+    setI(i + 1); setPicked(null); setConfidence(null); setCrossed(new Set());
   };
 
   return (
@@ -77,15 +78,50 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
         <div className="flex flex-col gap-1.5">
           {Object.entries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
-            const cls = !revealed
-              ? (isPicked ? "border-accent" : "border-border hover:border-border-strong cursor-pointer")
-              : letter === q.correct ? "border-good" : isPicked ? "border-bad" : "border-border opacity-60";
+            const isCrossed = !revealed && crossed.has(letter);
+            const borderCls = !revealed
+              ? isCrossed
+                ? "border-border opacity-40 cursor-pointer"
+                : isPicked
+                  ? "border-accent"
+                  : "border-border hover:border-border-strong cursor-pointer"
+              : letter === q.correct
+                ? "border-good"
+                : isPicked
+                  ? "border-bad"
+                  : "border-border opacity-60";
             return (
-              <button key={letter} disabled={revealed}
-                onClick={() => !revealed && setPicked(letter)}
-                className={"flex items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + cls}>
-                <span className="font-mono text-text-3">{letter}</span>{txt}
-              </button>
+              <div key={letter} className="flex items-center gap-1.5">
+                <button
+                  disabled={revealed}
+                  onClick={() => !revealed && !isCrossed && setPicked(letter)}
+                  className={"flex flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + borderCls}
+                >
+                  <span className="font-mono text-text-3">{letter}</span>
+                  <span className={isCrossed ? "line-through text-text-3" : ""}>{txt}</span>
+                </button>
+                {/* Cross-out toggle — only before reveal */}
+                {!revealed && (
+                  <button
+                    onClick={() => setCrossed((prev) => {
+                      const next = new Set(prev);
+                      next.has(letter) ? next.delete(letter) : next.add(letter);
+                      // Unselect if crossing out the picked answer
+                      if (next.has(letter) && picked === letter) setPicked(null);
+                      return next;
+                    })}
+                    title={isCrossed ? "Restore" : "Eliminate"}
+                    className={[
+                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border font-mono text-[10px] transition-colors",
+                      isCrossed
+                        ? "border-border bg-panel text-text-2 hover:border-border-strong"
+                        : "border-border text-text-3 hover:border-border-strong hover:text-bad",
+                    ].join(" ")}
+                  >
+                    {isCrossed ? "↩" : "✕"}
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>

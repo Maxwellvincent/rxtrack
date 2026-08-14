@@ -10,44 +10,58 @@ html {
 }
 
 .theme-dark {
-  /* Softer dark — lifted surfaces + lower-contrast text to ease eye strain. */
-  --bg: #161b22;
-  --bg-elevated: #1b212b;
-  --panel: #202833;
-  --border: #2b333f;
-  --border-strong: #3a4451;
-  --text-1: #d6dce4;
-  --text-2: #9aa6b4;
-  --text-3: #6b7785;
-  --accent: #4f8cf0;
-  --accent-soft: #233049;
-  --accent-text: #82b1ff;
-  /* colorblind-safe status palette */
-  --status-blue: #3b82f6;
-  --status-amber: #f59e0b;
-  --status-purple: #a78bfa;
-  --status-cyan: #22d3ee;
-  --good: #34d399;
-  --warn: #f59e0b;
-  --bad: #f87171;
+  /* Clinical jade — 3AM study command center.
+     Near-black base with jade chroma bleed so the bg and accent live in the
+     same hue family; surfaces feel coherent, not pasted-on. */
+  --bg:           oklch(0.095 0.008 145);
+  --bg-elevated:  oklch(0.130 0.011 145);
+  --panel:        oklch(0.160 0.014 145);
+  --border:       oklch(0.230 0.020 145);
+  --border-strong:oklch(0.300 0.024 145);
+  --text-1:       oklch(0.920 0.012 145);
+  --text-2:       oklch(0.650 0.022 145);
+  --text-3:       oklch(0.470 0.018 145);
+
+  /* Jade accent — seed colour from palette.mjs */
+  --accent:       oklch(0.650 0.150 145);
+  --accent-soft:  oklch(0.180 0.045 145);
+  --accent-text:  oklch(0.760 0.130 145);
+
+  /* Colorblind-safe status palette */
+  --status-blue:  oklch(0.640 0.170 255);
+  --status-amber: oklch(0.760 0.130 85);
+  --status-purple:oklch(0.680 0.160 295);
+  --status-cyan:  oklch(0.750 0.130 200);
+
+  /* Semantic: correct / warn / wrong */
+  --good: oklch(0.720 0.155 162);
+  --warn: oklch(0.760 0.130 85);
+  --bad:  oklch(0.630 0.185 25);
 }
+
 .theme-light {
-  --bg: #ffffff;
-  --bg-elevated: #f7f9fb;
-  --panel: #f1f5f9;
-  --border: #e6e9ee;
-  --border-strong: #cbd5e1;
-  --text-1: #0f172a;
-  --text-2: #475569;
-  --text-3: #94a3b8;
-  --accent: #2563eb;
-  --accent-soft: #eef2ff;
-  --accent-text: #2563eb;
-  --status-blue: #2563eb;
-  --status-amber: #d97706;
-  --status-purple: #7c3aed;
-  --status-cyan: #0891b2;
-  --good: #059669;
-  --warn: #d97706;
-  --bad: #dc2626;
+  /* Pure white base; jade tint bleeds into elevated surfaces so the accent
+     doesn't feel foreign when it appears. */
+  --bg:           oklch(1.000 0.000 0);
+  --bg-elevated:  oklch(0.975 0.006 145);
+  --panel:        oklch(0.955 0.010 145);
+  --border:       oklch(0.895 0.016 145);
+  --border-strong:oklch(0.820 0.022 145);
+  --text-1:       oklch(0.150 0.020 145);
+  --text-2:       oklch(0.360 0.025 145);
+  --text-3:       oklch(0.430 0.018 145);
+
+  /* Darker jade on white — enough contrast for text/interactive elements */
+  --accent:       oklch(0.490 0.155 145);
+  --accent-soft:  oklch(0.935 0.032 145);
+  --accent-text:  oklch(0.440 0.155 145);
+
+  --status-blue:  oklch(0.480 0.175 255);
+  --status-amber: oklch(0.580 0.155 85);
+  --status-purple:oklch(0.510 0.165 295);
+  --status-cyan:  oklch(0.540 0.150 200);
+
+  --good: oklch(0.480 0.160 162);
+  --warn: oklch(0.580 0.155 85);
+  --bad:  oklch(0.480 0.195 25);
 }

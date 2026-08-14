@@ -84,10 +84,10 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                       key={b.id}
                       onClick={() => onSelectBlock(b.id)}
                       className={
-                        "flex w-full items-center justify-between px-3.5 py-1.5 text-xs " +
+                        "flex w-full items-center justify-between px-3.5 py-1.5 text-xs rounded-sm " +
                         (active
-                          ? "bg-accent-soft text-text-1 border-l-2 border-accent"
-                          : "text-text-2 hover:bg-panel border-l-2 border-transparent")
+                          ? "bg-accent-soft text-text-1"
+                          : "text-text-2 hover:bg-panel")
                       }
                     >
                       <span className="flex items-center gap-2 truncate">

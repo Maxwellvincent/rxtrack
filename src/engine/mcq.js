@@ -21,6 +21,25 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   }
 }
 
+/** Shuffle choice positions so correct answer is not always A/B. */
+function shuffleChoices(q) {
+  const keys = Object.keys(q.choices);
+  // Fisher-Yates on the values, then remap to original letter slots
+  const vals = keys.map((l) => ({ origLetter: l, text: q.choices[l] }));
+  for (let i = vals.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [vals[i], vals[j]] = [vals[j], vals[i]];
+  }
+  const newChoices = {};
+  let newCorrect = q.correct;
+  vals.forEach((v, i) => {
+    const newLetter = keys[i];
+    newChoices[newLetter] = v.text;
+    if (v.origLetter === q.correct) newCorrect = newLetter;
+  });
+  return { ...q, choices: newChoices, correct: newCorrect };
+}
+
 /** Validate + normalize model output into a clean MCQ list. */
 export function normalizeQuestions(raw) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
@@ -34,15 +53,16 @@ export function normalizeQuestions(raw) {
     if (keys.length < 2) continue;
     const correct = String(q.correct || "").trim().toUpperCase();
     if (!keys.includes(correct)) continue;
-    out.push({
+    const validated = {
       stem,
       choices: Object.fromEntries(keys.map((l) => [l, String(choices[l]).trim()])),
       correct,
       explanation: String(q.explanation || "").trim(),
       topic: q.topic ? String(q.topic).trim() : null,
       difficulty: q.difficulty ? String(q.difficulty).trim() : null,
-    });
-    if (out.length >= 50) break;
+    };
+    out.push(shuffleChoices(validated));
+    if (out.length >= 100) break;
   }
   return out;
 }
@@ -164,7 +184,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     examplesSection +
     objectivesSection +
     contentSection +
-    `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; don't repeat the same correct letter >3× in a row.\n\n` +
+    `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; distribute correct answers evenly across A/B/C/D — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","topic":"${String(subject).replace(/"/g, "'")}","difficulty":"${diff}"}]}`
   );

@@ -28,12 +28,16 @@ import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
 import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
 import { Today } from "./features/today/Today.jsx";
+import { DailyPlanSettingsModal } from "./features/today/DailyPlanSettingsModal.jsx";
+import { UserApiKeyModal } from "./UserApiKeyModal.jsx";
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
+import { QuizConfigModal } from "./features/objectives/QuizConfigModal.jsx";
+import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { useToday } from "./features/today/useToday.js";
@@ -144,6 +148,8 @@ function ShellMain({ theme, toggle, userId }) {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
+  const [showDailyPlanSettings, setShowDailyPlanSettings] = useState(false);
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showImportObjectives, setShowImportObjectives] = useState(false);
   const [showReExtractAll, setShowReExtractAll] = useState(false);
   const [showExamDate, setShowExamDate] = useState(false);
@@ -152,6 +158,8 @@ function ShellMain({ theme, toggle, userId }) {
   const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
   // Objective quiz: { lectureId, loading, error, questions, title }
   const [quiz, setQuiz] = useState(null);
+  // Pending quiz config: { objectives, lectureTitle, blockId, extraMeta } — shown in QuizConfigModal
+  const [pendingQuiz, setPendingQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
   const [studyLecture, setStudyLecture] = useState(null);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
@@ -227,14 +235,34 @@ function ShellMain({ theme, toggle, userId }) {
     if (lecture) setStudyLecture(lecture);
   }, [userId]);
 
-  // The real objective-quiz launch: ObjectiveTracker's callback → MCQ engine →
-  // the calibrated AtomQuiz runner, logging confidence against this block.
+  // Step 1: intercept quiz launch — show config modal instead of generating immediately.
   const onStartObjectiveQuiz = useCallback(
-    async (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
-      const bid = optionalBlockId ?? activeBlockId;
+    (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
+      setPendingQuiz({ objectives, lectureTitle, blockId: optionalBlockId ?? activeBlockId, extraMeta });
+    },
+    [activeBlockId]
+  );
+
+  // Step 2: user confirmed in QuizConfigModal — resolve from store or generate.
+  const onConfirmQuiz = useCallback(
+    async ({ count, difficulty, useStored }) => {
+      if (!pendingQuiz) return;
+      const { objectives, lectureTitle, blockId: bid, extraMeta } = pendingQuiz;
       const lectureId =
         extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
+      setPendingQuiz(null);
       setQuiz({ lectureId, loading: true, title: lectureTitle });
+
+      // Try stored pool first when user opted in and there's enough saved.
+      if (useStored && lectureId) {
+        const stored = generatedQuestionsStore.questionsForLecture(userId, lectureId);
+        if (stored.length >= count) {
+          const shuffled = [...stored].sort(() => Math.random() - 0.5).slice(0, count);
+          setQuiz({ lectureId, questions: shuffled, title: lectureTitle });
+          return;
+        }
+      }
+
       const result = await startObjectiveQuiz(
         {
           objectives,
@@ -242,8 +270,8 @@ function ShellMain({ theme, toggle, userId }) {
           blockId: bid,
           lectures: lecturesStore.read(userId) || [],
           exemplars: readExemplars(userId),
-          questionCount: extraMeta?.questionCount,
-          difficulty: extraMeta?.difficulty ?? "medium",
+          questionCount: count,
+          difficulty,
         },
         { callAIJSON }
       );
@@ -251,9 +279,13 @@ function ShellMain({ theme, toggle, userId }) {
         setQuiz({ lectureId, error: result.error || "No questions came back.", title: lectureTitle });
         return;
       }
+      // Persist to the generated question bank before showing — next quiz can draw from store.
+      if (lectureId && result.questions?.length) {
+        generatedQuestionsStore.addQuestions(userId, lectureId, result.questions);
+      }
       setQuiz({ lectureId, questions: result.questions, title: lectureTitle });
     },
-    [activeBlockId, userId]
+    [pendingQuiz, userId]
   );
 
   return (
@@ -285,6 +317,8 @@ function ShellMain({ theme, toggle, userId }) {
           onBulkImport={activeBlockId ? () => setShowBulkImport(true) : null}
           onQuestionBanks={() => setShowQuestionBanks(true)}
           onRoutine={() => setShowRoutine(true)}
+          onDailyPlanSettings={activeBlockId ? () => setShowDailyPlanSettings(true) : null}
+          onApiKeySettings={() => setShowApiKeyModal(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         {/* Tab bar — hidden while a full-screen overlay is active */}
@@ -364,7 +398,7 @@ function ShellMain({ theme, toggle, userId }) {
             <LectureList
               blockId={activeBlockId}
               userId={userId}
-              quizBusyLectureId={quiz?.loading ? quiz.lectureId : null}
+              quizBusyLectureId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
               onStudyLecture={onStudyLecture}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onBack={() => switchTab("today")}
@@ -409,7 +443,7 @@ function ShellMain({ theme, toggle, userId }) {
                 <Today
                   blockId={activeBlockId}
                   userId={userId}
-                  quizBusyLectureId={quiz?.loading ? quiz.lectureId : null}
+                  quizBusyLectureId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
                   onStudyLecture={onStudyLecture}
                   onStartObjectiveQuiz={onStartObjectiveQuiz}
                 />
@@ -495,6 +529,25 @@ function ShellMain({ theme, toggle, userId }) {
         onClose={() => setShowRoutine(false)}
         onOpenWeakConcepts={() => { setShowRoutine(false); setTab("more"); setMoreView("weak"); }}
       />
+      {pendingQuiz && (
+        <QuizConfigModal
+          storedCount={
+            pendingQuiz.extraMeta?.lectureId
+              ? generatedQuestionsStore.countForLecture(userId, pendingQuiz.extraMeta.lectureId)
+              : 0
+          }
+          defaultCount={10}
+          onStart={onConfirmQuiz}
+          onCancel={() => setPendingQuiz(null)}
+        />
+      )}
+      {showApiKeyModal && <UserApiKeyModal onClose={() => setShowApiKeyModal(false)} />}
+      {showDailyPlanSettings && activeBlockId && (
+        <DailyPlanSettingsModal
+          blockId={activeBlockId}
+          onClose={() => setShowDailyPlanSettings(false)}
+        />
+      )}
       <MissNoteToast />
     </div>
   );
@@ -536,7 +589,7 @@ function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartOb
         userId={userId}
         termColor={termColor}
         T={T}
-        quizLoadingId={quiz?.loading ? quiz.lectureId : null}
+        quizLoadingId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
         quizErrorId={quiz?.error ? quiz.lectureId : null}
         onStartObjectiveQuiz={onStartObjectiveQuiz}
         onStudyLecture={onStudyLecture}
