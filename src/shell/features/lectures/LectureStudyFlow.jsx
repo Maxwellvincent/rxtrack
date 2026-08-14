@@ -261,6 +261,10 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     if (!roundAtoms?.length) return;
     setBusy("Writing questions…"); setError(""); setQuestions(null);
 
+    // Progressive difficulty: easy → medium → hard → expert
+    const DIFFICULTIES = ["easy", "medium", "hard", "expert"];
+    const difficulty = DIFFICULTIES[Math.min(index, DIFFICULTIES.length - 1)];
+
     // Cross-lecture partition: skip atoms whose objectives are all mastered, flag recurring ones
     const termIndex = atomTermIndex.read(userId, blockId) || {};
     const { toQuiz, skipped } = partitionAtomsForRound(roundAtoms, termIndex, objectiveById);
@@ -268,7 +272,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
 
     const quizAtoms = toQuiz.length ? toQuiz : roundAtoms; // fallback: quiz all if nothing left
     const r = await quizFromAtoms({ ...lecture, images }, quizAtoms, {
-      callAIJSON, exemplars: readExemplars(userId),
+      callAIJSON, exemplars: readExemplars(userId), difficulty,
     });
     setBusy("");
     if (r.error) { setError(r.error); return; }
@@ -355,7 +359,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             ← back to atoms
           </button>
           <span className="font-mono text-[13px] text-text-3">
-            round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)}
+            round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)} · {["easy","medium","hard","expert"][Math.min(round, 3)]}
           </span>
         </div>
         {(skippedAtoms.length > 0 || questions?.some((q) => q._isHighYield)) && (
@@ -383,6 +387,13 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             const isLastRound = nextDone >= rounds.length;
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
             if (isLastRound) setLastResult({ score, hasLandmines });
+
+            // Signal Today to auto-check once ≥60% of rounds are complete
+            if (rounds.length > 0 && nextDone / rounds.length >= 0.6 && lecture?.id) {
+              window.dispatchEvent(new CustomEvent("rxt-lecture-progress-60", {
+                detail: { lectureId: lecture.id },
+              }));
+            }
 
             // Write session outcome to performance store after every completed round
             try {

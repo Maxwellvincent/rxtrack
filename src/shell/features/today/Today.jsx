@@ -398,7 +398,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
               <div className="flex items-center gap-1">
                 <button
                   className={["text-left text-[13.5px] font-semibold hover:underline", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}
-                  onClick={() => !checked && onStudy(task.lec.id, targetRounds)}
+                  onClick={() => !checked && onStudy(task.lec.id)}
                   title="Open lecture"
                 >
                   {task.studyMode?.icon ? `${task.studyMode.icon} ` : ""}{title}
@@ -437,7 +437,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
 
             {!checked && (
               <div className="flex gap-1.5">
-                <Button onClick={() => onStudy(task.lec.id, targetRounds)} title="Study rounds">Study →</Button>
+                <Button onClick={() => onStudy(task.lec.id)} title="Study rounds">Study →</Button>
                 <Button
                   variant="outline"
                   onClick={() => onQuiz(task)}
@@ -620,21 +620,29 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     setTimeout(() => setLogFeedback(null), 4000);
   }, [logActivity, blockId]);
 
-  const onStudy = useCallback((id, targetRounds) => {
+  // Auto-check when LectureStudyFlow reports ≥60% of rounds done
+  useEffect(() => {
+    function onProgress(e) {
+      const { lectureId } = e.detail || {};
+      if (!lectureId) return;
+      setChecked((c) => {
+        const ns = new Set(c);
+        ns.add(lectureId);
+        writeChecked(blockId, ns);
+        return ns;
+      });
+    }
+    window.addEventListener("rxt-lecture-progress-60", onProgress);
+    return () => window.removeEventListener("rxt-lecture-progress-60", onProgress);
+  }, [blockId]);
+
+  const onStudy = useCallback((id) => {
     onStudyLecture?.(id);
+    // Track session count for the round-dots UI only — do NOT auto-check here.
+    // Checking happens when LectureStudyFlow reports ≥60% completion.
     setSessionCounts((prev) => {
-      const newCount = (prev[id] ?? 0) + 1;
-      const next = { ...prev, [id]: newCount };
+      const next = { ...prev, [id]: (prev[id] ?? 0) + 1 };
       writeSessionCounts(blockId, next);
-      // Auto-check only when all recommended rounds are done
-      if (newCount >= (targetRounds || 1)) {
-        setChecked((c) => {
-          const ns = new Set(c);
-          ns.add(id);
-          writeChecked(blockId, ns);
-          return ns;
-        });
-      }
       return next;
     });
   }, [onStudyLecture, blockId]);
