@@ -13,9 +13,9 @@ html {
   --panel:        oklch(0.118 0.008 145);
   --border:       oklch(0.240 0.016 145);
   --border-strong:oklch(0.310 0.020 145);
-  --text-1:       oklch(0.950 0.006 145);
-  --text-2:       oklch(0.740 0.018 145);
-  --text-3:       oklch(0.540 0.014 145);
+  --text-1:       oklch(0.970 0.008 145);
+  --text-2:       oklch(0.840 0.020 145);
+  --text-3:       oklch(0.660 0.016 145);
   /* Accent stays bright for the dark chrome context */
   --accent:       oklch(0.650 0.150 145);
   --accent-soft:  oklch(0.200 0.048 145);
