@@ -8,18 +8,18 @@ html {
 
 /* ── Always-dark chrome frame (Sidebar, Header, TabBar) ─────────────────── */
 .shell-chrome {
-  --bg:           oklch(0.080 0.006 145);
-  --bg-elevated:  oklch(0.112 0.008 145);
-  --panel:        oklch(0.065 0.005 145);
-  --border:       oklch(0.178 0.012 145);
-  --border-strong:oklch(0.240 0.016 145);
-  --text-1:       oklch(0.940 0.006 145);
-  --text-2:       oklch(0.640 0.014 145);
-  --text-3:       oklch(0.400 0.010 145);
+  --bg:           oklch(0.145 0.010 145);
+  --bg-elevated:  oklch(0.178 0.012 145);
+  --panel:        oklch(0.118 0.008 145);
+  --border:       oklch(0.240 0.016 145);
+  --border-strong:oklch(0.310 0.020 145);
+  --text-1:       oklch(0.950 0.006 145);
+  --text-2:       oklch(0.740 0.018 145);
+  --text-3:       oklch(0.540 0.014 145);
   /* Accent stays bright for the dark chrome context */
   --accent:       oklch(0.650 0.150 145);
-  --accent-soft:  oklch(0.170 0.042 145);
-  --accent-text:  oklch(0.760 0.130 145);
+  --accent-soft:  oklch(0.200 0.048 145);
+  --accent-text:  oklch(0.780 0.130 145);
 }
 
 /* ── Dark theme (main content area) ─────────────────────────────────────── */
