@@ -28,6 +28,7 @@ import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
 import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
 import { Today } from "./features/today/Today.jsx";
+import { MasterGuide } from "./features/guide/MasterGuide.jsx";
 import { DailyPlanSettingsModal } from "./features/today/DailyPlanSettingsModal.jsx";
 import { UserApiKeyModal } from "./UserApiKeyModal.jsx";
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
@@ -417,6 +418,12 @@ function ShellMain({ theme, toggle, userId }) {
               onStudyLecture={onStudyLecture}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onBack={() => switchTab("today")}
+            />
+          ) : tab === "guide" && activeBlockId ? (
+            <MasterGuide
+              blockId={activeBlockId}
+              userId={userId}
+              lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
             />
           ) : tab === "objectives" && activeBlockId ? (
             <ObjectivesView

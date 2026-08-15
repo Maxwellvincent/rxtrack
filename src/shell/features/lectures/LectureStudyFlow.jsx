@@ -36,6 +36,7 @@ import {
 import { readExemplars } from "../objectives/quizLaunch.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
+import * as masterGuideStore from "../../../stores/masterGuide.js";
 import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundLabel } from "./lectureStudy.js";
 import {
   clearRoundProgress,
@@ -692,6 +693,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                     onChange={(e) => {
                       const next = studyGuideStore.setTopicChecked(userId, lecture?.id, t.id, e.target.checked);
                       setStudyGuide(next);
+                      masterGuideStore.syncFromLectureTopic(userId, blockId, lecture?.id, t.id, e.target.checked);
                     }}
                   />
                   <span className={[
