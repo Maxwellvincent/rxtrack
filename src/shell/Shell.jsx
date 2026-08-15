@@ -157,8 +157,14 @@ function ShellMain({ theme, toggle, userId }) {
   const [tab, setTab] = useState("today"); // today | lectures | objectives | more
   const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
   const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
-  // Objective quiz: { lectureId, loading, error, questions, title }
+  // Objective quiz: { lectureId, loading, error, questions, title, count, startedAt }
   const [quiz, setQuiz] = useState(null);
+  const [quizElapsed, setQuizElapsed] = useState(0);
+  useEffect(() => {
+    if (!quiz?.loading) { setQuizElapsed(0); return; }
+    const t = setInterval(() => setQuizElapsed(Math.round((Date.now() - (quiz.startedAt || Date.now())) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [quiz?.loading, quiz?.startedAt]);
   // Pending quiz config: { objectives, lectureTitle, blockId, extraMeta } — shown in QuizConfigModal
   const [pendingQuiz, setPendingQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
@@ -241,7 +247,7 @@ function ShellMain({ theme, toggle, userId }) {
     async ({ objectives, lectureTitle, blockId: bid, extraMeta = {} }, { count, difficulty, useStored = false }) => {
       const lectureId =
         extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
-      setQuiz({ lectureId, loading: true, title: lectureTitle });
+      setQuiz({ lectureId, loading: true, title: lectureTitle, count, startedAt: Date.now() });
 
       if (useStored && lectureId) {
         const stored = generatedQuestionsStore.questionsForLecture(userId, lectureId);
@@ -415,7 +421,13 @@ function ShellMain({ theme, toggle, userId }) {
                 <div className="absolute inset-0 flex items-center justify-center bg-bg/80 backdrop-blur-sm z-10">
                   <div className="flex flex-col items-center gap-3">
                     <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-                    <span className="font-mono text-[13px] text-text-2">Generating questions…</span>
+                    <span className="font-mono text-[13px] text-text-2">
+                      Writing {quiz.count ? `${quiz.count} questions` : "questions"}…
+                    </span>
+                    <span className="font-mono text-[11px] text-text-3">
+                      {quizElapsed > 0 ? `${quizElapsed}s` : "starting…"}
+                      {quiz.count ? ` · ~${Math.max(0, Math.round(quiz.count * 4 - quizElapsed))}s remaining` : ""}
+                    </span>
                   </div>
                 </div>
               )}
