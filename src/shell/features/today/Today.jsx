@@ -254,6 +254,33 @@ function ProgressBar({ done, total }) {
   );
 }
 
+/**
+ * Segmented coverage bar — sage/accent/amber fill, untested = remaining bg.
+ * Color is never the sole signal: icon + label chips sit alongside it.
+ */
+function CoverageBar({ mastered = 0, inprogress = 0, struggling = 0, untested = 0 }) {
+  const total = mastered + inprogress + struggling + untested;
+  if (!total) return null;
+  const w = (n) => `${(n / total * 100).toFixed(1)}%`;
+  return (
+    <div
+      className="flex h-[3px] w-full overflow-hidden rounded-full bg-border"
+      role="img"
+      aria-label={`${mastered} mastered, ${inprogress} learning, ${struggling} struggling, ${untested} untested`}
+    >
+      {mastered > 0 && (
+        <div style={{ width: w(mastered), background: "var(--color-good)", flexShrink: 0 }} />
+      )}
+      {inprogress > 0 && (
+        <div style={{ width: w(inprogress), background: "var(--color-accent)", flexShrink: 0 }} />
+      )}
+      {struggling > 0 && (
+        <div style={{ width: w(struggling), background: "var(--color-warn)", flexShrink: 0 }} />
+      )}
+    </div>
+  );
+}
+
 function RoundDots({ done, total }) {
   if (total <= 0) return null;
   return (
@@ -350,54 +377,54 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
   const targetRounds = recommended.length;
   const roundsDone = Math.min(sessionCount ?? 0, targetRounds);
   const partiallyDone = roundsDone > 0 && roundsDone < targetRounds;
+  const hasObjectives = task.total > 0;
 
   return (
     <div
       className={[
         "rounded-sm border transition-colors",
         checked
-          ? "border-[var(--color-good,#4ade80)]/40 bg-[var(--color-good,#4ade80)]/5 opacity-70"
+          ? "border-good/30 bg-good/5 opacity-60"
           : partiallyDone
             ? "border-accent/50 bg-panel"
             : isNext
-              ? "border-accent bg-panel shadow-sm"
+              ? "border-accent bg-panel"
               : "border-border bg-bg-elevated hover:border-border-strong",
       ].join(" ")}
     >
-      {/* Main row */}
       <div className="flex items-start gap-3 px-4 py-3">
-        {/* Checkbox / partial indicator */}
+        {/* Checkbox */}
         <button
           onClick={() => onCheck(task.lec.id)}
           className={[
-            "mt-0.5 flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
+            "mt-[3px] flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
             checked
-              ? "border-[var(--color-good,#4ade80)] bg-[var(--color-good,#4ade80)] text-bg"
+              ? "border-good bg-good text-bg"
               : partiallyDone
                 ? "border-accent bg-accent/20 text-accent"
                 : "border-text-3 hover:border-accent",
           ].join(" ")}
           aria-label={checked ? "Mark incomplete" : "Mark complete"}
         >
-          {checked
-            ? <span className="text-[13px] font-bold leading-none">✓</span>
-            : partiallyDone
-              ? <span className="text-[12px] font-bold leading-none">~</span>
-              : null}
+          {checked && <span className="text-[11px] font-bold leading-none">✓</span>}
+          {!checked && partiallyDone && <span className="text-[11px] font-bold leading-none">~</span>}
         </button>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Title navigates into lecture; chevron toggles details */}
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          {/* Row 1: title + actions */}
+          <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               {isNext && !checked && (
-                <div className="mb-0.5 font-mono text-[13px] font-bold uppercase tracking-wider text-accent">
+                <div className="mb-0.5 font-condensed text-[11px] font-bold uppercase tracking-widest text-accent">
                   Up next
                 </div>
               )}
               <div className="flex items-center gap-1">
                 <button
-                  className={["text-left text-[13.5px] font-semibold hover:underline", checked ? "line-through text-text-3" : "text-text-1"].join(" ")}
+                  className={[
+                    "text-left text-[13px] font-semibold leading-snug hover:underline",
+                    checked ? "line-through text-text-3" : "text-text-1",
+                  ].join(" ")}
                   onClick={() => !checked && onStudy(task.lec.id)}
                   title="Open lecture"
                 >
@@ -405,76 +432,80 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
                 </button>
                 <button
                   onClick={() => setExpanded((e) => !e)}
-                  className="text-[12px] text-text-3 hover:text-text-2 px-0.5"
+                  className="px-0.5 text-[11px] text-text-3 hover:text-text-2"
                   title={expanded ? "Hide details" : "Show details"}
                 >
                   {expanded ? "▴" : "▾"}
                 </button>
               </div>
-              <div className="font-mono text-[12px] text-text-3">
+              <div className="mt-0.5 font-mono text-[11px] text-text-3">
                 {task.availableDate
-                  ? task.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                  ? task.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · "
                   : task.lec.weekNumber
-                    ? `Wk ${task.lec.weekNumber}${task.lec.dayOfWeek ? ` · ${task.lec.dayOfWeek}` : ""}`
-                    : null}
-                {task.availableDate && " · "}
+                    ? `Wk ${task.lec.weekNumber}${task.lec.dayOfWeek ? ` · ${task.lec.dayOfWeek}` : ""} · `
+                    : ""}
                 {task.matchReason === "scheduled-day"
-                  ? "on today's schedule"
+                  ? "on schedule"
                   : task.matchReason === "spaced-rep-due"
                     ? "spaced rep due"
                     : "highest urgency"}
-                {task.total > 0 && (
-                  <>
-                    {" · "}
-                    {task.mastered > 0 && <span className="text-good">{task.mastered} mastered</span>}
-                    {task.inprogress > 0 && <span className="text-accent"> · {task.inprogress} learning</span>}
-                    {task.struggling > 0 && <span className="text-warn"> · {task.struggling} struggling</span>}
-                    {(task.mastered === 0 && task.inprogress === 0 && task.struggling === 0) && <span>{task.untested} untested</span>}
-                  </>
-                )}
               </div>
             </div>
 
             {!checked && (
-              <div className="flex gap-1.5">
+              <div className="flex flex-shrink-0 gap-1.5">
                 <Button onClick={() => onStudy(task.lec.id)} title="Study rounds">Study →</Button>
-                <Button
-                  variant="outline"
-                  onClick={() => onQuiz(task)}
-                  disabled={busy === task.lec.id}
-                >
+                <Button variant="outline" onClick={() => onQuiz(task)} disabled={busy === task.lec.id}>
                   {busy === task.lec.id ? "…" : "Quiz"}
                 </Button>
               </div>
             )}
           </div>
 
-          {/* Round progress dots */}
+          {/* Row 2: segmented coverage bar + stat chips */}
+          {hasObjectives && !checked && (
+            <div className="flex flex-col gap-1">
+              <CoverageBar
+                mastered={task.mastered}
+                inprogress={task.inprogress}
+                struggling={task.struggling}
+                untested={task.untested}
+              />
+              <div className="flex flex-wrap gap-x-3 gap-y-0 font-mono text-[11px]">
+                {task.mastered > 0 && <span className="text-good">✓ {task.mastered}</span>}
+                {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress}</span>}
+                {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling}</span>}
+                {task.untested > 0 && <span className="text-text-3">○ {task.untested}</span>}
+              </div>
+            </div>
+          )}
+
+          {/* Row 3: round progress dots */}
           {!checked && targetRounds > 0 && (
             <RoundDots done={roundsDone} total={targetRounds} />
           )}
 
-          {/* Log row */}
+          {/* Row 4: log row */}
           {!checked && (
             <div className="flex flex-wrap items-center gap-2">
               {logging ? (
                 <>
-                  <span className="font-mono text-[12px] text-text-3">how did {logging} go?</span>
+                  <span className="font-mono text-[11px] text-text-3">how did {logging} go?</span>
                   {[{ key: "good", label: "Solid" }, { key: "okay", label: "OK" }, { key: "struggling", label: "Shaky" }].map((c) => (
                     <button
                       key={c.key}
                       onClick={() => { onLog(task.lec.id, logging, c.key); setLogging(null); }}
-                      className="rounded border border-border px-2 py-0.5 text-[13px] text-text-2 hover:text-text-1"
+                      className="rounded border border-border px-2 py-0.5 text-[11px] text-text-2 hover:text-text-1"
                     >
                       {c.label}
                     </button>
                   ))}
-                  <button onClick={() => setLogging(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">✕</button>
+                  <button onClick={() => setLogging(null)} className="font-mono text-[11px] text-text-3 hover:text-text-1">✕</button>
                 </>
               ) : (
                 <>
-                  <button onClick={() => setLogging("anki")} className="font-mono text-[12px] text-text-3 hover:text-text-1">📇 log anki</button>
-                  <button onClick={() => setLogging("review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">✓ log review</button>
+                  <button onClick={() => setLogging("anki")} className="font-mono text-[11px] text-text-3 hover:text-text-1">📇 log anki</button>
+                  <button onClick={() => setLogging("review")} className="font-mono text-[11px] text-text-3 hover:text-text-1">✓ log review</button>
                 </>
               )}
             </div>
@@ -484,32 +515,40 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
 
       {/* Expanded detail panel */}
       {expanded && (
-        <div className="border-t border-border px-4 py-3 flex flex-col gap-3">
-          {/* Objectives breakdown */}
-          {task.total > 0 && (
+        <div className="flex flex-col gap-3 border-t border-border px-4 py-3">
+          {hasObjectives && (
             <div>
-              <div className="mb-1.5 font-mono text-[13px] font-bold uppercase tracking-wider text-text-3">Objectives</div>
-              <div className="flex flex-wrap gap-3 font-mono text-[13px]">
+              <div className="mb-1.5 font-condensed text-[11px] font-bold uppercase tracking-widest text-text-3">
+                Objectives
+              </div>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[12px]">
                 {task.mastered > 0 && <span className="text-good">✓ {task.mastered} mastered</span>}
                 {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress} learning</span>}
                 {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling} struggling</span>}
-                {task.untested > 0 && <span className="text-text-3">· {task.untested} untested</span>}
+                {task.untested > 0 && <span className="text-text-3">○ {task.untested} untested</span>}
               </div>
             </div>
           )}
 
-          {/* Recommended sessions for today */}
           {recommended.length > 0 && (
             <div>
-              <div className="mb-1.5 font-mono text-[13px] font-bold uppercase tracking-wider text-text-3">Today's sessions</div>
+              <div className="mb-1.5 font-condensed text-[11px] font-bold uppercase tracking-widest text-text-3">
+                Today's sessions
+              </div>
               <div className="flex flex-col gap-1">
                 {recommended.map((s, i) => (
-                  <div key={i} className={["flex items-start gap-2 font-mono text-[13px]", i < roundsDone ? "text-text-3 line-through" : "text-text-2"].join(" ")}>
-                    <span className="mt-px text-[13px] text-text-3 flex-shrink-0">{i + 1}.</span>
+                  <div
+                    key={i}
+                    className={[
+                      "flex items-start gap-2 font-mono text-[12px]",
+                      i < roundsDone ? "text-text-3 line-through" : "text-text-2",
+                    ].join(" ")}
+                  >
+                    <span className="flex-shrink-0 text-text-3">{i + 1}.</span>
                     <div>
                       <span>{s.label}</span>
-                      {s.reason && <span className="ml-1.5 text-[12px] text-text-3">— {s.reason}</span>}
-                      {s.duration && <span className="ml-1.5 text-[13px] text-text-3">~{s.duration}m</span>}
+                      {s.reason && <span className="ml-1.5 text-[11px] text-text-3">— {s.reason}</span>}
+                      {s.duration && <span className="ml-1.5 text-text-3">~{s.duration}m</span>}
                     </div>
                   </div>
                 ))}
@@ -517,8 +556,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
             </div>
           )}
 
-          {/* Sessions done lifetime + confidence */}
-          <div className="flex gap-4 font-mono text-[12px] text-text-3">
+          <div className="flex flex-wrap gap-x-4 gap-y-0.5 font-mono text-[11px] text-text-3">
             {task.sessions > 0 && <span>{task.sessions} session{task.sessions !== 1 ? "s" : ""} total</span>}
             {task.confidence && task.confidence !== "Low" && <span>confidence: {task.confidence.toLowerCase()}</span>}
             {task.lastScore != null && <span>last score: {task.lastScore}%</span>}
