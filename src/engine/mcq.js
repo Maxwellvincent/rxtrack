@@ -11,7 +11,8 @@ const MCQ_SYSTEM = "You are a USMLE Step 1 question writer. Return ONLY valid JS
 export async function generateMcqs(cfg = {}, deps = {}) {
   const { callAIJSON, maxTokens = 8000 } = deps;
   const text = String(cfg.lectureText || "");
-  if (text.trim().length < 150) return { error: "Not enough lecture text — convert/upload the lecture first.", questions: [] };
+  const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
+  if (text.trim().length < 150 && !atoms.length) return { error: "Not enough lecture text — convert/upload the lecture first.", questions: [] };
   try {
     const prompt = buildMcqPrompt(cfg);
     const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
