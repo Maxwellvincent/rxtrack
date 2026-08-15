@@ -182,15 +182,11 @@ export function LabAnnotatedText({ text, className }) {
     <span className={className}>
       {parts.map((p, i) => {
         if (p.type === "text") return <span key={i}>{p.content}</span>;
-        const isAbnormal = p.value > p.lab.high || (p.lab.low > 0 && p.value < p.lab.low);
         return (
           <span key={i} className="relative inline-block">
             <button
               onClick={() => setOpenIdx(openIdx === i ? null : i)}
-              className={[
-                "underline decoration-dotted underline-offset-2 cursor-pointer transition-colors",
-                isAbnormal ? "text-bad/90 hover:text-bad" : "text-accent/90 hover:text-accent",
-              ].join(" ")}
+              className="underline decoration-dotted underline-offset-2 cursor-pointer text-text-1 hover:text-accent transition-colors"
               title="Click to see normal range"
             >
               {p.raw}
