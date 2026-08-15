@@ -44,7 +44,7 @@ import { useToday } from "./features/today/useToday.js";
 import { themes } from "../theme.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import * as lectureRoundsStore from "../stores/lectureRounds.js";
-import { selectBlockObjectives, setStatus } from "./logic/objectives.js";
+import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "./logic/objectives.js";
 import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";
 
@@ -375,18 +375,19 @@ function ShellMain({ theme, toggle, userId }) {
                   const passedQuiz = total > 0 && correct / total >= 0.8;
                   try {
                     const store = objectivesStore.read(userId) || {};
-                    const blockObjs = selectBlockObjectives(store, activeBlockId);
-                    const lecObjs = blockObjs.filter(
+                    let objs = selectBlockObjectives(store, activeBlockId);
+                    const lecObjs = objs.filter(
                       (o) => o?.linkedLecId === quiz.lectureId &&
                         (o.status === "untested" || (passedQuiz && o.status === "developing"))
                     );
                     if (!lecObjs.length) return;
-                    let updated = store;
                     for (const obj of lecObjs) {
                       const next = passedQuiz && obj.status === "developing" ? "mastered" : "developing";
-                      updated = setStatus(updated, obj.id, next, new Date());
+                      objs = setStatus(objs, obj.id, next, new Date());
                     }
-                    objectivesStore.write(userId, updated);
+                    const storeKey = storageKeyFor(store, activeBlockId);
+                    const nextEntry = toEntry(store[storeKey], objs);
+                    objectivesStore.write(userId, { ...store, [storeKey]: nextEntry });
                   } catch { /* non-critical */ }
                 }}
               />
