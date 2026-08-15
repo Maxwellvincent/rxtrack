@@ -394,22 +394,38 @@ function ShellMain({ theme, toggle, userId }) {
               />
             </div>
           ) : studyLecture ? (
-            <LectureStudyFlow
-              key={studyLecture.id}
-              lecture={studyLecture}
-              blockId={activeBlockId}
-              userId={userId}
-              logActivity={logActivity}
-              examDates={examDates.data}
-              onClose={() => setStudyLecture(null)}
-              onStartObjectiveQuiz={onStartObjectiveQuiz}
-              onGoDeep={(lecId) => {
-                setStudyLecture(null);
-                setDeepLearnPreselectId(lecId);
-                switchTab("more");
-                setMoreView("deeplearn");
-              }}
-            />
+            <div className="relative flex-1">
+              <LectureStudyFlow
+                key={studyLecture.id}
+                lecture={studyLecture}
+                blockId={activeBlockId}
+                userId={userId}
+                logActivity={logActivity}
+                examDates={examDates.data}
+                onClose={() => setStudyLecture(null)}
+                onStartObjectiveQuiz={onStartObjectiveQuiz}
+                onGoDeep={(lecId) => {
+                  setStudyLecture(null);
+                  setDeepLearnPreselectId(lecId);
+                  switchTab("more");
+                  setMoreView("deeplearn");
+                }}
+              />
+              {quiz?.loading && (
+                <div className="absolute inset-0 flex items-center justify-center bg-bg/80 backdrop-blur-sm z-10">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+                    <span className="font-mono text-[13px] text-text-2">Generating questions…</span>
+                  </div>
+                </div>
+              )}
+              {quiz?.error && !quiz?.loading && (
+                <div className="absolute bottom-4 left-4 right-4 rounded-sm border border-bad/30 bg-bad/10 px-4 py-3 font-mono text-[12px] text-bad z-10">
+                  {quiz.error}
+                  <button onClick={() => setQuiz(null)} className="ml-3 underline opacity-70 hover:opacity-100">dismiss</button>
+                </div>
+              )}
+            </div>
           ) : tab === "lectures" && activeBlockId ? (
             <LectureList
               blockId={activeBlockId}
