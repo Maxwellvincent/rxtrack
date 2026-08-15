@@ -146,8 +146,8 @@ export function BlockHome({
               ].join(" ")}
               style={{
                 boxShadow: isPrimary
-                  ? "inset 0 1px 0 rgba(255,255,255,0.10), 0 2px 6px rgba(0,0,0,0.35)"
-                  : "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.25)",
+                  ? "0 2px 8px rgba(0,0,0,0.14), 0 1px 3px rgba(0,0,0,0.10)"
+                  : "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05)",
               }}
             >
               <span className={[

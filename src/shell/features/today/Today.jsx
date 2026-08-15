@@ -262,9 +262,11 @@ function CoverageBar({ mastered = 0, inprogress = 0, struggling = 0, untested = 
   const total = mastered + inprogress + struggling + untested;
   if (!total) return null;
   const w = (n) => `${(n / total * 100).toFixed(1)}%`;
+  const allUntested = mastered === 0 && inprogress === 0 && struggling === 0;
   return (
     <div
-      className="flex h-[3px] w-full overflow-hidden rounded-full bg-border"
+      className="flex h-[5px] w-full overflow-hidden rounded-full"
+      style={{ background: allUntested ? "var(--color-border-strong, var(--color-border))" : "var(--color-border)" }}
       role="img"
       aria-label={`${mastered} mastered, ${inprogress} learning, ${struggling} struggling, ${untested} untested`}
     >
@@ -388,15 +390,15 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           : partiallyDone
             ? "border-accent/50 bg-panel"
             : isNext
-              ? "border-accent bg-panel"
+              ? "border-accent/70 bg-accent-soft"
               : "border-border bg-bg-elevated hover:border-border-strong hover:bg-panel",
       ].join(" ")}
       style={{
         boxShadow: checked
           ? "none"
           : isNext
-            ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.35)"
-            : "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 4px rgba(0,0,0,0.25)",
+            ? "0 2px 12px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.12)"
+            : "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)",
       }}
     >
       <div className="flex items-start gap-3 px-4 py-3">
@@ -422,7 +424,7 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
               {isNext && !checked && (
-                <div className="mb-0.5 font-condensed text-[11px] font-bold uppercase tracking-widest text-accent">
+                <div className="mb-1 inline-flex items-center gap-1.5 rounded-sm bg-accent px-2 py-0.5 font-condensed text-[10px] font-bold uppercase tracking-widest text-bg">
                   Up next
                 </div>
               )}
@@ -479,10 +481,14 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
                 untested={task.untested}
               />
               <div className="flex flex-wrap gap-x-3 gap-y-0 font-mono text-[11px]">
-                {task.mastered > 0 && <span className="text-good">✓ {task.mastered}</span>}
-                {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress}</span>}
-                {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling}</span>}
-                {task.untested > 0 && <span className="text-text-3">○ {task.untested}</span>}
+                {task.mastered > 0 && <span className="text-good">✓ {task.mastered} mastered</span>}
+                {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress} learning</span>}
+                {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling} struggling</span>}
+                {task.untested > 0 && (
+                  <span className={task.mastered === 0 && task.inprogress === 0 && task.struggling === 0 ? "text-text-2" : "text-text-3"}>
+                    ○ {task.untested} untested
+                  </span>
+                )}
               </div>
             </div>
           )}
