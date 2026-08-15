@@ -378,7 +378,7 @@ function ShellMain({ theme, toggle, userId }) {
                     let objs = selectBlockObjectives(store, activeBlockId);
                     const lecObjs = objs.filter(
                       (o) => o?.linkedLecId === quiz.lectureId &&
-                        (o.status === "untested" || (passedQuiz && o.status === "developing"))
+                        (!o.status || o.status === "untested" || (passedQuiz && o.status === "developing"))
                     );
                     if (!lecObjs.length) return;
                     for (const obj of lecObjs) {

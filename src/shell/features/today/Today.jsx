@@ -371,7 +371,22 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
   );
 }
 
-function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz, onLog, busy }) {
+function fmtDaysAgo(n) {
+  if (n === 0) return "today";
+  if (n === 1) return "yesterday";
+  return `${n}d ago`;
+}
+function fmtDaysUntil(dateStr) {
+  if (!dateStr) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const d = new Date(dateStr); d.setHours(0, 0, 0, 0);
+  const diff = Math.round((d - today) / 86400000);
+  if (diff <= 0) return "today";
+  if (diff === 1) return "tomorrow";
+  return `in ${diff}d`;
+}
+
+function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, onCheck, onStudy, onQuiz, onLog, busy }) {
   const [logging, setLogging] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const title = task.lec?.lectureTitle || task.lec?.fileName || task.lec?.filename || "Lecture";
@@ -493,12 +508,33 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
             </div>
           )}
 
-          {/* Row 3: round progress dots */}
+          {/* Row 3: review history */}
+          {!checked && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0 font-mono text-[11px] text-text-3">
+              {task.sessions > 0 ? (
+                <>
+                  <span>Reviewed {task.sessions}×</span>
+                  {task.daysSinceLast != null && (
+                    <span>last {fmtDaysAgo(task.daysSinceLast)}</span>
+                  )}
+                </>
+              ) : (
+                <span>Never reviewed</span>
+              )}
+              {nextReviewDate && (
+                <span className={task.sessions === 0 ? "text-text-3" : "text-accent/80"}>
+                  next {fmtDaysUntil(nextReviewDate)}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Row 4: round progress dots */}
           {!checked && targetRounds > 0 && (
             <RoundDots done={roundsDone} total={targetRounds} />
           )}
 
-          {/* Row 4: log row */}
+          {/* Row 5: log row */}
           {!checked && (
             <div className="flex flex-wrap items-center gap-2">
               {logging ? (
@@ -621,7 +657,7 @@ function ExamDatePicker({ blockId, userId }) {
 // ─── Main Today component ─────────────────────────────────────────────────────
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, objectivesForTask } =
+  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, objectivesForTask, nextReviewByLectureId } =
     useToday(blockId, userId);
 
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
@@ -815,6 +851,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
               checked={checked.has(task.lec.id)}
               isNext={task.lec.id === firstUnchecked}
               sessionCount={sessionCounts[task.lec.id] ?? 0}
+              nextReviewDate={nextReviewByLectureId?.[task.lec.id] ?? null}
               onCheck={handleCheck}
               onStudy={onStudy}
               onQuiz={onQuiz}

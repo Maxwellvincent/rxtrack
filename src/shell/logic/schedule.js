@@ -453,6 +453,8 @@ export function generateDailySchedule(context) {
       confidence,
       nextReview,
       sessions,
+      lastSessionAt,
+      daysSinceLast: lastSessionAt ? daysSinceLast : null,
       needsCompReview,
       recommendedSessions,
       availableDate,

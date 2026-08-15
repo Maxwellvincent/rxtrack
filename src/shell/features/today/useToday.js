@@ -66,6 +66,21 @@ export function useToday(blockId, userId, { now } = {}) {
     return first && first.daysFromNow > 0 ? first : null;
   }, [daily]);
 
+  // Map lectureId → next scheduled review date string from buildStudySchedule.
+  const nextReviewByLectureId = useMemo(() => {
+    const map = {};
+    const todayStr = new Date().toISOString().slice(0, 10);
+    for (const [dateStr, items] of study?.schedule || []) {
+      if (dateStr < todayStr) continue;
+      for (const item of items || []) {
+        if (item?.lectureId && !map[item.lectureId]) {
+          map[item.lectureId] = dateStr;
+        }
+      }
+    }
+    return map;
+  }, [study]);
+
   const mutateCompletion = completion.mutate;
   const logActivity = useCallback(
     ({ lectureId, activityType, confidenceRating, durationMinutes = null, note = null }) => {
@@ -109,5 +124,6 @@ export function useToday(blockId, userId, { now } = {}) {
     daysLeft: daily?.daysLeft ?? null,
     logActivity,
     objectivesForTask,
+    nextReviewByLectureId,
   };
 }
