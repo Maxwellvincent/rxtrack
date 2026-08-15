@@ -1,4 +1,4 @@
-const SYSTEM = "You are a USMLE Step 1 curriculum organizer. Return ONLY valid JSON — no markdown, no prose.";
+const SYSTEM = "You are a USMLE Step 1 curriculum architect. Return ONLY valid JSON — no markdown, no prose.";
 
 const CATEGORY_ORDER = [
   "Foundation & Background",
@@ -21,15 +21,26 @@ export function buildMasterGuidePrompt({ lectureTopics, blockName }) {
     }));
 
   return (
-    `Build a master study guide for "${blockName}" from these lecture study topics.\n\n` +
+    `You are building a subject-level mindmap study guide for a USMLE Step 1 student studying "${blockName}".\n\n` +
+    `Think like a professor who has taught this module many times. Look at ALL the lecture topics and ask:\n` +
+    `"What are the 5-12 MASTER CONCEPTS a student must truly own to pass Step 1 on this module?"\n\n` +
+    `Each output topic must be:\n` +
+    `- A SPECIFIC, ACTIONABLE study task — not a keyword, but a directive\n` +
+    `- Written as "Know/Trace/Compare/Explain [specific thing]" — e.g.:\n` +
+    `  ✓ "Trace the steroid synthesis pathway from cholesterol to all end products"\n` +
+    `  ✓ "Know all adrenal cortex zones: what each secretes and the key regulator"\n` +
+    `  ✓ "Explain how cortisol mediates its anti-inflammatory effects (mechanism)"\n` +
+    `  ✓ "Compare Cushing syndrome vs Cushing disease: cause, ACTH level, treatment"\n` +
+    `  ✗ "cortisol mechanism" — too vague\n` +
+    `  ✗ "aldosterone production" — too vague\n` +
+    `- Concrete enough that a student knows EXACTLY what to study\n` +
+    `- If multiple source topics all feed into one master concept, MERGE them into one output topic\n\n` +
     `Rules:\n` +
-    `- Organize into relevant medical education groups: ${CATEGORY_ORDER.join(", ")}\n` +
-    `- Only include groups that have content — skip empty ones\n` +
-    `- DEDUPLICATE: if multiple lectures cover the same concept (e.g. "aldosterone production"), merge into ONE topic and include ALL source IDs\n` +
-    `- Each output topic must reference ALL sourceIds that map to it (include every sourceId from the input that this topic covers)\n` +
-    `- Topic text: clear 3-7 word searchable phrase (e.g. "renin-angiotensin-aldosterone system", "cortisol mechanism of action")\n` +
-    `- Order topics within each group: fundamental → applied\n` +
-    `- Think about what the lectures are building toward — identify the arc\n\n` +
+    `- Organize into these groups (skip empty ones): ${CATEGORY_ORDER.join(", ")}\n` +
+    `- DEDUPLICATE aggressively — one master task per concept regardless of how many lectures touched it\n` +
+    `- Each output topic MUST list ALL sourceIds from the input that contribute to it\n` +
+    `- Order topics within each group: foundation → applied → clinical\n` +
+    `- Aim for 3-8 topics per group — quality over quantity\n\n` +
     `Source topics:\n${JSON.stringify(input, null, 2)}\n\n` +
     `Return ONLY valid JSON:\n` +
     `{ "groups": [{ "name": "...", "topics": [{ "text": "...", "sourceIds": ["lectureId:topicId", ...] }] }] }`
@@ -48,7 +59,7 @@ export async function generateMasterGuide(
   { lectureTopics, blockName, blockId },
   deps = {}
 ) {
-  const { callAIJSON, maxTokens = 2500 } = deps;
+  const { callAIJSON, maxTokens = 4000 } = deps;
   if (!lectureTopics.some((lt) => lt.topics.length > 0)) {
     return { error: "No lecture study guides generated yet — study some lectures first.", groups: [] };
   }
