@@ -516,6 +516,15 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     );
   }
 
+  // Objective status counts
+  const objMastered = lectureObjectives.filter((o) => o.status === "mastered").length;
+  const objDeveloping = lectureObjectives.filter((o) => o.status === "developing").length;
+  const objUntested = lectureObjectives.length - objMastered - objDeveloping;
+  const objPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
+  const roundPct = rounds.length > 0 ? Math.round((done / rounds.length) * 100) : 0;
+  const currentDifficulty = ["Easy", "Medium", "Hard", "Expert"][Math.min(round, 3)];
+  const diffColor = ["text-good", "text-accent", "text-warn", "text-bad"][Math.min(round, 3)];
+
   return (
     <div className="p-5">
       <button onClick={onClose} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
@@ -525,6 +534,57 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       <div className="mb-4 font-mono text-[13px] text-text-3">
         {stage === "loading" ? "loading lecture…" : `${atoms.length} high-yield atoms`}
       </div>
+
+      {/* Status panel — shown once atoms are loaded */}
+      {stage === "quiz" && atoms.length > 0 && (
+        <div className="mb-4 rounded-sm border border-border bg-bg-elevated divide-y divide-border/50">
+          {/* Row 1: round progress + difficulty */}
+          <div className="flex items-center gap-4 px-4 py-2.5">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Rounds</span>
+              <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${roundPct}%`, background: roundPct === 100 ? "var(--color-good)" : "var(--color-accent)" }}
+                />
+              </div>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{done}/{rounds.length}</span>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">Level</span>
+              <span className={`font-mono text-[11px] font-bold ${diffColor}`}>{currentDifficulty}</span>
+            </div>
+          </div>
+
+          {/* Row 2: objectives breakdown */}
+          {lectureObjectives.length > 0 && (
+            <div className="flex items-center gap-4 px-4 py-2.5">
+              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Objectives</span>
+              <div className="flex items-center gap-3 flex-1 min-w-0">
+                {objMastered > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-good">
+                    <span className="h-2 w-2 rounded-full bg-good flex-shrink-0" />
+                    {objMastered} mastered
+                  </span>
+                )}
+                {objDeveloping > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-accent">
+                    <span className="h-2 w-2 rounded-full bg-accent flex-shrink-0" />
+                    {objDeveloping} developing
+                  </span>
+                )}
+                {objUntested > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-text-3">
+                    <span className="h-2 w-2 rounded-full bg-border flex-shrink-0" />
+                    {objUntested} untested
+                  </span>
+                )}
+              </div>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objPct}%</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
 
