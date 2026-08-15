@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { classify, summarize } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
+import { LabAnnotatedText } from "../ui/LabValue.jsx";
 
 const CONF = [
   { level: 1, label: "Guess" },
@@ -74,7 +75,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
-        <div className="mb-2 text-sm text-text-1">{q.stem}</div>
+        <LabAnnotatedText text={q.stem} className="mb-2 block text-sm text-text-1" />
         <div className="flex flex-col gap-1.5">
           {Object.entries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
@@ -146,7 +147,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
             <div className={"text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
             </div>
-            {q.explanation && <div className="rounded border-l-2 border-accent bg-panel p-2 text-[13px] leading-relaxed text-text-2">{q.explanation}</div>}
+            {q.explanation && <LabAnnotatedText text={q.explanation} className="block rounded border-l-2 border-accent bg-panel p-2 text-[13px] leading-relaxed text-text-2" />}
             <Button onClick={next}>{i + 1 >= questions.length ? "See calibration" : "Next →"}</Button>
           </div>
         )}
