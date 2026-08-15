@@ -382,15 +382,22 @@ function TaskRow({ task, checked, isNext, sessionCount, onCheck, onStudy, onQuiz
   return (
     <div
       className={[
-        "rounded-sm border transition-colors",
+        "rounded-sm border transition-all",
         checked
           ? "border-good/30 bg-good/5 opacity-60"
           : partiallyDone
             ? "border-accent/50 bg-panel"
             : isNext
               ? "border-accent bg-panel"
-              : "border-border bg-bg-elevated hover:border-border-strong",
+              : "border-border bg-bg-elevated hover:border-border-strong hover:bg-panel",
       ].join(" ")}
+      style={{
+        boxShadow: checked
+          ? "none"
+          : isNext
+            ? "inset 0 1px 0 rgba(255,255,255,0.08), 0 2px 8px rgba(0,0,0,0.35)"
+            : "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 4px rgba(0,0,0,0.25)",
+      }}
     >
       <div className="flex items-start gap-3 px-4 py-3">
         {/* Checkbox */}
@@ -794,7 +801,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
           </div>
         )
       ) : (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {filteredTasks.map((task) => (
             <TaskRow
               key={task.lec.id}

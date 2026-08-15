@@ -130,16 +130,30 @@ export function BlockHome({
 
       {/* ── Action card grid ──────────────────────────────── */}
       <div className="grid grid-cols-2 gap-2">
-        {ACTIONS.map(({ key, icon, label, desc, hKey }) => {
+        {ACTIONS.map(({ key, icon, label, desc, hKey }, i) => {
           const h = handlers[hKey];
           if (!h) return null;
+          const isPrimary = i === 0;
           return (
             <button
               key={key}
               onClick={h}
-              className="group flex flex-col gap-1 rounded-sm border border-border bg-bg-elevated px-3 py-3 text-left transition-colors hover:border-border-strong hover:bg-panel"
+              className={[
+                "group flex flex-col gap-1 rounded-sm border px-3 py-3 text-left transition-all",
+                isPrimary
+                  ? "border-accent/60 bg-accent-soft hover:border-accent hover:bg-accent-soft"
+                  : "border-border bg-bg-elevated hover:border-border-strong hover:bg-panel",
+              ].join(" ")}
+              style={{
+                boxShadow: isPrimary
+                  ? "inset 0 1px 0 rgba(255,255,255,0.10), 0 2px 6px rgba(0,0,0,0.35)"
+                  : "inset 0 1px 0 rgba(255,255,255,0.05), 0 1px 3px rgba(0,0,0,0.25)",
+              }}
             >
-              <span className="font-condensed text-[12px] font-bold uppercase tracking-wide text-text-2 transition-colors group-hover:text-text-1">
+              <span className={[
+                "font-condensed text-[12px] font-bold uppercase tracking-wide transition-colors",
+                isPrimary ? "text-accent-text" : "text-text-2 group-hover:text-text-1",
+              ].join(" ")}>
                 {icon} {label}
               </span>
               <span className="font-mono text-[11px] leading-snug text-text-3">{desc}</span>
