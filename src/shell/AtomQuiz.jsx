@@ -28,19 +28,22 @@ function ExplanationBlock({ text, correctLetter }) {
       {lead && <LabAnnotatedText text={lead} className="block" />}
       {bullets.length > 0 && (
         <ul className="flex flex-col gap-1.5 pt-1 border-t border-border/40">
-          {bullets.map(({ letter, body }) => (
-            <li key={letter} className="flex items-start gap-2">
-              <span className={[
-                "mt-0.5 flex-shrink-0 flex h-4 w-4 items-center justify-center rounded font-mono text-[10px] font-bold",
-                letter === correctLetter
-                  ? "bg-good/20 text-good"
-                  : "bg-bad/15 text-bad/80",
-              ].join(" ")}>
-                {letter}
-              </span>
-              <LabAnnotatedText text={body} className="flex-1 text-text-3" />
-            </li>
-          ))}
+          {bullets.map(({ letter, body }) => {
+            const isCorrect = letter === correctLetter;
+            return (
+              <li key={letter} className="flex items-start gap-2">
+                <span className={[
+                  "mt-0.5 flex-shrink-0 flex items-center gap-0.5 font-mono text-[11px] font-bold px-1 py-0.5 rounded border",
+                  isCorrect
+                    ? "border-border bg-bg text-text-1"
+                    : "border-border bg-bg text-text-3 line-through",
+                ].join(" ")}>
+                  {isCorrect ? "✓" : "✕"} {letter}
+                </span>
+                <LabAnnotatedText text={body} className={["flex-1 text-[13px]", isCorrect ? "text-text-2" : "text-text-3"].join(" ")} />
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
