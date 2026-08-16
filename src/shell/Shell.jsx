@@ -376,6 +376,7 @@ function ShellMain({ theme, toggle, userId }) {
               <AtomQuiz
                 questions={quiz.questions}
                 blockId={activeBlockId}
+                lectureId={quiz.lectureId ?? null}
                 userId={userId}
                 onDone={({ correct = 0, total = 0 } = {}) => {
                   if (!quiz.lectureId) return;

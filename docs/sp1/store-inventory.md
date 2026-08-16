@@ -1,6 +1,8 @@
 # SP1 · T0.1 — localStorage key inventory & store map
 
-Audited 2026-07-25. Classifies every `rxt-*` key as **shared-data** (gets a
+> **Living document.** Last verified against the tree: 2026-08-16.
+
+Audited 2026-07-25, store table re-verified 2026-08-16. Classifies every `rxt-*` key as **shared-data** (gets a
 `src/stores/*` module, user-scoped, synced) or **local-preference** (plain
 localStorage, per-device, not store-managed). The write/read site list is the
 work order for **T0.3** (redirect every shared write through its store module).
@@ -17,10 +19,16 @@ work order for **T0.3** (redirect every shared write through its store module).
 | `rxt-completion` | `stores/completion.js` | merge KV |
 | `rxt-exam-dates` | `stores/examDates.js` | KV overwrite |
 | `rxt-calibration-log` | `stores/calibration.js` | append log |
+| `rxt-calibration` | `stores/calibrationByBlock.js` | append log, union by concept + timestamp (`mergeCalibration`) |
+| `rxt-lecture-round` | `stores/lectureRounds.js` | furthest round wins, per lecture (`mergeRoundProgress`) |
+| `rxt-lecture-qstats` | `stores/lectureQuestionStats.js` | highest answered count wins, per lecture; `correct` taken from the same side (`mergeQuestionStats`) |
+| `rxt-gen-questions` | `stores/generatedQuestions.js` | additive per lecture, dedup by stem, capped to 30 lectures |
+| `rxt-assessments` | `stores/assessments.js` | shallow merge by block id (re-import may remove a cancelled event) |
+| `rxt-question-banks` | `stores/questionBanks.js` | shallow merge by filename |
 
 ## Shared-data keys WITHOUT modules yet (add in T0.3 / as needed)
 
-`rxt-tracker-v2`, `rxt-question-banks`, `rxt-mcq-bank`, `rxt-quick-notes`,
+`rxt-tracker-v2`, `rxt-mcq-bank`, `rxt-quick-notes`,
 `rxt-weak-areas`, `rxt-dl-sessions`, `rxt-sessions`, `rxt-analyses`,
 `rxt-reviewed-lecs`, `rxt-supplemental-resources`, `rxt-style-prefs`,
 `rxt-question-notes`, `rxt-histo-bookmarks`, `rxt-histo-conf`, `rxt-histo-manual`.

@@ -22,7 +22,13 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   }
 }
 
-/** Shuffle choice positions so correct answer is not always A/B. */
+/**
+ * Shuffle choice positions so the correct answer is not always A/B.
+ *
+ * `whyWrong` is keyed by letter, and the letters move here — so it is remapped along with the
+ * choices. Skipping that would relabel every per-choice explanation onto the wrong option, which
+ * is worse than having none at all.
+ */
 function shuffleChoices(q) {
   const keys = Object.keys(q.choices);
   // Fisher-Yates on the values, then remap to original letter slots
@@ -32,13 +38,32 @@ function shuffleChoices(q) {
     [vals[i], vals[j]] = [vals[j], vals[i]];
   }
   const newChoices = {};
+  const newWhyWrong = {};
   let newCorrect = q.correct;
   vals.forEach((v, i) => {
     const newLetter = keys[i];
     newChoices[newLetter] = v.text;
+    if (q.whyWrong && q.whyWrong[v.origLetter]) newWhyWrong[newLetter] = q.whyWrong[v.origLetter];
     if (v.origLetter === q.correct) newCorrect = newLetter;
   });
-  return { ...q, choices: newChoices, correct: newCorrect };
+  return { ...q, choices: newChoices, correct: newCorrect, whyWrong: newWhyWrong };
+}
+
+/**
+ * Keep only per-choice explanations that name a real choice.
+ *
+ * The model sometimes explains a letter it never offered, or returns a string instead of an
+ * object. Either way the entry is dropped rather than rendered — a bullet labelled (E) under a
+ * four-option question reads as a bug in the question.
+ */
+function normalizeWhyWrong(raw, letters) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out = {};
+  for (const letter of letters) {
+    const body = String(raw[letter] ?? "").trim();
+    if (body) out[letter] = body;
+  }
+  return out;
 }
 
 /** Validate + normalize model output into a clean MCQ list. */
@@ -59,6 +84,7 @@ export function normalizeQuestions(raw) {
       choices: Object.fromEntries(keys.map((l) => [l, String(choices[l]).trim()])),
       correct,
       explanation: String(q.explanation || "").trim(),
+      whyWrong: normalizeWhyWrong(q.whyWrong, keys),
       topic: q.topic ? String(q.topic).trim() : null,
       difficulty: q.difficulty ? String(q.difficulty).trim() : null,
     };
@@ -127,12 +153,13 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
 
   return (
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
-    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark; 4 options A-D; explanation states the tested fact.\n\n` +
+    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark; 4 options A-D.\n\n` +
+    WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
     examplesSection +
     `\n\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"A","explanation":"...","topic":"the fact's term","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","difficulty":"${diff}"}]}`
   );
 }
 
@@ -148,6 +175,21 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
     return { error: e?.message || String(e), questions: [] };
   }
 }
+
+/**
+ * The per-choice explanation contract.
+ *
+ * A vignette teaches twice: once by saying why the key is right, and once by saying why each
+ * distractor was tempting and where it breaks. Asking for the second half as a letter-keyed
+ * object rather than as prose keeps it attached to the option after the shuffle relabels it.
+ */
+const WHY_WRONG_RULE =
+  `"explanation" = why the correct answer is correct (2-3 sentences, states the tested fact).\n` +
+  `"whyWrong" = an object keyed by EVERY option letter INCLUDING the correct one. For a wrong ` +
+  `option: one sentence naming what it would be right for and why it fails here. For the correct ` +
+  `option: one short sentence on the finding that confirms it. Never leave a letter out.`;
+
+const WHY_WRONG_JSON = `"whyWrong":{"A":"...","B":"...","C":"...","D":"..."}`;
 
 const DIFF_LINE = {
   easy: "Straightforward single-concept questions, direct recall.",
@@ -186,13 +228,14 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `Generate exactly ${count} USMLE Step 1 clinical-vignette questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a 3-5 sentence patient scenario (age, sex, complaint, relevant history, vitals/labs/exam) ENDING in a question mark.\n` +
-    `Exactly 4 options A-D, each a complete answer. Explanation covers why right + why each wrong.` +
+    `Exactly 4 options A-D, each a complete answer.\n` +
+    WHY_WRONG_RULE +
     examplesSection +
     objectivesSection +
     atomsSection +
     contentSection +
     `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; distribute correct answers evenly across A/B/C/D — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","difficulty":"${diff}"}]}`
   );
 }

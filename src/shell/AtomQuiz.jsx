@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { classify, summarize } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
+import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
@@ -21,8 +22,23 @@ function parseExplanation(text) {
   return { lead, bullets };
 }
 
-function ExplanationBlock({ text, correctLetter }) {
-  const { lead, bullets } = parseExplanation(text);
+/**
+ * Per-choice bullets, structured first.
+ *
+ * New questions carry `whyWrong` keyed by letter, which survives the answer shuffle. Questions
+ * generated before that field existed only have prose, so their letters are recovered from
+ * "(A)" markers in the text — worse, but better than dropping the breakdown for a bank the
+ * student already paid to generate.
+ */
+function choiceBullets(whyWrong, parsedBullets, choices) {
+  const letters = Object.keys(whyWrong || {}).filter((l) => l in (choices || {}));
+  if (letters.length) return letters.sort().map((letter) => ({ letter, body: whyWrong[letter] }));
+  return parsedBullets;
+}
+
+function ExplanationBlock({ text, correctLetter, whyWrong, choices = {} }) {
+  const { lead, bullets: parsed } = parseExplanation(text);
+  const bullets = choiceBullets(whyWrong, parsed, choices);
   return (
     <div className="rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2 space-y-2">
       {lead && <LabAnnotatedText text={lead} className="block" />}
@@ -30,6 +46,7 @@ function ExplanationBlock({ text, correctLetter }) {
         <ul className="flex flex-col gap-1.5 pt-1 border-t border-border/40">
           {bullets.map(({ letter, body }) => {
             const isCorrect = letter === correctLetter;
+            const optionText = choices?.[letter];
             return (
               <li key={letter} className="flex items-start gap-2">
                 <span className={[
@@ -40,7 +57,16 @@ function ExplanationBlock({ text, correctLetter }) {
                 ].join(" ")}>
                   {isCorrect ? "✓" : "✕"} {letter}
                 </span>
-                <LabAnnotatedText text={body} className={["flex-1 text-[13px]", isCorrect ? "text-text-2" : "text-text-3"].join(" ")} />
+                <span className="flex-1 text-[13px]">
+                  {/* The option is repeated here so the bullet reads on its own — after a reveal
+                      you are looking at the reasoning, not back up at the list. */}
+                  {optionText && (
+                    <span className={isCorrect ? "font-semibold text-text-1" : "font-semibold text-text-2"}>
+                      {optionText} —{" "}
+                    </span>
+                  )}
+                  <LabAnnotatedText text={body} className={isCorrect ? "text-text-2" : "text-text-3"} />
+                </span>
               </li>
             );
           })}
@@ -68,7 +94,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDone }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = null, userId, onDone }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState(null);
   const [confidence, setConfidence] = useState(null);
@@ -89,6 +115,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
     setConfidence(level);
     const rec = { concept: q.topic || q.stem.slice(0, 60), stem: q.stem.slice(0, 100), confidence: level, correct: isCorrect };
     appendCalibration(userId, blockId, rec);
+    // Counted at reveal, not at "next": leaving the round here still cost you the question, so
+    // the lecture's total has to reflect it.
+    if (lectureId) recordAnswer(userId, lectureId, isCorrect);
     setRecords((prev) => [...prev, rec]);
   };
 
@@ -193,7 +222,14 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
             <div className={"text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
             </div>
-            {q.explanation && <ExplanationBlock text={q.explanation} correctLetter={q.correct} />}
+            {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
+              <ExplanationBlock
+                text={q.explanation}
+                correctLetter={q.correct}
+                whyWrong={q.whyWrong}
+                choices={q.choices}
+              />
+            )}
             <Button onClick={next}>{i + 1 >= questions.length ? "See calibration" : "Next →"}</Button>
           </div>
         )}

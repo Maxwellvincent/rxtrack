@@ -10,10 +10,12 @@ describe("normalizeQuestions", () => {
     explanation: "Type 1 DM = insulin deficiency.",
   };
 
-  it("accepts a valid MCQ and uppercases the correct letter", () => {
+  it("accepts a valid MCQ and keeps the correct letter pointing at the right answer", () => {
+    // Asserted by text, not by letter: normalize shuffles the options on purpose, so the letter
+    // is expected to move and only the answer it points at is stable.
     const out = normalizeQuestions({ questions: [{ ...good, correct: "a" }] });
     expect(out).toHaveLength(1);
-    expect(out[0].correct).toBe("A");
+    expect(out[0].choices[out[0].correct]).toBe("Insulin");
   });
   it("accepts a bare array too", () => {
     expect(normalizeQuestions([good])).toHaveLength(1);
@@ -98,7 +100,7 @@ describe("parseExemplarsFromMd", () => {
     const r = await parseExemplarsFromMd(md, { callAIJSON });
     expect(callAIJSON).toHaveBeenCalledOnce();
     expect(r.questions).toHaveLength(1);
-    expect(r.questions[0].correct).toBe("B");
+    expect(r.questions[0].choices[r.questions[0].correct]).toBe("b");
   });
   it("errors (no AI call) on too-short input", async () => {
     const callAIJSON = vi.fn();
@@ -139,5 +141,56 @@ describe("generateFromAtoms", () => {
     const p = buildAtomQuestionsPrompt({ atoms: many });
     expect(p).toContain("T9");       // 10th (index 9) present
     expect(p).not.toContain("T10");  // 11th capped out
+  });
+});
+
+describe("per-choice explanations (whyWrong)", () => {
+  const base = {
+    stem: "A 45-year-old man presents with polyuria. Which hormone is deficient?",
+    choices: { A: "Insulin", B: "Glucagon", C: "Cortisol", D: "TSH" },
+    correct: "A",
+    explanation: "Type 1 DM = insulin deficiency.",
+    whyWrong: { A: "Beta-cell loss.", B: "Raises glucose, does not lower it.", C: "Would cause hyperglycemia with cushingoid signs.", D: "Thyroid axis, not glycemic." },
+  };
+
+  it("keeps a letter-keyed explanation for every choice", () => {
+    const [q] = normalizeQuestions([base]);
+    expect(Object.keys(q.whyWrong).sort()).toEqual(["A", "B", "C", "D"]);
+  });
+
+  it("drops entries for letters the question never offered", () => {
+    const [q] = normalizeQuestions([{ ...base, whyWrong: { ...base.whyWrong, E: "no such option" } }]);
+    expect(q.whyWrong.E).toBeUndefined();
+  });
+
+  it("tolerates a missing or malformed whyWrong", () => {
+    expect(normalizeQuestions([{ ...base, whyWrong: undefined }])[0].whyWrong).toEqual({});
+    expect(normalizeQuestions([{ ...base, whyWrong: "prose instead" }])[0].whyWrong).toEqual({});
+    expect(normalizeQuestions([{ ...base, whyWrong: { A: "   " } }])[0].whyWrong).toEqual({});
+  });
+
+  it("moves each explanation with its option when the choices are shuffled", () => {
+    // Reverse the choices deterministically so every letter actually changes slot.
+    const seq = [0, 0, 0, 0];
+    let i = 0;
+    vi.spyOn(Math, "random").mockImplementation(() => seq[i++ % seq.length]);
+    const [q] = normalizeQuestions([base]);
+    Math.random.mockRestore();
+
+    for (const [letter, text] of Object.entries(q.choices)) {
+      const origLetter = Object.keys(base.choices).find((l) => base.choices[l] === text);
+      expect(q.whyWrong[letter]).toBe(base.whyWrong[origLetter]);
+    }
+    expect(q.choices[q.correct]).toBe("Insulin");
+  });
+
+  it("both generation prompts demand the letter-keyed object", () => {
+    for (const p of [
+      buildMcqPrompt({ subject: "Endocrine", lectureText: "Insulin is anabolic." }),
+      buildAtomQuestionsPrompt({ atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }] }),
+    ]) {
+      expect(p).toContain("whyWrong");
+      expect(p).toMatch(/INCLUDING the correct one/);
+    }
   });
 });

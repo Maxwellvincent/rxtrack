@@ -44,6 +44,7 @@ import {
   resumeRound,
   saveRoundProgress,
 } from "./lectureProgress.js";
+import * as questionStats from "../../../stores/lectureQuestionStats.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -82,6 +83,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
+  // Refreshed when a round ends rather than per answer: the panel is not on screen mid-round.
+  const [qStats, setQStats] = useState(() => questionStats.statsForLecture(userId, lecture?.id));
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Track last round result to surface "Go Deep" prompt on completion
@@ -414,11 +417,13 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
         <AtomQuiz
           questions={questions}
           blockId={blockId}
+          lectureId={lecture?.id ?? null}
           userId={userId}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false } = {}) => {
             const nextDone = Math.max(done, round + 1);
             saveRoundProgress(userId, lecture?.id, nextDone);
             setDone(nextDone);
+            setQStats(questionStats.statsForLecture(userId, lecture?.id));
             const isLastRound = nextDone >= rounds.length;
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
             if (isLastRound) setLastResult({ score, hasLandmines });
@@ -522,6 +527,10 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const objUntested = lectureObjectives.length - objMastered - objDeveloping;
   const objPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
   const roundPct = rounds.length > 0 ? Math.round((done / rounds.length) * 100) : 0;
+  const accuracyPct = qStats.accuracy == null ? 0 : Math.round(qStats.accuracy * 100);
+  // Banded rather than a gradient: the only decision this drives is whether the lecture goes back
+  // on the review pile, and 70% is where that answer changes.
+  const accuracyColor = accuracyPct >= 85 ? "text-good" : accuracyPct >= 70 ? "text-accent" : "text-bad";
   const currentDifficulty = ["Easy", "Medium", "Hard", "Expert"][Math.min(round, 3)];
   const diffColor = ["text-good", "text-accent", "text-warn", "text-bad"][Math.min(round, 3)];
 
@@ -555,6 +564,20 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <span className={`font-mono text-[11px] font-bold ${diffColor}`}>{currentDifficulty}</span>
             </div>
           </div>
+
+          {/* Row 1b: questions answered — how much work this lecture has actually had. Accuracy is
+              shown next to it because the count alone cannot tell drilled-and-solid from
+              drilled-and-still-missing, which is the thing that decides what to review. */}
+          {qStats.answered > 0 && (
+            <div className="flex items-center gap-4 px-4 py-2.5">
+              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Questions</span>
+              <span className="font-mono text-[11px] text-text-2 flex-1 min-w-0">
+                {qStats.answered} answered
+                <span className="text-text-3"> · {qStats.correct} correct</span>
+              </span>
+              <span className={`font-mono text-[11px] font-bold flex-shrink-0 ${accuracyColor}`}>{accuracyPct}%</span>
+            </div>
+          )}
 
           {/* Row 2: objectives breakdown */}
           {lectureObjectives.length > 0 && (
@@ -619,10 +642,13 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <span className="text-[12px] text-text-3">
                 {atoms.length} atoms · {lectureObjectives.length} objectives
                 {done > 0 ? ` · ${done}/${rounds.length} rounds done` : ""}
+                {qStats.answered > 0 ? ` · ${qStats.answered} questions answered` : ""}
               </span>
               {done > 0 && (
                 <button
                   onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
+                  /* Question counts deliberately survive "start over" — they are a record of work
+                     done, not a bookmark, and resetting them would erase the lecture's history. */
                   disabled={!!busy}
                   className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
                 >

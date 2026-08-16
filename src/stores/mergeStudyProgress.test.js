@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeRoundProgress, mergeCalibration } from "./merge.js";
+import { mergeRoundProgress, mergeCalibration, mergeQuestionStats } from "./merge.js";
 
 describe("mergeRoundProgress", () => {
   it("keeps the furthest round reached on either device", () => {
@@ -60,5 +60,48 @@ describe("mergeCalibration", () => {
   it("survives missing sides", () => {
     expect(mergeCalibration(null, { b1: [rec(1, "a")] }).b1).toHaveLength(1);
     expect(mergeCalibration({ b1: [rec(1, "a")] }, null).b1).toHaveLength(1);
+  });
+});
+
+describe("mergeQuestionStats", () => {
+  it("keeps the device that has answered more", () => {
+    const out = mergeQuestionStats(
+      { lec1: { answered: 10, correct: 6, at: 1 } },
+      { lec1: { answered: 25, correct: 20, at: 2 } }
+    );
+    expect(out.lec1).toMatchObject({ answered: 25, correct: 20 });
+  });
+
+  it("does not let a device that fell behind pull the count backwards", () => {
+    const out = mergeQuestionStats(
+      { lec1: { answered: 40, correct: 30, at: 1 } },
+      { lec1: { answered: 5, correct: 5, at: 99 } }
+    );
+    expect(out.lec1.answered).toBe(40);
+    expect(out.lec1.correct).toBe(30);
+  });
+
+  it("takes answered and correct from the same side, never a mix", () => {
+    const out = mergeQuestionStats(
+      { lec1: { answered: 8, correct: 8, at: 1 } },
+      { lec1: { answered: 20, correct: 12, at: 2 } }
+    );
+    expect(out.lec1.correct).toBeLessThanOrEqual(out.lec1.answered);
+    expect(out.lec1.correct).toBe(12);
+  });
+
+  it("clamps a correct count that exceeds the answered count", () => {
+    expect(mergeQuestionStats({ lec1: { answered: 3, correct: 9 } }, {}).lec1.correct).toBe(3);
+  });
+
+  it("keeps lectures only one side has seen", () => {
+    const out = mergeQuestionStats({ lec1: { answered: 2, correct: 1 } }, { lec2: { answered: 4, correct: 4 } });
+    expect(Object.keys(out).sort()).toEqual(["lec1", "lec2"]);
+  });
+
+  it("tolerates garbage", () => {
+    expect(mergeQuestionStats(null, { lec1: { answered: 3, correct: 1 } }).lec1.answered).toBe(3);
+    expect(mergeQuestionStats({ lec1: "nonsense" }, {})).toEqual({});
+    expect(mergeQuestionStats({ lec1: { answered: 0 } }, {})).toEqual({});
   });
 });

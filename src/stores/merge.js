@@ -192,6 +192,32 @@ export function mergeRoundProgress(cloud, local) {
 }
 
 /**
+ * Highest count wins, per lecture.
+ *
+ * Same reasoning as mergeRoundProgress: you cannot un-answer a question, so between two devices
+ * the larger count is the one that has seen more of the history. Answered and correct are taken
+ * from whichever side has the higher `answered`, together rather than field-by-field — maxing
+ * them independently could produce a lecture with more correct answers than answers.
+ */
+export function mergeQuestionStats(cloud, local) {
+  const out = {};
+  for (const side of [cloud || {}, local || {}]) {
+    for (const [lectureId, entry] of Object.entries(side)) {
+      const answered = entry?.answered;
+      if (!Number.isFinite(answered) || answered <= 0) continue;
+      if (!out[lectureId] || answered > out[lectureId].answered) {
+        out[lectureId] = {
+          answered,
+          correct: Number.isFinite(entry.correct) ? Math.min(entry.correct, answered) : 0,
+          at: entry.at ?? Date.now(),
+        };
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Union of answered questions, per block.
  *
  * Calibration is an append-only log, so merging is a set union rather than a choice between

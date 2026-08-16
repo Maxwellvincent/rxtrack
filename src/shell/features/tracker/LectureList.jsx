@@ -9,6 +9,7 @@ import { useCallback, useMemo, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectures } from "../../hooks/useLectures.js";
+import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 
 const CONFIDENCE = [
@@ -63,7 +64,9 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
+function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
+  const answered = stats?.answered || 0;
+  const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
 
   return (
@@ -80,6 +83,16 @@ function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
             {row.struggling > 0 && ` · ${row.struggling} struggling`}
             {row.sessions > 0 ? ` · ${row.sessions} session${row.sessions > 1 ? "s" : ""}` : " · never studied"}
+            {/* Sessions count visits; this counts work. A lecture opened four times and answered
+                twice looks busy by sessions alone, and that is exactly the one to re-drill. */}
+            {answered > 0 && (
+              <span title={`${stats.correct} of ${answered} correct`}>
+                {` · ${answered} q`}
+                <span className={accuracy >= 85 ? "text-good" : accuracy >= 70 ? "text-accent" : "text-bad"}>
+                  {` ${accuracy}%`}
+                </span>
+              </span>
+            )}
             {row.lastActivityDate && ` · last ${row.lastActivityDate}`}
             {row.nextReview && ` · review ${row.nextReview}`}
           </div>
@@ -139,6 +152,7 @@ function Row({ row, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
 export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null, onBack }) {
   const { context, logActivity, objectivesForTask } = useToday(blockId, userId);
   const lecturesResource = useLectures(null, userId);
+  const questionStats = useLectureQuestionStats(userId);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("urgency");
@@ -229,6 +243,7 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
             <Row
               key={row.lectureId}
               row={row}
+              stats={questionStats.data?.[row.lectureId]}
               busy={quizBusyLectureId}
               onStudy={onStudyLecture}
               onQuiz={onQuiz}
