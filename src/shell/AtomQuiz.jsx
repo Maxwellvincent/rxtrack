@@ -87,7 +87,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
     if (picked == null || revealed) return;
     const isCorrect = picked === q.correct;
     setConfidence(level);
-    const rec = { concept: q.topic || q.stem.slice(0, 40), confidence: level, correct: isCorrect };
+    const rec = { concept: q.topic || q.stem.slice(0, 60), stem: q.stem.slice(0, 100), confidence: level, correct: isCorrect };
     appendCalibration(userId, blockId, rec);
     setRecords((prev) => [...prev, rec]);
   };
@@ -223,8 +223,17 @@ function Summary({ records }) {
       {s.landmines.length > 0 && (
         <div className="rounded-lg border border-bad bg-bg-elevated p-3">
           <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-bad">⚠ Review first — sure but wrong</div>
-          <ul className="flex flex-col gap-1 text-xs text-text-1">
-            {s.landmines.map((l, i) => <li key={i}>• {l.concept}</li>)}
+          <ul className="flex flex-col gap-2">
+            {s.landmines.map((l, i) => (
+              <li key={i} className="flex flex-col gap-0.5">
+                <span className="text-[13px] font-semibold text-text-1">✕ {l.concept}</span>
+                {l.stem && (
+                  <span className="font-mono text-[11px] text-text-3 leading-snug">
+                    {l.stem}{l.stem.length >= 100 ? "…" : ""}
+                  </span>
+                )}
+              </li>
+            ))}
           </ul>
         </div>
       )}

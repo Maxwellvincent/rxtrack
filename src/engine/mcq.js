@@ -193,6 +193,6 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     contentSection +
     `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; distribute correct answers evenly across A/B/C/D — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","topic":"${String(subject).replace(/"/g, "'")}","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...","topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","difficulty":"${diff}"}]}`
   );
 }
