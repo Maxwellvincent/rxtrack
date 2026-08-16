@@ -4,6 +4,49 @@ import { classify, summarize } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 
+// Split explanation into: lead (correct answer) + per-wrong-choice bullets.
+// Handles patterns like "(A) text", "(B) text" anywhere in the string.
+function parseExplanation(text) {
+  if (!text) return { lead: "", bullets: [] };
+  // Split on "(Letter)" markers, keeping the letter
+  const parts = text.split(/\s*\(([A-E])\)\s*/);
+  // parts: [lead, "A", text_A, "B", text_B, ...]
+  const lead = (parts[0] || "").trim();
+  const bullets = [];
+  for (let i = 1; i + 1 < parts.length; i += 2) {
+    const letter = parts[i];
+    const body = (parts[i + 1] || "").trim();
+    if (body) bullets.push({ letter, body });
+  }
+  return { lead, bullets };
+}
+
+function ExplanationBlock({ text, correctLetter }) {
+  const { lead, bullets } = parseExplanation(text);
+  return (
+    <div className="rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2 space-y-2">
+      {lead && <LabAnnotatedText text={lead} className="block" />}
+      {bullets.length > 0 && (
+        <ul className="flex flex-col gap-1.5 pt-1 border-t border-border/40">
+          {bullets.map(({ letter, body }) => (
+            <li key={letter} className="flex items-start gap-2">
+              <span className={[
+                "mt-0.5 flex-shrink-0 flex h-4 w-4 items-center justify-center rounded font-mono text-[10px] font-bold",
+                letter === correctLetter
+                  ? "bg-good/20 text-good"
+                  : "bg-bad/15 text-bad/80",
+              ].join(" ")}>
+                {letter}
+              </span>
+              <LabAnnotatedText text={body} className="flex-1 text-text-3" />
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 const CONF = [
   { level: 1, label: "Guess" },
   { level: 2, label: "Unsure" },
@@ -147,7 +190,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", userId, onDon
             <div className={"text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
             </div>
-            {q.explanation && <LabAnnotatedText text={q.explanation} className="block rounded border-l-2 border-accent bg-panel p-2 text-[13px] leading-relaxed text-text-2" />}
+            {q.explanation && <ExplanationBlock text={q.explanation} correctLetter={q.correct} />}
             <Button onClick={next}>{i + 1 >= questions.length ? "See calibration" : "Next →"}</Button>
           </div>
         )}
