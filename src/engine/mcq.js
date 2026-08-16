@@ -53,8 +53,8 @@ function shuffleChoices(q) {
  * Keep only per-choice explanations that name a real choice.
  *
  * The model sometimes explains a letter it never offered, or returns a string instead of an
- * object. Either way the entry is dropped rather than rendered — a bullet labelled (E) under a
- * four-option question reads as a bug in the question.
+ * object. Either way the entry is dropped rather than rendered — a bullet labelled with a letter
+ * the question never offered reads as a bug in the question.
  */
 function normalizeWhyWrong(raw, letters) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
@@ -99,10 +99,11 @@ export function normalizeQuestions(raw) {
 export function buildExemplarParsePrompt(md) {
   return (
     `Extract EVERY multiple-choice question from the text below, verbatim.\n` +
-    `For each: the full stem, options A-D, the correct answer letter, and any explanation given.\n` +
+    `For each: the full stem, EVERY option it offers (A-D or A-E — keep the count the source used),\n` +
+    `the correct answer letter, and any explanation given.\n` +
     `Do not invent questions or answers; if the answer key is absent, infer the best-supported letter.\n\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"A","explanation":"..."}]}\n\n` +
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"..."}]}\n\n` +
     `TEXT:\n${String(md || "").slice(0, 14000)}`
   );
 }
@@ -134,6 +135,17 @@ const IMAGE_NOTE =
   "  [AN IMAGE FROM THE LECTURE IS SHOWN WITH THIS QUESTION — have the stem refer to it " +
   '("the photomicrograph shown", "the image shown") and do NOT describe or name what it depicts.]';
 
+/**
+ * An exemplar's options, exactly as many as it has.
+ *
+ * These lines were hard-coded to A-D, which printed "D: undefined" for a three-option bank item
+ * and silently dropped E from a five-option one — teaching the model the wrong option count from
+ * the very examples meant to teach it the school's style.
+ */
+function renderChoices(choices) {
+  return LETTERS.filter((l) => choices?.[l]).map((l) => `${l}: ${choices[l]}`).join("  ");
+}
+
 export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], subject = "this lecture" } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
@@ -147,19 +159,19 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
   const examplesSection = examples.length
     ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
       examples.slice(0, 5).map((q, i) =>
-        `EXAMPLE ${i + 1}:\nQ: ${q.stem}\nA: ${q.choices?.A}  B: ${q.choices?.B}  C: ${q.choices?.C}  D: ${q.choices?.D}\nCorrect: ${q.correct}`
+        `EXAMPLE ${i + 1}:\nQ: ${q.stem}\n${renderChoices(q.choices)}\nCorrect: ${q.correct}`
       ).join("\n\n")
     : "";
 
   return (
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
-    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark; 4 options A-D.\n\n` +
+    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark; exactly 5 options A-E.\n\n` +
     WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
     examplesSection +
     `\n\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","difficulty":"${diff}"}]}`
   );
 }
 
@@ -189,7 +201,7 @@ const WHY_WRONG_RULE =
   `option: one sentence naming what it would be right for and why it fails here. For the correct ` +
   `option: one short sentence on the finding that confirms it. Never leave a letter out.`;
 
-const WHY_WRONG_JSON = `"whyWrong":{"A":"...","B":"...","C":"...","D":"..."}`;
+const WHY_WRONG_JSON = `"whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."}`;
 
 const DIFF_LINE = {
   easy: "Straightforward single-concept questions, direct recall.",
@@ -206,7 +218,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     ? "\n\nEXAMPLE QUESTIONS FROM YOUR SCHOOL'S EXAM BANK:\n" +
       "(Model your questions after this exact style, format, length, and clinical depth.)\n" +
       examples.slice(0, 5).map((q, i) =>
-        `EXAMPLE ${i + 1}:\nQ: ${q.stem}\nA: ${q.choices?.A}  B: ${q.choices?.B}  C: ${q.choices?.C}  D: ${q.choices?.D}\nCorrect: ${q.correct}\nExplanation: ${q.explanation || "N/A"}`
+        `EXAMPLE ${i + 1}:\nQ: ${q.stem}\n${renderChoices(q.choices)}\nCorrect: ${q.correct}\nExplanation: ${q.explanation || "N/A"}`
       ).join("\n\n")
     : "";
 
@@ -228,14 +240,14 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `Generate exactly ${count} USMLE Step 1 clinical-vignette questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a 3-5 sentence patient scenario (age, sex, complaint, relevant history, vitals/labs/exam) ENDING in a question mark.\n` +
-    `Exactly 4 options A-D, each a complete answer.\n` +
+    `Exactly 5 options A-E, each a complete answer.\n` +
     WHY_WRONG_RULE +
     examplesSection +
     objectivesSection +
     atomsSection +
     contentSection +
-    `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; distribute correct answers evenly across A/B/C/D — no single letter should be correct more than 30% of the time.\n\n` +
+    `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","difficulty":"${diff}"}]}`
   );
 }

@@ -194,3 +194,40 @@ describe("per-choice explanations (whyWrong)", () => {
     }
   });
 });
+
+describe("five options", () => {
+  it("both generation prompts ask for exactly 5 options A-E", () => {
+    for (const p of [
+      buildMcqPrompt({ subject: "Endocrine", lectureText: "Insulin is anabolic." }),
+      buildAtomQuestionsPrompt({ atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }] }),
+    ]) {
+      expect(p).toMatch(/5 options A-E/);
+      expect(p).toContain('"E":"..."');
+      expect(p).not.toMatch(/4 options A-D/);
+    }
+  });
+
+  it("keeps a five-option question intact through normalize", () => {
+    const [q] = normalizeQuestions([{
+      stem: "A 34-year-old woman has bitemporal hemianopsia. Which hormone do the eosinophilic cells make?",
+      choices: { A: "ACTH", B: "FSH", C: "Growth hormone", D: "TSH", E: "LH" },
+      correct: "C",
+      explanation: "Acidophils are somatotrophs.",
+    }]);
+    expect(Object.keys(q.choices).sort()).toEqual(["A", "B", "C", "D", "E"]);
+    expect(q.choices[q.correct]).toBe("Growth hormone");
+  });
+
+  it("renders each exemplar with the options it actually has", () => {
+    const p = buildAtomQuestionsPrompt({
+      atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }],
+      examples: [
+        { stem: "Five-option item?", choices: { A: "a", B: "b", C: "c", D: "d", E: "e" }, correct: "E" },
+        { stem: "Three-option item?", choices: { A: "a", B: "b", C: "c" }, correct: "A" },
+      ],
+    });
+    expect(p).toContain("E: e");
+    // The three-option exemplar must not sprout empty D/E slots.
+    expect(p).not.toMatch(/D: undefined/);
+  });
+});
