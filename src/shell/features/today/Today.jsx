@@ -1,6 +1,7 @@
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
+import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import * as examDatesStore from "../../../stores/examDates.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
@@ -386,7 +387,7 @@ function fmtDaysUntil(dateStr) {
   return `in ${diff}d`;
 }
 
-function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, onCheck, onStudy, onQuiz, onLog, busy }) {
+function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead, onCheck, onStudy, onQuiz, onLog, busy }) {
   const [logging, setLogging] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const title = task.lec?.lectureTitle || task.lec?.fileName || task.lec?.filename || "Lecture";
@@ -473,6 +474,14 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, onCheck,
                   : task.matchReason === "spaced-rep-due"
                     ? "spaced rep due"
                     : "highest urgency"}
+                {preRead && (
+                  <span className="text-good">
+                    {" · pre-read ✓"}
+                    {preRead.gapObjectiveIds?.length
+                      ? ` ${preRead.gapObjectiveIds.length} gap${preRead.gapObjectiveIds.length === 1 ? "" : "s"} first`
+                      : ""}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -618,6 +627,74 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, onCheck,
 
 // ─── Exam date picker (shown when no date set) ────────────────────────────────
 
+/**
+ * Work Ahead — the lectures coming in the next two days, offered for pre-reading.
+ *
+ * `generateDailySchedule` has always computed these and no surface has ever
+ * shown them, so being caught up looked identical to having nothing left to do.
+ * Collapsed by default and hidden inside exam week (`workAhead.hidden`), but
+ * always expandable: working ahead is a choice the app should never block.
+ */
+function WorkAheadSection({ workAhead, preReadFor, onPreRead }) {
+  // Auto-open follows the "nothing on fire" gate until you click, then your
+  // choice wins — derived, so it tracks the gate without a sync effect.
+  const [override, setOverride] = useState(null);
+  const open = override ?? workAhead.expanded;
+
+  if (!workAhead.lectures.length) return null;
+
+  return (
+    <div className="rounded-sm border border-border">
+      <button
+        onClick={() => setOverride(!open)}
+        className="flex w-full items-center justify-between gap-2 p-3 text-left"
+      >
+        <span className="font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">
+          Work ahead · {workAhead.lectures.length} coming up
+        </span>
+        <span className="font-mono text-[12px] text-text-3">
+          {workAhead.hidden
+            ? "exam week — review first"
+            : workAhead.backlog
+              ? "clear your backlog first"
+              : "you're caught up"}{" "}
+          {open ? "▾" : "▸"}
+        </span>
+      </button>
+
+      {open && (
+        <div className="flex flex-col gap-2 border-t border-border p-3">
+          {workAhead.lectures.map((ls) => {
+            const done = preReadFor?.(ls.lec.id);
+            return (
+              <div key={ls.lec.id} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] text-text-1">
+                    {ls.studyMode?.icon} {ls.lec.lectureTitle || ls.lec.fileName || "Untitled lecture"}
+                  </div>
+                  <div className="font-mono text-[12px] text-text-3">
+                    {/* The Date itself, never an ISO slice: availableDate is LOCAL
+                        midnight, and toISOString() shifts it a day back west of
+                        Greenwich — the same trap schedule.js documents. */}
+                    {fmtDaysUntil(ls.availableDate)}
+                    {done && ` · pre-read ✓ ${done.gapObjectiveIds?.length || 0} gaps`}
+                  </div>
+                </div>
+                <button
+                  onClick={() => onPreRead(ls)}
+                  className="shrink-0 rounded-sm border border-border px-2.5 py-1 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-1"
+                >
+                  {done ? "Pre-read again" : "Pre-read"}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ExamDatePicker({ blockId, userId }) {
   const [dateInput, setDateInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -657,8 +734,10 @@ function ExamDatePicker({ blockId, userId }) {
 // ─── Main Today component ─────────────────────────────────────────────────────
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, objectivesForTask, nextReviewByLectureId } =
+  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId } =
     useToday(blockId, userId);
+
+  const [preReadTarget, setPreReadTarget] = useState(null);
 
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
   const [checked, setChecked] = useState(() => readChecked(blockId));
@@ -737,8 +816,26 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   const onQuiz = useCallback((task) => {
     const objectives = objectivesForTask(task.lec.id);
     const title = task.lec?.lectureTitle || task.lec?.fileName || "Lecture";
-    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id });
-  }, [objectivesForTask, onStartObjectiveQuiz, blockId]);
+    // A pre-read's misses are the whole reason it exists: the first session
+    // after the lecture opens on the objectives it exposed as gaps.
+    const gapIds = preReadFor(task.lec.id)?.gapObjectiveIds || [];
+    const rank = (o) => {
+      const i = gapIds.indexOf(o.id);
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    const ordered = gapIds.length ? [...objectives].sort((a, b) => rank(a) - rank(b)) : objectives;
+    onStartObjectiveQuiz?.(ordered, title, blockId, { lectureId: task.lec.id });
+  }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor]);
+
+  const onPreReadDone = useCallback(({ lectureId, gapObjectiveIds, durationMinutes }) => {
+    const entry = logPreRead({ lectureId, gapObjectiveIds, durationMinutes });
+    setLogFeedback(
+      entry
+        ? `Pre-read logged — ${gapObjectiveIds.length} gap${gapObjectiveIds.length === 1 ? "" : "s"} to listen for.`
+        : "Could not log the pre-read."
+    );
+    setTimeout(() => setLogFeedback(null), 4000);
+  }, [logPreRead]);
 
   // Effective mode: manual pick or auto-suggestion
   const effectiveMode = dayMode ?? suggestedMode;
@@ -852,6 +949,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
               isNext={task.lec.id === firstUnchecked}
               sessionCount={sessionCounts[task.lec.id] ?? 0}
               nextReviewDate={nextReviewByLectureId?.[task.lec.id] ?? null}
+              preRead={preReadFor(task.lec.id)}
               onCheck={handleCheck}
               onStudy={onStudy}
               onQuiz={onQuiz}
@@ -860,6 +958,22 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
             />
           ))}
         </div>
+      )}
+
+      {/* Work ahead — pre-read what is coming */}
+      <WorkAheadSection
+        workAhead={workAhead}
+        preReadFor={preReadFor}
+        onPreRead={(ls) => setPreReadTarget(ls)}
+      />
+
+      {preReadTarget && (
+        <PreReadModal
+          lecture={preReadTarget.lec}
+          objectives={objectivesForTask(preReadTarget.lec.id)}
+          onClose={() => setPreReadTarget(null)}
+          onComplete={onPreReadDone}
+        />
       )}
 
       {/* Reset */}

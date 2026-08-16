@@ -1,0 +1,220 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { callAIJSON } from "../../../aiClient.js";
+import {
+  PRE_READ_QUESTION_COUNT,
+  PRE_READ_SOFT_CAP_MINUTES,
+  generatePreRead,
+  preReadGaps,
+  preReadSource,
+} from "./preRead.js";
+
+/**
+ * The pre-read session: five prediction questions, one reveal, a topic list.
+ *
+ * Three screens, no more — predict → reveal → done. The unit is fixed and small
+ * on purpose: the study protocol's rule is that a session must have something
+ * to finish, and a timer is not a finish line. The soft cap only offers an exit,
+ * it never ends the session.
+ */
+
+const SOURCE_NOTE = {
+  text: null,
+  objectives: "No lecture material uploaded — built from the objectives.",
+  title: "No material or objectives yet — built from the lecture title alone.",
+  none: null,
+};
+
+function TopicList({ topics }) {
+  if (!topics.length) return null;
+  return (
+    <div>
+      <div className="mb-2 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">
+        Go study these
+      </div>
+      <ul className="flex flex-col gap-1">
+        {topics.map((t) => (
+          <li key={t} className="font-mono text-[13px] text-text-1">
+            · {t}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export function PreReadModal({ lecture, objectives = [], onClose, onComplete }) {
+  const [state, setState] = useState({ loading: true, error: null, topics: [], questions: [] });
+  const [answers, setAnswers] = useState({});
+  const [phase, setPhase] = useState("predict"); // predict → reveal
+  const [capReached, setCapReached] = useState(false);
+  const startedAt = useRef(null);
+
+  const source = useMemo(() => preReadSource(lecture, objectives), [lecture, objectives]);
+  const title = lecture?.lectureTitle || lecture?.fileName || "Lecture";
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await generatePreRead({ lecture, objectives }, { callAIJSON });
+      if (!cancelled) setState({ loading: false, ...result });
+    })();
+    return () => { cancelled = true; };
+  }, [lecture, objectives]);
+
+  // Soft cap: offers an exit, never forces one.
+  useEffect(() => {
+    startedAt.current = Date.now();
+    const t = setTimeout(() => setCapReached(true), PRE_READ_SOFT_CAP_MINUTES * 60 * 1000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const gaps = useMemo(() => preReadGaps(state.questions, answers), [state.questions, answers]);
+
+  const finish = useCallback(() => {
+    onComplete?.({
+      lectureId: lecture?.id,
+      gapObjectiveIds: gaps.objectiveIds,
+      durationMinutes: startedAt.current
+        ? Math.max(1, Math.round((Date.now() - startedAt.current) / 60000))
+        : null,
+    });
+    onClose?.();
+  }, [gaps.objectiveIds, lecture?.id, onComplete, onClose]);
+
+  const answeredCount = Object.keys(answers).length;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Pre-read ${title}`}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-8"
+    >
+      <div className="w-full max-w-xl rounded-xl border border-border bg-bg p-5 shadow-xl">
+        <div className="mb-1 flex items-start justify-between gap-3">
+          <div>
+            <div className="font-condensed text-[13px] font-bold uppercase tracking-wide text-text-3">
+              Pre-read · before lecture
+            </div>
+            <h2 className="text-sm font-bold text-text-1">{title}</h2>
+          </div>
+          <button onClick={onClose} className="font-mono text-xs text-text-3 hover:text-text-1">✕</button>
+        </div>
+
+        {SOURCE_NOTE[source.kind] && (
+          <div className="mb-3 font-mono text-[12px] text-text-3">{SOURCE_NOTE[source.kind]}</div>
+        )}
+
+        {capReached && phase === "predict" && (
+          <div className="mb-3 flex items-center justify-between gap-2 rounded-sm border border-border p-2">
+            <span className="font-mono text-[12px] text-text-3">
+              {PRE_READ_SOFT_CAP_MINUTES} min in — a pre-read is meant to be short.
+            </span>
+            <button onClick={() => setPhase("reveal")} className="font-mono text-[12px] text-text-1 underline">
+              Wrap up
+            </button>
+          </div>
+        )}
+
+        {state.loading && (
+          <div className="p-4 font-mono text-[13px] text-text-3">Building your pre-read…</div>
+        )}
+
+        {!state.loading && state.error && (
+          <div className="p-4 font-mono text-[13px] text-bad">{state.error}</div>
+        )}
+
+        {!state.loading && !state.error && (
+          <div className="flex flex-col gap-4">
+            {phase === "predict" && (
+              <>
+                <div className="font-mono text-[12px] text-text-3">
+                  You have not been taught this yet — that is the point. Guess. Wrong answers tell you
+                  what to listen for.
+                </div>
+                {state.questions.map((q, qi) => (
+                  <div key={q.id} className="rounded-sm border border-border p-3">
+                    <div className="mb-2 text-[13px] text-text-1">
+                      <span className="font-mono text-text-3">{qi + 1}. </span>
+                      {q.question}
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {q.choices.map((c, ci) => (
+                        <button
+                          key={ci}
+                          onClick={() => setAnswers((a) => ({ ...a, [q.id]: ci }))}
+                          className={`rounded-sm border p-2 text-left font-mono text-[13px] ${
+                            answers[q.id] === ci
+                              ? "border-text-1 text-text-1"
+                              : "border-border text-text-2 hover:text-text-1"
+                          }`}
+                        >
+                          {String.fromCharCode(65 + ci)}. {c}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+
+                {state.questions.length === 0 && (
+                  <div className="font-mono text-[13px] text-text-3">
+                    No questions generated — the topics below are still worth working from.
+                  </div>
+                )}
+
+                <button
+                  onClick={() => setPhase("reveal")}
+                  className="self-start rounded-sm border border-border px-3 py-1.5 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-1"
+                >
+                  {answeredCount < state.questions.length
+                    ? `Reveal answers (${answeredCount}/${state.questions.length})`
+                    : "Reveal answers"}
+                </button>
+              </>
+            )}
+
+            {phase === "reveal" && (
+              <>
+                <div className="font-mono text-[13px] text-text-2">
+                  {gaps.correct}/{state.questions.length || PRE_READ_QUESTION_COUNT} predicted — the misses are
+                  your listening list for lecture.
+                </div>
+
+                {state.questions.map((q) => {
+                  const given = answers[q.id];
+                  const right = given === q.correctIndex;
+                  return (
+                    <div key={q.id} className="rounded-sm border border-border p-3">
+                      <div className="mb-1 text-[13px] text-text-1">
+                        <span className="font-mono">{right ? "✓" : "✕"} </span>
+                        {q.question}
+                      </div>
+                      <div className="font-mono text-[13px] text-text-2">
+                        Answer: {String.fromCharCode(65 + q.correctIndex)}. {q.choices[q.correctIndex]}
+                      </div>
+                      {q.explanation && (
+                        <div className="mt-1 font-mono text-[12px] text-text-3">{q.explanation}</div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <TopicList topics={state.topics} />
+
+                <button
+                  onClick={finish}
+                  className="self-start rounded-sm border border-border px-3 py-1.5 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-1"
+                >
+                  Done — log pre-read
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default PreReadModal;

@@ -26,6 +26,44 @@ to read when it could hand you something to finish.**
 Deep Learn's phase order is `prime → teach → patient → selftest → gaps → apply → summary`
 (`src/deepLearnPhaseUtils.js`).
 
+## Pre-Read — the pass before the lecture (P-1)
+
+Every phase above assumes the lecture has already been taught. Pre-Read is the pass that runs
+before it, and it is deliberately a different shape:
+
+| Piece | Implementation |
+|---|---|
+| Which lectures may be pre-read | `src/shell/logic/workAhead.js` |
+| Session content (topics + prediction questions) | `src/shell/features/lectures/preRead.js` |
+| The session UI | `src/shell/features/lectures/PreReadModal.jsx` |
+| Recording it | `src/shell/logic/preReadLog.js` |
+| Surface | Today's **Work ahead** section (`Today.jsx`) |
+
+The session is five prediction questions answered *before* studying, one reveal screen, and a
+list of concise subject-level topics to go study elsewhere (videos, PDFs — the app does not host
+them). Fixed size, because a closable unit is what makes starting cheap.
+
+Three rules here are load-bearing:
+
+**A pre-read is rep 0.** `appendPreRead` is separate from `appendActivity` precisely because
+`appendActivity` recomputes `reviewDates` and bumps `sessionCount` on every write.
+`lectureUrgency` adds **+20** for `nextReview <= today`, so logging a pre-read through the normal
+path would rocket an untaught lecture to the top of Today, and `recommendedSessionsFor` would
+stop offering the first Deep Learn. Pre-read writes an activity entry and nothing else.
+
+**Never grade unseen material.** The questions are ungraded by design — no objective ever moves
+to `struggling` from a pre-read. Their only downstream use is `preReadGaps`: the missed
+objectives are what the first post-lecture session opens on (`onQuiz` in `Today.jsx`).
+
+**Work Ahead disappears inside exam week.** `workAheadLectures` suppresses itself in the `crunch`
+and `critical` pressure zones (≤7 days to the block exam) — pre-reading the next lecture loses to
+consolidating what the exam covers. It stays expandable by hand; it is a default, not a lock.
+
+Horizon is the next two days (`HORIZON_DAYS`), and the section auto-opens only when nothing is on
+fire — no struggling objectives in the block and no overdue spaced repetition. It does not gate on
+"day 0 is empty", because `fallback.js` back-fills six urgency tasks and day 0 is therefore
+essentially never empty.
+
 ## Two constraints that are easy to undo by accident
 
 **Never render the whole extraction.** Study opens on a question, not on a list of atoms. The

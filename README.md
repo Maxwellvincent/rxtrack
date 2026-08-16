@@ -14,3 +14,20 @@ The React Compiler is not enabled on this template because of its impact on dev 
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
+## Driving the app against the emulators
+
+`VITE_DEV_USER_ID` skips Google OAuth but has no auth token, so every Firestore
+read is rejected by the rules and the app boots empty — useless for verifying UI
+in a browser. Run against the local emulator suite instead:
+
+```sh
+firebase emulators:start --only auth,firestore
+VITE_FIREBASE_EMULATORS=1 npm run dev
+```
+
+`VITE_FIREBASE_EMULATORS=1` routes Auth, Firestore and Storage to
+127.0.0.1 (`src/firebase.js`), so a session never reads or writes the live
+account. Seed fixtures straight into the emulator's REST API — data lives at
+`users/{uid}/state/{terms,completion,performance}`, `users/{uid}/kv/{key}` and
+`users/{uid}/objectives/{blockId}`, while `rxt-lec-meta` is still localStorage.

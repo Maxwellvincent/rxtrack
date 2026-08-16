@@ -16,7 +16,9 @@ import { usePerformance } from "../../hooks/usePerformance.js";
 import { useTerms } from "../../hooks/useTerms.js";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { appendActivity } from "../../logic/completionLog.js";
+import { appendPreRead } from "../../logic/preReadLog.js";
 import { buildStudySchedule, generateDailySchedule, objectivesForLecture } from "../../logic/schedule.js";
+import { workAheadLectures } from "../../logic/workAhead.js";
 import { buildScheduleContext } from "./scheduleContext.js";
 import { todayTasks as todayTasks_ } from "./fallback.js";
 
@@ -66,6 +68,13 @@ export function useToday(blockId, userId, { now } = {}) {
     return first && first.daysFromNow > 0 ? first : null;
   }, [daily]);
 
+  // Lectures you may legitimately pre-read: dated inside the next two days,
+  // suppressed inside exam week. Read-only over the scheduler's own output.
+  const workAhead = useMemo(
+    () => workAheadLectures(daily, { now: context.now, examDate: context.examDate }),
+    [daily, context.now, context.examDate]
+  );
+
   // Map lectureId → next scheduled review date string from buildStudySchedule.
   const nextReviewByLectureId = useMemo(() => {
     const map = {};
@@ -104,6 +113,35 @@ export function useToday(blockId, userId, { now } = {}) {
     [blockId, userId, context.examDate, mutateCompletion]
   );
 
+  /**
+   * Record a pre-read. Deliberately NOT `logActivity`: a pre-read must not
+   * schedule a review or count a rep — see preReadLog.js.
+   */
+  const logPreRead = useCallback(
+    ({ lectureId, gapObjectiveIds = [], durationMinutes = null }) => {
+      const uid = userId ?? getStoreHookUserId();
+      const current = completionStore.read(uid) || {};
+      const result = appendPreRead(current, {
+        lectureId,
+        blockId,
+        gapObjectiveIds,
+        durationMinutes,
+        now: new Date(),
+      });
+      if (!result) return null;
+      mutateCompletion(result.store);
+      emitCompletionUpdated();
+      return result.entry;
+    },
+    [blockId, userId, mutateCompletion]
+  );
+
+  /** The pre-read on record for a lecture, or null. Drives the lecture-day badge. */
+  const preReadFor = useCallback(
+    (lectureId) => context.completion?.[`${lectureId}__${blockId}`]?.preRead ?? null,
+    [context.completion, blockId]
+  );
+
   /** Objectives for one lecture, ready for the objective-quiz launcher. */
   const objectivesForTask = useCallback(
     (lectureId) => {
@@ -123,6 +161,9 @@ export function useToday(blockId, userId, { now } = {}) {
     examDate: context.examDate,
     daysLeft: daily?.daysLeft ?? null,
     logActivity,
+    logPreRead,
+    preReadFor,
+    workAhead,
     objectivesForTask,
     nextReviewByLectureId,
   };

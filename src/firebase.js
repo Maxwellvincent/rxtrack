@@ -19,9 +19,13 @@ export const isFirebaseConfigured = !!(cfg.apiKey && cfg.projectId);
 // empty-.env branches use a dummy-but-present config; isFirebaseConfigured still
 // gates real cloud use, and an empty .env boots logged-out instead of crashing.
 const underTest = !!import.meta.env.VITEST;
+// Dev-only escape hatch: point a `npm run dev` session at the local emulator
+// suite so UI can be driven in a real browser without reading or writing the
+// live account. Set VITE_FIREBASE_EMULATORS=1 alongside `firebase emulators:start`.
+const useEmulators = underTest || import.meta.env.VITE_FIREBASE_EMULATORS === "1";
 const demoCfg = { apiKey: "demo-api-key", authDomain: "demo-rxtrack.firebaseapp.com", projectId: "demo-rxtrack" };
 export const app = initializeApp(
-  underTest ? demoCfg
+  useEmulators ? demoCfg
   : isFirebaseConfigured ? cfg
   : { ...demoCfg, projectId: "demo-unconfigured", authDomain: "localhost" }
 );
@@ -32,7 +36,7 @@ export const auth = getAuth(app);
 // (private browsing / unsupported), so init never throws.
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache } from "firebase/firestore";
 function makeDb() {
-  if (underTest) return initializeFirestore(app, { localCache: memoryLocalCache() });
+  if (useEmulators) return initializeFirestore(app, { localCache: memoryLocalCache() });
   try {
     return initializeFirestore(app, {
       localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
@@ -45,7 +49,7 @@ function makeDb() {
 export const db = makeDb();
 export const storage = getStorage(app);
 
-if (underTest) {
+if (useEmulators) {
   connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
   connectStorageEmulator(storage, "127.0.0.1", 9199);
