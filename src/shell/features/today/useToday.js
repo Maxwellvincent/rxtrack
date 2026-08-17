@@ -30,6 +30,11 @@ function emitCompletionUpdated() {
 }
 
 export function useToday(blockId, userId, { now } = {}) {
+  // Stable per mount. `new Date()` inline made a fresh value every render, so
+  // the context — and every memo and callback derived from it — was new on each
+  // one: the two schedulers re-ran constantly and consumers keyed on
+  // `objectivesForTask` saw an identity change per render.
+  const nowValue = useMemo(() => now ?? new Date(), [now]);
   const terms = useTerms(userId);
   const lectures = useLectures(null, userId);
   const objectives = useObjectives(null, userId);
@@ -49,9 +54,9 @@ export function useToday(blockId, userId, { now } = {}) {
         completion: completion.data,
         examDates: examDates.data,
         weakConcepts: weakConcepts.data,
-        now: now ?? new Date(),
+        now: nowValue,
       }),
-    [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, now]
+    [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, nowValue]
   );
 
   const daily = useMemo(() => generateDailySchedule(context), [context]);

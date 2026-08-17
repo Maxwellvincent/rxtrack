@@ -2,6 +2,7 @@ import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
+import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
@@ -635,7 +636,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
  * Collapsed by default and hidden inside exam week (`workAhead.hidden`), but
  * always expandable: working ahead is a choice the app should never block.
  */
-function WorkAheadSection({ workAhead, preReadFor, onPreRead }) {
+function WorkAheadSection({ workAhead, preReadFor, readyFor, onPreRead }) {
   // Auto-open follows the "nothing on fire" gate until you click, then your
   // choice wins — derived, so it tracks the gate without a sync effect.
   const [override, setOverride] = useState(null);
@@ -678,6 +679,7 @@ function WorkAheadSection({ workAhead, preReadFor, onPreRead }) {
                         Greenwich — the same trap schedule.js documents. */}
                     {fmtDaysUntil(ls.availableDate)}
                     {done && ` · pre-read ✓ ${done.gapObjectiveIds?.length || 0} gaps`}
+                    {!done && readyFor?.(ls.lec.id) && " · ready"}
                   </div>
                 </div>
                 <button
@@ -738,6 +740,15 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     useToday(blockId, userId);
 
   const [preReadTarget, setPreReadTarget] = useState(null);
+
+  // Generate the offered pre-reads in the background so opening one is instant
+  // — a first llm-bridge call runs ~35s, which is the whole session's worth of
+  // patience spent before a single question appears.
+  const { cachedFor } = usePreReadPrefetch(workAhead.lectures, {
+    objectivesFor: objectivesForTask,
+    userId,
+    enabled: !workAhead.hidden,
+  });
 
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
   const [checked, setChecked] = useState(() => readChecked(blockId));
@@ -964,6 +975,10 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       <WorkAheadSection
         workAhead={workAhead}
         preReadFor={preReadFor}
+        readyFor={(id) => {
+          const lec = workAhead.lectures.find((l) => l.lec.id === id)?.lec;
+          return lec ? !!cachedFor(lec, objectivesForTask(id)) : false;
+        }}
         onPreRead={(ls) => setPreReadTarget(ls)}
       />
 
@@ -971,6 +986,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
         <PreReadModal
           lecture={preReadTarget.lec}
           objectives={objectivesForTask(preReadTarget.lec.id)}
+          cached={cachedFor(preReadTarget.lec, objectivesForTask(preReadTarget.lec.id))}
           onClose={() => setPreReadTarget(null)}
           onComplete={onPreReadDone}
         />
