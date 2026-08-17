@@ -9,6 +9,7 @@ import { callAIJSON } from "../aiClient.js";
 import { generateDiagram } from "./visualize.js";
 import { DiagramView } from "./DiagramView.jsx";
 import { BuildStatus, NothingToStudy } from "./SessionStatus.jsx";
+import { useFocusHudSignal } from "../shell/hooks/useFocusHudSignal.js";
 
 const BURST = 10;
 
@@ -25,6 +26,13 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
   const [diagram, setDiagram] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagErr, setDiagErr] = useState(false);
+
+  // Tell focus-hud what is being worked on, so the time is attributed to the
+  // right lecture without anyone starting a timer by hand. Reports the lecture
+  // of the current item when there is one, falling back to the block.
+  useFocusHudSignal("questions", current?.item?.lecture ?? blockName ?? null, {
+    enabled: Boolean(items),
+  });
 
   const visualize = useCallback(async (item, conceptName) => {
     setDiagLoading(true); setDiagErr(false);

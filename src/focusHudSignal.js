@@ -28,7 +28,7 @@ function signalRef(userId) {
  * app's optional bookkeeping did not write.
  *
  * @param {"questions"|"lecture"|"review"} kind
- * @param {{detail?: string|null, externalRef?: string|null, startedAt?: number}} [options]
+ * @param {{detail?: string|null|(() => string|null), externalRef?: string|null, startedAt?: number}} [options]
  */
 export async function beatFocusHud(kind, options = {}) {
   const userId = getStoreHookUserId();
@@ -40,7 +40,9 @@ export async function beatFocusHud(kind, options = {}) {
       {
         source: SOURCE,
         kind,
-        detail: options.detail ?? null,
+        // A function is evaluated at each beat, so the lecture on screen can
+        // change without restarting the signal and resetting its start time.
+        detail: (typeof options.detail === "function" ? options.detail() : options.detail) ?? null,
         externalRef: options.externalRef ?? null,
         startedAt: Timestamp.fromMillis(options.startedAt ?? Date.now()),
         lastSeenAt: serverTimestamp(),
@@ -71,6 +73,9 @@ export async function stopFocusHud() {
  * Returns a stop function; call it when the activity ends. Heartbeats stop when
  * the tab is hidden, so leaving a question set open in a background tab does not
  * report hours of studying that never happened.
+ *
+ * `detail` may be a function, evaluated at each beat, so a session that moves
+ * between lectures keeps reporting the current one.
  *
  * @returns {() => void}
  */
