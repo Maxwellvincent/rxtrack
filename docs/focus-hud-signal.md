@@ -2,9 +2,24 @@
 
 `src/focusHudSignal.js` publishes an activity signal that focus-hud reads to
 attribute study time to the right area and lecture, without anyone starting a
-timer by hand. Both apps run under the same Firebase account, so this is a
-shared document rather than a network call between them: no CORS, no running
-peer, and it works when either app is closed.
+timer by hand.
+
+The two apps are **separate Firebase projects** — RXTrack is `rxtrack-med`,
+focus-hud is `focus-hud-lvm` — so this writes into focus-hud's project through a
+second Firebase app instance (`src/focusHudLink.js`). That project issues its own
+user id for the same Google account, which is why the link needs its own
+sign-in.
+
+## One-time setup
+
+1. Set the `VITE_FOCUSHUD_*` values in `.env` (focus-hud's public client config).
+2. In the app: header menu → **focus-hud link** → *Link with Google*, using the
+   same Google account.
+3. For a deployed RXTrack, add its origin to focus-hud's Firebase console under
+   Authentication → Settings → Authorized domains. `localhost` is already
+   authorized.
+
+The session persists per origin, so the popup appears once on each machine.
 
 ## Using it
 

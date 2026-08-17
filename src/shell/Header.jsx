@@ -3,7 +3,7 @@ import { useState, useRef, useEffect } from "react";
 export function Header({
   termName, blockName, theme, onToggleTheme,
   onAnki, onRecognize, onImportSchedule, onAddLecture, onBulkImport,
-  onQuestionBanks, onRoutine, onDailyPlanSettings, onApiKeySettings, onSignOut, onExamDate,
+  onQuestionBanks, onRoutine, onDailyPlanSettings, onApiKeySettings, onFocusHudLink, onSignOut, onExamDate,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
@@ -21,6 +21,7 @@ export function Header({
     onExamDate           && { label: "Exam date",          action: onExamDate },
     onDailyPlanSettings  && { label: "Daily plan settings", action: onDailyPlanSettings },
     onApiKeySettings     && { label: "AI settings",         action: onApiKeySettings },
+    onFocusHudLink       && { label: "focus-hud link",      action: onFocusHudLink },
     onImportSchedule     && { label: "Import schedule",    action: onImportSchedule },
     onAddLecture         && { label: "Add lecture",        action: onAddLecture },
     onBulkImport         && { label: "Import folder",      action: onBulkImport },

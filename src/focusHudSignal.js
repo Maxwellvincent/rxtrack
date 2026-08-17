@@ -9,15 +9,14 @@
 // Contract: focus-hud/docs/rxtrack-contract.md
 
 import { doc, setDoc, deleteDoc, serverTimestamp, Timestamp } from "firebase/firestore";
-import { db } from "./firebase.js";
-import { getStoreHookUserId } from "./shell/hooks/currentUser.js";
+import { focusHudDb, focusHudUserId, isFocusHudConfigured } from "./focusHudLink.js";
 
 /** Must match focus-hud's staleness window; it is the reader's rule, not ours. */
 export const HEARTBEAT_MS = 30_000;
 
 const SOURCE = "rxtrack";
 
-function signalRef(userId) {
+function signalRef(db, userId) {
   return doc(db, `users/${userId}/activitySignals/${SOURCE}`);
 }
 
@@ -31,12 +30,18 @@ function signalRef(userId) {
  * @param {{detail?: string|null|(() => string|null), externalRef?: string|null, startedAt?: number}} [options]
  */
 export async function beatFocusHud(kind, options = {}) {
-  const userId = getStoreHookUserId();
-  if (!userId) return false;
+  if (!isFocusHudConfigured) return false;
+
+  // The focus-hud user id, not RXTrack's: the two projects issue different ids
+  // for the same Google account, and writing under the wrong one lands in a
+  // document focus-hud never reads.
+  const userId = focusHudUserId();
+  const db = focusHudDb();
+  if (!userId || !db) return false;
 
   try {
     await setDoc(
-      signalRef(userId),
+      signalRef(db, userId),
       {
         source: SOURCE,
         kind,
@@ -57,11 +62,12 @@ export async function beatFocusHud(kind, options = {}) {
 
 /** Clears the signal when the activity ends. */
 export async function stopFocusHud() {
-  const userId = getStoreHookUserId();
-  if (!userId) return;
+  const userId = focusHudUserId();
+  const db = focusHudDb();
+  if (!userId || !db) return;
 
   try {
-    await deleteDoc(signalRef(userId));
+    await deleteDoc(signalRef(db, userId));
   } catch {
     // Already gone, or offline. focus-hud's staleness rule covers it.
   }

@@ -30,6 +30,7 @@ import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
 import { Today } from "./features/today/Today.jsx";
 import { MasterGuide } from "./features/guide/MasterGuide.jsx";
 import { DailyPlanSettingsModal } from "./features/today/DailyPlanSettingsModal.jsx";
+import { FocusHudLinkModal } from "./FocusHudLinkModal.jsx";
 import { UserApiKeyModal } from "./UserApiKeyModal.jsx";
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
@@ -151,6 +152,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showRoutine, setShowRoutine] = useState(false);
   const [showDailyPlanSettings, setShowDailyPlanSettings] = useState(false);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [showFocusHudModal, setShowFocusHudModal] = useState(false);
   const [showImportObjectives, setShowImportObjectives] = useState(false);
   const [showReExtractAll, setShowReExtractAll] = useState(false);
   const [showExamDate, setShowExamDate] = useState(false);
@@ -339,6 +341,7 @@ function ShellMain({ theme, toggle, userId }) {
           onRoutine={() => setShowRoutine(true)}
           onDailyPlanSettings={activeBlockId ? () => setShowDailyPlanSettings(true) : null}
           onApiKeySettings={() => setShowApiKeyModal(true)}
+          onFocusHudLink={() => setShowFocusHudModal(true)}
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         {/* Tab bar — hidden while a full-screen overlay is active */}
@@ -593,6 +596,7 @@ function ShellMain({ theme, toggle, userId }) {
         />
       )}
       {showApiKeyModal && <UserApiKeyModal onClose={() => setShowApiKeyModal(false)} />}
+      {showFocusHudModal && <FocusHudLinkModal onClose={() => setShowFocusHudModal(false)} />}
       {showDailyPlanSettings && activeBlockId && (
         <DailyPlanSettingsModal
           blockId={activeBlockId}

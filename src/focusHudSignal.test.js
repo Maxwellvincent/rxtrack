@@ -10,11 +10,13 @@ vi.mock("firebase/firestore", () => ({
   serverTimestamp: () => "SERVER_TS",
   Timestamp: { fromMillis: (ms) => ({ ms }) },
 }));
-vi.mock("./firebase.js", () => ({ db: {} }));
-
+// The link module is stubbed: this suite is about what gets written, not about
+// the second Firebase project it is written to.
 let userId = "user-1";
-vi.mock("./shell/hooks/currentUser.js", () => ({
-  getStoreHookUserId: () => userId,
+vi.mock("./focusHudLink.js", () => ({
+  isFocusHudConfigured: true,
+  focusHudDb: () => ({}),
+  focusHudUserId: () => userId,
 }));
 
 const { beatFocusHud, stopFocusHud, trackFocusHudActivity, HEARTBEAT_MS } = await import(
