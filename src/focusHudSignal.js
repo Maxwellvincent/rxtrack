@@ -10,6 +10,7 @@
 
 import { doc, setDoc, deleteDoc, serverTimestamp, Timestamp } from "firebase/firestore";
 import { focusHudDb, focusHudUserId, isFocusHudConfigured } from "./focusHudLink.js";
+import { trackStudyTime } from "./focusHudStudy.js";
 
 /** Must match focus-hud's staleness window; it is the reader's rule, not ours. */
 export const HEARTBEAT_MS = 30_000;
@@ -89,6 +90,11 @@ export function trackFocusHudActivity(kind, options = {}) {
   const startedAt = Date.now();
   let stopped = false;
 
+  // The signal says what is happening; this says how long it lasted. Without
+  // it focus-hud could offer to start a timer but never learned that an hour
+  // of question banks had gone by, so none of this work reached its totals.
+  const stopClock = trackStudyTime(kind, options);
+
   const beat = () => {
     if (stopped) return;
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
@@ -102,6 +108,7 @@ export function trackFocusHudActivity(kind, options = {}) {
     if (stopped) return;
     stopped = true;
     clearInterval(timer);
+    stopClock();
     void stopFocusHud();
   };
 }

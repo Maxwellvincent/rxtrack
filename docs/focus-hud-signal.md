@@ -58,3 +58,21 @@ specific lecture, pass the lecture title as `detail` — focus-hud's Anki sync
 already extracts the same titles from AnKing deck paths, so the two line up.
 
 Full contract: `focus-hud/docs/rxtrack-contract.md`.
+
+
+## Study time
+
+The signal says what is happening; `src/focusHudStudy.js` says how long it
+lasted. It writes per-focus-day durations to focus-hud's
+`users/{uid}/externalStudy/{dayKey}`, and `trackFocusHudActivity` drives it, so
+anything already reporting a signal now reports its duration too.
+
+Time is written as **deltas inside a transaction** — elapsed since the last
+flush, added to what the day already holds. An absolute total computed from this
+page's memory would double-count after a reload or a second tab, and erase real
+study after a crash. Time accrues only while the tab is visible, and a gap
+longer than a few flush intervals is discarded: a sleeping machine is not
+studying.
+
+Day keys use focus-hud's 04:00 boundary, not midnight, so both apps agree on
+which day the work belongs to.
