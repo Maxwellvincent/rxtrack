@@ -13,12 +13,14 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
-import { overwriteObjectivesInCloud, saveLectureToCloud } from "../../../supabase.js";
+import { overwriteObjectivesInCloud, saveLectureAtoms, saveLectureToCloud } from "../../../supabase.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { analyzeLecture } from "../../../ingest/teachingMap.js";
 import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
+import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
+import { callAIJSON } from "../../../aiClient.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
@@ -164,8 +166,26 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         setRow(entry.filename, { note: "teaching map failed: " + (e?.message || String(e)) });
       }
 
-      setRow(entry.filename, { status: "done", note: `${objectiveCount} objectives · ${sections} sections` });
-      return { objectiveCount, sections };
+      setRow(entry.filename, { status: "atoms" });
+      let atomCount = 0;
+      if (text.trim().length >= MIN_TEXT) {
+        try {
+          const result = await extractAtomsForLecture(
+            lecture,
+            text,
+            { callAIJSON, saveAtoms: saveLectureAtoms, userId }
+          );
+          atomCount = result.atoms?.length || 0;
+        } catch (e) {
+          setRow(entry.filename, { note: "atoms failed: " + (e?.message || String(e)) });
+        }
+      }
+
+      setRow(entry.filename, {
+        status: "done",
+        note: `${objectiveCount} objectives · ${sections} sections · ${atomCount} atoms`,
+      });
+      return { objectiveCount, sections, atomCount };
     },
     [blockId, termId, userId, useLlm, setRow]
   );

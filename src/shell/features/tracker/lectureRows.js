@@ -93,6 +93,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
 
   return {
     lectureId: lecture.id,
+    lec: lecture,
     // `subject` before giving up: this data has nameless import stubs that still
     // carry objectives, and "Untitled lecture" repeated 13 times tells you nothing.
     title:

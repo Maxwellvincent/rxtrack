@@ -14,13 +14,20 @@
 import { useCallback, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
-import { overwriteObjectivesInCloud, pushAllLocalDataToSupabase, saveLectureToCloud } from "../../../supabase.js";
+import {
+  overwriteObjectivesInCloud,
+  pushAllLocalDataToSupabase,
+  saveLectureAtoms,
+  saveLectureToCloud,
+} from "../../../supabase.js";
 import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { analyzeLecture } from "../../../ingest/teachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
+import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
+import { callAIJSON } from "../../../aiClient.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
@@ -54,6 +61,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [saved, setSaved] = useState(null);            // the lecture just written
   const [objectiveResult, setObjectiveResult] = useState("");
   const [mapResult, setMapResult] = useState("");
+  const [atomsResult, setAtomsResult] = useState("");
 
   const onFile = useCallback(
     async (file) => {
@@ -185,13 +193,51 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   );
 
   /**
+   * High-yield atoms are what the Quiz button (Today, Lectures, this lecture's
+   * Study flow) actually generates questions from. Uploading used to leave a
+   * lecture with text but no atoms, so the FIRST quiz attempt always failed
+   * with a "not enough lecture text" error that had nowhere to render — this
+   * closes that gap by running the same extraction LectureStudyFlow offers
+   * manually, right after upload.
+   */
+  const extractAtomsStep = useCallback(
+    async (lecture) => {
+      const lec = lecture || saved;
+      if (!lec) return;
+      const text = lectureText(lec);
+      if (text.trim().length < MIN_TEXT) {
+        setAtomsResult("Skipped — not enough lecture text to extract from.");
+        return;
+      }
+      setProgress("Pulling high-yield facts out of the lecture…");
+      try {
+        const result = await extractAtomsForLecture(
+          lec,
+          text,
+          { callAIJSON, saveAtoms: saveLectureAtoms, userId }
+        );
+        if (result.error) {
+          setAtomsResult("⚠ " + result.error);
+          return;
+        }
+        setAtomsResult(`${result.atoms.length} atom${result.atoms.length === 1 ? "" : "s"} extracted.`);
+      } catch (e) {
+        setAtomsResult("⚠ Atom extraction failed: " + (e?.message || String(e)));
+      } finally {
+        setProgress("");
+      }
+    },
+    [saved, userId]
+  );
+
+  /**
    * Save, then pull everything out of the lecture without being asked. Each AI
    * pass reports into its own line and a failure in one does not stop the
    * other — a lecture with objectives but no teaching map is still useful.
    */
   const addAndProcess = useCallback(async () => {
     if (!preview) return;
-    setBusy(true); setError(""); setObjectiveResult(""); setMapResult("");
+    setBusy(true); setError(""); setObjectiveResult(""); setMapResult(""); setAtomsResult("");
     try {
       const incoming = { ...preview.lecture, lectureDate: lectureDate || null };
       const current = lecturesStore.read(userId) || [];
@@ -215,6 +261,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
       await extractObjectives(lecture);
       await buildTeachingMap(lecture);
+      await extractAtomsStep(lecture);
     } catch (e) {
       const msg = e?.message || String(e);
       setError(
@@ -226,7 +273,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap]);
+  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -307,12 +354,18 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             <div className={`mt-1 font-mono text-[13px] ${mapResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◈ {mapResult || (busy ? "waiting on the teaching map…" : "—")}
             </div>
+            <div className={`mt-1 font-mono text-[13px] ${atomsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
+              ◆ {atomsResult || (busy ? "extracting high-yield atoms…" : "—")}
+            </div>
             <div className="mt-2 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => extractObjectives()} disabled={busy}>
                 ◇ Objectives again
               </Button>
               <Button variant="outline" onClick={() => buildTeachingMap()} disabled={busy}>
                 ◈ Analyze again
+              </Button>
+              <Button variant="outline" onClick={() => extractAtomsStep()} disabled={busy}>
+                ◆ Atoms again
               </Button>
             </div>
           </div>

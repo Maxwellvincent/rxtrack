@@ -11,6 +11,7 @@ import { useToday } from "../today/useToday.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
+import { PreReadModal } from "../lectures/PreReadModal.jsx";
 
 const CONFIDENCE = [
   { key: "good", label: "Solid" },
@@ -64,7 +65,7 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
+function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy }) {
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
@@ -76,7 +77,12 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
           <span className="font-mono text-[12px] text-text-3">
             {row.type} {row.number ?? ""}
           </span>{" "}
-          <span className="text-sm text-text-1">{row.studyMode?.icon} {row.title}</span>
+          <span
+            className="cursor-pointer text-sm text-text-1 hover:underline"
+            onClick={() => onStudy(row.lectureId)}
+          >
+            {row.studyMode?.icon} {row.title}
+          </span>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             <span>·</span>
@@ -102,6 +108,13 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
             log
           </button>
           {/* Study leads — see the note in Today.jsx's TaskCard. */}
+          <Button
+            variant="outline"
+            onClick={() => onPreRead(row)}
+            title="Five prediction questions before you study — surfaces what you don't know yet."
+          >
+            Pre-read
+          </Button>
           <Button
             onClick={() => onStudy(row.lectureId)}
             title="Work through this lecture in rounds of five. Remembers where you stopped."
@@ -150,13 +163,14 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, busy }) {
 }
 
 export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null, onBack }) {
-  const { context, logActivity, objectivesForTask } = useToday(blockId, userId);
+  const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
   const lecturesResource = useLectures(null, userId);
   const questionStats = useLectureQuestionStats(userId);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("urgency");
   const [logged, setLogged] = useState(null);
+  const [preReadTarget, setPreReadTarget] = useState(null);
 
   // Scored here rather than taken from the daily schedule: that one stops
   // producing rows once the exam has passed, and the list still has to work.
@@ -249,9 +263,22 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
               onQuiz={onQuiz}
               onLog={onLog}
               onUpdateDate={onUpdateDate}
+              onPreRead={setPreReadTarget}
             />
           ))}
         </div>
+      )}
+
+      {preReadTarget && (
+        <PreReadModal
+          lecture={preReadTarget.lec}
+          objectives={objectivesForTask(preReadTarget.lectureId)}
+          onClose={() => setPreReadTarget(null)}
+          onComplete={({ lectureId, gapObjectiveIds, durationMinutes }) => {
+            logPreRead({ lectureId, gapObjectiveIds, durationMinutes });
+            setPreReadTarget(null);
+          }}
+        />
       )}
     </div>
   );

@@ -24,6 +24,7 @@ import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.j
 import { ImportObjectivesPdfModal } from "./features/objectives/ImportObjectivesPdfModal.jsx";
 import { ReExtractAllModal } from "./features/objectives/ReExtractAllModal.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
+import { fetchLectureContent } from "../supabase.js";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
 import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
@@ -260,6 +261,17 @@ function ShellMain({ theme, toggle, userId }) {
         }
       }
 
+      // The Today/Lectures "Quiz" buttons only have the lightweight list-view lecture
+      // (title + counts) — no atoms/text. Without this fetch, generation silently has
+      // nothing to work from and bails with "not enough lecture text" every time.
+      let atoms = extraMeta?.atoms || [];
+      if (!atoms.length && lectureId) {
+        try {
+          const remote = await fetchLectureContent(userId, lectureId);
+          atoms = remote?.atoms || [];
+        } catch { /* fall through — generation will report if it truly has nothing */ }
+      }
+
       const result = await startObjectiveQuiz(
         {
           objectives,
@@ -267,7 +279,7 @@ function ShellMain({ theme, toggle, userId }) {
           blockId: bid,
           lectures: lecturesStore.read(userId) || [],
           exemplars: readExemplars(userId),
-          atoms: extraMeta?.atoms || [],
+          atoms,
           questionCount: count,
           difficulty,
         },
@@ -348,6 +360,31 @@ function ShellMain({ theme, toggle, userId }) {
         {blocks.length > 0 && !sessionMode && !quiz?.questions?.length && !studyLecture && (
           <TabBar active={tab} onChange={switchTab} />
         )}
+        {/* Quiz generation feedback — fixed so it shows no matter which tab/view
+            launched the quiz (Today, Lectures, Objectives, or inside a lecture's
+            study flow). Previously this only rendered inside the studyLecture
+            branch, so a quiz started from Today/Lectures gave zero feedback for
+            the whole generation — looked completely broken even when it worked. */}
+        {quiz?.loading && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-3">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
+              <span className="font-mono text-[13px] text-text-2">
+                Writing {quiz.count ? `${quiz.count} questions` : "questions"}…
+              </span>
+              <span className="font-mono text-[11px] text-text-3">
+                {quizElapsed > 0 ? `${quizElapsed}s` : "starting…"}
+                {quiz.count ? ` · ~${Math.max(0, Math.round(quiz.count * 4 - quizElapsed))}s remaining` : ""}
+              </span>
+            </div>
+          </div>
+        )}
+        {quiz?.error && !quiz?.loading && !quiz?.questions?.length && tab !== "objectives" && (
+          <div className="fixed bottom-4 left-4 right-4 z-40 rounded-sm border border-bad/30 bg-bad/10 px-4 py-3 font-mono text-[12px] text-bad">
+            {quiz.error}
+            <button onClick={() => setQuiz(null)} className="ml-3 underline opacity-70 hover:opacity-100">dismiss</button>
+          </div>
+        )}
         <main className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">
@@ -421,26 +458,6 @@ function ShellMain({ theme, toggle, userId }) {
                   setMoreView("deeplearn");
                 }}
               />
-              {quiz?.loading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-bg/80 backdrop-blur-sm z-10">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-                    <span className="font-mono text-[13px] text-text-2">
-                      Writing {quiz.count ? `${quiz.count} questions` : "questions"}…
-                    </span>
-                    <span className="font-mono text-[11px] text-text-3">
-                      {quizElapsed > 0 ? `${quizElapsed}s` : "starting…"}
-                      {quiz.count ? ` · ~${Math.max(0, Math.round(quiz.count * 4 - quizElapsed))}s remaining` : ""}
-                    </span>
-                  </div>
-                </div>
-              )}
-              {quiz?.error && !quiz?.loading && (
-                <div className="absolute bottom-4 left-4 right-4 rounded-sm border border-bad/30 bg-bad/10 px-4 py-3 font-mono text-[12px] text-bad z-10">
-                  {quiz.error}
-                  <button onClick={() => setQuiz(null)} className="ml-3 underline opacity-70 hover:opacity-100">dismiss</button>
-                </div>
-              )}
             </div>
           ) : tab === "lectures" && activeBlockId ? (
             <LectureList
