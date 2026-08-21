@@ -122,6 +122,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     dayOfWeek: lecture.dayOfWeek ?? null,
     isFuture: !!score.isFuture,
     hasNoDate: !!score.hasNoDate,
+    hasPreRead: !!entry?.preRead,
     recommendedSessions: score.recommendedSessions || [],
     studyMode: score.studyMode ?? null,
     done,

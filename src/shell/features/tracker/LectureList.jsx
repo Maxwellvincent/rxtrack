@@ -95,7 +95,11 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
             <span>·</span>
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
             {row.struggling > 0 && ` · ${row.struggling} struggling`}
-            {row.sessions > 0 ? ` · ${row.sessions} session${row.sessions > 1 ? "s" : ""}` : " · never studied"}
+            {row.sessions > 0
+              ? ` · ${row.sessions} session${row.sessions > 1 ? "s" : ""}`
+              : row.hasPreRead
+                ? " · pre-read only"
+                : " · never studied"}
             {/* Sessions count visits; this counts work. A lecture opened four times and answered
                 twice looks busy by sessions alone, and that is exactly the one to re-drill. */}
             {answered > 0 && (
@@ -115,13 +119,15 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
             log
           </button>
           {/* Study leads — see the note in Today.jsx's TaskCard. */}
-          <Button
-            variant="outline"
-            onClick={() => onPreRead(row)}
-            title="Five prediction questions before you study — surfaces what you don't know yet."
-          >
-            Pre-read
-          </Button>
+          {(row.hasNoDate || row.isFuture) && row.sessions === 0 && !row.hasPreRead && (
+            <Button
+              variant="outline"
+              onClick={() => onPreRead(row)}
+              title="Five prediction questions before you study — surfaces what you don't know yet."
+            >
+              Pre-read
+            </Button>
+          )}
           <Button
             onClick={() => onStudy(row.lectureId)}
             title="Work through this lecture in rounds of five. Remembers where you stopped."
