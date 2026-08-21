@@ -119,7 +119,7 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
             log
           </button>
           {/* Study leads — see the note in Today.jsx's TaskCard. */}
-          {(row.hasNoDate || row.isFuture) && row.sessions === 0 && !row.hasPreRead && (
+          {row.preReadOpen && row.sessions === 0 && !row.hasPreRead && (
             <Button
               variant="outline"
               onClick={() => onPreRead(row)}

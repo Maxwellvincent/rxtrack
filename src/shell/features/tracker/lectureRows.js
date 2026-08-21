@@ -19,6 +19,11 @@ import {
 
 export const FILTERS = ["all", "struggling", "untested", "unstarted", "done"];
 
+// A lecture dated "today" may not have happened yet, so pre-read should not
+// vanish at midnight. 3pm local is a reasonable "you've probably had it by now"
+// cutoff for a same-day lecture.
+const PRE_READ_CUTOFF_HOUR = 15;
+
 /**
  * Score every lecture in the block, independently of whether the exam is still
  * ahead.
@@ -55,6 +60,8 @@ export function scoreLectures(context) {
     const pairedDate = (!lec.lectureDate && !lec.date && lec.lectureType === "DLA" && lec.lectureNumber != null)
       ? (_lecDates[lec.lectureNumber] ?? null) : null;
     const { date: availableDate } = availableDateFor(lec, blockStart, pairedDate);
+    const preReadCutoff = availableDate ? new Date(availableDate) : null;
+    if (preReadCutoff) preReadCutoff.setHours(PRE_READ_CUTOFF_HOUR, 0, 0, 0);
 
     return {
       lec,
@@ -67,6 +74,7 @@ export function scoreLectures(context) {
       availableDate,
       isFuture: !!(availableDate && availableDate > today),
       hasNoDate: !availableDate,
+      preReadOpen: !availableDate || now < preReadCutoff,
       urgency: lectureUrgency({
         tally,
         avgBloom,
@@ -122,6 +130,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     dayOfWeek: lecture.dayOfWeek ?? null,
     isFuture: !!score.isFuture,
     hasNoDate: !!score.hasNoDate,
+    preReadOpen: !!score.preReadOpen,
     hasPreRead: !!entry?.preRead,
     recommendedSessions: score.recommendedSessions || [],
     studyMode: score.studyMode ?? null,
