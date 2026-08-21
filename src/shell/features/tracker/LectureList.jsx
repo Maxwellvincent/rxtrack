@@ -20,6 +20,13 @@ const CONFIDENCE = [
 ];
 
 const SORT_LABELS = { urgency: "urgency", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
+const SORT_STORAGE_KEY = "rxt-lecture-list-sort";
+
+function readStoredSort() {
+  if (typeof localStorage === "undefined") return "urgency";
+  const stored = localStorage.getItem(SORT_STORAGE_KEY);
+  return stored && SORT_LABELS[stored] ? stored : "urgency";
+}
 
 function DateEdit({ row, onUpdateDate }) {
   const [editing, setEditing] = useState(false);
@@ -168,7 +175,7 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
   const questionStats = useLectureQuestionStats(userId);
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("urgency");
+  const [sort, setSort] = useState(readStoredSort);
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
 
@@ -240,7 +247,10 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
         />
         <select
           value={sort}
-          onChange={(e) => setSort(e.target.value)}
+          onChange={(e) => {
+            setSort(e.target.value);
+            if (typeof localStorage !== "undefined") localStorage.setItem(SORT_STORAGE_KEY, e.target.value);
+          }}
           className="rounded border border-border bg-panel px-1.5 py-0.5 font-mono text-[12px] text-text-2"
         >
           {Object.entries(SORT_LABELS).map(([key, label]) => (
