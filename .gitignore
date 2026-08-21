@@ -39,3 +39,5 @@ functions/.env
 functions/.env.*
 
 scripts/run-migrate.ps1
+.vercel
+.env*
