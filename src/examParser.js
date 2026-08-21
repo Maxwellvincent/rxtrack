@@ -36,7 +36,7 @@ function detectFormat(pages, fullText) {
 
   // Grid format: single page has 3+ question blocks with A. B. C. D. choices
   const gridPages = pages.filter((p) => {
-    const choiceMatches = (p.text.match(/\b[A-D]\./g) || []).length;
+    const choiceMatches = (p.text.match(/\b[A-F]\./g) || []).length;
     return choiceMatches >= 8; // at least 2 questions worth of choices per page
   });
   if (gridPages.length > 0) return "grid";
@@ -46,6 +46,67 @@ function detectFormat(pages, fullText) {
   if (numbered.length > 3) return "standard";
 
   return "standard";
+}
+
+/**
+ * Extraction prompt for the standard/AI parse path.
+ *
+ * Pulled out as a pure function so option-count and table/image handling can be
+ * tested without a live model or pdf.js.
+ */
+export function buildExamExtractionPrompt(text) {
+  return (
+    "Extract ALL medical exam questions from this text. Return ONLY valid JSON, no markdown:\n" +
+    '{"questions":[{' +
+    '"stem":"complete question text ending with ?",' +
+    '"choices":{"A":"...","B":"...", "...": "as many lettered choices as the source offers"},' +
+    '"correct":"A",' +
+    '"explanation":"explanation text or null",' +
+    '"topic":"medical topic",' +
+    '"difficulty":"easy|medium|hard",' +
+    '"type":"clinicalVignette|mechanismBased|pharmacology|laboratory",' +
+    '"choiceLayout":"table (omit this field entirely if choices are plain text)",' +
+    '"choiceColumns":["ordered column headers — only when choiceLayout is table"],' +
+    '"hasImage":true' +
+    "}]}\n\n" +
+    "Rules: Only extract questions actually present. Extract EXACTLY as many lettered choices (A, B, C, D, E, F, and beyond) " +
+    "as the source offers for that question — do not force every question to exactly 4, and do not drop extra options past D or E.\n" +
+    "If the answer choices are laid out as a table/grid — each option is a full row of values across several columns, not a plain " +
+    "sentence — set choiceLayout to \"table\", set choiceColumns to that table's ordered column headers, and represent each option's " +
+    "choice as an OBJECT mapping each column header to that row's value (not a flattened sentence).\n" +
+    "If a question's stem references a figure, image, photomicrograph, X-ray, or graph that this text extraction cannot reproduce, " +
+    "still extract the full stem, choices, and answer, and set hasImage to true — do not fabricate a description of what the image " +
+    "shows, and do not drop the question.\n" +
+    "If answer key shows correct answer include it. If no explanation exists set to null. Detect question type from content.\n\n" +
+    "TEXT:\n" +
+    text
+  );
+}
+
+/**
+ * Validate + shape one AI-extracted question. Pure — no network, no pdf.js.
+ *
+ * `num`/`id` are 1-based and assigned by the caller across all chunks, since a
+ * single chunk doesn't know its offset into the full question list.
+ */
+export function normalizeParsedExamQuestion(raw, num, { examTitle = "" } = {}) {
+  if (!raw || typeof raw !== "object" || !raw.stem) return null;
+  return {
+    id: "q" + num,
+    num,
+    type: raw.type || "clinicalVignette",
+    imageQuestion: false,
+    subject: "Uploaded",
+    topic: raw.topic || examTitle || "Exam Review",
+    stem: raw.stem,
+    choices: raw.choices || {},
+    correct: raw.correct || null,
+    explanation: raw.explanation || null,
+    difficulty: raw.difficulty || "medium",
+    choiceLayout: raw.choiceLayout === "table" ? "table" : null,
+    choiceColumns: Array.isArray(raw.choiceColumns) ? raw.choiceColumns.map(String) : null,
+    hasImage: !!raw.hasImage,
+  };
 }
 
 async function parseWithAI(fullText, format, onProgress, examTitle = "") {
@@ -64,21 +125,7 @@ async function parseWithAI(fullText, format, onProgress, examTitle = "") {
   for (let ci = 0; ci < chunks.length; ci++) {
     onProgress?.("🧠 Section " + (ci + 1) + " of " + chunks.length + "...");
 
-    const prompt =
-      "Extract ALL medical exam questions from this text. Return ONLY valid JSON, no markdown:\n" +
-      '{"questions":[{' +
-      '"stem":"complete question text ending with ?",' +
-      '"choices":{"A":"...","B":"...","C":"...","D":"..."},' +
-      '"correct":"A",' +
-      '"explanation":"explanation text or null",' +
-      '"topic":"medical topic",' +
-      '"difficulty":"easy|medium|hard",' +
-      '"type":"clinicalVignette|mechanismBased|pharmacology|laboratory"' +
-      "}]}\n\n" +
-      "Rules: Only extract questions actually present. If answer key shows correct answer include it. " +
-      "If no explanation exists set to null. Detect question type from content.\n\n" +
-      "TEXT:\n" +
-      chunks[ci];
+    const prompt = buildExamExtractionPrompt(chunks[ci]);
 
     try {
       const text = (await callAI(null, prompt, 8000, undefined, 0.1)).trim();
@@ -100,19 +147,8 @@ async function parseWithAI(fullText, format, onProgress, examTitle = "") {
         const key = (q.stem || "").slice(0, 60);
         if (!seenStems.has(key) && q.stem && q.stem.length > 20) {
           seenStems.add(key);
-          allQuestions.push({
-            id: "q" + (allQuestions.length + 1),
-            num: allQuestions.length + 1,
-            type: q.type || "clinicalVignette",
-            imageQuestion: false,
-            subject: "Uploaded",
-            topic: q.topic || examTitle || "Exam Review",
-            stem: q.stem,
-            choices: q.choices || {},
-            correct: q.correct || null,
-            explanation: q.explanation || null,
-            difficulty: q.difficulty || "medium",
-          });
+          const normalized = normalizeParsedExamQuestion(q, allQuestions.length + 1, { examTitle });
+          if (normalized) allQuestions.push(normalized);
         }
       }
     } catch (e) {
@@ -133,14 +169,14 @@ async function parseGridFormat(pages, onProgress, options = {}) {
 
   while (i < pages.length) {
     const p = pages[i];
-    const choiceCount = (p.text.match(/\b[A-D]\./g) || []).length;
+    const choiceCount = (p.text.match(/\b[A-F]\./g) || []).length;
 
     if (choiceCount >= minChoiceCount) {
       const group = { questionPage: p, answerPage: null };
 
       if (i + 1 < pages.length) {
         const next = pages[i + 1];
-        const nextChoices = (next.text.match(/\b[A-D]\./g) || []).length;
+        const nextChoices = (next.text.match(/\b[A-F]\./g) || []).length;
         if (
           nextChoices >= 4 ||
           next.text.toLowerCase().includes("answer") ||
@@ -188,7 +224,7 @@ async function parseGridFormat(pages, onProgress, options = {}) {
       "Return ONLY valid JSON with no markdown:\n" +
       '{"questions":[{\n' +
       '  "stem": "complete question text ending with ?",\n' +
-      '  "choices": {"A": "...", "B": "...", "C": "...", "D": "..."},\n' +
+      '  "choices": {"A": "...", "B": "...", "...": "as many lettered choices as that question offers"},\n' +
       '  "correct": "B",\n' +
       '  "explanation": "why this is correct based on answer page, or null",\n' +
       '  "topic": "medical topic from the lecture title on the slide",\n' +
@@ -197,6 +233,7 @@ async function parseGridFormat(pages, onProgress, options = {}) {
       "}]}\n\n" +
       "Rules:\n" +
       "- Extract ALL questions visible, even if 6 questions are on one slide\n" +
+      "- Extract EXACTLY as many lettered choices as each question offers — do not force every question to exactly 4, some run to E or F\n" +
       "- If the answer page shows which answer is correct (highlighted, marked, or labeled), use it\n" +
       "- Set correct to null if you cannot determine the answer\n" +
       "- The topic should come from the lecture title shown on the slide (e.g. 'Lecture 50: Introduction to Nutrition')\n\n" +
@@ -229,19 +266,8 @@ async function parseGridFormat(pages, onProgress, options = {}) {
         const key = (q.stem || "").slice(0, 50);
         if (!seenStems.has(key) && q.stem && q.stem.length > 10) {
           seenStems.add(key);
-          allQuestions.push({
-            id: "q" + (allQuestions.length + 1),
-            num: allQuestions.length + 1,
-            type: q.type || "clinicalVignette",
-            imageQuestion: false,
-            subject: "Uploaded",
-            topic: q.topic || "Exam Review",
-            stem: q.stem,
-            choices: q.choices || {},
-            correct: q.correct || null,
-            explanation: q.explanation || null,
-            difficulty: q.difficulty || "medium",
-          });
+          const normalized = normalizeParsedExamQuestion(q, allQuestions.length + 1);
+          if (normalized) allQuestions.push(normalized);
         }
       }
     } catch (e) {
@@ -382,7 +408,7 @@ async function parseSlidedeckFormat(pages, pdf, onProgress) {
   // Fallback: scan remaining pages for unlabeled question slides (4+ choices)
   const remainingPages = pages.filter((p, idx) => {
     if (usedPageIndices.has(idx)) return false;
-    const choiceCount = (p.text.match(/\b[A-D]\./g) || []).length;
+    const choiceCount = (p.text.match(/\b[A-F]\./g) || []).length;
     return choiceCount >= 4;
   });
   if (remainingPages.length > 0) {

@@ -207,6 +207,16 @@ describe("five options", () => {
     }
   });
 
+  it("tells the model to match the exemplar's option count instead of always forcing 5", () => {
+    for (const p of [
+      buildMcqPrompt({ subject: "Endocrine", lectureText: "Insulin is anabolic." }),
+      buildAtomQuestionsPrompt({ atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }] }),
+    ]) {
+      expect(p).toMatch(/match the option count/i);
+      expect(p).toMatch(/otherwise.*5 options A-E/i);
+    }
+  });
+
   it("keeps a five-option question intact through normalize", () => {
     const [q] = normalizeQuestions([{
       stem: "A 34-year-old woman has bitemporal hemianopsia. Which hormone do the eosinophilic cells make?",
@@ -216,6 +226,54 @@ describe("five options", () => {
     }]);
     expect(Object.keys(q.choices).sort()).toEqual(["A", "B", "C", "D", "E"]);
     expect(q.choices[q.correct]).toBe("Growth hormone");
+  });
+
+  it("keeps a six-option question intact through normalize (real exams sometimes run A-F)", () => {
+    const [q] = normalizeQuestions([{
+      stem: "A 34-year-old woman has bitemporal hemianopsia. Which hormone do the eosinophilic cells make?",
+      choices: { A: "ACTH", B: "FSH", C: "Growth hormone", D: "TSH", E: "LH", F: "Prolactin" },
+      correct: "C",
+      explanation: "Acidophils are somatotrophs.",
+    }]);
+    expect(Object.keys(q.choices).sort()).toEqual(["A", "B", "C", "D", "E", "F"]);
+    expect(q.choices[q.correct]).toBe("Growth hormone");
+  });
+
+  it("renders a table-shaped exemplar choice as column: value text, not [object Object]", () => {
+    const p = buildAtomQuestionsPrompt({
+      atoms: [{ type: "definition", term: "Insulin", content: "Anabolic." }],
+      examples: [
+        {
+          stem: "Which pattern matches primary hyperparathyroidism?",
+          choices: {
+            A: { PTH: "increased", Calcium: "increased", Phosphate: "decreased" },
+            B: { PTH: "decreased", Calcium: "decreased", Phosphate: "increased" },
+          },
+          correct: "A",
+        },
+      ],
+    });
+    expect(p).toContain("PTH: increased");
+    expect(p).toContain("Calcium: increased");
+    expect(p).not.toMatch(/\[object Object\]/);
+  });
+
+  it("keeps a table-shaped question's choiceLayout, choiceColumns and hasImage through normalize", () => {
+    const [q] = normalizeQuestions([{
+      stem: "Given the biopsy image and lab table, which pattern fits?",
+      choices: {
+        A: { PTH: "increased", Calcium: "increased" },
+        B: { PTH: "decreased", Calcium: "decreased" },
+      },
+      correct: "A",
+      choiceLayout: "table",
+      choiceColumns: ["PTH", "Calcium"],
+      hasImage: true,
+    }]);
+    expect(q.choiceLayout).toBe("table");
+    expect(q.choiceColumns).toEqual(["PTH", "Calcium"]);
+    expect(q.hasImage).toBe(true);
+    expect(q.choices[q.correct]).toEqual({ PTH: "increased", Calcium: "increased" });
   });
 
   it("renders each exemplar with the options it actually has", () => {

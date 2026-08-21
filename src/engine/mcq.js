@@ -3,7 +3,7 @@
 // The exam-bank questions the student uploaded become few-shot STYLE exemplars
 // so the model asks questions in their school's exact style.
 
-const LETTERS = ["A", "B", "C", "D", "E"];
+const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 const MCQ_SYSTEM = "You are a USMLE Step 1 question writer. Return ONLY valid JSON — no markdown, no prose.";
 
@@ -66,6 +66,14 @@ function normalizeWhyWrong(raw, letters) {
   return out;
 }
 
+/** A choice is real if it's a non-empty string, or a non-empty table-row object. */
+function hasChoiceValue(v) {
+  if (v == null) return false;
+  if (typeof v === "string") return v.trim().length > 0;
+  if (typeof v === "object") return Object.keys(v).length > 0;
+  return false;
+}
+
 /** Validate + normalize model output into a clean MCQ list. */
 export function normalizeQuestions(raw) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
@@ -75,18 +83,22 @@ export function normalizeQuestions(raw) {
     const stem = String(q.stem || "").trim();
     const choices = q.choices && typeof q.choices === "object" ? q.choices : null;
     if (!stem || !choices) continue;
-    const keys = LETTERS.filter((l) => String(choices[l] || "").trim());
+    const keys = LETTERS.filter((l) => hasChoiceValue(choices[l]));
     if (keys.length < 2) continue;
     const correct = String(q.correct || "").trim().toUpperCase();
     if (!keys.includes(correct)) continue;
     const validated = {
       stem,
-      choices: Object.fromEntries(keys.map((l) => [l, String(choices[l]).trim()])),
+      // A table-row choice (object) is kept as-is for a future table renderer; a plain string is trimmed.
+      choices: Object.fromEntries(keys.map((l) => [l, typeof choices[l] === "string" ? choices[l].trim() : choices[l]])),
       correct,
       explanation: String(q.explanation || "").trim(),
       whyWrong: normalizeWhyWrong(q.whyWrong, keys),
       topic: q.topic ? String(q.topic).trim() : null,
       difficulty: q.difficulty ? String(q.difficulty).trim() : null,
+      choiceLayout: q.choiceLayout === "table" ? "table" : null,
+      choiceColumns: Array.isArray(q.choiceColumns) ? q.choiceColumns.map(String) : null,
+      hasImage: !!q.hasImage,
     };
     out.push(shuffleChoices(validated));
     if (out.length >= 100) break;
@@ -142,8 +154,16 @@ const IMAGE_NOTE =
  * and silently dropped E from a five-option one — teaching the model the wrong option count from
  * the very examples meant to teach it the school's style.
  */
+/** A table-row choice (e.g. {PTH: "increased", Calcium: "increased"}) rendered as prompt text. */
+function choiceText(value) {
+  if (value && typeof value === "object") {
+    return Object.entries(value).map(([k, v]) => `${k}: ${v}`).join("; ");
+  }
+  return String(value ?? "");
+}
+
 function renderChoices(choices) {
-  return LETTERS.filter((l) => choices?.[l]).map((l) => `${l}: ${choices[l]}`).join("  ");
+  return LETTERS.filter((l) => choices?.[l]).map((l) => `${l}: ${choiceText(choices[l])}`).join("  ");
 }
 
 export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], subject = "this lecture" } = {}) {
@@ -165,7 +185,8 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
 
   return (
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
-    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark; exactly 5 options A-E.\n\n` +
+    `Each question must test that specific fact (not adjacent trivia). Stem = a short patient scenario ending in a question mark. ` +
+    `Match the option count and lettering of the real exam examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E.\n\n` +
     WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
@@ -240,7 +261,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `Generate exactly ${count} USMLE Step 1 clinical-vignette questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a 3-5 sentence patient scenario (age, sex, complaint, relevant history, vitals/labs/exam) ENDING in a question mark.\n` +
-    `Exactly 5 options A-E, each a complete answer.\n` +
+    `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer.\n` +
     WHY_WRONG_RULE +
     examplesSection +
     objectivesSection +
