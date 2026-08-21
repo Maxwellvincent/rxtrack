@@ -509,6 +509,7 @@ function ShellMain({ theme, toggle, userId }) {
               termColor={active?.termColor}
               T={legacyTheme}
               quiz={quiz}
+              pendingQuiz={pendingQuiz}
               onBack={() => { switchTab("today"); setQuiz(null); }}
               onCloseQuiz={() => setQuiz(null)}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
@@ -681,7 +682,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
  * (ShellMain) so it behaves the same whether it was launched from here or from
  * Today.
  */
-function ObjectivesView({ blockId, userId, termColor, T, quiz, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
+function ObjectivesView({ blockId, userId, termColor, T, quiz, pendingQuiz, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
   return (
     <div className="p-2">
       <ObjectivesContainer
