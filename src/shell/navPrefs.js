@@ -48,6 +48,19 @@ export function collapseAllExcept(terms, keepTermId) {
   return new Set((terms || []).map((t) => t.id).filter((id) => id && id !== keepTermId));
 }
 
+/**
+ * Last tab/block/more-view on screen — restored on reload so refreshing the
+ * page doesn't bounce back to Today.
+ */
+export function readLastView() {
+  const v = readPrefs().lastView;
+  return v && typeof v === "object" ? v : {};
+}
+
+export function writeLastView({ tab, selectedBlockId, moreView } = {}) {
+  writePrefs({ ...readPrefs(), lastView: { tab, selectedBlockId, moreView } });
+}
+
 /** A collapsed term still has to show the active block, or the nav lies. */
 export function isTermVisible(term, { collapsed, activeBlockId }) {
   if (!collapsed?.has(term.id)) return true;

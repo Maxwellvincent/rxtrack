@@ -6,7 +6,10 @@ import * as lecturesStore from "../stores/lectures.js";
 import { useBlocks } from "./hooks/useBlocks.js";
 import { useExamDates } from "./hooks/useExamDates.js";
 import { touchBlock } from "../stores/blockObjectives.js";
-import { defaultBlockId, readCollapsedTerms } from "./navPrefs.js";
+import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
+
+const VALID_TABS = ["today", "lectures", "objectives", "guide", "more"];
+const VALID_MORE_VIEWS = ["weak", "deeplearn"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
@@ -134,7 +137,7 @@ function ShellMain({ theme, toggle, userId }) {
   // and it falls back to the first block until they pick — or if the block they
   // were on disappears (a deleted term used to leave the shell pointing at
   // nothing).
-  const [selectedBlockId, setSelectedBlockId] = useState(null);
+  const [selectedBlockId, setSelectedBlockId] = useState(() => readLastView().selectedBlockId || null);
   // Exam dates decide where an unselected shell lands: the block whose exam is
   // next is the one being studied.
   const examDates = useExamDates(userId);
@@ -157,8 +160,17 @@ function ShellMain({ theme, toggle, userId }) {
   const [showImportObjectives, setShowImportObjectives] = useState(false);
   const [showReExtractAll, setShowReExtractAll] = useState(false);
   const [showExamDate, setShowExamDate] = useState(false);
-  const [tab, setTab] = useState("today"); // today | lectures | objectives | more
-  const [moreView, setMoreView] = useState(null); // null | "weak" | "deeplearn"
+  const [tab, setTab] = useState(() => {
+    const last = readLastView().tab;
+    return VALID_TABS.includes(last) ? last : "today";
+  }); // today | lectures | objectives | more
+  const [moreView, setMoreView] = useState(() => {
+    const last = readLastView().moreView;
+    return VALID_MORE_VIEWS.includes(last) ? last : null;
+  }); // null | "weak" | "deeplearn"
+  useEffect(() => {
+    writeLastView({ tab, selectedBlockId: activeBlockId, moreView });
+  }, [tab, activeBlockId, moreView]);
   const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
   // Objective quiz: { lectureId, loading, error, questions, title, count, startedAt }
   const [quiz, setQuiz] = useState(null);
