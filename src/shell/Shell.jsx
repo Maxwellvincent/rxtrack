@@ -1,6 +1,6 @@
 import "../theme/tokens.css";
 import "../theme/tailwind.css";
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useTheme } from "./useTheme";
 import * as lecturesStore from "../stores/lectures.js";
 import { useBlocks } from "./hooks/useBlocks.js";
@@ -172,6 +172,22 @@ function ShellMain({ theme, toggle, userId }) {
   const [pendingQuiz, setPendingQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
   const [studyLecture, setStudyLecture] = useState(null);
+  // LectureList unmounts every time a lecture is opened (or the tab is left)
+  // and remounts fresh on return, dropping scroll position. `main` itself
+  // never unmounts, so its scrollTop is saved here and restored once the
+  // list is back on screen.
+  const mainRef = useRef(null);
+  const lectureListScrollRef = useRef(0);
+  const onMainScroll = useCallback(() => {
+    if (tab === "lectures" && !studyLecture && mainRef.current) {
+      lectureListScrollRef.current = mainRef.current.scrollTop;
+    }
+  }, [tab, studyLecture]);
+  useLayoutEffect(() => {
+    if (tab === "lectures" && !studyLecture && mainRef.current) {
+      mainRef.current.scrollTop = lectureListScrollRef.current;
+    }
+  }, [tab, studyLecture]);
   const active = blocks.find((b) => b.id === activeBlockId) || null;
   const { logActivity } = useToday(activeBlockId, userId);
   const allLectures = useLectures(null, userId);
@@ -385,7 +401,7 @@ function ShellMain({ theme, toggle, userId }) {
             <button onClick={() => setQuiz(null)} className="ml-3 underline opacity-70 hover:opacity-100">dismiss</button>
           </div>
         )}
-        <main className="flex-1 overflow-y-auto">
+        <main ref={mainRef} onScroll={onMainScroll} className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">
               No terms yet. Import a term schedule via ⋯ → Import schedule.
