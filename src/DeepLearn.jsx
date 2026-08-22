@@ -3420,6 +3420,7 @@ function DeepLearnSession({
         ? `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? ""} — ${lec.lectureTitle || lec.fileName || lectureTitle || ""}`
         : (lectureTitle || "");
       void recordWrongAnswer({
+        userId,
         blockId,
         blockName: "",
         question: q.stem || q.topic || "Deep Learn MCQ",

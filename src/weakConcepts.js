@@ -75,9 +75,9 @@ function tryParseJSON(text) {
   return null;
 }
 
-function getWeakConcepts(blockId) {
+function getWeakConcepts(userId, blockId) {
   try {
-    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    const stored = weakConceptsStore.read(userId) || {};
     return {
       block: Array.isArray(stored[blockId]) ? stored[blockId] : [],
       lifetime: Array.isArray(stored.lifetime) ? stored.lifetime : [],
@@ -87,12 +87,12 @@ function getWeakConcepts(blockId) {
   }
 }
 
-function saveWeakConcepts(blockId, blockConcepts, lifetimeConcepts) {
+function saveWeakConcepts(userId, blockId, blockConcepts, lifetimeConcepts) {
   try {
-    const stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    const stored = { ...(weakConceptsStore.read(userId) || {}) };
     stored[blockId] = blockConcepts;
     stored.lifetime = lifetimeConcepts;
-    weakConceptsStore.write(null, stored);
+    weakConceptsStore.write(userId, stored);
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
     triggerWeakConceptPush();
   } catch (e) {
@@ -127,6 +127,7 @@ Lecture: ${String(lectureContext || "")}`,
 }
 
 export async function recordWrongAnswer({
+  userId = null,
   blockId,
   blockName,
   question,
@@ -140,7 +141,7 @@ export async function recordWrongAnswer({
   try {
     if (!blockId) return;
     const conceptData = await extractWeakConcept(question, wrongAnswer, correctAnswer, lectureLabel || "");
-    let { block: blockConcepts, lifetime } = getWeakConcepts(blockId);
+    let { block: blockConcepts, lifetime } = getWeakConcepts(userId, blockId);
     blockConcepts = [...blockConcepts];
     lifetime = [...lifetime];
     const now = new Date().toISOString();
@@ -239,7 +240,7 @@ export async function recordWrongAnswer({
       });
     }
 
-    saveWeakConcepts(blockId, blockConcepts, lifetime);
+    saveWeakConcepts(userId, blockId, blockConcepts, lifetime);
   } catch (e) {
     console.error("recordWrongAnswer failed:", e);
   }
@@ -273,7 +274,7 @@ function overlapScore(aTokens, bTokens) {
  * matching objective (by word overlap) from within those lectures.
  * Returns { scanned, updated }.
  */
-export function backfillObjectiveLinks(objectives) {
+export function backfillObjectiveLinks(objectives, userId = null) {
   if (!Array.isArray(objectives) || objectives.length === 0) {
     return { scanned: 0, updated: 0 };
   }
@@ -287,7 +288,7 @@ export function backfillObjectiveLinks(objectives) {
 
   let stored;
   try {
-    stored = JSON.parse(localStorage.getItem("rxt-weak-concepts") || "{}");
+    stored = weakConceptsStore.read(userId) || {};
   } catch {
     return { scanned: 0, updated: 0 };
   }
@@ -329,7 +330,7 @@ export function backfillObjectiveLinks(objectives) {
   }
 
   try {
-    weakConceptsStore.write(null, next);
+    weakConceptsStore.write(userId, next);
     window.dispatchEvent(new CustomEvent("rxt-weak-concepts-updated"));
     triggerWeakConceptPush();
   } catch (e) {
