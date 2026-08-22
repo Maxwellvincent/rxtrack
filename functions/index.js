@@ -491,3 +491,6 @@ if (process.env.DEPLOY_DATALAB === "1") {
     datalabConvertHandler
   );
 }
+
+// Mirrors struggleTasks content into focus-hud-lvm; see struggleTaskBridge.js.
+exports.bridgeStruggleTaskToFocusHud = require("./struggleTaskBridge").bridgeStruggleTaskToFocusHud;
