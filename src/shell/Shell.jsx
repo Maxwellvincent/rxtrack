@@ -620,6 +620,8 @@ function ShellMain({ theme, toggle, userId }) {
       {showQuestionBanks && (
         <QuestionBankModal
           blockId={activeBlockId}
+          blockName={active?.name}
+          lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
           userId={userId}
           onClose={() => setShowQuestionBanks(false)}
         />
