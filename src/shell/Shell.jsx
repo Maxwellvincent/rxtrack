@@ -523,7 +523,11 @@ function ShellMain({ theme, toggle, userId }) {
             moreView === "weak" ? (
               <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setMoreView(null)} />
             ) : moreView === "struggle" ? (
-              <StruggleTasks userId={userId} onBack={() => setMoreView(null)} />
+              <StruggleTasks
+                userId={userId}
+                lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
+                onBack={() => setMoreView(null)}
+              />
             ) : moreView === "deeplearn" ? (
               <DeepLearnContainer
                 blockId={activeBlockId}
