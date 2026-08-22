@@ -76,3 +76,20 @@ studying.
 
 Day keys use focus-hud's 04:00 boundary, not midnight, so both apps agree on
 which day the work belongs to.
+
+
+### Bursts — reporting when, not only how long
+
+A duration alone leaves focus-hud laying the day's total end to end from 04:00,
+so every session appears to start at the boundary hour and its hour-of-day chart
+has to exclude RXTrack entirely.
+
+`trackStudyTime` therefore mints a burst id per unbroken run of studying and
+reports it with each flush, so the sitting is extended rather than fragmented
+into thirty-second pieces. A hidden tab, or a gap longer than a few flushes,
+ends the burst — the next accrual starts a fresh id, because coming back after
+lunch is a new sitting rather than one that appears to have lasted all
+afternoon.
+
+`studiedMs` stays time actually studied, never `endedAt - startedAt`: a sitting
+with a pause in it is not more study than one without.

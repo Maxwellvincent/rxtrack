@@ -20,6 +20,10 @@ const SOURCE = "rxtrack";
 /** How often accumulated time is written. Matches the signal heartbeat. */
 export const FLUSH_MS = 30_000;
 
+function newBurstId() {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 /** focus-hud's focus day runs 04:00 to 04:00; the day keys must agree. */
 const DAY_BOUNDARY_HOUR = 4;
 
@@ -74,6 +78,58 @@ export function applyStudyDelta(entries, { kind, detail, studiedMs }) {
   return next.sort((a, b) => b.studiedMs - a.studiedMs).slice(0, 200);
 }
 
+/** focus-hud's rules cap these lists; keep the newest, which is the live sitting. */
+const MAX_BURSTS = 200
+
+/**
+ * Adds a delta to the day's bursts, keyed by the tracking session that reported
+ * it.
+ *
+ * Durations alone cannot say *when* studying happened, so focus-hud had to lay
+ * the day's total end to end from 04:00 — every session appeared to start at
+ * the boundary hour, and its hour-of-day chart had to leave RXTrack out
+ * entirely rather than show a rhythm that never happened.
+ *
+ * `startedAt` is derived by walking back from now by the delta, so the first
+ * flush of a sitting records when it actually began rather than when it was
+ * first written.
+ */
+export function applyBurstDelta(bursts, { id, kind, detail, studiedMs, nowMs }) {
+  if (!(studiedMs > 0)) return Array.isArray(bursts) ? bursts : [];
+
+  const existing = Array.isArray(bursts) ? bursts : [];
+  const next = [];
+  let merged = false;
+
+  for (const burst of existing) {
+    if (!burst || typeof burst.id !== "string") continue;
+
+    if (burst.id === id) {
+      merged = true;
+      next.push({
+        ...burst,
+        endedAt: nowMs,
+        studiedMs: Number(burst.studiedMs ?? 0) + studiedMs,
+      });
+    } else {
+      next.push(burst);
+    }
+  }
+
+  if (!merged) {
+    next.push({
+      id,
+      kind,
+      detail: detail ?? null,
+      startedAt: nowMs - studiedMs,
+      endedAt: nowMs,
+      studiedMs,
+    });
+  }
+
+  return next.slice(-MAX_BURSTS);
+}
+
 function dayRef(db, userId, dayKey) {
   return doc(db, `users/${userId}/externalStudy/${dayKey}`);
 }
@@ -84,7 +140,7 @@ function dayRef(db, userId, dayKey) {
  * Fire-and-forget by design: studying must never block or fail because a
  * companion app's bookkeeping did not write.
  */
-export async function reportStudyTime(kind, detail, studiedMs, nowMs = Date.now()) {
+export async function reportStudyTime(kind, detail, studiedMs, nowMs = Date.now(), burstId = null) {
   if (!isFocusHudConfigured) return false;
   if (!(studiedMs > 0)) return false;
 
@@ -97,15 +153,16 @@ export async function reportStudyTime(kind, detail, studiedMs, nowMs = Date.now(
   try {
     await runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(ref);
-      const entries = applyStudyDelta(snapshot.exists() ? snapshot.data().entries : [], {
-        kind,
-        detail,
-        studiedMs,
-      });
+      const data = snapshot.exists() ? snapshot.data() : {};
+
+      const entries = applyStudyDelta(data.entries, { kind, detail, studiedMs });
+      const bursts = burstId
+        ? applyBurstDelta(data.bursts, { id: burstId, kind, detail, studiedMs, nowMs })
+        : (data.bursts ?? []);
 
       transaction.set(
         ref,
-        { source: SOURCE, entries, updatedAt: Timestamp.fromMillis(nowMs) },
+        { source: SOURCE, entries, bursts, updatedAt: Timestamp.fromMillis(nowMs) },
         { merge: true },
       );
     });
@@ -132,16 +189,29 @@ export function trackStudyTime(kind, options = {}) {
   let lastTick = Date.now();
   let stopped = false;
 
+  // One id per unbroken run of studying, so focus-hud can reconstruct the
+  // sitting rather than a scatter of thirty-second fragments.
+  let burstId = newBurstId();
+
   const accrue = () => {
     const now = Date.now();
     const elapsed = now - lastTick;
     lastTick = now;
 
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-    // A machine asleep for hours must not report hours of study.
-    if (elapsed > FLUSH_MS * 4) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      // Time away breaks the sitting: coming back is a new burst, not a
+      // continuation of one that appears to have lasted all afternoon.
+      burstId = newBurstId();
+      return;
+    }
 
-    void reportStudyTime(kind, detailOf(), elapsed, now);
+    // A machine asleep for hours must not report hours of study.
+    if (elapsed > FLUSH_MS * 4) {
+      burstId = newBurstId();
+      return;
+    }
+
+    void reportStudyTime(kind, detailOf(), elapsed, now, burstId);
   };
 
   const timer = setInterval(accrue, FLUSH_MS);

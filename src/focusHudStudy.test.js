@@ -20,8 +20,14 @@ vi.mock("./focusHudLink.js", () => ({
   focusHudUserId: () => userId,
 }));
 
-const { applyStudyDelta, focusDayKey, reportStudyTime, trackStudyTime, FLUSH_MS } =
-  await import("./focusHudStudy.js");
+const {
+  applyBurstDelta,
+  applyStudyDelta,
+  focusDayKey,
+  reportStudyTime,
+  trackStudyTime,
+  FLUSH_MS,
+} = await import("./focusHudStudy.js");
 
 beforeEach(() => {
   userId = "user-1";
@@ -176,5 +182,100 @@ describe("trackStudyTime", () => {
     await vi.advanceTimersByTimeAsync(0);
 
     expect(transactionSet).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyBurstDelta", () => {
+  const NINE = new Date(2026, 7, 20, 9).getTime();
+
+  it("opens a burst at the clock time the study began", () => {
+    const bursts = applyBurstDelta([], {
+      id: "b1",
+      kind: "questions",
+      detail: "Cardio",
+      studiedMs: 30_000,
+      nowMs: NINE + 30_000,
+    });
+
+    expect(bursts).toEqual([
+      {
+        id: "b1",
+        kind: "questions",
+        detail: "Cardio",
+        startedAt: NINE,
+        endedAt: NINE + 30_000,
+        studiedMs: 30_000,
+      },
+    ]);
+  });
+
+  it("extends the same burst as the session continues", () => {
+    const first = applyBurstDelta([], {
+      id: "b1",
+      kind: "questions",
+      detail: "Cardio",
+      studiedMs: 30_000,
+      nowMs: NINE + 30_000,
+    });
+    const second = applyBurstDelta(first, {
+      id: "b1",
+      kind: "questions",
+      detail: "Cardio",
+      studiedMs: 30_000,
+      nowMs: NINE + 60_000,
+    });
+
+    expect(second).toHaveLength(1);
+    expect(second[0].startedAt).toBe(NINE);
+    expect(second[0].endedAt).toBe(NINE + 60_000);
+    expect(second[0].studiedMs).toBe(60_000);
+  });
+
+  it("a new session id starts a separate burst, so a reload does not merge two sittings", () => {
+    const first = applyBurstDelta([], {
+      id: "b1",
+      kind: "questions",
+      detail: "Cardio",
+      studiedMs: 30_000,
+      nowMs: NINE + 30_000,
+    });
+    const second = applyBurstDelta(first, {
+      id: "b2",
+      kind: "questions",
+      detail: "Cardio",
+      studiedMs: 30_000,
+      nowMs: NINE + 5 * 3_600_000,
+    });
+
+    expect(second).toHaveLength(2);
+    expect(second[1].startedAt).toBe(NINE + 5 * 3_600_000 - 30_000);
+  });
+
+  it("keeps the most recent bursts when a day runs long", () => {
+    let bursts = [];
+    for (let index = 0; index < 210; index += 1) {
+      bursts = applyBurstDelta(bursts, {
+        id: `b${index}`,
+        kind: "questions",
+        detail: `Block ${index}`,
+        studiedMs: 1000,
+        nowMs: NINE + index * 60_000,
+      });
+    }
+
+    expect(bursts).toHaveLength(200);
+    expect(bursts.at(-1).detail).toBe("Block 209");
+  });
+
+  it("survives a corrupt stored value", () => {
+    expect(
+      applyBurstDelta("nope", {
+        id: "b1",
+        kind: "review",
+        detail: null,
+        studiedMs: 1000,
+        nowMs: NINE,
+      }),
+    ).toHaveLength(1);
   });
 });
