@@ -15,7 +15,9 @@ import {
   pressureZone,
   recommendedSessionsFor,
   statusTally,
+  weakConceptsForLecture,
 } from "../../logic/schedule.js";
+import { isLandmine } from "./weakConcepts.js";
 
 export const FILTERS = ["all", "struggling", "untested", "unstarted", "done"];
 
@@ -35,7 +37,7 @@ const PRE_READ_CUTOFF_HOUR = 15;
  * they agree.
  */
 export function scoreLectures(context) {
-  const { blockId, lectures = [], objectives = [], completion = {}, reviewedLectures = {}, lecturePerformance = {} } = context || {};
+  const { blockId, lectures = [], objectives = [], completion = {}, reviewedLectures = {}, lecturePerformance = {}, weakConcepts = {} } = context || {};
   const now = context?.now ? new Date(context.now) : new Date();
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
@@ -62,6 +64,7 @@ export function scoreLectures(context) {
     const { date: availableDate } = availableDateFor(lec, blockStart, pairedDate);
     const preReadCutoff = availableDate ? new Date(availableDate) : null;
     if (preReadCutoff) preReadCutoff.setHours(PRE_READ_CUTOFF_HOUR, 0, 0, 0);
+    const lecWeakConcepts = weakConceptsForLecture(weakConcepts, blockId, lec.id);
 
     return {
       lec,
@@ -86,6 +89,8 @@ export function scoreLectures(context) {
         reviewed: !!reviewedLectures[`${lec.id}__${blockId}`],
         completion: completion[`${lec.id}__${blockId}`] || null,
         zone,
+        weakConceptCount: lecWeakConcepts.length,
+        hasLandmineWeakConcept: lecWeakConcepts.some(isLandmine),
       }),
       recommendedSessions: recommendedSessionsFor({ sessions, tally, nextReview, today, lastScore }),
       studyMode: context?.studyModeByLecture?.[lec.id] ?? null,

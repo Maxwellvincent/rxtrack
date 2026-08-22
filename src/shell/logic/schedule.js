@@ -21,6 +21,8 @@
  * would be invisible in the Today flip and impossible to attribute later.
  */
 
+import { flattenWeakConcepts, isLandmine } from "../features/tracker/weakConcepts.js";
+
 const DAY_MS = 1000 * 60 * 60 * 24;
 
 const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -291,7 +293,18 @@ export function confidenceTrend(activityLog) {
 }
 
 /** Urgency score for one lecture. Every term is App's, in App's order. */
-export function lectureUrgency({ tally, avgBloom, lastScore, confidence, sessions, nextReview, today, reviewed, completion, zone }) {
+/**
+ * Non-mastered weak concepts (from DeepLearn misses or an uploaded exam-report
+ * score table) linked to this lecture, within this block or lifetime.
+ */
+export function weakConceptsForLecture(weakConcepts, blockId, lectureId) {
+  if (!lectureId) return [];
+  return flattenWeakConcepts(weakConcepts, { blockId }).filter(
+    (c) => c.masteryLevel !== "mastered" && (c.linkedLecIds || []).includes(lectureId)
+  );
+}
+
+export function lectureUrgency({ tally, avgBloom, lastScore, confidence, sessions, nextReview, today, reviewed, completion, zone, weakConceptCount = 0, hasLandmineWeakConcept = false }) {
   const { struggling, untested } = tally;
   let urgency = 0;
   urgency += struggling * 10;
@@ -303,6 +316,11 @@ export function lectureUrgency({ tally, avgBloom, lastScore, confidence, session
   if (confidence === "Medium") urgency += 3;
   if (sessions === 0) urgency += reviewed ? 8 : 12;
   if (nextReview && nextReview <= today) urgency += 20;
+  // A weak concept is a signal independent of objective mastery status (it can
+  // come from a DeepLearn miss or an uploaded exam score report), so this adds
+  // to — rather than substitutes for — the `struggling` boost above.
+  if (weakConceptCount > 0) urgency += Math.min(weakConceptCount * 6, 18);
+  if (hasLandmineWeakConcept) urgency += 10;
 
   const ankiOverdue = completion?.ankiCardsOverdue || 0;
   const ankiTotal = completion?.ankiCardCount || 0;
@@ -384,6 +402,7 @@ export function generateDailySchedule(context) {
     reviewedLectures = {},
     lecturePerformance = {},
     terms = [],
+    weakConcepts = {},
   } = context;
   const examDate = context.examDate ?? context.examDates?.[blockId];
   if (!examDate) return null;
@@ -434,11 +453,13 @@ export function generateDailySchedule(context) {
       : Infinity;
     const needsCompReview = isFullyMastered && comprehensiveExamDate && compDaysLeft < 30 && daysSinceLast > 14;
 
+    const lecWeakConcepts = weakConceptsForLecture(weakConcepts, blockId, lec.id);
+    const urgencyArgs = { tally, avgBloom, lastScore, confidence, sessions, nextReview, today,
+      reviewed: !!reviewedLectures[`${lec.id}__${blockId}`], completion: lecCompletion, zone,
+      weakConceptCount: lecWeakConcepts.length, hasLandmineWeakConcept: lecWeakConcepts.some(isLandmine) };
     const urgency = needsCompReview
-      ? lectureUrgency({ tally, avgBloom, lastScore, confidence, sessions, nextReview, today,
-          reviewed: !!reviewedLectures[`${lec.id}__${blockId}`], completion: lecCompletion, zone }) + 15
-      : lectureUrgency({ tally, avgBloom, lastScore, confidence, sessions, nextReview, today,
-          reviewed: !!reviewedLectures[`${lec.id}__${blockId}`], completion: lecCompletion, zone });
+      ? lectureUrgency(urgencyArgs) + 15
+      : lectureUrgency(urgencyArgs);
 
     const recommendedSessions = needsCompReview
       ? [{ label: "Comprehensive review", reason: "Mastered — review before semester final" }]
