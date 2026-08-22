@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
-import { weakConceptView, isLandmine } from "./weakConcepts.js";
+import { weakConceptView, isLandmine, groupWeakConcepts } from "./weakConcepts.js";
 
 const MASTERY_STYLE = {
   struggling: "text-bad",
@@ -15,29 +15,53 @@ const MASTERY_STYLE = {
   mastered: "text-good",
 };
 
-function ConceptRow({ concept }) {
-  const landmine = isLandmine(concept);
-  const attempts = concept.totalAttempts || 0;
-  const misses = concept.missCount || 0;
+function TopicRow({ topic }) {
+  const landmine = topic.items.some(isLandmine);
+  const count = topic.items.length;
 
   return (
-    <div className="border-b border-border py-2 last:border-b-0">
+    <div className="border-b border-border py-1.5 pl-3 last:border-b-0">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-sm text-text-1">
           {landmine && <span title="missed repeatedly, never yet correct">⚠ </span>}
-          {concept.concept || concept.description}
+          {topic.concept}
+          {count > 1 && <span className="ml-1 font-mono text-[12px] text-text-3">×{count}</span>}
         </span>
-        <span className={"font-mono text-[12px] " + (MASTERY_STYLE[concept.masteryLevel] || "text-text-3")}>
-          {concept.masteryLevel || "unknown"}
+        <span className={"font-mono text-[12px] " + (MASTERY_STYLE[topic.masteryLevel] || "text-text-3")}>
+          {topic.masteryLevel || "unknown"}
         </span>
       </div>
       <div className="mt-0.5 font-mono text-[12px] text-text-3">
-        {misses} miss{misses === 1 ? "" : "es"}
-        {attempts > 0 && ` of ${attempts} attempt${attempts === 1 ? "" : "s"}`}
-        {concept.consecutiveCorrect > 0 && ` · ${concept.consecutiveCorrect} correct in a row`}
-        {concept.lastMissed && ` · last missed ${String(concept.lastMissed).slice(0, 10)}`}
-        {concept.lectureLabels?.[0] && ` · ${String(concept.lectureLabels[0]).slice(0, 46)}`}
+        {topic.missCount} miss{topic.missCount === 1 ? "" : "es"}
+        {count > 1 && ` across ${count} cards`}
       </div>
+    </div>
+  );
+}
+
+function LectureGroup({ lecture }) {
+  return (
+    <div className="border-b border-border py-2 pl-3 last:border-b-0">
+      <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">
+        {lecture.lectureLabel}
+      </div>
+      {lecture.topics.map((topic) => (
+        <TopicRow key={topic.concept.toLowerCase()} topic={topic} />
+      ))}
+    </div>
+  );
+}
+
+function AngleGroup({ group }) {
+  const topicCount = group.lectures.reduce((n, l) => n + l.topics.length, 0);
+  return (
+    <div className="border-b border-border py-2 last:border-b-0">
+      <div className="mb-1 text-sm font-bold capitalize text-text-1">
+        {group.angle} ({topicCount})
+      </div>
+      {group.lectures.map((lecture) => (
+        <LectureGroup key={lecture.lectureLabel} lecture={lecture} />
+      ))}
     </div>
   );
 }
@@ -54,6 +78,7 @@ export function WeakConcepts({ blockId, userId, onBack }) {
   );
 
   const shown = landminesOnly ? view.landmines : view.concepts;
+  const grouped = useMemo(() => groupWeakConcepts(shown), [shown]);
 
   return (
     <div className="p-5">
@@ -105,14 +130,9 @@ export function WeakConcepts({ blockId, userId, onBack }) {
         </div>
       ) : (
         <div className="rounded-lg border border-border px-3">
-          {shown.slice(0, 200).map((concept, i) => (
-            <ConceptRow key={concept.id || `${concept.concept}-${i}`} concept={concept} />
+          {grouped.map((group) => (
+            <AngleGroup key={group.angle} group={group} />
           ))}
-          {shown.length > 200 && (
-            <div className="py-2 font-mono text-[12px] text-text-3">
-              showing the worst 200 of {shown.length}
-            </div>
-          )}
         </div>
       )}
     </div>

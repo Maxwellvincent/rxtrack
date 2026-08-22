@@ -27,19 +27,21 @@ const concept = (over = {}) => ({
 
 describe("flattenWeakConcepts", () => {
   const store = {
-    lifetime: [concept({ id: "a" })],
-    msk: [concept({ id: "b" })],
-    cpr1: [concept({ id: "c" })],
+    // "a" is msk's own concept, also mirrored into lifetime (as recordWrongAnswer does)
+    lifetime: [concept({ id: "a", blockId: "msk" }), concept({ id: "c", blockId: "cpr1" })],
+    msk: [concept({ id: "b", blockId: "msk" })],
+    cpr1: [concept({ id: "c", blockId: "cpr1" })],
     _summary: { msk: 1 },
   };
 
   it("flattens every bucket and tags where each came from", () => {
     const all = flattenWeakConcepts(store);
-    expect(all.map((c) => c.bucket).sort()).toEqual(["cpr1", "lifetime", "msk"]);
+    expect(all.map((c) => c.bucket).sort()).toEqual(["cpr1", "lifetime", "lifetime", "msk"]);
   });
 
-  it("scopes to a block but keeps lifetime, which spans blocks", () => {
+  it("scopes to a block: lifetime entries from OTHER blocks do not bleed in", () => {
     expect(flattenWeakConcepts(store, { blockId: "msk" }).map((c) => c.id).sort()).toEqual(["a", "b"]);
+    expect(flattenWeakConcepts(store, { blockId: "msk" }).some((c) => c.id === "c")).toBe(false);
     expect(flattenWeakConcepts(store, { blockId: "msk", includeLifetime: false }).map((c) => c.id)).toEqual(["b"]);
   });
 

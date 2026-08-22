@@ -21,7 +21,7 @@ describe("weakConceptsForLecture", () => {
       { concept: "already solid", masteryLevel: "mastered", linkedLecIds: ["lec-1"] },
       { concept: "unrelated", masteryLevel: "struggling", linkedLecIds: ["lec-2"] },
     ],
-    lifetime: [{ concept: "radial nerve injury (lifetime copy)", masteryLevel: "struggling", linkedLecIds: ["lec-1"] }],
+    lifetime: [{ concept: "radial nerve injury (lifetime copy)", blockId: "block-1", masteryLevel: "struggling", linkedLecIds: ["lec-1"] }],
     _summary: { "block-1": 3 },
   };
 

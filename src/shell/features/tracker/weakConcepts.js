@@ -13,16 +13,27 @@
 
 export const MASTERY_ORDER = { struggling: 0, developing: 1, mastered: 2 };
 
-/** Flatten the store, tagging each record with the bucket it came from. */
+/**
+ * Flatten the store, tagging each record with the bucket it came from.
+ *
+ * `lifetime` mirrors every block's concepts (recordWrongAnswer pushes into
+ * both), which is the point when scope is "everything" — but a block-scoped
+ * read used to include the WHOLE lifetime bucket unfiltered, so "this block"
+ * silently showed every concept from every block ever studied. Lifetime
+ * entries are now also checked against the concept's own `blockId`.
+ */
 export function flattenWeakConcepts(store, { blockId = null, includeLifetime = true } = {}) {
   const source = store && typeof store === "object" ? store : {};
   const out = [];
   for (const [bucket, list] of Object.entries(source)) {
     if (bucket === "_summary") continue; // compaction artefact, not a bucket
-    if (bucket === "lifetime" && !includeLifetime) continue;
-    if (blockId && bucket !== "lifetime" && bucket !== blockId) continue;
+    const isLifetime = bucket === "lifetime";
+    if (isLifetime && !includeLifetime) continue;
+    if (blockId && !isLifetime && bucket !== blockId) continue;
     for (const concept of Array.isArray(list) ? list : []) {
-      if (concept && (concept.concept || concept.description)) out.push({ ...concept, bucket });
+      if (!concept || !(concept.concept || concept.description)) continue;
+      if (blockId && isLifetime && concept.blockId !== blockId) continue;
+      out.push({ ...concept, bucket });
     }
   }
   return out;
@@ -61,6 +72,49 @@ export function rankConcepts(concepts) {
     if (byMiss) return byMiss;
     return (b.totalAttempts || 0) - (a.totalAttempts || 0);
   });
+}
+
+/**
+ * Anatomy/discipline -> lecture -> topic. An Anki image-occlusion deck often
+ * splits one concept into several near-identical notes (one per occluded
+ * label), each with its own id and a slightly different AI-written
+ * description — `dedupeConcepts` doesn't catch these since the ids differ.
+ * Grouping by (angle, lecture, topic NAME) collapses them into one row with
+ * an item count and a summed miss count, instead of repeating the same
+ * concept N times.
+ */
+export function groupWeakConcepts(concepts) {
+  const byAngle = new Map();
+  for (const c of concepts || []) {
+    const angle = (c?.angle || "general").toLowerCase();
+    const lectureLabel = c?.lectureLabels?.[0] || "Unlinked";
+    const topicName = (c?.concept || c?.description || "Unnamed").trim();
+
+    if (!byAngle.has(angle)) byAngle.set(angle, { angle, lectures: new Map() });
+    const angleGroup = byAngle.get(angle);
+
+    if (!angleGroup.lectures.has(lectureLabel)) angleGroup.lectures.set(lectureLabel, { lectureLabel, topics: new Map() });
+    const lectureGroup = angleGroup.lectures.get(lectureLabel);
+
+    const topicKey = topicName.toLowerCase();
+    if (!lectureGroup.topics.has(topicKey)) {
+      lectureGroup.topics.set(topicKey, { concept: topicName, items: [], missCount: 0, masteryLevel: "mastered" });
+    }
+    const topic = lectureGroup.topics.get(topicKey);
+    topic.items.push(c);
+    topic.missCount += c?.missCount || 0;
+    if ((MASTERY_ORDER[c?.masteryLevel] ?? 3) < (MASTERY_ORDER[topic.masteryLevel] ?? 3)) {
+      topic.masteryLevel = c.masteryLevel;
+    }
+  }
+
+  return [...byAngle.values()].map((a) => ({
+    angle: a.angle,
+    lectures: [...a.lectures.values()].map((l) => ({
+      lectureLabel: l.lectureLabel,
+      topics: [...l.topics.values()],
+    })),
+  }));
 }
 
 /**
