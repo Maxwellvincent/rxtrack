@@ -33,11 +33,11 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { readExemplars } from "../objectives/quizLaunch.js";
+import { readExemplars, resolveDefaultDifficulty } from "../objectives/quizLaunch.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
-import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundLabel } from "./lectureStudy.js";
+import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundDifficulty, roundLabel } from "./lectureStudy.js";
 import {
   clearRoundProgress,
   readRoundProgress,
@@ -299,9 +299,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     if (!roundAtoms?.length) return;
     setBusy("Writing questions…"); setError(""); setQuestions(null);
 
-    // Progressive difficulty: easy → medium → hard → expert
-    const DIFFICULTIES = ["easy", "medium", "hard", "expert"];
-    const difficulty = DIFFICULTIES[Math.min(index, DIFFICULTIES.length - 1)];
+    // Progressive difficulty, starting from what you've already earned on this
+    // lecture rather than always at round-1-easy — same accuracy-based default
+    // Quiz mode uses, so the two surfaces agree.
+    const baseDifficulty = resolveDefaultDifficulty(questionStats.statsForLecture(userId, lecture?.id).accuracy);
+    const difficulty = roundDifficulty(baseDifficulty, index);
 
     // Cross-lecture partition: skip atoms whose objectives are all mastered, flag recurring ones
     const termIndex = atomTermIndex.read(userId, blockId) || {};

@@ -5,6 +5,7 @@ import {
   loadLecture,
   extractAtoms,
   quizFromAtoms,
+  roundDifficulty,
 } from "./lectureStudy.js";
 
 const BODY = "Brachial plexus anatomy in detail. ".repeat(20);
@@ -121,5 +122,28 @@ describe("quizFromAtoms", () => {
   it("passes the error through rather than throwing", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("model down"));
     expect((await quizFromAtoms({}, [atom()], { callAIJSON })).error).toBe("model down");
+  });
+});
+
+describe("roundDifficulty", () => {
+  it("ramps easy -> medium -> hard -> expert by round index when starting fresh", () => {
+    expect(roundDifficulty("easy", 0)).toBe("easy");
+    expect(roundDifficulty("easy", 1)).toBe("medium");
+    expect(roundDifficulty("easy", 2)).toBe("hard");
+    expect(roundDifficulty("easy", 3)).toBe("expert");
+  });
+
+  it("caps at expert past the top of the scale", () => {
+    expect(roundDifficulty("easy", 10)).toBe("expert");
+  });
+
+  it("starts further up the scale when the lecture's accuracy already earned it, still ramping from there", () => {
+    expect(roundDifficulty("hard", 0)).toBe("hard");
+    expect(roundDifficulty("hard", 1)).toBe("expert");
+    expect(roundDifficulty("hard", 2)).toBe("expert"); // capped
+  });
+
+  it("defaults an unrecognized base difficulty to easy", () => {
+    expect(roundDifficulty("nonsense", 0)).toBe("easy");
   });
 });

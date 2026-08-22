@@ -140,6 +140,22 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
  */
 export const ROUND_SIZE = 5;
 
+const DIFFICULTY_SCALE = ["easy", "medium", "hard", "expert"];
+
+/**
+ * A round's difficulty, ramping from `baseDifficulty` by round index.
+ *
+ * `baseDifficulty` comes from the lecture's own accuracy (resolveDefaultDifficulty
+ * in quizLaunch.js) rather than always starting at "easy" — a lecture you've
+ * already demonstrated 80%+ accuracy on has no business re-opening at
+ * round-1-easy every single time, same as Quiz mode no longer does.
+ */
+export function roundDifficulty(baseDifficulty, index) {
+  const baseIndex = DIFFICULTY_SCALE.indexOf(baseDifficulty);
+  const start = baseIndex === -1 ? 0 : baseIndex;
+  return DIFFICULTY_SCALE[Math.min(start + index, DIFFICULTY_SCALE.length - 1)];
+}
+
 /**
  * Split atoms into ordered rounds. Atoms arrive already sorted by the canonical type sequence
  * (definitions, mechanisms, relationships, results), so slicing preserves that order.
