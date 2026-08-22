@@ -5,7 +5,7 @@ function hasUserApiKey() {
   catch { return false; }
 }
 
-const DIFFICULTIES = ["easy", "medium", "hard"];
+const DIFFICULTIES = ["easy", "medium", "hard", "expert"];
 
 /**
  * Shown before a quiz launch — lets the user pick how many questions,
@@ -17,9 +17,9 @@ const DIFFICULTIES = ["easy", "medium", "hard"];
  *   onStart({ count, difficulty, useStored }) => void
  *   onCancel () => void
  */
-export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, onCancel }) {
+export function QuizConfigModal({ storedCount = 0, defaultCount = 10, initialDifficulty = "medium", onStart, onCancel }) {
   const [count, setCount] = useState(String(defaultCount));
-  const [difficulty, setDifficulty] = useState("medium");
+  const [difficulty, setDifficulty] = useState(initialDifficulty);
   const [useStored, setUseStored] = useState(storedCount > 0);
   const userKeyActive = hasUserApiKey();
 
@@ -79,6 +79,11 @@ export function QuizConfigModal({ storedCount = 0, defaultCount = 10, onStart, o
                 </button>
               ))}
             </div>
+            {initialDifficulty !== "medium" && difficulty === initialDifficulty && (
+              <div className="mt-1 font-mono text-[12px] text-text-3">
+                Bumped from your accuracy on this lecture — still adjustable.
+              </div>
+            )}
           </div>
 
           {/* Stored pool */}

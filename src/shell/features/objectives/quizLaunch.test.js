@@ -8,6 +8,7 @@ import {
   buildQuizConfig,
   objectivesAsAtoms,
   startObjectiveQuiz,
+  resolveDefaultDifficulty,
 } from "./quizLaunch.js";
 
 const LECTURE_BODY = "Brachial plexus anatomy. ".repeat(20); // well over the 150-char floor
@@ -139,5 +140,27 @@ describe("startObjectiveQuiz", () => {
     );
     expect(result.error).toBe("model down");
     expect(result.questions).toEqual([]);
+  });
+});
+
+describe("resolveDefaultDifficulty", () => {
+  it("starts at medium with no prior accuracy", () => {
+    expect(resolveDefaultDifficulty(null)).toBe("medium");
+    expect(resolveDefaultDifficulty(undefined)).toBe("medium");
+  });
+
+  it("stays medium below the 80% mastery threshold", () => {
+    expect(resolveDefaultDifficulty(0)).toBe("medium");
+    expect(resolveDefaultDifficulty(0.79)).toBe("medium");
+  });
+
+  it("bumps to hard at 80% cumulative accuracy", () => {
+    expect(resolveDefaultDifficulty(0.8)).toBe("hard");
+    expect(resolveDefaultDifficulty(0.85)).toBe("hard");
+  });
+
+  it("bumps to expert at 90% cumulative accuracy", () => {
+    expect(resolveDefaultDifficulty(0.9)).toBe("expert");
+    expect(resolveDefaultDifficulty(1)).toBe("expert");
   });
 });

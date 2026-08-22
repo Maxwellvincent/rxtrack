@@ -21,6 +21,19 @@ export function sortWeakestFirst(objectives) {
   );
 }
 
+/**
+ * Ramp difficulty up as you demonstrate mastery, instead of a static default
+ * you have to remember to raise yourself. Cumulative lecture-quiz accuracy
+ * (lectureQuestionStats) is the signal — quieter than one quiz's score, and
+ * already tracked with no new plumbing needed.
+ */
+export function resolveDefaultDifficulty(accuracy) {
+  if (typeof accuracy !== "number" || !Number.isFinite(accuracy)) return "medium";
+  if (accuracy >= 0.9) return "expert";
+  if (accuracy >= 0.8) return "hard";
+  return "medium";
+}
+
 /** App's rule: "all" → everything, unset → up to 10, a number → at least 1. */
 export function resolveQuestionCount(requested, available) {
   if (requested === "all") return available;

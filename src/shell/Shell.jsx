@@ -42,7 +42,8 @@ import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
-import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
+import { startObjectiveQuiz, readExemplars, resolveDefaultDifficulty } from "./features/objectives/quizLaunch.js";
+import { statsForLecture } from "../stores/lectureQuestionStats.js";
 import { QuizConfigModal } from "./features/objectives/QuizConfigModal.jsx";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { callAIJSON } from "../aiClient.js";
@@ -643,6 +644,9 @@ function ShellMain({ theme, toggle, userId }) {
               : 0
           }
           defaultCount={10}
+          initialDifficulty={resolveDefaultDifficulty(
+            statsForLecture(userId, pendingQuiz.extraMeta?.lectureId).accuracy
+          )}
           onStart={onConfirmQuiz}
           onCancel={() => setPendingQuiz(null)}
         />
