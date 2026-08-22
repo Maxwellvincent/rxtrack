@@ -9,7 +9,7 @@ import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
 const VALID_TABS = ["today", "lectures", "objectives", "guide", "more"];
-const VALID_MORE_VIEWS = ["weak", "deeplearn"];
+const VALID_MORE_VIEWS = ["weak", "deeplearn", "struggle"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
 import { TabBar } from "./TabBar.jsx";
@@ -39,6 +39,7 @@ import { UserApiKeyModal } from "./UserApiKeyModal.jsx";
 import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
+import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
 import { startObjectiveQuiz, readExemplars } from "./features/objectives/quizLaunch.js";
@@ -520,6 +521,8 @@ function ShellMain({ theme, toggle, userId }) {
           ) : tab === "more" && activeBlockId ? (
             moreView === "weak" ? (
               <WeakConcepts blockId={activeBlockId} userId={userId} onBack={() => setMoreView(null)} />
+            ) : moreView === "struggle" ? (
+              <StruggleTasks userId={userId} onBack={() => setMoreView(null)} />
             ) : moreView === "deeplearn" ? (
               <DeepLearnContainer
                 blockId={activeBlockId}
@@ -534,6 +537,7 @@ function ShellMain({ theme, toggle, userId }) {
                 onCalibrate={onCalibrate}
                 onWeak={() => setMoreView("weak")}
                 onDeepLearn={() => setMoreView("deeplearn")}
+                onStruggle={() => setMoreView("struggle")}
               />
             )
           ) : (
@@ -656,12 +660,13 @@ function ShellMain({ theme, toggle, userId }) {
   );
 }
 
-function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn }) {
+function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
   const items = [
     { label: "▸ Continue learning", desc: "adaptive session — teaches, shows a case, then checks you", action: onContinue },
     { label: "◎ Calibrate", desc: "rate confidence before each answer — surfaces sure-but-wrong gaps", action: onCalibrate },
     { label: "🧬 Deep Learn", desc: "teach-then-test on one lecture with drills and rapid fire", action: onDeepLearn },
     { label: "⚠ Weak concepts", desc: "what you keep missing, landmines first", action: onWeak },
+    { label: "🔴 Struggle Tracker", desc: "deep/persistent + buried cards synced in from Anki", action: onStruggle },
   ];
   return (
     <div className="flex flex-col gap-3 p-5">

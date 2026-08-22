@@ -1087,6 +1087,60 @@ export async function getUngeneratedCards(uid) {
 }
 
 /**
+ * Anki struggle-tracker export → users/{uid}/struggleTasks, keyed by cardId.
+ * Client-side counterpart of scripts/sync-struggle-tracker.mjs (which uses
+ * firebase-admin to write the same shape from the exported JSON on disk).
+ * setDone() is a local dismiss only — it never touches Anki, matching the
+ * addon's one-way export.
+ */
+export async function saveStruggleTasks(uid, tasks) {
+  if (!uid || !tasks?.length) return { count: 0, error: null };
+  const errors = [];
+  const ops = tasks.map((t) => (b) =>
+    b.set(
+      doc(db, "users", uid, "struggleTasks", encodeDocId(t.cardId)),
+      { ...t, updatedAt: serverTimestamp() },
+      { merge: true }
+    )
+  );
+  await commitInChunks(ops, errors);
+  return { count: tasks.length - errors.length, error: errors[0]?.error || null };
+}
+
+export async function getStruggleTasks(uid) {
+  if (!uid) return [];
+  try {
+    const snap = await getDocs(collection(db, "users", uid, "struggleTasks"));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) {
+    console.warn("getStruggleTasks exception:", e?.message);
+    return [];
+  }
+}
+
+export async function deleteStruggleTask(uid, id) {
+  if (!uid || !id) return;
+  try {
+    await deleteDoc(doc(db, "users", uid, "struggleTasks", id));
+  } catch (e) {
+    console.warn("deleteStruggleTask exception:", e?.message);
+  }
+}
+
+export async function setStruggleTaskDone(uid, id, done) {
+  if (!uid || !id) return;
+  try {
+    await setDoc(
+      doc(db, "users", uid, "struggleTasks", id),
+      { doneLocally: !!done, doneAt: done ? serverTimestamp() : null },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("setStruggleTaskDone exception:", e?.message);
+  }
+}
+
+/**
  * Read-only fetch of recognition-bank items for a block (optionally a subject).
  * recognitionItems is server-write-only — writes go through the
  * buildRecognitionBank Cloud Function, never the client.

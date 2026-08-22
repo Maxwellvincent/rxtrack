@@ -8,7 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sync:struggle": "node scripts/sync-struggle-tracker.mjs",
+    "sync:struggle:watch": "node scripts/sync-struggle-tracker.mjs --watch"
   },
   "dependencies": {
     "@mistralai/mistralai": "^1.14.1",
