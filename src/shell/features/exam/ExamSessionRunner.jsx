@@ -209,7 +209,7 @@ function PracticeFormat({ controller }) {
 // drive the controller, and the session doc itself already carries blockId.
 export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
   const controller = useExamSessionController(sessionId, userId);
-  const { session, loading, error, submit, abandon } = controller;
+  const { session, loading, error, submit, abandon, submitResult, submitting } = controller;
 
   // Resume-on-mount: a session left in "finalizing" (a prior submit call was
   // interrupted before completing) shows a distinct "finishing up" state and
@@ -226,6 +226,24 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
   if (!session) return <div className="text-sm text-text-3">Session not found.</div>;
 
   if (session.status === "finalizing") {
+    // A prior finalize call can fail resumably (network blip, a transient
+    // Firestore error mid-loop — see finalize.js) — the mount effect above
+    // already retried it once, but that retry can fail too. Without this,
+    // `submitResult.resumable` sits unread and the user is stuck on
+    // "Finishing up…" forever with a mount effect that never re-fires
+    // (its dependency, session.status, never changes out of "finalizing").
+    if (submitResult && !submitResult.ok && submitResult.resumable) {
+      return (
+        <div className="space-y-3">
+          <div className="text-sm text-bad">
+            Submitting hit a snag: {submitResult.error || "an unknown error"}.
+          </div>
+          <Button onClick={() => submit()} disabled={submitting}>
+            {submitting ? "Retrying…" : "Retry submit"}
+          </Button>
+        </div>
+      );
+    }
     return <div className="text-sm text-text-3">Finishing up…</div>;
   }
 

@@ -147,4 +147,23 @@ describe("ExamSessionRunner", () => {
 
     unmount();
   });
+
+  it("on a resumable finalize failure, shows the error and a retry button instead of hanging on 'Finishing up'", async () => {
+    const submit = vi.fn(async () => ({ ok: false, error: "simulated failure", resumable: true }));
+    controllerMock.mockReturnValue(
+      baseController({
+        session: { ...baseController().session, status: "finalizing" },
+        submitResult: { ok: false, error: "simulated failure", resumable: true },
+        submit,
+      })
+    );
+
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    expect(host.textContent).not.toMatch(/Finishing up/);
+    expect(host.textContent).toMatch(/simulated failure/);
+    expect(host.textContent).toMatch(/Retry submit/);
+
+    unmount();
+  });
 });

@@ -33,7 +33,7 @@ export function useExamSessionController(sessionId, userId) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [syncStatus, setSyncStatus] = useState("synced"); // "pending" | "synced" | "error"
+  const [syncStatus, setSyncStatus] = useState("synced"); // "pending" | "synced" | "error" | "stopped"
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null);
   // Bumped by the timer interval / visibilitychange / focus reconciliation to
@@ -54,6 +54,12 @@ export function useExamSessionController(sessionId, userId) {
   const seqRef = useRef(0);
   const autoSubmitTriggeredRef = useRef(false);
   const autosaveStoppedRef = useRef(false);
+  // Holds the in-flight submit() promise, if any. Checked and set
+  // synchronously (before any await) so a manual "Submit exam" click and
+  // the timeout auto-submit effect can never both reach `finalizeExamSession`
+  // for the same session — the second caller gets handed the first call's
+  // promise instead of starting a concurrent finalize.
+  const submitPromiseRef = useRef(null);
 
   if (writerIdRef.current == null) writerIdRef.current = newWriterId();
 
@@ -78,6 +84,7 @@ export function useExamSessionController(sessionId, userId) {
     mountedRef.current = true;
     autoSubmitTriggeredRef.current = false;
     autosaveStoppedRef.current = false;
+    submitPromiseRef.current = null;
     seqRef.current = 0;
     mountWallRef.current = Date.now();
     mountPerfRef.current = performance.now();
@@ -127,16 +134,28 @@ export function useExamSessionController(sessionId, userId) {
   }, [session?.format, session?.deadline, tick]);
 
   const submit = useCallback(
-    async (opts = {}) => {
-      setSubmitting(true);
-      try {
-        const result = await finalizeExamSession(userId, sessionId, opts);
-        if (mountedRef.current) setSubmitResult(result);
-        await load();
-        return result;
-      } finally {
-        if (mountedRef.current) setSubmitting(false);
-      }
+    (opts = {}) => {
+      // Re-entrant call (manual submit racing the timeout auto-submit, or a
+      // double-click) — hand back the call already in flight rather than
+      // starting a second concurrent finalizeExamSession. This check-and-set
+      // happens synchronously, before this function returns, so there is no
+      // window where two callers can both observe "nothing in flight".
+      if (submitPromiseRef.current) return submitPromiseRef.current;
+
+      const p = (async () => {
+        setSubmitting(true);
+        try {
+          const result = await finalizeExamSession(userId, sessionId, opts);
+          if (mountedRef.current) setSubmitResult(result);
+          await load();
+          return result;
+        } finally {
+          submitPromiseRef.current = null;
+          if (mountedRef.current) setSubmitting(false);
+        }
+      })();
+      submitPromiseRef.current = p;
+      return p;
     },
     [userId, sessionId, load]
   );
@@ -163,6 +182,12 @@ export function useExamSessionController(sessionId, userId) {
       if (!session) return false;
       if (session.status !== "in_progress") return false;
       if (session.format === "exam" && (remainingMs == null || remainingMs <= 0)) return false;
+      // Once a prior autosave was vetoed (the server-side session moved past
+      // "in_progress" — e.g. a finalize race), further picks can never
+      // persist. Refuse honestly instead of painting a selection that will
+      // silently vanish, and instead of leaving `syncStatus` stuck at
+      // "pending" forever.
+      if (autosaveStoppedRef.current) return false;
 
       const answer = {
         questionId,
@@ -174,8 +199,6 @@ export function useExamSessionController(sessionId, userId) {
 
       // Optimistic local update — the UI shouldn't wait on a round trip.
       setSession((prev) => (prev ? { ...prev, answers: mergeAnswer(prev.answers, answer) } : prev));
-
-      if (autosaveStoppedRef.current) return true;
 
       setSyncStatus("pending");
       updateExamSessionTransaction(userId, sessionId, (current) => {
@@ -191,6 +214,10 @@ export function useExamSessionController(sessionId, userId) {
           // real sync; the latter means stop trying for this instance.
           if (!result || result.status !== "in_progress") {
             autosaveStoppedRef.current = true;
+            // Terminal, honest signal — this answer (and any future one)
+            // will never persist for this hook instance; "pending" must not
+            // be left hanging forever.
+            setSyncStatus("stopped");
             return;
           }
           setSyncStatus("synced");

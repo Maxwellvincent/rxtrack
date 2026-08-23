@@ -257,6 +257,64 @@ describe("useExamSessionController", () => {
       expect(finalizeExamSessionMock).not.toHaveBeenCalled();
       probe.unmount();
     });
+
+    it("never lets a manual submit() and the timeout auto-submit both reach finalizeExamSession concurrently", async () => {
+      vi.useFakeTimers();
+      const now = Date.now();
+      const session = makeSession({ deadline: now + 1_000 });
+      getExamSessionMock.mockResolvedValue(session);
+      updateExamSessionTransactionMock.mockResolvedValue(session);
+
+      // finalizeExamSession takes a while to resolve — long enough that the
+      // deadline passes while the manual submit is still in flight.
+      let resolveFinalize;
+      finalizeExamSessionMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            resolveFinalize = resolve;
+          })
+      );
+
+      const probe = mountController(SESSION_ID, USER);
+      await probe.render();
+      await act(async () => {});
+
+      // User clicks "Submit exam" with ~1s left.
+      let manualSubmitPromise;
+      await act(async () => {
+        manualSubmitPromise = probe.get().submit();
+      });
+
+      expect(finalizeExamSessionMock).toHaveBeenCalledTimes(1);
+
+      // Deadline passes mid-flight — the auto-submit effect fires, but must
+      // find a submit already in flight and must NOT start a second
+      // concurrent finalizeExamSession call (that would double-record
+      // per-lecture stats downstream in finalize.js).
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+      });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(finalizeExamSessionMock).toHaveBeenCalledTimes(1);
+
+      // Let the original in-flight call resolve and confirm no further call
+      // sneaks in afterward either.
+      await act(async () => {
+        resolveFinalize({ ok: true });
+        await manualSubmitPromise;
+      });
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+      });
+
+      expect(finalizeExamSessionMock).toHaveBeenCalledTimes(1);
+
+      probe.unmount();
+    });
   });
 
   describe("answerQuestion", () => {
@@ -306,25 +364,31 @@ describe("useExamSessionController", () => {
       await probe.render();
       await act(async () => {});
 
+      let firstAccepted;
       await act(async () => {
-        probe.get().answerQuestion("q1", "A");
+        firstAccepted = probe.get().answerQuestion("q1", "A");
       });
       await act(async () => {
         await Promise.resolve();
       });
 
+      expect(firstAccepted).toBe(true);
       expect(updateExamSessionTransactionMock).toHaveBeenCalledTimes(1);
+      expect(probe.get().syncStatus).toBe("stopped");
 
-      // A second answer still updates local state (the hook's own session
-      // copy is still "in_progress"), but must not call the transaction again.
+      // A second answer, after the veto, must not paint a selection that
+      // can never persist, and must not call the transaction again.
+      let secondAccepted;
       await act(async () => {
-        probe.get().answerQuestion("q2", "B");
+        secondAccepted = probe.get().answerQuestion("q2", "B");
       });
       await act(async () => {
         await Promise.resolve();
       });
 
+      expect(secondAccepted).toBe(false);
       expect(updateExamSessionTransactionMock).toHaveBeenCalledTimes(1);
+      expect(probe.get().session.answers.some((a) => a.questionId === "q2")).toBe(false);
       probe.unmount();
     });
 
@@ -445,12 +509,16 @@ describe("useExamSessionController", () => {
       probe.unmount();
     });
 
-    it("vetoes (returns null / leaves session alone) when the session isn't in_progress", async () => {
+    it("vetoes (leaves the session's real status alone) when the session isn't in_progress", async () => {
       const session = makeSession({ status: "submitted" });
       getExamSessionMock.mockResolvedValue(session);
+      // The real `updateExamSessionTransaction` (src/supabase.js) never
+      // returns null on a veto — when `updateFn` returns null, the
+      // transaction hands back `current` (the unchanged doc) unchanged.
+      // Only a genuinely missing document produces a null/undefined result.
       updateExamSessionTransactionMock.mockImplementation(async (userId, sessionId, updateFn) => {
         const next = updateFn(session);
-        return next; // null, per the veto contract
+        return next ?? session;
       });
 
       const probe = mountController(SESSION_ID, USER);
@@ -462,7 +530,7 @@ describe("useExamSessionController", () => {
         result = await probe.get().abandon();
       });
 
-      expect(result).toBeNull();
+      expect(result.status).toBe("submitted");
       expect(probe.get().session.status).toBe("submitted");
       expect(finalizeExamSessionMock).not.toHaveBeenCalled();
       probe.unmount();
