@@ -15,6 +15,7 @@ import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "fi
 import { encodeDocId, decodeDocId } from "./idCodec";
 import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
+import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
 
 // SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
 // ALREADY merged by this module's own merge fns — whose argument order differs
@@ -856,6 +857,69 @@ export async function fetchAllDeepLearnSessions(userId) {
   const out = {};
   snap.docs.forEach((d) => { out[decodeDocId(d.id)] = d.data()?.data; });
   return out;
+}
+
+// ─── EXAM SESSIONS ───────────────────────────────────────────────────────
+// Block-wide timed mini-exam (or practice) sessions, one Firestore doc each
+// under users/{uid}/examSessions/{sessionId}. Unlike dlSessions and the
+// state/mcq docs, the whole session schema (src/examSessions.js) IS the top-
+// level document body — no `{data: ...}` wrapper — because a later dashboard
+// task needs to query top-level `blockId` and `status` together.
+const examSessionRef = (userId, sessionId) =>
+  doc(db, "users", userId, "examSessions", encodeDocId(sessionId));
+
+/**
+ * Persist a brand-new (or fully-replaced) exam session. Callers await this
+ * and see real failures — unlike writeCloud's fire-and-forget shape, there's
+ * no catch-and-console.warn here.
+ */
+export async function createExamSession(userId, session) {
+  if (sessionBytes(session) > MAX_EXAM_SESSION_BYTES) {
+    return { ok: false, error: "session too large" };
+  }
+  await setDoc(examSessionRef(userId, session.sessionId), session);
+  return { ok: true };
+}
+
+/** Fetch one exam session's full document, or null if it doesn't exist. */
+export async function getExamSession(userId, sessionId) {
+  if (!userId || !sessionId) return null;
+  const snap = await getDoc(examSessionRef(userId, sessionId));
+  return snap.exists() ? snap.data() : null;
+}
+
+/** List exam sessions for a block, optionally filtered further by status. */
+export async function listExamSessions(userId, blockId, { status } = {}) {
+  const constraints = [where("blockId", "==", blockId)];
+  if (status) constraints.push(where("status", "==", status));
+  const snap = await getDocs(
+    query(collection(db, "users", userId, "examSessions"), ...constraints)
+  );
+  return snap.docs.map((d) => d.data());
+}
+
+/**
+ * Generic CAS transactional primitive: read the current session (or null),
+ * hand it to the caller-supplied `updateFn`, and write back whatever it
+ * returns with `rev` incremented and `updatedAt` refreshed. `updateFn` can
+ * veto the write entirely by returning null, in which case the doc is left
+ * unchanged and the current value is returned.
+ *
+ * Task 2 does not implement any `updateFn` — later tasks provide their own
+ * precondition/merge logic (e.g. "only proceed if status === in_progress",
+ * or "merge this one answer via mergeAnswer").
+ */
+export async function updateExamSessionTransaction(userId, sessionId, updateFn) {
+  const ref = examSessionRef(userId, sessionId);
+  return runTransaction(db, async (tx) => {
+    const snap = await tx.get(ref);
+    const current = snap.exists() ? snap.data() : null;
+    const next = updateFn(current);
+    if (next === null) return current;
+    const withMeta = { ...next, rev: (current?.rev ?? 0) + 1, updatedAt: serverTimestamp() };
+    tx.set(ref, withMeta);
+    return withMeta;
+  });
 }
 
 /**
