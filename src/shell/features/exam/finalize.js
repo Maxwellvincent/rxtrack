@@ -73,20 +73,24 @@ export async function finalizeExamSession(
       return { ok: false, error: e?.message || String(e), resumable: true };
     }
 
-    await updateExamSessionTransaction(userId, sessionId, (current) =>
-      current
-        ? {
-            ...current,
-            sideEffectsCompleted: {
-              ...current.sideEffectsCompleted,
-              statsRecordedQuestionIds: withRecordedStats(
-                current.sideEffectsCompleted.statsRecordedQuestionIds,
-                questionId
-              ),
-            },
-          }
-        : null
-    );
+    try {
+      await updateExamSessionTransaction(userId, sessionId, (current) =>
+        current
+          ? {
+              ...current,
+              sideEffectsCompleted: {
+                ...current.sideEffectsCompleted,
+                statsRecordedQuestionIds: withRecordedStats(
+                  current.sideEffectsCompleted.statsRecordedQuestionIds,
+                  questionId
+                ),
+              },
+            }
+          : null
+      );
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e), resumable: true };
+    }
   }
 
   // Step 3: weak-concept write, once.
@@ -117,7 +121,7 @@ export async function finalizeExamSession(
         lectureId,
         lectureLabel: lectureLabelsByLectureId[lectureId],
         existingEntry,
-        now: Date.now(),
+        now: new Date().toISOString(),
       });
       if (entry) {
         blockConcepts = mergeExamReportConcepts(blockConcepts, [entry]);
@@ -130,22 +134,40 @@ export async function finalizeExamSession(
       return { ok: false, error: e?.message || String(e), resumable: true };
     }
 
-    await updateExamSessionTransaction(userId, sessionId, (current) =>
-      current
-        ? {
-            ...current,
-            sideEffectsCompleted: { ...current.sideEffectsCompleted, weakConceptsRecorded: true },
-          }
-        : null
-    );
+    try {
+      await updateExamSessionTransaction(userId, sessionId, (current) =>
+        current
+          ? {
+              ...current,
+              sideEffectsCompleted: { ...current.sideEffectsCompleted, weakConceptsRecorded: true },
+            }
+          : null
+      );
+    } catch (e) {
+      return { ok: false, error: e?.message || String(e), resumable: true };
+    }
   }
 
   // Step 4: final flip to submitted.
-  await updateExamSessionTransaction(userId, sessionId, (current) => {
-    if (!current) return null;
-    if (!current.sideEffectsCompleted.weakConceptsRecorded) return null;
-    return { ...current, status: "submitted" };
-  });
+  let finalDoc;
+  try {
+    finalDoc = await updateExamSessionTransaction(userId, sessionId, (current) => {
+      if (!current) return null;
+      if (!current.sideEffectsCompleted.weakConceptsRecorded) return null;
+      return { ...current, status: "submitted" };
+    });
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), resumable: true };
+  }
+
+  // The transaction can hand back a doc whose status isn't "submitted" in
+  // two cases: the veto fired (doc deleted concurrently, or the safety-net
+  // condition — weakConceptsRecorded still false — somehow held), or the
+  // doc genuinely doesn't exist any more. Either way that must not be
+  // reported as success.
+  if (!finalDoc || finalDoc.status !== "submitted") {
+    return { ok: false, error: "failed to flip session to submitted", resumable: true };
+  }
 
   return { ok: true };
 }

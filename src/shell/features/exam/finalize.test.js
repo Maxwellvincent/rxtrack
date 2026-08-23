@@ -13,6 +13,7 @@ import {
 import { createSessionShape, withRecordedStats } from "../../../examSessions.js";
 import { finalizeExamSession } from "./finalize.js";
 import * as lectureQuestionStats from "../../../stores/lectureQuestionStats.js";
+import { read as readWeakConcepts } from "../../../stores/weakConcepts.js";
 
 function makeQuestion(questionId, lectureId, correct = "A") {
   return { questionId, blockId: "block-1", lectureId, objectiveIds: [], stem: "?", choices: { A: "a", B: "b" }, correct, explanation: "" };
@@ -147,6 +148,62 @@ describe("finalizeExamSession", () => {
     const finalDoc = await getExamSession(uid, sessionId);
     expect(finalDoc.status).toBe("submitted");
     expect(finalDoc.sideEffectsCompleted.statsRecordedQuestionIds.sort()).toEqual(["q1", "q2"]);
+  });
+
+  it("produces a real weak-concept entry (struggling) with ISO-string date fields, not epoch numbers", async () => {
+    const sessionId = "sess-weak-concept";
+    const blockId = "block-weak-concept";
+    // 5 questions on lec-1, 3 wrong / 2 right -> 60% miss rate, >=3
+    // questions, no clean streak -> crosses the "struggling" threshold on
+    // its own, so computeWeakConceptEntry must return a real entry and
+    // finalize.js must actually invoke mergeExamReportConcepts.
+    const session = createSessionShape({
+      sessionId,
+      blockId,
+      lectureIds: ["lec-1"],
+      format: "exam",
+      questions: [
+        makeQuestion("q1", "lec-1", "A"),
+        makeQuestion("q2", "lec-1", "A"),
+        makeQuestion("q3", "lec-1", "A"),
+        makeQuestion("q4", "lec-1", "A"),
+        makeQuestion("q5", "lec-1", "A"),
+      ],
+      startedAt: Date.now(),
+    });
+    session.answers = [
+      { questionId: "q1", value: "B", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // wrong
+      { questionId: "q2", value: "B", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // wrong
+      { questionId: "q3", value: "B", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // wrong
+      { questionId: "q4", value: "A", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // correct
+      { questionId: "q5", value: "A", answeredAt: Date.now(), seq: 1, writerId: "w1" }, // correct
+    ];
+    await createExamSession(uid, session);
+
+    const result = await finalizeExamSession(uid, sessionId, {
+      blockName: "Block Weak Concept",
+      lectureLabelsByLectureId: { "lec-1": "Lecture One" },
+    });
+    expect(result).toEqual({ ok: true });
+
+    const store = readWeakConcepts(uid);
+    const blockConcepts = store[blockId] || [];
+    const entry = blockConcepts.find((c) => c.id === `exam:${blockId}:lec-1`);
+    expect(entry).toBeTruthy();
+    expect(entry.masteryLevel).toBe("struggling");
+    expect(entry.totalAttempts).toBe(5);
+    expect(entry.missCount).toBe(3);
+
+    // Issue #1 regression check: lastMissed/dateFirstSeen must be ISO
+    // strings (matching every other weakConcepts producer), not epoch
+    // numbers — a numeric value can never match studyRoutine.js's
+    // isSameDay string-slice comparison, silently breaking weak-drill.
+    expect(typeof entry.lastMissed).toBe("string");
+    expect(entry.lastMissed).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(new Date(entry.lastMissed).toString()).not.toBe("Invalid Date");
+    expect(typeof entry.dateFirstSeen).toBe("string");
+    expect(entry.dateFirstSeen).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(new Date(entry.dateFirstSeen).toString()).not.toBe("Invalid Date");
   });
 
   it("calling on an already-submitted session returns {ok:true, alreadySubmitted:true} without touching it", async () => {
