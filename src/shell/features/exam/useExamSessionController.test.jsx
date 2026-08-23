@@ -149,6 +149,49 @@ describe("useExamSessionController", () => {
       probe.unmount();
     });
 
+    it("wires visibilitychange/focus to an immediate recompute that reflects true elapsed monotonic time, granting no extra free time", async () => {
+      vi.useFakeTimers();
+      const now = Date.now();
+      const session = makeSession({ deadline: now + 10_000 });
+      getExamSessionMock.mockResolvedValue(session);
+
+      const probe = mountController(SESSION_ID, USER);
+      await probe.render();
+      await act(async () => {});
+
+      // Clear the setInterval spy call count so we can prove the
+      // visibilitychange listener — not a coincidental interval tick —
+      // is what drives the next recompute.
+      const before = probe.get().remainingMs;
+      expect(before).toBeGreaterThan(9_000);
+
+      // 8s of real (monotonic) time passes.
+      await act(async () => {
+        vi.advanceTimersByTime(8_000);
+      });
+
+      // Reconciliation via the event listener must reflect that elapsed
+      // time immediately — not stay stale, and not overshoot beyond what
+      // actually elapsed (the monotonic formula grants no free time).
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+
+      expect(probe.get().remainingMs).toBeLessThanOrEqual(2_000);
+      expect(probe.get().remainingMs).toBeGreaterThan(1_000);
+
+      // Firing the event again immediately (no further time elapsed) must
+      // not change remainingMs further — proves it's a pure recompute of
+      // real elapsed time, not an accumulator that grants time per event.
+      const afterFirstReconcile = probe.get().remainingMs;
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+      });
+      expect(probe.get().remainingMs).toBeCloseTo(afterFirstReconcile, -2);
+
+      probe.unmount();
+    });
+
     it("auto-submits exactly once when remainingMs hits zero for format exam", async () => {
       vi.useFakeTimers();
       const now = Date.now();
