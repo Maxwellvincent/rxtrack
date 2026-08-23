@@ -7,7 +7,7 @@
  * lecture/objective/atom/weak-concept maps `launchExamSession` (Task 8)
  * threads through to allocation (Task 4) and generation (Task 5).
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
@@ -21,8 +21,26 @@ import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
 import { ExamSessionRunner } from "./ExamSessionRunner.jsx";
 import { ExamDashboard } from "./ExamDashboard.jsx";
 import { launchExamSession } from "./launchExam.js";
+import { callAI, callAIJSON } from "../../../aiClient.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
+
+// I5 fix — `resolveDefaultQuestionCount`/`weakConceptsStore.read` are
+// synchronous store reads with no hydration signal. Mirrors the
+// `isHydrated`/`subscribe` contract `useStoreResource.js` already uses for
+// every other Firestore-backed store in this codebase: subscribing here
+// forces a re-render (and therefore a memo recompute, since this hydration
+// flag is a dependency below) once hydration actually completes, instead of
+// permanently freezing on whatever the store read before hydration landed —
+// a real path via `readLastView` restoring the Exam tab as the last-viewed
+// tab on reload.
+function useStoreHydrated(store, userId) {
+  return useSyncExternalStore(
+    (cb) => (typeof store.subscribe === "function" ? store.subscribe(cb) : () => {}),
+    () => (typeof store.isHydrated === "function" ? store.isHydrated(userId) : true),
+    () => (typeof store.isHydrated === "function" ? store.isHydrated(userId) : true)
+  );
+}
 
 function resolveDefaultQuestionCount(userId, blockId) {
   const banks = questionBanksStore.read(userId) || {};
@@ -34,11 +52,16 @@ function resolveDefaultQuestionCount(userId, blockId) {
   return DEFAULT_QUESTION_COUNT_FALLBACK;
 }
 
-export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
+export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture }) {
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [launchError, setLaunchError] = useState(null);
   const [launching, setLaunching] = useState(false);
+  // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
+  // generation shortfall after retries) was computed and returned but never
+  // read; surfaced here as a brief, dismissable warning once the user is in
+  // the session, rather than silently dropped.
+  const [launchWarning, setLaunchWarning] = useState(null);
 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
@@ -57,6 +80,18 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
     }
     return map;
   }, [lectures]);
+
+  // I6 fix — real lecture display labels for `finalizeExamSession`'s
+  // `lectureLabelsByLectureId` option, built from the same `lecturesById`
+  // map ExamContainer already assembles, instead of every exam-derived
+  // weak-concept entry getting a raw lectureId as its label forever.
+  const lectureLabelsByLectureId = useMemo(() => {
+    const map = {};
+    for (const [id, lec] of Object.entries(lecturesById)) {
+      map[id] = lec?.lectureTitle || lec?.fileName || id;
+    }
+    return map;
+  }, [lecturesById]);
 
   const objectivesByLecture = useMemo(() => {
     const map = {};
@@ -83,7 +118,15 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
     return map;
   }, [lectures, userId]);
 
-  const weakConcepts = useMemo(() => weakConceptsStore.read(userId), [userId]);
+  const weakConceptsHydrated = useStoreHydrated(weakConceptsStore, userId);
+  const weakConcepts = useMemo(
+    () => weakConceptsStore.read(userId),
+    // `weakConceptsHydrated` is a deliberate recompute-trigger dependency
+    // (same pattern as the controller hook's `tick`) — it carries no value
+    // itself, it just forces this memo to re-run once hydration lands.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userId, weakConceptsHydrated]
+  );
 
   const eligibleLectures = useMemo(
     () =>
@@ -97,9 +140,13 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
     [lectures, objectivesByLecture]
   );
 
+  const questionBanksHydrated = useStoreHydrated(questionBanksStore, userId);
+  const questionBankMetaHydrated = useStoreHydrated(questionBankMetaStore, userId);
   const defaultQuestionCount = useMemo(
     () => resolveDefaultQuestionCount(userId, blockId),
-    [userId, blockId]
+    // Same deliberate recompute-trigger pattern as above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [userId, blockId, questionBanksHydrated, questionBankMetaHydrated]
   );
 
   // Task 12 review fix #1 — Tutor mode had no reachable on-switch anywhere
@@ -127,21 +174,33 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
     setLaunching(true);
     setLaunchError(null);
     try {
-      const result = await launchExamSession({
-        userId,
-        blockId,
-        ...config,
-        eligibleLectures,
-        objectivesByLecture,
-        atomsByLecture,
-        lecturesById,
-        lectures,
-        weakConceptAccuracyByLecture,
-        weakConcepts,
-      });
+      const result = await launchExamSession(
+        {
+          userId,
+          blockId,
+          ...config,
+          eligibleLectures,
+          objectivesByLecture,
+          atomsByLecture,
+          lecturesById,
+          lectures,
+          weakConceptAccuracyByLecture,
+          weakConcepts,
+        },
+        // C1 fix — no caller ever supplied the AI transport: `deps` defaulted
+        // to `{}` all the way down to `generateMcqs`, so every generation
+        // call threw and every launch failed with "Could not generate any
+        // questions." Same DI pattern Shell.jsx uses for `startObjectiveQuiz`.
+        { callAIJSON }
+      );
       if (result.ok) {
         setShowLaunchModal(false);
         setActiveSessionId(result.sessionId);
+        setLaunchWarning(
+          result.generationErrors && result.generationErrors.length
+            ? result.generationErrors.map((e) => e.message || String(e)).join(" ")
+            : null
+        );
       } else {
         setLaunchError(result.error || "Could not start the exam.");
       }
@@ -159,13 +218,29 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
 
   if (activeSessionId) {
     return (
-      <ExamSessionRunner
-        sessionId={activeSessionId}
-        userId={userId}
-        blockId={blockId}
-        tutorModeEnabled={tutorModeEnabled}
-        onExit={() => setActiveSessionId(null)}
-      />
+      <div>
+        {launchWarning && (
+          <div
+            role="alert"
+            className="m-3 rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2.5 font-mono text-[12px] text-accent-text"
+          >
+            {launchWarning}
+          </div>
+        )}
+        <ExamSessionRunner
+          sessionId={activeSessionId}
+          userId={userId}
+          blockId={blockId}
+          blockName={blockName}
+          lectureLabelsByLectureId={lectureLabelsByLectureId}
+          tutorModeEnabled={tutorModeEnabled}
+          callAI={callAI}
+          onExit={() => {
+            setActiveSessionId(null);
+            setLaunchWarning(null);
+          }}
+        />
+      </div>
     );
   }
 

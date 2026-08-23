@@ -45,14 +45,20 @@ vi.mock("../../../stores/lectureQuestionStats.js", () => ({
 
 vi.mock("../../../stores/weakConcepts.js", () => ({
   read: () => ({}),
+  subscribe: () => () => {},
+  isHydrated: () => true,
 }));
 
 vi.mock("../../../stores/questionBanks.js", () => ({
   read: () => ({}),
+  subscribe: () => () => {},
+  isHydrated: () => true,
 }));
 
 vi.mock("../../../stores/questionBankMeta.js", () => ({
   newestForBlock: () => null,
+  subscribe: () => () => {},
+  isHydrated: () => true,
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
