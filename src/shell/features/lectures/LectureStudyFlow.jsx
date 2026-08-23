@@ -529,7 +529,13 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const objDeveloping = lectureObjectives.filter((o) => o.status === "developing").length;
   const objUntested = lectureObjectives.length - objMastered - objDeveloping;
   const objPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
-  const roundPct = rounds.length > 0 ? Math.round((done / rounds.length) * 100) : 0;
+  // The bar shown here is effort you can SEE moving, not the mastery gate — a Quiz-button
+  // attempt answers real questions on this lecture and deserves to fill it too, even though
+  // it doesn't graduate an objective (that still needs a full Study pass or an 80%+ Quiz batch,
+  // untouched below). `done` itself (round-resume bookkeeping) is not touched by this blend.
+  const roundsFromQuestions = rounds.length > 0 ? Math.min(Math.floor(qStats.answered / ROUND_SIZE), rounds.length) : 0;
+  const displayDone = Math.max(done, roundsFromQuestions);
+  const roundPct = rounds.length > 0 ? Math.round((displayDone / rounds.length) * 100) : 0;
   const accuracyPct = qStats.accuracy == null ? 0 : Math.round(qStats.accuracy * 100);
   // Banded rather than a gradient: the only decision this drives is whether the lecture goes back
   // on the review pile, and 70% is where that answer changes.
@@ -567,7 +573,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                   style={{ width: `${roundPct}%`, background: roundPct === 100 ? "var(--color-good)" : "var(--color-accent)" }}
                 />
               </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{done}/{rounds.length}</span>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{displayDone}/{rounds.length}</span>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">Level</span>
@@ -620,9 +626,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       )}
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 -mt-2 font-mono text-[11px] text-text-3">
-          Rounds only count a full Study pass finished here — Quiz-button attempts feed Questions'
-          lifetime accuracy above but not Rounds. Objectives graduate to mastered on finishing all
-          rounds, or a Quiz scoring 80%+ — accuracy alone doesn't move them.
+          Rounds fills from any question answered here, Study or Quiz. Objectives still graduate
+          to mastered only on finishing all rounds, or a Quiz scoring 80%+ — that bar stays strict
+          on purpose, it's what your schedule leans on.
         </div>
       )}
 
