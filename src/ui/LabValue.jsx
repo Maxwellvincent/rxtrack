@@ -88,8 +88,13 @@ const LAB_REF = [
   { terms: ["anion gap"], name: "Anion Gap", low: 8, high: 12, unit: "mEq/L" },
 ];
 
-const UNIT_PAT = "(?:mEq\\/L|mg\\/dL|g\\/dL|μg\\/dL|ng\\/dL|ng\\/mL|pg\\/mL|U\\/L|IU\\/L|mIU\\/L|mmHg|mm\\/hr|mg\\/L|fL|mOsm\\/kg|μIU\\/mL|ng\\/mL\\/hr|cells\\/μL|%|sec|/μL)?";
+const UNIT_PAT = "(?:mEq\\/L|mmol\\/L|mg\\/dL|g\\/dL|μg\\/dL|ng\\/dL|ng\\/mL|pg\\/mL|U\\/L|IU\\/L|mIU\\/L|mmHg|mm\\/hr|mg\\/L|fL|mOsm(?:ol)?\\/kg(?:\\s*H2O)?|μIU\\/mL|ng\\/mL\\/hr|cells\\/μL|%|sec|/μL)?";
 const NUM_PAT = "[\\d,]+(?:\\.\\d+)?";
+// A vignette states a value as a report line ("Sodium: 107"), a bare space
+// ("Potassium 2.4"), or natural prose ("sodium of 126", "glucose is 20", "was
+// 2.4") — up to two connecting words, so it still stops before an unrelated
+// number elsewhere in the sentence.
+const SEP_PAT = "(?:\\s*:\\s*|\\s+(?:[a-zA-Z]+\\s+){0,2})";
 
 // Build one big regex from all lab terms
 function buildRegex() {
@@ -101,7 +106,7 @@ function buildRegex() {
   const termGroup = entries.map((e) => `(?:${e.term})`).join("|");
   // Capture: full match, term, number, optional unit
   return {
-    re: new RegExp(`(${termGroup})\\s*:?\\s*(${NUM_PAT})\\s*${UNIT_PAT}`, "gi"),
+    re: new RegExp(`(${termGroup})${SEP_PAT}(${NUM_PAT})\\s*${UNIT_PAT}`, "gi"),
     entries,
   };
 }
@@ -113,7 +118,7 @@ function findLab(term) {
   );
 }
 
-function parseText(text) {
+export function parseText(text) {
   const { re } = buildRegex();
   const parts = [];
   let last = 0;
