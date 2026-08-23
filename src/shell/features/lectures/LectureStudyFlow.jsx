@@ -656,11 +656,16 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
 
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 flex flex-col gap-3">
-          {/* Unified generate button — opens inline picker */}
+          {/* Unified generate button — opens inline picker. This IS the Quiz feature (same
+              exemplar-backed generator as the Lectures list's QUIZ button), labeled Quiz so it
+              reads as one instead of a generic "make some questions" action. */}
           {!quizPicker ? (
             <div className="flex flex-wrap items-center gap-3">
-              <Button onClick={() => setQuizPicker({ count: 10, difficulty: "medium" })} disabled={!!busy}>
-                {busyLabel || "▸ Generate questions"}
+              <Button
+                onClick={() => setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy) })}
+                disabled={!!busy}
+              >
+                {busyLabel || "▸ Quiz this lecture"}
               </Button>
               <span className="text-[12px] text-text-3">
                 {atoms.length} atoms · {lectureObjectives.length} objectives
@@ -734,7 +739,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                   }}
                   disabled={!!busy}
                 >
-                  Generate {quizPicker.count} questions
+                  Start {quizPicker.count}-question quiz
                 </Button>
                 <button onClick={() => setQuizPicker(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
                   cancel
