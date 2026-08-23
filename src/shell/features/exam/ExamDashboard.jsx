@@ -71,15 +71,25 @@ function accuracyClass(accuracy) {
 export function ExamDashboard({ blockId, userId, lecturesById, onNavigateToLecture }) {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
+  // I7 fix — `listExamSessions(...).then(...)` had no rejection handler: a
+  // fetch failure left "Loading…" up forever (plus an unhandled rejection).
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    listExamSessions(userId, blockId, { status: "submitted" }).then((submitted) => {
-      if (cancelled) return;
-      setSessions(submitted || []);
-      setLoading(false);
-    });
+    setError(null);
+    listExamSessions(userId, blockId, { status: "submitted" })
+      .then((submitted) => {
+        if (cancelled) return;
+        setSessions(submitted || []);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setError(e?.message || String(e));
+        setLoading(false);
+      });
     return () => {
       cancelled = true;
     };
@@ -112,6 +122,19 @@ export function ExamDashboard({ blockId, userId, lecturesById, onNavigateToLectu
           Integrated Exam performance
         </div>
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Loading…</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-5">
+        <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
+          Integrated Exam performance
+        </div>
+        <div data-testid="exam-dashboard-error" className="rounded-lg border border-bad/40 p-3 text-xs text-bad">
+          Could not load Integrated Exam performance: {error}
+        </div>
       </div>
     );
   }

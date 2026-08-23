@@ -195,6 +195,20 @@ describe("ExamDashboard", () => {
     unmount();
   });
 
+  it("I7 fix: a rejected listExamSessions fetch shows a visible error instead of hanging on 'Loading…' forever", async () => {
+    listExamSessionsMock.mockRejectedValue(new Error("firestore unavailable"));
+
+    const { host, unmount } = render(
+      <ExamDashboard blockId={BLOCK} userId={USER} lecturesById={LECTURES} onNavigateToLecture={vi.fn()} />
+    );
+    await flush();
+
+    expect(host.textContent).not.toMatch(/Loading/);
+    expect(host.querySelector('[data-testid="exam-dashboard-error"]')).toBeTruthy();
+    expect(host.textContent).toMatch(/firestore unavailable/);
+    unmount();
+  });
+
   it("scopes the listExamSessions call by blockId and excludes mixed-block weak-concept entries", async () => {
     listExamSessionsMock.mockResolvedValue([]);
     readWeakConceptsMock.mockReturnValue({
