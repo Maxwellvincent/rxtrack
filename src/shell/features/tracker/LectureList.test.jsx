@@ -136,6 +136,37 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     unmount();
   });
 
+  it("review fix #4: scrollIntoView fires once per focusLectureId, not on every unrelated row recomputation (e.g. typing in search)", () => {
+    const scrollIntoViewSpy = vi.fn();
+    const originalScrollIntoView = window.HTMLElement.prototype.scrollIntoView;
+    window.HTMLElement.prototype.scrollIntoView = scrollIntoViewSpy;
+
+    const { host, unmount } = render(
+      <LectureList
+        blockId={BLOCK}
+        userId="u1"
+        onStudyLecture={vi.fn()}
+        onStartObjectiveQuiz={vi.fn()}
+        onBack={vi.fn()}
+        focusLectureId="lec-1"
+      />
+    );
+
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
+
+    // Typing in search recomputes `rows` (a dependency of the scroll
+    // effect) without focusLectureId itself changing — this must not
+    // re-trigger the scroll.
+    const searchInput = host.querySelector('input[placeholder="search…"]');
+    const propsKey = Object.keys(searchInput).find((k) => k.startsWith("__reactProps$"));
+    act(() => searchInput[propsKey].onChange({ target: { value: "One" } }));
+
+    expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
+
+    unmount();
+    window.HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
   it("focusLectureId absent is fully additive: no highlight class, no crash", () => {
     const { host, unmount } = render(
       <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} focusLectureId={null} />

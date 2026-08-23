@@ -176,6 +176,35 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("launching=true disables both buttons and relabels Start (Task 12 review fix #2, double-launch race)", () => {
+    const onLaunch = vi.fn();
+    const onCancel = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={15}
+        onLaunch={onLaunch}
+        onCancel={onCancel}
+        launching
+      />
+    );
+
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent.includes("Starting"));
+    const cancelBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Cancel");
+    expect(startBtn).toBeTruthy();
+    expect(startBtn.disabled).toBe(true);
+    expect(cancelBtn.disabled).toBe(true);
+
+    act(() => startBtn.click());
+    act(() => cancelBtn.click());
+    expect(onLaunch).not.toHaveBeenCalled();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
   it("falls back to 20 when defaultQuestionCount is not provided", () => {
     const { host, unmount } = render(
       <ExamLaunchModal

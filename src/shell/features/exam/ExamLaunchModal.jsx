@@ -16,6 +16,10 @@ const MAX_QUESTION_COUNT = 50;
  *   defaultQuestionCount number — pre-resolved by the parent
  *   onLaunch({ format, questionCount, durationMinutes }) => void
  *   onCancel () => void
+ *   launching             bool — Task 12's fix for a double-launch race:
+ *     while true, both buttons are disabled and Start reads "Starting…" so a
+ *     second click during the (multi-second, real-AI-cost) generation call
+ *     can't fire a second launch.
  */
 export function ExamLaunchModal({
   blockId,
@@ -24,6 +28,7 @@ export function ExamLaunchModal({
   defaultQuestionCount,
   onLaunch,
   onCancel,
+  launching = false,
 }) {
   const [format, setFormat] = useState("exam");
   const [count, setCount] = useState(String(defaultQuestionCount || 20));
@@ -61,7 +66,7 @@ export function ExamLaunchModal({
       role="dialog"
       aria-modal="true"
       aria-label="Exam settings"
-      onClick={(e) => { if (e.target === e.currentTarget) onCancel?.(); }}
+      onClick={(e) => { if (!launching && e.target === e.currentTarget) onCancel?.(); }}
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-14"
     >
       <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5 shadow-xl">
@@ -141,16 +146,17 @@ export function ExamLaunchModal({
         <div className="mt-5 flex justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded border border-border px-3 py-1.5 font-mono text-xs text-text-2 hover:text-text-1"
+            disabled={launching}
+            className="rounded border border-border px-3 py-1.5 font-mono text-xs text-text-2 hover:text-text-1 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Cancel
           </button>
           <button
             onClick={handleLaunch}
-            disabled={!canLaunch}
+            disabled={!canLaunch || launching}
             className="rounded bg-accent px-3 py-1.5 font-mono text-xs font-bold text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Start exam
+            {launching ? "Starting…" : "Start exam"}
           </button>
         </div>
       </div>

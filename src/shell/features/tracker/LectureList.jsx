@@ -238,9 +238,17 @@ export function LectureList({
     [scores, context.completion, blockId]
   );
 
+  // One-shot per focusLectureId value: `rows` is a dependency only so this
+  // can wait for the target row to actually be present (e.g. still loading
+  // on first mount), not so it re-fires on every unrelated row
+  // recomputation (search/filter/sort changes, background activity-log
+  // updates) — `scrolledForRef` gates that.
+  const scrolledForRef = useRef(null);
   useEffect(() => {
     if (!focusLectureId) return;
+    if (scrolledForRef.current === focusLectureId) return;
     if (!rows.some((row) => row.lectureId === focusLectureId)) return;
+    scrolledForRef.current = focusLectureId;
     focusRowRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
   }, [focusLectureId, rows]);
 

@@ -16,7 +16,7 @@ import { statsForLecture } from "../../../stores/lectureQuestionStats.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
-import { readTutorModeEnabled } from "./tutorPrefs.js";
+import { readTutorModeEnabled, writeTutorModeEnabled } from "./tutorPrefs.js";
 import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
 import { ExamSessionRunner } from "./ExamSessionRunner.jsx";
 import { ExamDashboard } from "./ExamDashboard.jsx";
@@ -102,29 +102,58 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
     [userId, blockId]
   );
 
-  const tutorModeEnabled = readTutorModeEnabled();
+  // Task 12 review fix #1 — Tutor mode had no reachable on-switch anywhere
+  // in the app (writeTutorModeEnabled was called from nowhere outside its
+  // own test file). This is the last task in the build, so the toggle
+  // lives here: initial state from the stored preference, writes back on
+  // every change, and the resulting boolean is what actually drives
+  // ExamSessionRunner's tutorModeEnabled prop below.
+  const [tutorModeEnabled, setTutorModeEnabledState] = useState(() => readTutorModeEnabled());
+  const toggleTutorMode = () => {
+    setTutorModeEnabledState((prev) => {
+      const next = !prev;
+      writeTutorModeEnabled(next);
+      return next;
+    });
+  };
 
   const handleLaunch = async (config) => {
+    // Task 12 review fix #2 — in-flight guard: without this, a second click
+    // on "Start exam" during the multi-second generation call fires a
+    // second full (real-AI-cost) generation run and creates an orphaned
+    // second session doc. ExamLaunchModal also disables its own button
+    // while `launching`, but this early-return is the actual race-closer.
+    if (launching) return;
     setLaunching(true);
     setLaunchError(null);
-    const result = await launchExamSession({
-      userId,
-      blockId,
-      ...config,
-      eligibleLectures,
-      objectivesByLecture,
-      atomsByLecture,
-      lecturesById,
-      lectures,
-      weakConceptAccuracyByLecture,
-      weakConcepts,
-    });
-    setLaunching(false);
-    if (result.ok) {
-      setShowLaunchModal(false);
-      setActiveSessionId(result.sessionId);
-    } else {
-      setLaunchError(result.error || "Could not start the exam.");
+    try {
+      const result = await launchExamSession({
+        userId,
+        blockId,
+        ...config,
+        eligibleLectures,
+        objectivesByLecture,
+        atomsByLecture,
+        lecturesById,
+        lectures,
+        weakConceptAccuracyByLecture,
+        weakConcepts,
+      });
+      if (result.ok) {
+        setShowLaunchModal(false);
+        setActiveSessionId(result.sessionId);
+      } else {
+        setLaunchError(result.error || "Could not start the exam.");
+      }
+    } catch (err) {
+      // Task 12 review fix #3 — neither this nor launchExamSession had a
+      // try/catch around the parts that can genuinely throw (Firestore,
+      // the AI client). Uncaught, `setLaunching(false)` below would never
+      // run and the UI would be stuck showing "launching" with no
+      // recovery short of a reload.
+      setLaunchError(err?.message || "Something went wrong starting the exam.");
+    } finally {
+      setLaunching(false);
     }
   };
 
@@ -144,14 +173,20 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
     <div className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-bold text-text-1">Integrated Exam</h2>
-        <Button
-          onClick={() => {
-            setLaunchError(null);
-            setShowLaunchModal(true);
-          }}
-        >
-          Start Integrated Exam
-        </Button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-1.5 font-mono text-[12px] text-text-3">
+            <input type="checkbox" checked={tutorModeEnabled} onChange={toggleTutorMode} />
+            Tutor mode
+          </label>
+          <Button
+            onClick={() => {
+              setLaunchError(null);
+              setShowLaunchModal(true);
+            }}
+          >
+            Start Integrated Exam
+          </Button>
+        </div>
       </div>
 
       {showLaunchModal && (
@@ -162,6 +197,7 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
           defaultQuestionCount={defaultQuestionCount}
           onLaunch={handleLaunch}
           onCancel={() => setShowLaunchModal(false)}
+          launching={launching}
         />
       )}
 
@@ -180,14 +216,6 @@ export function ExamContainer({ blockId, userId, onNavigateToLecture }) {
         lecturesById={lecturesById}
         onNavigateToLecture={onNavigateToLecture}
       />
-
-      {launching && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20">
-          <div className="rounded-lg border border-border bg-bg px-4 py-2.5 font-mono text-xs text-text-2">
-            Generating exam…
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -15,8 +15,11 @@ vi.mock("./launchExam.js", () => ({
   launchExamSession: (...args) => launchExamSessionMock(...args),
 }));
 
+const readTutorModeEnabledMock = vi.fn(() => false);
+const writeTutorModeEnabledMock = vi.fn();
 vi.mock("./tutorPrefs.js", () => ({
-  readTutorModeEnabled: () => false,
+  readTutorModeEnabled: (...args) => readTutorModeEnabledMock(...args),
+  writeTutorModeEnabled: (...args) => writeTutorModeEnabledMock(...args),
 }));
 
 vi.mock("../../hooks/useLectures.js", () => ({
@@ -53,9 +56,13 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
-  ExamLaunchModal: ({ onLaunch, onCancel }) => (
-    <div data-testid="launch-modal">
-      <button data-testid="fire-launch" onClick={() => onLaunch({ format: "practice", questionCount: 10, durationMinutes: null })}>
+  ExamLaunchModal: ({ onLaunch, onCancel, launching }) => (
+    <div data-testid="launch-modal" data-launching={launching ? "true" : "false"}>
+      <button
+        data-testid="fire-launch"
+        disabled={launching}
+        onClick={() => onLaunch({ format: "practice", questionCount: 10, durationMinutes: null })}
+      >
         launch
       </button>
       <button data-testid="cancel-launch" onClick={onCancel}>cancel</button>
@@ -64,8 +71,8 @@ vi.mock("./ExamLaunchModal.jsx", () => ({
 }));
 
 vi.mock("./ExamSessionRunner.jsx", () => ({
-  ExamSessionRunner: ({ sessionId, onExit }) => (
-    <div data-testid="session-runner">
+  ExamSessionRunner: ({ sessionId, onExit, tutorModeEnabled }) => (
+    <div data-testid="session-runner" data-tutor-mode={tutorModeEnabled ? "true" : "false"}>
       runner for {sessionId}
       <button data-testid="exit-session" onClick={onExit}>exit</button>
     </div>
@@ -100,6 +107,9 @@ async function flush() {
 beforeEach(() => {
   installDomStorage();
   launchExamSessionMock.mockReset();
+  readTutorModeEnabledMock.mockReset();
+  readTutorModeEnabledMock.mockReturnValue(false);
+  writeTutorModeEnabledMock.mockReset();
 });
 
 describe("ExamContainer", () => {
@@ -200,5 +210,109 @@ describe("ExamContainer", () => {
     expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeTruthy();
 
     unmount();
+  });
+
+  describe("review fixes", () => {
+    it("fix #1: tutor-mode checkbox reads the stored preference, toggling writes it back and feeds the session runner", async () => {
+      readTutorModeEnabledMock.mockReturnValue(true);
+
+      const { host, unmount } = render(
+        <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
+      );
+
+      const checkbox = host.querySelector('input[type="checkbox"]');
+      expect(checkbox).toBeTruthy();
+      expect(checkbox.checked).toBe(true);
+
+      act(() => {
+        checkbox.dispatchEvent(new Event("click", { bubbles: true }));
+        const propsKey = Object.keys(checkbox).find((k) => k.startsWith("__reactProps$"));
+        checkbox[propsKey].onChange({ target: { checked: false } });
+      });
+
+      expect(writeTutorModeEnabledMock).toHaveBeenCalledWith(false);
+      expect(checkbox.checked).toBe(false);
+
+      // Launch a session and confirm the (now off) preference is what
+      // actually reaches ExamSessionRunner's tutorModeEnabled prop.
+      launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "sess-tutor" });
+      const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
+        b.textContent.includes("Start Integrated Exam")
+      );
+      act(() => startButton.click());
+      await act(async () => {
+        host.querySelector('[data-testid="fire-launch"]').click();
+      });
+      await flush();
+
+      const runner = host.querySelector('[data-testid="session-runner"]');
+      expect(runner.dataset.tutorMode).toBe("false");
+
+      unmount();
+    });
+
+    it("fix #2: a second launch call while one is already in flight is ignored (no double-launch)", async () => {
+      let resolveLaunch;
+      launchExamSessionMock.mockReturnValue(
+        new Promise((resolve) => {
+          resolveLaunch = resolve;
+        })
+      );
+
+      const { host, unmount } = render(
+        <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
+      );
+
+      const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
+        b.textContent.includes("Start Integrated Exam")
+      );
+      act(() => startButton.click());
+
+      const fireLaunch = host.querySelector('[data-testid="fire-launch"]');
+      act(() => fireLaunch.click());
+      // Modal should now report launching=true (its own button also
+      // disables, but the container itself is the actual race-closer).
+      expect(host.querySelector('[data-testid="launch-modal"]').dataset.launching).toBe("true");
+
+      // Fire a second launch while the first is still in flight.
+      act(() => fireLaunch.click());
+      act(() => fireLaunch.click());
+
+      resolveLaunch({ ok: true, sessionId: "sess-once" });
+      await flush();
+
+      expect(launchExamSessionMock).toHaveBeenCalledTimes(1);
+      expect(host.querySelector('[data-testid="session-runner"]').textContent).toMatch(/sess-once/);
+
+      unmount();
+    });
+
+    it("fix #3: a thrown error from launchExamSession is caught, shows an error, and clears the launching state", async () => {
+      launchExamSessionMock.mockRejectedValue(new Error("network blip"));
+
+      const { host, unmount } = render(
+        <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
+      );
+
+      const startButton = Array.from(host.querySelectorAll("button")).find((b) =>
+        b.textContent.includes("Start Integrated Exam")
+      );
+      act(() => startButton.click());
+
+      await act(async () => {
+        host.querySelector('[data-testid="fire-launch"]').click();
+      });
+      await flush();
+
+      expect(host.textContent).toMatch(/network blip/);
+      // Not stuck: the modal is still there (didn't crash/unmount) and no
+      // longer reports launching, so a retry is possible.
+      const modal = host.querySelector('[data-testid="launch-modal"]');
+      expect(modal).toBeTruthy();
+      expect(modal.dataset.launching).toBe("false");
+      expect(host.querySelector('[data-testid="fire-launch"]').disabled).toBe(false);
+
+      unmount();
+    });
   });
 });
