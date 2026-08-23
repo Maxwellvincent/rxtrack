@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { sessionBytes, createSessionShape, mergeAnswer, MAX_EXAM_SESSION_BYTES } from "./examSessions";
+import {
+  sessionBytes,
+  createSessionShape,
+  mergeAnswer,
+  hasRecordedStats,
+  withRecordedStats,
+  MAX_EXAM_SESSION_BYTES,
+} from "./examSessions";
 
 describe("sessionBytes", () => {
   it("measures JSON length of the session", () => {
@@ -132,5 +139,45 @@ describe("mergeAnswer", () => {
     const incoming = { ...base, value: "B", writerId: "a" };
     const result = mergeAnswer([existing], incoming);
     expect(result).toEqual([existing]);
+  });
+});
+
+describe("hasRecordedStats", () => {
+  it("returns false when the array is empty", () => {
+    expect(hasRecordedStats([], "q1")).toBe(false);
+  });
+
+  it("returns false when the array is undefined/null", () => {
+    expect(hasRecordedStats(undefined, "q1")).toBe(false);
+    expect(hasRecordedStats(null, "q1")).toBe(false);
+  });
+
+  it("returns false when questionId is absent from a non-empty array", () => {
+    expect(hasRecordedStats(["q2", "q3"], "q1")).toBe(false);
+  });
+
+  it("returns true when questionId is present", () => {
+    expect(hasRecordedStats(["q1", "q2"], "q1")).toBe(true);
+  });
+});
+
+describe("withRecordedStats", () => {
+  it("adds questionId to an empty array", () => {
+    expect(withRecordedStats([], "q1")).toEqual(["q1"]);
+  });
+
+  it("adds questionId to an undefined/null array", () => {
+    expect(withRecordedStats(undefined, "q1")).toEqual(["q1"]);
+    expect(withRecordedStats(null, "q1")).toEqual(["q1"]);
+  });
+
+  it("appends questionId, keeping existing entries", () => {
+    expect(withRecordedStats(["q1"], "q2")).toEqual(["q1", "q2"]);
+  });
+
+  it("is idempotent — adding an already-present id doesn't grow the array", () => {
+    const result = withRecordedStats(["q1", "q2"], "q1");
+    expect(result).toEqual(["q1", "q2"]);
+    expect(result).toHaveLength(2);
   });
 });

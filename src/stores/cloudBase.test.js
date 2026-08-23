@@ -8,6 +8,7 @@ import {
   readError,
   resetCloudStores,
   writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 
 /**
@@ -125,6 +126,32 @@ describe("writeCloud", () => {
 
   it("is a no-op when signed out", () => {
     writeCloud(null, "rxt-exam-dates", { b1: "x" });
+    expect(backend.writes).toHaveLength(0);
+  });
+});
+
+describe("writeCloudAwait", () => {
+  it("resolves with the value on a successful write", async () => {
+    const result = await writeCloudAwait("u1", "rxt-exam-dates", { b1: "2026-09-30" });
+    expect(result).toEqual({ b1: "2026-09-30" });
+    expect(readCloud("u1", "rxt-exam-dates", {})).toEqual({ b1: "2026-09-30" });
+    expect(backend.writes).toHaveLength(1);
+  });
+
+  it("updates the cache optimistically before the round trip resolves", () => {
+    // The write promise is deliberately not awaited here.
+    writeCloudAwait("u1", "rxt-exam-dates", { b1: "x" });
+    expect(readCloud("u1", "rxt-exam-dates", {})).toEqual({ b1: "x" });
+  });
+
+  it("rejects when the underlying write fails, instead of swallowing it", async () => {
+    __setCloudBackendForTests({ ...backend.api, setDoc: () => Promise.reject(new Error("offline")) });
+    await expect(writeCloudAwait("u1", "rxt-exam-dates", { b1: "queued" })).rejects.toThrow("offline");
+  });
+
+  it("is a no-op that resolves with the value when signed out", async () => {
+    const result = await writeCloudAwait(null, "rxt-exam-dates", { b1: "x" });
+    expect(result).toEqual({ b1: "x" });
     expect(backend.writes).toHaveLength(0);
   });
 });

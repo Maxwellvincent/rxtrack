@@ -16,6 +16,7 @@ import {
   readError as cloudReadError,
   subscribeToCloudStore,
   writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 import { mergeWeakConcepts } from "./merge.js";
@@ -32,6 +33,15 @@ export function read(userId) {
 export function write(userId, value) {
   if (!userId) return value;
   return writeCloud(userId, key, value);
+}
+
+// Awaitable, non-swallowing sibling of `write` — the returned promise
+// genuinely reflects whether the Firestore write succeeded. Used only by
+// the exam-tab finalization path (a later task); `write` is unchanged.
+export async function writeAwait(userId, value) {
+  if (!userId) return value;
+  await writeCloudAwait(userId, key, value);
+  return value;
 }
 
 export function merge(userId, incoming) {

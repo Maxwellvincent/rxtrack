@@ -114,3 +114,23 @@ export function mergeAnswer(currentAnswers, incomingAnswer) {
   next[idx] = incomingAnswer;
   return next;
 }
+
+/**
+ * Has this question's answer already been recorded into per-question stats?
+ * Pure lookup against `sideEffectsCompleted.statsRecordedQuestionIds`.
+ */
+export function hasRecordedStats(statsRecordedQuestionIds, questionId) {
+  return (statsRecordedQuestionIds || []).includes(questionId);
+}
+
+/**
+ * Idempotent add: returns a new array with `questionId` present. Adding an
+ * id already in the array returns an array with the same contents, not a
+ * duplicate — resume logic can call this unconditionally after each
+ * successful `recordAnswerAwait` without checking first.
+ */
+export function withRecordedStats(statsRecordedQuestionIds, questionId) {
+  const current = statsRecordedQuestionIds || [];
+  if (current.includes(questionId)) return current;
+  return [...current, questionId];
+}

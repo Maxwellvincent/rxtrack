@@ -225,6 +225,28 @@ export function writeCloud(userId, logicalKey, value) {
   return value;
 }
 
+/**
+ * Awaitable, non-swallowing sibling of `writeCloud`. Same optimistic local-
+ * cache update (the UI does not wait on the round trip), but the returned
+ * promise genuinely reflects whether the Firestore write succeeded — no
+ * `.catch()` swallows the rejection here, unlike `writeCloud`. Callers that
+ * need to know for certain whether the write landed (e.g. exam-tab
+ * finalization marking a completion marker true) should await this instead.
+ */
+export function writeCloudAwait(userId, logicalKey, value) {
+  if (!userId) return Promise.resolve(value);
+  const entry = entryFor(userId, logicalKey);
+  entry.value = value;
+  entry.hydrated = true;
+  mirrorLocally(userId, logicalKey, value);
+  notifyStoreChanged(logicalKey, { userId, source: "local-write" });
+
+  const { setDoc: put, serverTimestamp: stamp } = api();
+  return Promise.resolve(
+    put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge: false })
+  ).then(() => value); // deliberately no .catch — rejection must propagate to the caller
+}
+
 /** Same change notification channel as the localStorage stores. */
 export function subscribeToCloudStore(logicalKey, cb) {
   return subscribeToStore(logicalKey, cb);
