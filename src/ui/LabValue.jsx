@@ -145,6 +145,53 @@ export function parseText(text) {
   return parts;
 }
 
+/**
+ * Split a plain-text run further by any stored highlighted phrases, without
+ * touching lab-value parts (those already render as their own clickable
+ * button). Earliest match in the string wins; ties prefer the longer phrase
+ * so one highlight never gets sliced by a shorter one that starts the same.
+ */
+function splitByHighlights(text, highlights) {
+  if (!highlights?.length) return [{ type: "text", content: text }];
+  let remaining = text;
+  const out = [];
+  while (remaining) {
+    let bestIdx = -1;
+    let bestPhrase = null;
+    for (const h of highlights) {
+      if (!h) continue;
+      const idx = remaining.indexOf(h);
+      if (idx === -1) continue;
+      if (bestIdx === -1 || idx < bestIdx || (idx === bestIdx && h.length > bestPhrase.length)) {
+        bestIdx = idx;
+        bestPhrase = h;
+      }
+    }
+    if (bestIdx === -1) {
+      out.push({ type: "text", content: remaining });
+      break;
+    }
+    if (bestIdx > 0) out.push({ type: "text", content: remaining.slice(0, bestIdx) });
+    out.push({ type: "mark", content: remaining.slice(bestIdx, bestIdx + bestPhrase.length) });
+    remaining = remaining.slice(bestIdx + bestPhrase.length);
+  }
+  return out;
+}
+
+/** Apply highlight splitting to every plain-text part; lab parts pass through untouched. */
+export function applyHighlights(parts, highlights) {
+  if (!highlights?.length) return parts;
+  const out = [];
+  for (const part of parts) {
+    if (part.type !== "text") {
+      out.push(part);
+      continue;
+    }
+    out.push(...splitByHighlights(part.content, highlights));
+  }
+  return out;
+}
+
 function LabPopover({ lab, value, onClose }) {
   const ref = useRef(null);
   const isHigh = value > lab.high;
@@ -179,13 +226,31 @@ function LabPopover({ lab, value, onClose }) {
   );
 }
 
-export function LabAnnotatedText({ text, className }) {
+export function LabAnnotatedText({ text, className, highlights, onHighlight }) {
   const [openIdx, setOpenIdx] = useState(null);
-  const parts = parseText(text || "");
+  const containerRef = useRef(null);
+  const parts = applyHighlights(parseText(text || ""), highlights);
+
+  const handleMouseUp = () => {
+    if (!onHighlight) return;
+    const sel = window.getSelection();
+    const phrase = sel?.toString().trim();
+    if (phrase && phrase.length >= 3 && containerRef.current?.contains(sel.anchorNode)) {
+      onHighlight(phrase);
+      sel.removeAllRanges();
+    }
+  };
 
   return (
-    <span className={className}>
+    <span ref={containerRef} className={className} onMouseUp={handleMouseUp}>
       {parts.map((p, i) => {
+        if (p.type === "mark") {
+          return (
+            <mark key={i} className="rounded-sm bg-warn/30 px-0.5 text-text-1">
+              {p.content}
+            </mark>
+          );
+        }
         if (p.type === "text") return <span key={i}>{p.content}</span>;
         return (
           <span key={i} className="relative inline-block">

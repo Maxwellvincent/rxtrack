@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { classify, summarize } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
+import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
@@ -101,6 +102,27 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const [records, setRecords] = useState([]);
   const [done, setDone] = useState(false);
   const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
+  // Keyed by stem (same key generatedQuestions dedupes on) — select text in
+  // the stem to mark it, like underlining on a real exam. Seeded from
+  // whatever's already stored so a question you've marked before shows it
+  // again.
+  const [highlights, setHighlights] = useState(() => {
+    const map = {};
+    for (const q of questions) if (q.highlights?.length) map[q.stem] = q.highlights;
+    return map;
+  });
+
+  const onHighlight = useCallback(
+    (stem, phrase) => {
+      setHighlights((prev) => {
+        const existing = prev[stem] || [];
+        if (existing.includes(phrase)) return prev;
+        return { ...prev, [stem]: [...existing, phrase] };
+      });
+      if (lectureId) generatedQuestionsStore.addHighlight(userId, lectureId, stem, phrase);
+    },
+    [lectureId, userId]
+  );
 
   if (done) return <Summary records={records} onExit={onExit} />;
 
@@ -150,7 +172,12 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
-        <LabAnnotatedText text={q.stem} className="mb-2 block text-sm text-text-1" />
+        <LabAnnotatedText
+          text={q.stem}
+          className="mb-2 block text-sm text-text-1"
+          highlights={highlights[q.stem]}
+          onHighlight={(phrase) => onHighlight(q.stem, phrase)}
+        />
         <div className="flex flex-col gap-1.5">
           {Object.entries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;

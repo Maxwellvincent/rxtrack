@@ -42,6 +42,27 @@ export function addQuestions(userId, lectureId, newQuestions) {
   return capped;
 }
 
+/**
+ * Add one highlighted phrase to a question, matched by stem (the same key
+ * addQuestions dedupes on). No-op if the question isn't in the pool — a
+ * highlight on a question that never got saved has nothing to attach to.
+ */
+export function addHighlight(userId, lectureId, stem, phrase) {
+  if (!lectureId || !stem || !phrase) return read(userId);
+  const current = read(userId);
+  const entry = current[lectureId];
+  if (!entry) return current;
+  const questions = entry.questions.map((q) => {
+    if (q.stem !== stem) return q;
+    const existing = q.highlights || [];
+    if (existing.includes(phrase)) return q;
+    return { ...q, highlights: [...existing, phrase] };
+  });
+  const next = { ...current, [lectureId]: { ...entry, questions } };
+  writeCloud(userId, key, next);
+  return next;
+}
+
 export function questionsForLecture(userId, lectureId) {
   return read(userId)[lectureId]?.questions ?? [];
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseText } from "./LabValue.jsx";
+import { parseText, applyHighlights } from "./LabValue.jsx";
 
 function labParts(text) {
   return parseText(text).filter((p) => p.type === "lab");
@@ -49,5 +49,34 @@ describe("parseText — natural sentence phrasing (real exam vignette style)", (
     const parts = labParts("The patient is 45 years old. Serum glucose is 90 mg/dL.");
     expect(parts).toHaveLength(1);
     expect(parts[0].value).toBe(90);
+  });
+});
+
+describe("applyHighlights", () => {
+  it("splits a plain-text part on a highlighted phrase", () => {
+    const parts = applyHighlights([{ type: "text", content: "A patient with severe headache." }], ["severe headache"]);
+    expect(parts.map((p) => p.type)).toEqual(["text", "mark", "text"]);
+    expect(parts[1].content).toBe("severe headache");
+  });
+
+  it("leaves lab-value parts untouched, only splits text parts", () => {
+    const parts = applyHighlights(
+      [{ type: "lab", raw: "Sodium: 107", value: 107, lab: {} }, { type: "text", content: " is dangerously low." }],
+      ["dangerously low"]
+    );
+    expect(parts[0].type).toBe("lab");
+    expect(parts.find((p) => p.type === "mark").content).toBe("dangerously low");
+  });
+
+  it("applies multiple non-overlapping highlights in order", () => {
+    const parts = applyHighlights([{ type: "text", content: "first trap, then second trap." }], ["first trap", "second trap"]);
+    const marks = parts.filter((p) => p.type === "mark").map((p) => p.content);
+    expect(marks).toEqual(["first trap", "second trap"]);
+  });
+
+  it("returns parts unchanged when there are no highlights", () => {
+    const parts = [{ type: "text", content: "nothing marked" }];
+    expect(applyHighlights(parts, [])).toBe(parts);
+    expect(applyHighlights(parts, undefined)).toBe(parts);
   });
 });
