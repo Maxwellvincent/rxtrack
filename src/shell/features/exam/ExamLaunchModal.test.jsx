@@ -1,0 +1,195 @@
+import React from "react";
+import { createRoot } from "react-dom/client";
+import { act } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { installDomStorage } from "../../../stores/testEnv.js";
+import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
+
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+
+// This repo has no @testing-library/react and React 19 dropped
+// react-dom/test-utils' `Simulate` helper, so there's no ready-made way to
+// fire a real DOM "input" event and have React's ChangeEventPlugin pick it
+// up reliably under jsdom-via-node (its value-tracker dance depends on
+// feature detection cached before installDomStorage() sets up `window`).
+// Grab the fiber's committed props directly (React stashes them on the DOM
+// node under a `__reactProps$...` key) and invoke onChange the way React's
+// own event system would, with the same event-shaped argument.
+function setInputValue(input, value) {
+  const propsKey = Object.keys(input).find((k) => k.startsWith("__reactProps$"));
+  input[propsKey].onChange({ target: { value } });
+}
+
+function render(ui) {
+  const host = document.createElement("div");
+  document.body.append(host);
+  const root = createRoot(host);
+  act(() => root.render(ui));
+  return {
+    host,
+    rerender: (nextUi) => act(() => root.render(nextUi)),
+    unmount: () => act(() => root.unmount()),
+  };
+}
+
+const ELIGIBLE = [
+  { lectureId: "lec-1", lectureLabel: "Lecture 1", objectiveCount: 5 },
+  { lectureId: "lec-2", lectureLabel: "Lecture 2", objectiveCount: 3 },
+];
+
+beforeEach(() => installDomStorage());
+
+describe("ExamLaunchModal", () => {
+  it("renders format, question count, and duration controls (duration shown by default: exam format)", () => {
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={20}
+        onLaunch={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    expect(host.textContent).toMatch(/Exam conditions/);
+    expect(host.textContent).toMatch(/Practice/);
+    expect(host.querySelector('input[type="number"]')).toBeTruthy();
+    expect(host.textContent).toMatch(/Duration/);
+
+    unmount();
+  });
+
+  it("duration control is hidden when format is practice", () => {
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={20}
+        onLaunch={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const practiceBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Practice");
+    act(() => practiceBtn.click());
+
+    expect(host.textContent).not.toMatch(/Duration/);
+
+    unmount();
+  });
+
+  it("launch button is disabled when eligibleLectures is empty, and shows the no-material message", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={[]}
+        defaultQuestionCount={20}
+        onLaunch={onLaunch}
+        onCancel={vi.fn()}
+      />
+    );
+
+    expect(host.textContent).toMatch(/No lectures in this block have objectives yet/);
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    expect(startBtn.disabled).toBe(true);
+
+    act(() => startBtn.click());
+    expect(onLaunch).not.toHaveBeenCalled();
+
+    unmount();
+  });
+
+  it("onLaunch is called with the right shape on confirm (practice format: durationMinutes null)", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={15}
+        onLaunch={onLaunch}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const practiceBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Practice");
+    act(() => practiceBtn.click());
+
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    act(() => startBtn.click());
+
+    expect(onLaunch).toHaveBeenCalledWith({ format: "practice", questionCount: 15, durationMinutes: null });
+
+    unmount();
+  });
+
+  it("exam format requires an explicit duration before launch is enabled", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={15}
+        onLaunch={onLaunch}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    // No duration typed yet: exam format, disabled.
+    expect(startBtn.disabled).toBe(true);
+    act(() => startBtn.click());
+    expect(onLaunch).not.toHaveBeenCalled();
+
+    const durationInput = host.querySelectorAll('input[type="number"]')[1];
+    act(() => setInputValue(durationInput, "60"));
+
+    expect(startBtn.disabled).toBe(false);
+    act(() => startBtn.click());
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 60 });
+
+    unmount();
+  });
+
+  it("question count input is capped at 50", () => {
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={20}
+        onLaunch={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const countInput = host.querySelectorAll('input[type="number"]')[0];
+    act(() => setInputValue(countInput, "999"));
+
+    expect(countInput.value).toBe("50");
+
+    unmount();
+  });
+
+  it("falls back to 20 when defaultQuestionCount is not provided", () => {
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        onLaunch={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const countInput = host.querySelectorAll('input[type="number"]')[0];
+    expect(countInput.value).toBe("20");
+
+    unmount();
+  });
+});
