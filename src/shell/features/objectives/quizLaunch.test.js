@@ -5,6 +5,7 @@ import {
   resolveQuestionCount,
   findLectureForQuiz,
   readExemplars,
+  readExemplarsForBlock,
   buildQuizConfig,
   objectivesAsAtoms,
   startObjectiveQuiz,
@@ -77,6 +78,51 @@ describe("exemplars", () => {
     expect(readExemplars()).toHaveLength(1);
     localStorage.setItem("rxt-question-banks", "not json");
     expect(readExemplars()).toEqual([]);
+  });
+});
+
+describe("block-filtered exemplars", () => {
+  beforeEach(() => installDomStorage());
+
+  it("returns only exemplars from banks whose meta blockId matches", () => {
+    localStorage.setItem(
+      "rxt-question-banks",
+      JSON.stringify({
+        "b1-exam.pdf": [{ stem: "B1 Q?", choices: { A: "a" } }],
+        "b2-exam.pdf": [{ stem: "B2 Q?", choices: { A: "a" } }],
+      })
+    );
+    localStorage.setItem(
+      "rxt-question-bank-meta",
+      JSON.stringify({
+        m1: { filename: "b1-exam.pdf", blockId: "b1", uploadedAt: 1 },
+        m2: { filename: "b2-exam.pdf", blockId: "b2", uploadedAt: 2 },
+      })
+    );
+
+    const result = readExemplarsForBlock(null, "b1");
+    expect(result).toHaveLength(1);
+    expect(result[0].stem).toBe("B1 Q?");
+  });
+
+  it("falls back to readExemplars's full unfiltered result when no bank matches the block", () => {
+    localStorage.setItem(
+      "rxt-question-banks",
+      JSON.stringify({
+        "b2-exam.pdf": [{ stem: "B2 Q?", choices: { A: "a" } }],
+      })
+    );
+    localStorage.setItem(
+      "rxt-question-bank-meta",
+      JSON.stringify({
+        m2: { filename: "b2-exam.pdf", blockId: "b2", uploadedAt: 2 },
+      })
+    );
+
+    const result = readExemplarsForBlock(null, "b1");
+    expect(result).toEqual(readExemplars(null));
+    expect(result).toHaveLength(1);
+    expect(result[0].stem).toBe("B2 Q?");
   });
 });
 

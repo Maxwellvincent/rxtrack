@@ -12,6 +12,7 @@
  */
 import { generateFromAtoms, generateMcqs } from "../../../engine/mcq.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
+import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import { getLecText } from "../../../lectureText.js";
 
 /** Weakest first — fewest consecutive correct answers get quizzed first. */
@@ -67,6 +68,33 @@ export function readExemplars(userId = null) {
     return Object.values(banks).flat().filter((q) => q && q.stem && q.choices);
   } catch {
     return [];
+  }
+}
+
+/**
+ * Block-scoped exemplars — same shape and filtering as `readExemplars`, but
+ * limited to banks uploaded for `blockId` (via `questionBankMeta`) instead of
+ * flattening every stored bank across every block.
+ *
+ * Falls back to the full unfiltered `readExemplars` result when nothing has
+ * been uploaded for this block — a documented fallback, not a hard failure,
+ * so quiz generation still gets style exemplars from whatever exists.
+ */
+export function readExemplarsForBlock(userId = null, blockId = null) {
+  try {
+    const meta = questionBankMetaStore.read(userId) || {};
+    const banks = questionBanksStore.read(userId) || {};
+    const filenames = Object.values(meta)
+      .filter((entry) => entry && entry.blockId === blockId)
+      .map((entry) => entry.filename);
+
+    const exemplars = filenames
+      .flatMap((filename) => banks[filename] || [])
+      .filter((q) => q && q.stem && q.choices);
+
+    return exemplars.length ? exemplars : readExemplars(userId);
+  } catch {
+    return readExemplars(userId);
   }
 }
 

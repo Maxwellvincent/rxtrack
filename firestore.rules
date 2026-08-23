@@ -14,6 +14,7 @@ service cloud.firestore {
       match /kv/{key}            { allow read, write: if owner(uid); }
       match /mcq/{id}            { allow read, write: if owner(uid); }
       match /dlSessions/{id}     { allow read, write: if owner(uid); } // paused DeepLearn sessions: one doc each, they blow the single-kv-doc limit together
+      match /examSessions/{sessionId} { allow read, write: if owner(uid); } // block-wide timed mini-exam / practice sessions, one doc each
       match /ankiCards/{id}      { allow read, write: if owner(uid); }
       match /struggleTasks/{id}  { allow read, write: if owner(uid); } // Anki struggle-tracker export → RxTrack todo panel
       match /ungeneratedCards/{id}{ allow read, write: if owner(uid); } // client Anki-ingest writes; server marks generated

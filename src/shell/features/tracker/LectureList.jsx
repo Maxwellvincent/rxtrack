@@ -5,7 +5,7 @@
  * `useToday`), so the two surfaces can never disagree about urgency or write
  * completion differently.
  */
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectures } from "../../hooks/useLectures.js";
@@ -72,13 +72,19 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy }) {
+function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy, focused, rowRef }) {
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
 
   return (
-    <div className="flex flex-col gap-1.5 border-b border-border py-2 last:border-b-0">
+    <div
+      ref={rowRef}
+      className={
+        "flex flex-col gap-1.5 border-b border-border py-2 last:border-b-0 transition-colors" +
+        (focused ? " -mx-2 rounded bg-accent/10 px-2" : "")
+      }
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <span className="font-mono text-[12px] text-text-3">
@@ -180,7 +186,15 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
   );
 }
 
-export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null, onBack }) {
+export function LectureList({
+  blockId,
+  userId,
+  onStudyLecture,
+  onStartObjectiveQuiz,
+  quizBusyLectureId = null,
+  onBack,
+  focusLectureId = null,
+}) {
   const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
   const lecturesResource = useLectures(null, userId);
   const questionStats = useLectureQuestionStats(userId);
@@ -189,6 +203,27 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
   const [sort, setSort] = useState(readStoredSort);
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
+
+  // Task 12, Part B2 — scroll the focused lecture's row into view and give
+  // it a brief highlight on mount. Additive only: with no `focusLectureId`
+  // this whole block is inert.
+  const focusRowRef = useRef(null);
+  const [highlightId, setHighlightId] = useState(focusLectureId ?? null);
+  // Adjusting state during render when a prop changes (React's own
+  // recommended pattern for this — see "Adjusting state when a prop
+  // changes" in the docs) rather than syncing it from an effect, which
+  // would call setState synchronously inside the effect body.
+  const prevFocusLectureIdRef = useRef(focusLectureId);
+  if (prevFocusLectureIdRef.current !== focusLectureId) {
+    prevFocusLectureIdRef.current = focusLectureId;
+    setHighlightId(focusLectureId ?? null);
+  }
+
+  useEffect(() => {
+    if (!highlightId) return undefined;
+    const timer = setTimeout(() => setHighlightId(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlightId]);
 
   // Scored here rather than taken from the daily schedule: that one stops
   // producing rows once the exam has passed, and the list still has to work.
@@ -202,6 +237,20 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
     () => lectureCounts(scores, { completion: context.completion, blockId }),
     [scores, context.completion, blockId]
   );
+
+  // One-shot per focusLectureId value: `rows` is a dependency only so this
+  // can wait for the target row to actually be present (e.g. still loading
+  // on first mount), not so it re-fires on every unrelated row
+  // recomputation (search/filter/sort changes, background activity-log
+  // updates) — `scrolledForRef` gates that.
+  const scrolledForRef = useRef(null);
+  useEffect(() => {
+    if (!focusLectureId) return;
+    if (scrolledForRef.current === focusLectureId) return;
+    if (!rows.some((row) => row.lectureId === focusLectureId)) return;
+    scrolledForRef.current = focusLectureId;
+    focusRowRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+  }, [focusLectureId, rows]);
 
   const onLog = useCallback(
     (lectureId, activityType, confidenceRating) => {
@@ -285,6 +334,8 @@ export function LectureList({ blockId, userId, onStudyLecture, onStartObjectiveQ
               onLog={onLog}
               onUpdateDate={onUpdateDate}
               onPreRead={setPreReadTarget}
+              focused={row.lectureId === highlightId}
+              rowRef={row.lectureId === focusLectureId ? focusRowRef : undefined}
             />
           ))}
         </div>

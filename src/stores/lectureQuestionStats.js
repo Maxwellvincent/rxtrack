@@ -16,6 +16,7 @@ import {
   readCloud,
   subscribeToCloudStore,
   writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 import { mergeQuestionStats } from "./merge.js";
@@ -51,6 +52,32 @@ export function recordAnswer(userId, lectureId, wasCorrect) {
     },
   });
   write(userId, next);
+  return next;
+}
+
+/**
+ * Awaitable, non-swallowing sibling of `recordAnswer` — mirrors its logic
+ * exactly but uses `writeCloudAwait` for the cloud path, so a caller can
+ * know for certain whether the write landed before marking a completion
+ * marker true. Used only by the exam-tab finalization path (a later task);
+ * `recordAnswer` keeps being used by objectives quizzes exactly as today.
+ */
+export async function recordAnswerAwait(userId, lectureId, wasCorrect) {
+  if (!lectureId) return read(userId);
+  const current = read(userId);
+  const prev = current[lectureId] || {};
+  const next = mergeQuestionStats(current, {
+    [lectureId]: {
+      answered: (prev.answered || 0) + 1,
+      correct: (prev.correct || 0) + (wasCorrect ? 1 : 0),
+      at: Date.now(),
+    },
+  });
+  if (!userId) {
+    writeJson(userId, key, next);
+    return next;
+  }
+  await writeCloudAwait(userId, key, next);
   return next;
 }
 

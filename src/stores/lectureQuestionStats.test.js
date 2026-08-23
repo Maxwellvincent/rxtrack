@@ -1,6 +1,26 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "./testEnv.js";
 import * as stats from "./lectureQuestionStats.js";
+import { __setCloudBackendForTests, resetCloudStores } from "./cloudBase.js";
+
+/** Same fake Firestore shape used in cloudBase.test.js. */
+function makeBackend() {
+  const listeners = new Map();
+  const writes = [];
+  return {
+    listeners,
+    writes,
+    api: {
+      doc: (_db, ...segments) => segments.join("/"),
+      onSnapshot: (path, next, error) => {
+        listeners.set(path, { next, error });
+        return () => listeners.delete(path);
+      },
+      setDoc: (path, value) => { writes.push({ path, value }); return Promise.resolve(); },
+      serverTimestamp: () => "SERVER_TS",
+    },
+  };
+}
 
 // Signed out, so the store answers straight out of localStorage — the same path the anon
 // prototype and the offline laptop take.
@@ -42,5 +62,47 @@ describe("lectureQuestionStats store", () => {
     stats.clearLecture(null, "lec1");
     expect(stats.statsForLecture(null, "lec1").answered).toBe(0);
     expect(stats.statsForLecture(null, "lec2").answered).toBe(1);
+  });
+});
+
+describe("recordAnswerAwait", () => {
+  beforeEach(() => installDomStorage());
+
+  it("returns the same stats shape as recordAnswer, for the signed-out path", async () => {
+    const next = await stats.recordAnswerAwait(null, "lec1", true);
+    expect(next.lec1).toMatchObject({ answered: 1, correct: 1 });
+    expect(stats.statsForLecture(null, "lec1")).toMatchObject({ answered: 1, correct: 1 });
+  });
+
+  it("returns the current stats unchanged when there's no lecture to attach to", async () => {
+    const next = await stats.recordAnswerAwait(null, null, true);
+    expect(next).toEqual({});
+  });
+
+  describe("signed-in cloud path", () => {
+    let backend;
+
+    beforeEach(() => {
+      backend = makeBackend();
+      __setCloudBackendForTests(backend.api);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      resetCloudStores();
+      __setCloudBackendForTests(null);
+      vi.restoreAllMocks();
+    });
+
+    it("resolves with the updated stats on a successful write", async () => {
+      const next = await stats.recordAnswerAwait("u1", "lec1", true);
+      expect(next.lec1).toMatchObject({ answered: 1, correct: 1 });
+      expect(backend.writes).toHaveLength(1);
+    });
+
+    it("propagates a write rejection instead of silently succeeding", async () => {
+      __setCloudBackendForTests({ ...backend.api, setDoc: () => Promise.reject(new Error("offline")) });
+      await expect(stats.recordAnswerAwait("u1", "lec1", true)).rejects.toThrow("offline");
+    });
   });
 });

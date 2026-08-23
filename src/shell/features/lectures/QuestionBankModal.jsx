@@ -4,6 +4,7 @@ import { parseExamPDF } from "../../../examParser.js";
 import { callAIJSON } from "../../../aiClient.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
+import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import { summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
 import { analyzeExamReportWeakConcepts, mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
@@ -31,7 +32,10 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
             setStatus(`${file.name} — reading…`);
             const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm });
             const questions = tagBankQuestions(parsed?.questions, { blockId, filename: file.name, wrongOnly });
-            if (questions.length) questionBanksStore.saveBank(userId, file.name, questions);
+            if (questions.length) {
+              questionBanksStore.saveBank(userId, file.name, questions);
+              questionBankMetaStore.recordUpload(userId, { filename: file.name, blockId });
+            }
             results.push({ filename: file.name, questions });
 
             if (blockId && userId) {

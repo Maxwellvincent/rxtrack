@@ -8,7 +8,7 @@ import { useExamDates } from "./hooks/useExamDates.js";
 import { touchBlock } from "../stores/blockObjectives.js";
 import { defaultBlockId, readCollapsedTerms, readLastView, writeLastView } from "./navPrefs.js";
 
-const VALID_TABS = ["today", "lectures", "objectives", "guide", "more"];
+const VALID_TABS = ["today", "lectures", "objectives", "exam", "guide", "more"];
 const VALID_MORE_VIEWS = ["weak", "deeplearn", "struggle"];
 import { Sidebar } from "./Sidebar.jsx";
 import { Header } from "./Header.jsx";
@@ -42,6 +42,7 @@ import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
+import { ExamContainer } from "./features/exam/ExamContainer.jsx";
 import { startObjectiveQuiz, readExemplars, resolveDefaultDifficulty } from "./features/objectives/quizLaunch.js";
 import { statsForLecture } from "../stores/lectureQuestionStats.js";
 import { QuizConfigModal } from "./features/objectives/QuizConfigModal.jsx";
@@ -174,6 +175,7 @@ function ShellMain({ theme, toggle, userId }) {
     writeLastView({ tab, selectedBlockId: activeBlockId, moreView });
   }, [tab, activeBlockId, moreView]);
   const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
+  const [examFocusLectureId, setExamFocusLectureId] = useState(null);
   // Objective quiz: { lectureId, loading, error, questions, title, count, startedAt }
   const [quiz, setQuiz] = useState(null);
   const [quizElapsed, setQuizElapsed] = useState(0);
@@ -497,7 +499,18 @@ function ShellMain({ theme, toggle, userId }) {
               quizBusyLectureId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
               onStudyLecture={onStudyLecture}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
-              onBack={() => switchTab("today")}
+              focusLectureId={examFocusLectureId}
+              onBack={() => { switchTab("today"); setExamFocusLectureId(null); }}
+            />
+          ) : tab === "exam" && activeBlockId ? (
+            <ExamContainer
+              blockId={activeBlockId}
+              blockName={active?.name}
+              userId={userId}
+              onNavigateToLecture={(lectureId) => {
+                setExamFocusLectureId(lectureId);
+                switchTab("lectures");
+              }}
             />
           ) : tab === "guide" && activeBlockId ? (
             <MasterGuide
