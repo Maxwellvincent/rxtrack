@@ -128,6 +128,63 @@ describe("ExamSessionRunner", () => {
     unmount();
   });
 
+  it("syncStatus 'pending' shows a saving indicator, not an error one", () => {
+    controllerMock.mockReturnValue(baseController({ syncStatus: "pending" }));
+
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    const indicator = host.querySelector('[data-testid="sync-status"]');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).toMatch(/saving/i);
+    expect(indicator.textContent).not.toMatch(/not saving/i);
+
+    unmount();
+  });
+
+  it("syncStatus 'synced' shows a quiet, non-alarming indicator", () => {
+    controllerMock.mockReturnValue(baseController({ syncStatus: "synced" }));
+
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    const indicator = host.querySelector('[data-testid="sync-status"]');
+    expect(indicator).toBeTruthy();
+    expect(indicator.textContent).not.toMatch(/not saving/i);
+    expect(indicator.textContent).not.toMatch(/error/i);
+
+    unmount();
+  });
+
+  it.each(["error", "stopped"])(
+    "syncStatus '%s' shows a visible 'not saving' signal",
+    (status) => {
+      controllerMock.mockReturnValue(baseController({ syncStatus: status }));
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+      const indicator = host.querySelector('[data-testid="sync-status"]');
+      expect(indicator).toBeTruthy();
+      expect(indicator.textContent).toMatch(/not saving/i);
+
+      unmount();
+    }
+  );
+
+  it("does not render a sync-status indicator on the 'submitted' screen (has its own messaging)", () => {
+    controllerMock.mockReturnValue(
+      baseController({
+        session: { ...baseController().session, status: "submitted" },
+        syncStatus: "error",
+      })
+    );
+
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    expect(host.querySelector('[data-testid="sync-status"]')).toBeFalsy();
+    expect(host.textContent).toMatch(/Submitted\./);
+
+    unmount();
+  });
+
   it("shows a distinct 'finishing up' state and calls submit() when resuming a 'finalizing' session", async () => {
     const submit = vi.fn(async () => ({ ok: true }));
     controllerMock.mockReturnValue(

@@ -33,6 +33,33 @@ function pickedFor(session, questionId) {
   return session?.answers?.find((a) => a.questionId === questionId)?.value ?? null;
 }
 
+// Small, unobtrusive autosave-status readout — deliberately no more visually
+// prominent than the `exam-timer` element it sits next to. "synced" renders
+// nothing (the normal case shouldn't shout); "error"/"stopped" is the one
+// state where staying silent would actually mislead the user (the whole
+// point of this indicator), so it always renders something, just quietly.
+function SyncIndicator({ status }) {
+  if (status === "pending") {
+    return (
+      <div data-testid="sync-status" className="font-mono text-[11px] text-text-3">
+        saving…
+      </div>
+    );
+  }
+  if (status === "error" || status === "stopped") {
+    return (
+      <div data-testid="sync-status" className="font-mono text-[11px] text-bad">
+        not saving
+      </div>
+    );
+  }
+  return (
+    <div data-testid="sync-status" className="font-mono text-[11px] text-text-3">
+      saved
+    </div>
+  );
+}
+
 function ChoiceList({ choices, picked, revealed, correct, onPick }) {
   return (
     <div className="flex flex-col gap-1.5">
@@ -209,7 +236,7 @@ function PracticeFormat({ controller }) {
 // drive the controller, and the session doc itself already carries blockId.
 export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
   const controller = useExamSessionController(sessionId, userId);
-  const { session, loading, error, submit, abandon, submitResult, submitting } = controller;
+  const { session, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
 
   // Resume-on-mount: a session left in "finalizing" (a prior submit call was
   // interrupted before completing) shows a distinct "finishing up" state and
@@ -272,7 +299,8 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
       ) : (
         <PracticeFormat controller={controller} />
       )}
-      <div className="flex justify-end">
+      <div className="flex items-center justify-between">
+        <SyncIndicator status={syncStatus} />
         <Button
           variant="ghost"
           onClick={async () => {
