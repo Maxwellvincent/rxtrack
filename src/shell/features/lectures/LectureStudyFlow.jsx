@@ -534,8 +534,15 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   // Banded rather than a gradient: the only decision this drives is whether the lecture goes back
   // on the review pile, and 70% is where that answer changes.
   const accuracyColor = accuracyPct >= 85 ? "text-good" : accuracyPct >= 70 ? "text-accent" : "text-bad";
-  const currentDifficulty = ["Easy", "Medium", "Hard", "Expert"][Math.min(round, 3)];
-  const diffColor = ["text-good", "text-accent", "text-warn", "text-bad"][Math.min(round, 3)];
+  // Same accuracy-based starting point runRound actually generates from — this used to always
+  // read the round INDEX alone, so it could show "Easy" while the round it was about to hand you
+  // was really Medium or Hard.
+  const baseDifficulty = resolveDefaultDifficulty(qStats.accuracy);
+  const currentDifficultyKey = roundDifficulty(baseDifficulty, round);
+  const currentDifficulty = currentDifficultyKey[0].toUpperCase() + currentDifficultyKey.slice(1);
+  const diffColor = {
+    easy: "text-good", medium: "text-accent", hard: "text-warn", expert: "text-bad",
+  }[currentDifficultyKey];
 
   return (
     <div className="p-5">
@@ -609,6 +616,13 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objPct}%</span>
             </div>
           )}
+        </div>
+      )}
+      {stage === "quiz" && atoms.length > 0 && (
+        <div className="mb-4 -mt-2 font-mono text-[11px] text-text-3">
+          Rounds only count a full Study pass finished here — Quiz-button attempts feed Questions'
+          lifetime accuracy above but not Rounds. Objectives graduate to mastered on finishing all
+          rounds, or a Quiz scoring 80%+ — accuracy alone doesn't move them.
         </div>
       )}
 
