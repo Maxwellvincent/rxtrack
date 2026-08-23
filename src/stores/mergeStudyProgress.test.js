@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeRoundProgress, mergeCalibration, mergeQuestionStats } from "./merge.js";
+import { mergeRoundProgress, mergeCalibration, mergeQuestionStats, mergeAtomProgress } from "./merge.js";
 
 describe("mergeRoundProgress", () => {
   it("keeps the furthest round reached on either device", () => {
@@ -103,5 +103,52 @@ describe("mergeQuestionStats", () => {
     expect(mergeQuestionStats(null, { lec1: { answered: 3, correct: 1 } }).lec1.answered).toBe(3);
     expect(mergeQuestionStats({ lec1: "nonsense" }, {})).toEqual({});
     expect(mergeQuestionStats({ lec1: { answered: 0 } }, {})).toEqual({});
+  });
+});
+
+describe("mergeAtomProgress", () => {
+  it("takes status from whichever side answered more recently", () => {
+    const out = mergeAtomProgress(
+      { lec1: { thyroglobulin: { status: "complete", correctCount: 1, missCount: 0, lastAt: 10 } } },
+      { lec1: { thyroglobulin: { status: "needs-review", correctCount: 1, missCount: 1, lastAt: 20 } } }
+    );
+    expect(out.lec1.thyroglobulin.status).toBe("needs-review");
+  });
+
+  it("lets a more recent correct answer flip status back to complete", () => {
+    const out = mergeAtomProgress(
+      { lec1: { thyroglobulin: { status: "needs-review", correctCount: 0, missCount: 1, lastAt: 10 } } },
+      { lec1: { thyroglobulin: { status: "complete", correctCount: 1, missCount: 1, lastAt: 20 } } }
+    );
+    expect(out.lec1.thyroglobulin.status).toBe("complete");
+  });
+
+  it("takes the max of each count independently, even though status comes from the newer side", () => {
+    const out = mergeAtomProgress(
+      { lec1: { thyroglobulin: { status: "complete", correctCount: 5, missCount: 2, lastAt: 10 } } },
+      { lec1: { thyroglobulin: { status: "needs-review", correctCount: 1, missCount: 3, lastAt: 20 } } }
+    );
+    expect(out.lec1.thyroglobulin).toMatchObject({ status: "needs-review", correctCount: 5, missCount: 3 });
+  });
+
+  it("carries an atom only one side has ever answered", () => {
+    const out = mergeAtomProgress(
+      { lec1: { thyroglobulin: { status: "complete", correctCount: 1, missCount: 0, lastAt: 10 } } },
+      { lec1: { pendrin: { status: "needs-review", correctCount: 0, missCount: 1, lastAt: 5 } } }
+    );
+    expect(Object.keys(out.lec1).sort()).toEqual(["pendrin", "thyroglobulin"]);
+  });
+
+  it("carries a lecture only one side has ever studied", () => {
+    const out = mergeAtomProgress(
+      { lec1: { thyroglobulin: { status: "complete", correctCount: 1, missCount: 0, lastAt: 10 } } },
+      { lec2: { pendrin: { status: "needs-review", correctCount: 0, missCount: 1, lastAt: 5 } } }
+    );
+    expect(Object.keys(out).sort()).toEqual(["lec1", "lec2"]);
+  });
+
+  it("tolerates garbage", () => {
+    expect(mergeAtomProgress(null, { lec1: { a: { status: "complete", correctCount: 1, missCount: 0, lastAt: 1 } } }).lec1.a.status).toBe("complete");
+    expect(mergeAtomProgress({}, {})).toEqual({});
   });
 });

@@ -244,3 +244,36 @@ export function mergeCalibration(cloud, local) {
   for (const list of Object.values(out)) list.sort((a, b) => a.ts - b.ts);
   return out;
 }
+
+/**
+ * Per lecture, per atom key: whichever side answered most recently decides `status` — unlike
+ * round/question counts, atom mastery is not monotonic (a later miss on an already-complete atom
+ * legitimately flips it back to needs-review), so "higher count wins" would be wrong here. The
+ * counts themselves (correctCount/missCount) ARE monotonic, so those still take the max per side.
+ */
+export function mergeAtomProgress(cloud = {}, local = {}) {
+  const out = {};
+  const lectureIds = new Set([...Object.keys(cloud || {}), ...Object.keys(local || {})]);
+  for (const lectureId of lectureIds) {
+    const c = (cloud || {})[lectureId] || {};
+    const l = (local || {})[lectureId] || {};
+    const atomKeys = new Set([...Object.keys(c), ...Object.keys(l)]);
+    const merged = {};
+    for (const atomKey of atomKeys) {
+      const ce = c[atomKey];
+      const le = l[atomKey];
+      if (ce && !le) { merged[atomKey] = ce; continue; }
+      if (le && !ce) { merged[atomKey] = le; continue; }
+      if (!ce || !le) continue;
+      const newer = (le.lastAt ?? 0) >= (ce.lastAt ?? 0) ? le : ce;
+      merged[atomKey] = {
+        status: newer.status,
+        correctCount: Math.max(ce.correctCount || 0, le.correctCount || 0),
+        missCount: Math.max(ce.missCount || 0, le.missCount || 0),
+        lastAt: Math.max(ce.lastAt || 0, le.lastAt || 0),
+      };
+    }
+    if (Object.keys(merged).length) out[lectureId] = merged;
+  }
+  return out;
+}
