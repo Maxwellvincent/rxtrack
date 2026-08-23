@@ -1,5 +1,6 @@
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
 import { extractWithSmartFallback } from "./ingest/pdfText.js";
+import { imageForText, isUsableImage } from "./lectureImages.js";
 
 function detectLectureNumber(text) {
   const m =
@@ -107,6 +108,23 @@ export function normalizeParsedExamQuestion(raw, num, { examTitle = "" } = {}) {
     choiceColumns: Array.isArray(raw.choiceColumns) ? raw.choiceColumns.map(String) : null,
     hasImage: !!raw.hasImage,
   };
+}
+
+/**
+ * Hang each hasImage question's figure off the question object. Pure — no network.
+ *
+ * Mirrors `attachImagesToQuestions` in lectureImages.js: a wrong picture is worse than no
+ * picture (it reads as a clue), so a question with no scoring match stays imageless.
+ */
+export function attachImagesToExamQuestions(questions, slideImages) {
+  const list = (Array.isArray(slideImages) ? slideImages : []).filter(isUsableImage);
+  const qs = Array.isArray(questions) ? questions : [];
+  if (!qs.length || !list.length) return qs;
+  return qs.map((q) => {
+    if (!q?.hasImage || q.image) return q;
+    const image = imageForText(`${q.topic || ""} ${q.stem || ""}`, list);
+    return image ? { ...q, image } : q;
+  });
 }
 
 async function parseWithAI(fullText, format, onProgress, examTitle = "") {
@@ -552,6 +570,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   let pages = [];
   let pdf = null;
   let fullText = "";
+  let slideImages = [];
 
   if (_isText) {
     onProgress?.("📄 Reading markdown/text…");
@@ -566,6 +585,9 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     const { contentResult } = await extractWithSmartFallback(file, onProgress, { useLlm: true });
     fullText = contentResult?.fullText || "";
     if (!fullText.trim()) throw new Error("OCR chain returned no text");
+    // Marker already pulled every figure out during OCR (same pipeline lecture ingest
+    // uses) — carry them through so hasImage questions get a real image, not just a flag.
+    slideImages = (contentResult?.slideImages || []).filter(isUsableImage);
     pages = [{ num: 1, text: fullText, imgCount: 0, pdfPage: null }];
   } else {
     await loadPDFJS();
@@ -620,6 +642,8 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     onProgress?.("🧠 AI parsing questions...");
     questions = await parseWithAI(fullText, format, onProgress, examTitle);
   }
+
+  questions = attachImagesToExamQuestions(questions, slideImages);
 
   onProgress?.("✓ Extracted " + questions.length + " questions");
 

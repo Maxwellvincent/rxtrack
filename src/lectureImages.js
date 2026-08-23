@@ -69,15 +69,15 @@ function terms(text) {
 }
 
 /**
- * The best image for this atom, or null.
+ * The best image for a chunk of text (an atom's term, a question stem, anything), or null.
  *
  * A wrong picture is worse than no picture — it reads as a clue and teaches the wrong pairing —
  * so anything without a real term overlap returns null.
  */
-export function imageForAtom(atom, images) {
+export function imageForText(text, images) {
   const list = (Array.isArray(images) ? images : []).filter(isUsableImage);
   if (!list.length) return null;
-  const want = terms(atom?.term);
+  const want = terms(text);
   if (!want.length) return null;
 
   let best = null;
@@ -99,6 +99,11 @@ export function imageForAtom(atom, images) {
     }
   }
   return best;
+}
+
+/** The best image for this atom, or null. See `imageForText` for the matching rule. */
+export function imageForAtom(atom, images) {
+  return imageForText(atom?.term, images);
 }
 
 /**

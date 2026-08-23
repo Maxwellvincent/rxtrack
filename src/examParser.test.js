@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions } from "./examParser.js";
 
 describe("buildExamExtractionPrompt", () => {
   it("embeds the source text and asks for the questions JSON shape", () => {
@@ -76,5 +76,53 @@ describe("normalizeParsedExamQuestion", () => {
     expect(withExamTitle.topic).toBe("ER IMCQ 2");
     const withNeither = normalizeParsedExamQuestion({ stem: "A?", choices: { A: "a", B: "b" }, correct: "A" }, 1, {});
     expect(withNeither.topic).toBe("Exam Review");
+  });
+});
+
+describe("attachImagesToExamQuestions", () => {
+  const thyrotropeImg = {
+    url: "blob:thyrotrope.jpg",
+    kind: "histology",
+    shows: "thyrotropes basophils anterior pituitary",
+    context: "pituitary adenoma TSH secreting cells",
+  };
+
+  it("attaches the best-scoring image to a hasImage question that mentions it", () => {
+    const qs = [
+      normalizeParsedExamQuestion(
+        { stem: "A pituitary adenoma of thyrotropes is shown in the photomicrograph.", choices: { A: "a", B: "b" }, correct: "A", hasImage: true },
+        1
+      ),
+    ];
+    const out = attachImagesToExamQuestions(qs, [thyrotropeImg]);
+    expect(out[0].image?.url).toBe("blob:thyrotrope.jpg");
+  });
+
+  it("leaves a question without hasImage untouched even if text would score", () => {
+    const qs = [
+      normalizeParsedExamQuestion(
+        { stem: "A pituitary adenoma of thyrotropes.", choices: { A: "a", B: "b" }, correct: "A" },
+        1
+      ),
+    ];
+    const out = attachImagesToExamQuestions(qs, [thyrotropeImg]);
+    expect(out[0].image).toBeUndefined();
+  });
+
+  it("leaves hasImage true but no image when nothing scores a match (no wrong picture)", () => {
+    const qs = [
+      normalizeParsedExamQuestion(
+        { stem: "A totally unrelated pharmacology question about beta blockers.", choices: { A: "a", B: "b" }, correct: "A", hasImage: true },
+        1
+      ),
+    ];
+    const out = attachImagesToExamQuestions(qs, [thyrotropeImg]);
+    expect(out[0].image).toBeUndefined();
+    expect(out[0].hasImage).toBe(true);
+  });
+
+  it("is a no-op when there are no slide images", () => {
+    const qs = [normalizeParsedExamQuestion({ stem: "A?", choices: { A: "a" }, correct: "A", hasImage: true }, 1)];
+    expect(attachImagesToExamQuestions(qs, [])).toEqual(qs);
   });
 });
