@@ -20,6 +20,15 @@ const admin = require("firebase-admin");
 const FOCUS_HUD_PROJECT_ID = "focus-hud-lvm";
 const BRIDGE_SERVICE_ACCOUNT = "struggle-bridge@rxtrack-med.iam.gserviceaccount.com";
 
+// rxtrack-med and focus-hud-lvm are separate Firebase projects: the same
+// Google account gets a DIFFERENT uid in each project (confirmed via
+// VITE_OWNER_UID in focus-hud/.env.local vs rxtrack-med's dev uid). A write
+// under the rxtrack uid landed at a path focus-hud's own login/rules never
+// look at — this map is the fix. Single-user app, so a literal map is fine.
+const UID_MAP = {
+  KX9K9IK4DgU0dBoAD6pj6Q4CEgr1: "IDTw5uOiTTRHuAuJMTLEG0u3Nfl2",
+};
+
 const CONTENT_FIELDS = [
   "cardId", "state", "remediation", "concept", "subject", "lecture",
   "reason", "front", "deck", "tags", "buriedAt",
@@ -46,9 +55,11 @@ function sameContent(a, b) {
 
 async function handleWrite(event) {
   const uid = event.params.uid;
+  const focusHudUid = UID_MAP[uid];
+  if (!focusHudUid) return; // no known focus-hud account for this rxtrack uid — nothing to mirror
   const cardId = event.params.cardId;
   const after = event.data?.after?.exists ? event.data.after.data() : null;
-  const destRef = focusHudDb().collection("users").doc(uid).collection("struggleTasks").doc(cardId);
+  const destRef = focusHudDb().collection("users").doc(focusHudUid).collection("struggleTasks").doc(cardId);
 
   if (!after) {
     // Source card resolved/removed in Anki — drop the mirrored copy too.
