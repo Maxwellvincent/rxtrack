@@ -395,7 +395,16 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     return (
       <div className="p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <button onClick={() => setQuestions(null)} className="font-mono text-xs text-text-3 hover:text-text-1">
+          <button
+            onClick={() => {
+              // Answers already persisted per-question (AtomQuiz's recordAnswer) even though
+              // this round wasn't finished — re-read so the bar reflects them instead of
+              // sitting on whatever qStats was at round start.
+              setQStats(questionStats.statsForLecture(userId, lecture?.id));
+              setQuestions(null);
+            }}
+            className="font-mono text-xs text-text-3 hover:text-text-1"
+          >
             ← back to atoms
           </button>
           <span className="font-mono text-[13px] text-text-3">
