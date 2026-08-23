@@ -252,6 +252,15 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
             <div className={"text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
             </div>
+            {/* The atom/concept this question was testing — named here, not just buried in
+                the end-of-quiz landmine list, so a miss tells you what to go re-study while
+                the question is still on screen. Falls back to nothing rather than the stem:
+                a topic-less label is worse than no label. */}
+            {q.topic && q.topic !== "Uploaded" && q.topic !== "Exam Review" && (
+              <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">
+                Concept: <span className="font-semibold text-text-1 normal-case tracking-normal">{q.topic}</span>
+              </div>
+            )}
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <ExplanationBlock
                 text={q.explanation}
