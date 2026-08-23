@@ -20,6 +20,24 @@
 import { useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
+import { TutorPanel } from "./TutorPanel.jsx";
+import { useTutorExplanation } from "./useTutorExplanation.js";
+
+// Task 12, Part B1 — additive tutor-mode mount. Each instance owns its own
+// `useTutorExplanation` call (the hook's cache is module-level and keyed by
+// questionId, so mounting one per question is cheap and safe).
+//
+// Design note carried from Task 10's review: `useTutorExplanation` caches a
+// failed result the same as a success, so a plain "call request() again"
+// retry would just replay the cached error, not actually re-fetch — and
+// clearing that cache would mean reaching into Task 10's file, which is out
+// of this task's declared scope. Rather than ship a "Try again" button that
+// silently does nothing, this wrapper leaves retry out for now; the gap is
+// flagged in the task report instead of quietly patched over.
+function TutorPanelForQuestion({ question }) {
+  const { text, loading, error, request } = useTutorExplanation(question);
+  return <TutorPanel question={question} onRequest={request} text={text} loading={loading} error={error} />;
+}
 
 function formatClock(ms) {
   if (ms == null) return "--:--";
@@ -178,7 +196,7 @@ function ExamFormat({ controller }) {
   );
 }
 
-function PracticeFormat({ controller }) {
+function PracticeFormat({ controller, tutorModeEnabled }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion } = controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
@@ -217,6 +235,7 @@ function PracticeFormat({ controller }) {
                 {q.explanation}
               </div>
             )}
+            {tutorModeEnabled && <TutorPanelForQuestion question={q} />}
             <Button
               disabled={currentIndex >= questions.length - 1}
               onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}
@@ -230,11 +249,41 @@ function PracticeFormat({ controller }) {
   );
 }
 
+// Task 12, Part B1 — the post-submission per-question review for format
+// "exam". Format "exam" never reveals correctness during the session (no
+// per-question feedback by design — see the module doc), so there is no
+// pre-existing reveal to place the tutor panel alongside; this whole review
+// is new, additive UI that only renders when tutor mode is on, per the
+// "zero behavior change when tutorModeEnabled is false" requirement below.
+function SubmittedExamReview({ session }) {
+  const questions = session.questions || [];
+  return (
+    <div className="space-y-2">
+      <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
+      {questions.map((q) => {
+        const picked = pickedFor(session, q.questionId);
+        return (
+          <div key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3">
+            <div className="mb-2 text-sm text-text-1">{q.stem}</div>
+            <ChoiceList choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
+            {q.explanation && (
+              <div className="mt-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
+                {q.explanation}
+              </div>
+            )}
+            <TutorPanelForQuestion question={q} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // eslint-disable-next-line no-unused-vars -- `blockId` is part of the
 // documented prop contract (kept small/stable for callers) even though this
 // component doesn't need it directly: `sessionId`/`userId` are enough to
 // drive the controller, and the session doc itself already carries blockId.
-export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
+export function ExamSessionRunner({ sessionId, userId, blockId, onExit, tutorModeEnabled = false }) {
   const controller = useExamSessionController(sessionId, userId);
   const { session, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
 
@@ -279,6 +328,7 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
       <div className="space-y-3">
         <div className="text-sm font-bold text-text-1">Submitted.</div>
         {onExit && <Button onClick={onExit}>Done</Button>}
+        {tutorModeEnabled && session.format === "exam" && <SubmittedExamReview session={session} />}
       </div>
     );
   }
@@ -297,7 +347,7 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit }) {
       {session.format === "exam" ? (
         <ExamFormat controller={controller} />
       ) : (
-        <PracticeFormat controller={controller} />
+        <PracticeFormat controller={controller} tutorModeEnabled={tutorModeEnabled} />
       )}
       <div className="flex items-center justify-between">
         <SyncIndicator status={syncStatus} />

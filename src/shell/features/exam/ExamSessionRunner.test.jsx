@@ -14,6 +14,15 @@ vi.mock("./useExamSessionController.js", () => ({
   useExamSessionController: (...args) => controllerMock(...args),
 }));
 
+// Tutor-mode addition (Task 12, Part B1): mock the hook so this file stays a
+// pure render test — useTutorExplanation's own behavior (cache, dedupe,
+// soft-cancel) is covered by its own test file.
+const requestMock = vi.fn();
+const tutorHookMock = vi.fn(() => ({ text: null, loading: false, error: null, request: requestMock }));
+vi.mock("./useTutorExplanation.js", () => ({
+  useTutorExplanation: (...args) => tutorHookMock(...args),
+}));
+
 const { ExamSessionRunner } = await import("./ExamSessionRunner.jsx");
 
 function makeQuestion(questionId, letter = "A") {
@@ -71,6 +80,9 @@ function render(ui) {
 beforeEach(() => {
   installDomStorage();
   controllerMock.mockReset();
+  requestMock.mockReset();
+  tutorHookMock.mockClear();
+  tutorHookMock.mockImplementation(() => ({ text: null, loading: false, error: null, request: requestMock }));
 });
 
 describe("ExamSessionRunner", () => {
@@ -222,5 +234,99 @@ describe("ExamSessionRunner", () => {
     expect(host.textContent).toMatch(/Retry submit/);
 
     unmount();
+  });
+
+  describe("tutor mode (Task 12, Part B1)", () => {
+    it("tutorModeEnabled=false (default): renders no tutor panel in practice format's reveal state", () => {
+      const controller = baseController({
+        session: {
+          sessionId: "s1",
+          blockId: "b1",
+          format: "practice",
+          status: "in_progress",
+          questions: [makeQuestion("q1", "A")],
+          answers: [{ questionId: "q1", value: "A", answeredAt: Date.now(), seq: 0, writerId: "w1" }],
+          deadline: null,
+        },
+        remainingMs: null,
+      });
+      controllerMock.mockReturnValue(controller);
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+      expect(host.querySelector('[data-testid="practice-reveal"]')).toBeTruthy();
+      expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
+
+      unmount();
+    });
+
+    it("tutorModeEnabled=false (default): renders no tutor panel on the exam-format submitted screen", () => {
+      controllerMock.mockReturnValue(
+        baseController({
+          session: { ...baseController().session, status: "submitted" },
+        })
+      );
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+      expect(host.textContent).toMatch(/Submitted\./);
+      expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
+
+      unmount();
+    });
+
+    it("tutorModeEnabled=true: renders the tutor panel in practice format's reveal state", () => {
+      const controller = baseController({
+        session: {
+          sessionId: "s1",
+          blockId: "b1",
+          format: "practice",
+          status: "in_progress",
+          questions: [makeQuestion("q1", "A")],
+          answers: [{ questionId: "q1", value: "A", answeredAt: Date.now(), seq: 0, writerId: "w1" }],
+          deadline: null,
+        },
+        remainingMs: null,
+      });
+      controllerMock.mockReturnValue(controller);
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" tutorModeEnabled />);
+
+      expect(host.querySelector('[data-testid="practice-reveal"]')).toBeTruthy();
+      expect(host.querySelector('[data-testid="tutor-panel"]')).toBeTruthy();
+
+      unmount();
+    });
+
+    it("tutorModeEnabled=true: renders a per-question tutor panel in the exam-format submitted review", () => {
+      controllerMock.mockReturnValue(
+        baseController({
+          session: {
+            ...baseController().session,
+            status: "submitted",
+            questions: [makeQuestion("q1"), makeQuestion("q2")],
+            answers: [{ questionId: "q1", value: "A", answeredAt: Date.now(), seq: 0, writerId: "w1" }],
+          },
+        })
+      );
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" tutorModeEnabled />);
+
+      expect(host.textContent).toMatch(/Submitted\./);
+      const panels = host.querySelectorAll('[data-testid="tutor-panel"]');
+      expect(panels.length).toBe(2);
+
+      unmount();
+    });
+
+    it("tutorModeEnabled=true does not affect the exam format's in-progress (non-submitted) screen", () => {
+      controllerMock.mockReturnValue(baseController());
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" tutorModeEnabled />);
+
+      expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
+
+      unmount();
+    });
   });
 });
