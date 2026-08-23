@@ -150,7 +150,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       const confSum = records.reduce((s, r) => s + (r.confidence || 0), 0);
       const avgConfidence = records.length ? confSum / (records.length * 5) : 0; // normalize 1-5 → 0-1
       const hasLandmines = records.some((r) => !r.correct && r.confidence >= 4);
-      onDone?.({ correct: correctCount, total: questions.length, avgConfidence, hasLandmines });
+      onDone?.({ correct: correctCount, total: questions.length, avgConfidence, hasLandmines, records });
       return;
     }
     setI(i + 1); setPicked(null); setConfidence(null); setCrossed(new Set());

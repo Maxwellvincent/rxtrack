@@ -12,6 +12,7 @@ import { extractTypedHighYield } from "../../../engine/extractHighYield.js";
 import { generateFromAtoms } from "../../../engine/mcq.js";
 import { getChunkBody } from "../../../lectureText.js";
 import { imageForAtom, isUsableImage, attachImagesToQuestions } from "../../../lectureImages.js";
+import { matchTextToCandidates } from "../../logic/examReportWeakConcepts.js";
 
 /** Minimum characters worth sending to the extractor. */
 export const MIN_TEXT = 200;
@@ -174,4 +175,31 @@ export function roundLabel(index, rounds, total, size = ROUND_SIZE) {
   const start = index * size + 1;
   const end = start + (rounds[index]?.length || 0) - 1;
   return `atoms ${start}–${end} of ${total}`;
+}
+
+/**
+ * Which study-guide topics a round's CORRECT answers earn a check on.
+ *
+ * A record's `concept` is the atom's own term (see backfillTopicsFromAtoms in
+ * mcq.js), but study-guide topics are deliberately distilled/paraphrased --
+ * "Do NOT copy objective text verbatim" -- so they rarely share the atom's
+ * exact words. Matching against the atom's term + content (a fuller
+ * descriptive sentence) gives the overlap check more shared vocabulary to
+ * work with than the bare term alone, at a lower threshold than other
+ * fuzzy-text matches in this app since the phrasing gap is wider here.
+ *
+ * A question you got WRONG never earns a check -- only correct answers do.
+ */
+export function topicsToAutoCheck(records, atoms, topics, threshold = 0.2) {
+  if (!records?.length || !topics?.length) return [];
+  const alreadyChecked = new Set(topics.filter((t) => t.checked).map((t) => t.id));
+  const toCheck = new Set();
+  for (const r of records) {
+    if (!r?.correct || !r?.concept) continue;
+    const atom = (atoms || []).find((a) => a.term === r.concept);
+    const query = atom ? `${atom.term} ${atom.content || ""}` : r.concept;
+    const match = matchTextToCandidates(query, topics, (t) => t.text, threshold);
+    if (match && !alreadyChecked.has(match.item.id)) toCheck.add(match.item.id);
+  }
+  return [...toCheck];
 }

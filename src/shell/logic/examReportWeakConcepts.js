@@ -82,21 +82,36 @@ function overlapScore(aTokens, bTokens) {
   return hits / Math.sqrt(aTokens.length * bTokens.length);
 }
 
-/** Best-matching lecture for a category name, by title word overlap. */
-export function matchCategoryToLecture(category, lectures, threshold = 0.3) {
-  const catTokens = tokenize(category);
-  if (!catTokens.length) return null;
+/**
+ * Best-matching candidate for a short phrase against a list, by word overlap.
+ * Generic on purpose — a category name vs lecture titles, a task's deck path
+ * vs lecture titles, an atom's term vs study-guide topics all reduce to the
+ * same "fuzzy match this short label against a list of longer labels" shape.
+ */
+export function matchTextToCandidates(query, candidates, getText, threshold = 0.3) {
+  const queryTokens = tokenize(query);
+  if (!queryTokens.length) return null;
   let best = null;
   let bestScore = 0;
-  for (const lec of lectures || []) {
-    const title = lec?.lectureTitle || lec?.fileName || lec?.subject || "";
-    const score = overlapScore(catTokens, tokenize(title));
+  for (const candidate of candidates || []) {
+    const score = overlapScore(queryTokens, tokenize(getText(candidate) || ""));
     if (score > bestScore) {
       bestScore = score;
-      best = lec;
+      best = candidate;
     }
   }
-  return bestScore >= threshold ? { lecture: best, score: bestScore } : null;
+  return bestScore >= threshold ? { item: best, score: bestScore } : null;
+}
+
+/** Best-matching lecture for a category name, by title word overlap. */
+export function matchCategoryToLecture(category, lectures, threshold = 0.3) {
+  const match = matchTextToCandidates(
+    category,
+    lectures,
+    (lec) => lec?.lectureTitle || lec?.fileName || lec?.subject || "",
+    threshold
+  );
+  return match ? { lecture: match.item, score: match.score } : null;
 }
 
 function slug(s) {

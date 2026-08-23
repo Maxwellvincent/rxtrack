@@ -37,7 +37,7 @@ import { readExemplars, resolveDefaultDifficulty } from "../objectives/quizLaunc
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
-import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundDifficulty, roundLabel } from "./lectureStudy.js";
+import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
 import {
   clearRoundProgress,
   readRoundProgress,
@@ -422,7 +422,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           lectureId={lecture?.id ?? null}
           userId={userId}
           onExit={() => setQuestions(null)}
-          onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false } = {}) => {
+          onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             const nextDone = Math.max(done, round + 1);
             saveRoundProgress(userId, lecture?.id, nextDone);
             setDone(nextDone);
@@ -430,6 +430,20 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             const isLastRound = nextDone >= rounds.length;
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
             if (isLastRound) setLastResult({ score, hasLandmines });
+
+            // A correctly-answered question earns its atom's matching study-guide topic a
+            // check, same as ticking it by hand — a wrong answer never checks anything.
+            if (studyGuide?.topics?.length) {
+              const toCheck = topicsToAutoCheck(records, atoms, studyGuide.topics);
+              if (toCheck.length) {
+                let guide = studyGuide;
+                for (const topicId of toCheck) {
+                  guide = studyGuideStore.setTopicChecked(userId, lecture?.id, topicId, true);
+                  masterGuideStore.syncFromLectureTopic(userId, blockId, lecture?.id, topicId, true);
+                }
+                setStudyGuide(guide);
+              }
+            }
 
             // Signal Today to auto-check once ≥60% of rounds are complete
             if (rounds.length > 0 && nextDone / rounds.length >= 0.6 && lecture?.id) {
