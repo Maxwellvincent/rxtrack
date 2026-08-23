@@ -21,6 +21,13 @@
  * every unmount/remount as the user navigates between questions, defeating
  * that reuse.
  *
+ * Final-review fix C2 — only SUCCESSFUL results (`{text}`) are cached here.
+ * An `{error}` result (e.g. `callAI is not a function` when no transport was
+ * supplied, or a genuine transient failure) is intentionally never written
+ * to `resultCache`, so a subsequent `request()` call for a previously-failed
+ * questionId finds nothing cached and naturally retries — no separate
+ * "clear the cache" API needed, and no stale error can get stuck forever.
+ *
  * On-demand only: this hook never fetches on mount or when `question`
  * changes — it only ever calls `explainQuestion` from inside `request()`,
  * which the caller (TutorPanel via its `onRequest`, or ExamSessionRunner in
@@ -84,7 +91,10 @@ export function useTutorExplanation(question, { enabled = true } = {}, deps = {}
     let promise = inFlightByQuestionId.get(questionId);
     if (!promise) {
       promise = explainQuestion(question, deps).then((result) => {
-        resultCache.set(questionId, result);
+        // Only cache success — see the module doc's C2 fix note above. An
+        // `{error}` result is deliberately left uncached so the next
+        // request() for this questionId retries instead of replaying it.
+        if (!result?.error) resultCache.set(questionId, result);
         inFlightByQuestionId.delete(questionId);
         return result;
       });

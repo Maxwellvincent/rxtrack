@@ -505,6 +505,7 @@ function ShellMain({ theme, toggle, userId }) {
           ) : tab === "exam" && activeBlockId ? (
             <ExamContainer
               blockId={activeBlockId}
+              blockName={active?.name}
               userId={userId}
               onNavigateToLecture={(lectureId) => {
                 setExamFocusLectureId(lectureId);

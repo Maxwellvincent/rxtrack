@@ -329,4 +329,122 @@ describe("ExamSessionRunner", () => {
       unmount();
     });
   });
+
+  describe("final-review fix I1: practice format has a real completion path", () => {
+    it("shows a 'Finish' control (not a disabled dead-end) once the last practice question is answered, and it calls submit()", async () => {
+      const submit = vi.fn(async () => ({ ok: true }));
+      const controller = baseController({
+        session: {
+          sessionId: "s1",
+          blockId: "b1",
+          format: "practice",
+          status: "in_progress",
+          questions: [makeQuestion("q1", "A")],
+          answers: [{ questionId: "q1", value: "A", answeredAt: Date.now(), seq: 0, writerId: "w1" }],
+          deadline: null,
+        },
+        remainingMs: null,
+        submit,
+      });
+      controllerMock.mockReturnValue(controller);
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+      const finishButton = Array.from(host.querySelectorAll("button")).find((b) =>
+        b.textContent.includes("Finish")
+      );
+      expect(finishButton).toBeTruthy();
+      expect(finishButton.disabled).toBe(false);
+
+      await act(async () => {
+        finishButton.click();
+      });
+
+      expect(submit).toHaveBeenCalledTimes(1);
+
+      unmount();
+    });
+
+    it("mid-session (not the last question), the reveal still shows 'Next →', not 'Finish'", () => {
+      const controller = baseController({
+        session: {
+          sessionId: "s1",
+          blockId: "b1",
+          format: "practice",
+          status: "in_progress",
+          questions: [makeQuestion("q1", "A"), makeQuestion("q2", "A")],
+          answers: [{ questionId: "q1", value: "A", answeredAt: Date.now(), seq: 0, writerId: "w1" }],
+          deadline: null,
+        },
+        remainingMs: null,
+      });
+      controllerMock.mockReturnValue(controller);
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+      expect(host.textContent).toMatch(/Next →/);
+      expect(host.textContent).not.toMatch(/Finish/);
+
+      unmount();
+    });
+  });
+
+  describe("final-review fix I2: a submitted exam always shows the review/score, regardless of tutorModeEnabled", () => {
+    it("tutorModeEnabled=false (default): still shows the score line and per-question review", () => {
+      controllerMock.mockReturnValue(
+        baseController({
+          session: {
+            ...baseController().session,
+            status: "submitted",
+            questions: [makeQuestion("q1", "A"), makeQuestion("q2", "A")],
+            answers: [
+              { questionId: "q1", value: "A", answeredAt: Date.now(), seq: 0, writerId: "w1" },
+              { questionId: "q2", value: "B", answeredAt: Date.now(), seq: 1, writerId: "w1" },
+            ],
+          },
+        })
+      );
+
+      const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+      expect(host.textContent).toMatch(/Submitted\./);
+      const score = host.querySelector('[data-testid="exam-score"]');
+      expect(score).toBeTruthy();
+      expect(score.textContent).toMatch(/1 of 2 correct/);
+      // Tutor panel itself stays gated behind tutorModeEnabled.
+      expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
+
+      unmount();
+    });
+  });
+
+  describe("final-review fix I6: submit() is called with real blockName/lectureLabelsByLectureId, not empty defaults", () => {
+    it("threads blockName and lectureLabelsByLectureId props into every submit() call", async () => {
+      const submit = vi.fn(async () => ({ ok: true }));
+      controllerMock.mockReturnValue(baseController({ submit }));
+
+      const { host, unmount } = render(
+        <ExamSessionRunner
+          sessionId="s1"
+          userId="u1"
+          blockName="Cardiology"
+          lectureLabelsByLectureId={{ "lec-1": "Heart Failure" }}
+        />
+      );
+
+      const submitButton = Array.from(host.querySelectorAll("button")).find((b) =>
+        b.textContent.includes("Submit exam")
+      );
+      await act(async () => {
+        submitButton.click();
+      });
+
+      expect(submit).toHaveBeenCalledWith({
+        blockName: "Cardiology",
+        lectureLabelsByLectureId: { "lec-1": "Heart Failure" },
+      });
+
+      unmount();
+    });
+  });
 });

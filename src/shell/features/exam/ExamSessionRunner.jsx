@@ -27,15 +27,15 @@ import { useTutorExplanation } from "./useTutorExplanation.js";
 // `useTutorExplanation` call (the hook's cache is module-level and keyed by
 // questionId, so mounting one per question is cheap and safe).
 //
-// Design note carried from Task 10's review: `useTutorExplanation` caches a
-// failed result the same as a success, so a plain "call request() again"
-// retry would just replay the cached error, not actually re-fetch — and
-// clearing that cache would mean reaching into Task 10's file, which is out
-// of this task's declared scope. Rather than ship a "Try again" button that
-// silently does nothing, this wrapper leaves retry out for now; the gap is
-// flagged in the task report instead of quietly patched over.
-function TutorPanelForQuestion({ question }) {
-  const { text, loading, error, request } = useTutorExplanation(question);
+// Final-review fix C2 — `callAI` is threaded down from ExamContainer (via
+// this component's `callAI` prop) into `useTutorExplanation`'s third `deps`
+// argument, the same DI convention `explainQuestion`/`generateMcqs` already
+// use elsewhere. `useTutorExplanation.js` no longer caches an `{error}`
+// result, so a question whose first tutor request failed will genuinely
+// retry (not just replay the cached error) the next time `request()` is
+// called for it — see that file's header for the retry design.
+function TutorPanelForQuestion({ question, callAI }) {
+  const { text, loading, error, request } = useTutorExplanation(question, { enabled: true }, { callAI });
   return <TutorPanel question={question} onRequest={request} text={text} loading={loading} error={error} />;
 }
 
@@ -112,7 +112,7 @@ function ChoiceList({ choices, picked, revealed, correct, onPick }) {
   );
 }
 
-function ExamFormat({ controller }) {
+function ExamFormat({ controller, submitOpts }) {
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
     controller;
   const questions = session.questions || [];
@@ -188,7 +188,7 @@ function ExamFormat({ controller }) {
             Next →
           </Button>
         </div>
-        <Button onClick={() => submit()} disabled={submitting}>
+        <Button onClick={() => submit(submitOpts)} disabled={submitting}>
           {submitting ? "Submitting…" : "Submit exam"}
         </Button>
       </div>
@@ -196,8 +196,16 @@ function ExamFormat({ controller }) {
   );
 }
 
-function PracticeFormat({ controller, tutorModeEnabled }) {
-  const { session, currentIndex, setCurrentIndex, answerQuestion } = controller;
+// I1 fix — practice format previously had no submit control at all: the
+// Next button just disabled itself with "Last question" once the final
+// question was answered, so the only way to end a practice session was
+// Abandon — which by design never finalizes (no recordAnswer/weak-concept
+// writes), so practice results never reached stats or the dashboard. A
+// "Finish" button, reachable once the last question is answered/revealed,
+// calls the same `submit()` the controller already exposes for format
+// "exam" — same function, now reachable from practice's UI too.
+function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
+  const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
   if (!q) return null;
@@ -235,13 +243,16 @@ function PracticeFormat({ controller, tutorModeEnabled }) {
                 {q.explanation}
               </div>
             )}
-            {tutorModeEnabled && <TutorPanelForQuestion question={q} />}
-            <Button
-              disabled={currentIndex >= questions.length - 1}
-              onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}
-            >
-              {currentIndex + 1 >= questions.length ? "Last question" : "Next →"}
-            </Button>
+            {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
+            {currentIndex + 1 >= questions.length ? (
+              <Button onClick={() => submit(submitOpts)} disabled={submitting}>
+                {submitting ? "Submitting…" : "Finish"}
+              </Button>
+            ) : (
+              <Button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}>
+                Next →
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -252,14 +263,25 @@ function PracticeFormat({ controller, tutorModeEnabled }) {
 // Task 12, Part B1 — the post-submission per-question review for format
 // "exam". Format "exam" never reveals correctness during the session (no
 // per-question feedback by design — see the module doc), so there is no
-// pre-existing reveal to place the tutor panel alongside; this whole review
-// is new, additive UI that only renders when tutor mode is on, per the
-// "zero behavior change when tutorModeEnabled is false" requirement below.
-function SubmittedExamReview({ session }) {
+// pre-existing reveal to place this alongside; it's new, additive UI.
+//
+// I2 fix — this review (and its score line) previously only rendered when
+// `tutorModeEnabled` was on, which defaults to false — a submitted exam
+// otherwise showed bare "Submitted." with no score or per-question review at
+// all. Now this always renders for a submitted format-"exam" session;
+// `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
+// it, which is the actual preference-gated piece.
+function SubmittedExamReview({ session, tutorModeEnabled, callAI }) {
   const questions = session.questions || [];
+  const correctCount = questions.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   return (
     <div className="space-y-2">
-      <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
+      <div className="flex items-center justify-between">
+        <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
+        <div data-testid="exam-score" className="font-mono text-sm font-bold text-text-1">
+          {correctCount} of {questions.length} correct
+        </div>
+      </div>
       {questions.map((q) => {
         const picked = pickedFor(session, q.questionId);
         return (
@@ -271,7 +293,7 @@ function SubmittedExamReview({ session }) {
                 {q.explanation}
               </div>
             )}
-            <TutorPanelForQuestion question={q} />
+            {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
           </div>
         );
       })}
@@ -279,20 +301,38 @@ function SubmittedExamReview({ session }) {
   );
 }
 
-// eslint-disable-next-line no-unused-vars -- `blockId` is part of the
-// documented prop contract (kept small/stable for callers) even though this
-// component doesn't need it directly: `sessionId`/`userId` are enough to
-// drive the controller, and the session doc itself already carries blockId.
-export function ExamSessionRunner({ sessionId, userId, blockId, onExit, tutorModeEnabled = false }) {
+// `blockId` is part of the documented prop contract (kept small/stable for
+// callers) even though this component doesn't need it directly:
+// `sessionId`/`userId` are enough to drive the controller, and the session
+// doc itself already carries blockId.
+export function ExamSessionRunner({
+  sessionId,
+  userId,
+  // eslint-disable-next-line no-unused-vars -- see note above.
+  blockId,
+  blockName = "",
+  lectureLabelsByLectureId = {},
+  onExit,
+  tutorModeEnabled = false,
+  callAI,
+}) {
   const controller = useExamSessionController(sessionId, userId);
   const { session, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
+
+  // I6 fix — `finalizeExamSession`'s `blockName`/`lectureLabelsByLectureId`
+  // options were threaded correctly through finalize.js/finalizeLogic.js,
+  // but `submit()` was called with no arguments at every call site here, so
+  // every exam-derived weak-concept entry got a raw lectureId as its display
+  // label forever. These come from ExamContainer (which already builds
+  // `lecturesById`) via props, and are passed into every `submit()` call.
+  const submitOpts = { blockName, lectureLabelsByLectureId };
 
   // Resume-on-mount: a session left in "finalizing" (a prior submit call was
   // interrupted before completing) shows a distinct "finishing up" state and
   // the component's job — not the hook's — is to call submit() again; safe
   // per Task 7's idempotent/resumable design.
   useEffect(() => {
-    if (session?.status === "finalizing") submit();
+    if (session?.status === "finalizing") submit(submitOpts);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per
     // observed "finalizing" transition, not on every submit identity change.
   }, [session?.status]);
@@ -314,7 +354,7 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit, tutorMod
           <div className="text-sm text-bad">
             Submitting hit a snag: {submitResult.error || "an unknown error"}.
           </div>
-          <Button onClick={() => submit()} disabled={submitting}>
+          <Button onClick={() => submit(submitOpts)} disabled={submitting}>
             {submitting ? "Retrying…" : "Retry submit"}
           </Button>
         </div>
@@ -328,7 +368,9 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit, tutorMod
       <div className="space-y-3">
         <div className="text-sm font-bold text-text-1">Submitted.</div>
         {onExit && <Button onClick={onExit}>Done</Button>}
-        {tutorModeEnabled && session.format === "exam" && <SubmittedExamReview session={session} />}
+        {session.format === "exam" && (
+          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} />
+        )}
       </div>
     );
   }
@@ -345,9 +387,14 @@ export function ExamSessionRunner({ sessionId, userId, blockId, onExit, tutorMod
   return (
     <div className="mb-5 space-y-3">
       {session.format === "exam" ? (
-        <ExamFormat controller={controller} />
+        <ExamFormat controller={controller} submitOpts={submitOpts} />
       ) : (
-        <PracticeFormat controller={controller} tutorModeEnabled={tutorModeEnabled} />
+        <PracticeFormat
+          controller={controller}
+          tutorModeEnabled={tutorModeEnabled}
+          submitOpts={submitOpts}
+          callAI={callAI}
+        />
       )}
       <div className="flex items-center justify-between">
         <SyncIndicator status={syncStatus} />

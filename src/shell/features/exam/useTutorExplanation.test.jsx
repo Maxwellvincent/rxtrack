@@ -146,4 +146,65 @@ describe("useTutorExplanation", () => {
 
     probe.unmount();
   });
+
+  // Final-review fix C2: a caller with no `callAI` transport (or any other
+  // failure) got an `{error}` result permanently cached, so retrying a
+  // question that failed once — e.g. after supplying the transport, or after
+  // a transient network blip — silently replayed the stale error forever
+  // instead of actually re-requesting. Only successful results are cached
+  // now; a second request() for a previously-failed questionId must call
+  // explainQuestion again.
+  it("a second request() call after a failed first one actually retries instead of replaying the cached error", async () => {
+    const q = makeQuestion("retry-q1");
+    explainQuestionMock
+      .mockResolvedValueOnce({ error: "callAI is not a function" })
+      .mockResolvedValueOnce({ text: "the real breakdown" });
+
+    const probe = mountHook(q);
+    await probe.render(q);
+
+    await act(async () => {
+      await probe.get().request();
+    });
+    expect(explainQuestionMock).toHaveBeenCalledTimes(1);
+    expect(probe.get().error).toBe("callAI is not a function");
+    expect(probe.get().text).toBeNull();
+
+    await act(async () => {
+      await probe.get().request();
+    });
+    expect(explainQuestionMock).toHaveBeenCalledTimes(2);
+    expect(probe.get().error).toBeNull();
+    expect(probe.get().text).toBe("the real breakdown");
+
+    probe.unmount();
+  });
+
+  it("does not re-cache-poison: a successful result IS cached and does not trigger a third call on a later request()", async () => {
+    const q = makeQuestion("retry-q2");
+    explainQuestionMock
+      .mockResolvedValueOnce({ error: "boom" })
+      .mockResolvedValueOnce({ text: "cached-worthy breakdown" });
+
+    const probe = mountHook(q);
+    await probe.render(q);
+
+    await act(async () => {
+      await probe.get().request();
+    });
+    await act(async () => {
+      await probe.get().request();
+    });
+    expect(explainQuestionMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await probe.get().request();
+    });
+    // Third call reuses the now-cached success — explainQuestion is not
+    // called a third time.
+    expect(explainQuestionMock).toHaveBeenCalledTimes(2);
+    expect(probe.get().text).toBe("cached-worthy breakdown");
+
+    probe.unmount();
+  });
 });
