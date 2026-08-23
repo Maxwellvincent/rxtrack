@@ -17,7 +17,7 @@ import {
   statusTally,
   weakConceptsForLecture,
 } from "../../logic/schedule.js";
-import { isLandmine } from "./weakConcepts.js";
+import { isLandmine, rankConcepts } from "./weakConcepts.js";
 
 export const FILTERS = ["all", "struggling", "untested", "unstarted", "done"];
 
@@ -94,6 +94,7 @@ export function scoreLectures(context) {
       }),
       recommendedSessions: recommendedSessionsFor({ sessions, tally, nextReview, today, lastScore }),
       studyMode: context?.studyModeByLecture?.[lec.id] ?? null,
+      topWeakConcepts: rankConcepts(lecWeakConcepts).slice(0, 3).map((c) => c.concept || c.description).filter(Boolean),
     };
   });
 }
@@ -139,6 +140,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     hasPreRead: !!entry?.preRead,
     recommendedSessions: score.recommendedSessions || [],
     studyMode: score.studyMode ?? null,
+    topWeakConcepts: score.topWeakConcepts || [],
     done,
   };
 }

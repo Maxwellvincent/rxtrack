@@ -196,6 +196,25 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
   );
 }
 
+/**
+ * The prompt asks for one question per fact, in the same order the facts were
+ * listed — so a fact's own atom `term` is a reliable stand-in whenever the
+ * model leaves `topic` out (it happens). Without this, normalizeQuestions'
+ * `topic` ends up null and callers fall back to slicing the raw question
+ * stem for display — unreadable as a "concept to review" label.
+ */
+function backfillTopicsFromAtoms(raw, atoms) {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
+  const questions = list.map((q, i) => {
+    const term = atoms[i]?.term;
+    if (q && typeof q === "object" && !String(q.topic || "").trim() && term) {
+      return { ...q, topic: term };
+    }
+    return q;
+  });
+  return Array.isArray(raw) ? questions : { ...raw, questions };
+}
+
 export async function generateFromAtoms(cfg = {}, deps = {}) {
   const { callAIJSON, maxTokens = 8000 } = deps;
   const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
@@ -203,7 +222,7 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
     const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    return { questions: normalizeQuestions(result) };
+    return { questions: normalizeQuestions(backfillTopicsFromAtoms(result, atoms)) };
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
   }

@@ -94,7 +94,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = null, userId, onDone }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = null, userId, onDone, onExit }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState(null);
   const [confidence, setConfidence] = useState(null);
@@ -102,7 +102,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const [done, setDone] = useState(false);
   const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
 
-  if (done) return <Summary records={records} />;
+  if (done) return <Summary records={records} onExit={onExit} />;
 
   const q = questions[i];
   const revealed = confidence != null;
@@ -238,7 +238,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   );
 }
 
-function Summary({ records }) {
+function Summary({ records, onExit }) {
   const s = summarize(records);
   const pct = (a) => (a == null ? "—" : Math.round(a * 100) + "%");
   return (
@@ -273,6 +273,7 @@ function Summary({ records }) {
           </ul>
         </div>
       )}
+      {onExit && <Button onClick={onExit}>Done — back to lecture</Button>}
     </div>
   );
 }

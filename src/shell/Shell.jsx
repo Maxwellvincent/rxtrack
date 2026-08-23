@@ -448,6 +448,7 @@ function ShellMain({ theme, toggle, userId }) {
                 blockId={activeBlockId}
                 lectureId={quiz.lectureId ?? null}
                 userId={userId}
+                onExit={() => setQuiz(null)}
                 onDone={({ correct = 0, total = 0 } = {}) => {
                   if (!quiz.lectureId) return;
                   const passedQuiz = total > 0 && correct / total >= 0.8;

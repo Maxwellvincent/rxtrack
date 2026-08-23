@@ -130,6 +130,19 @@ describe("generateFromAtoms", () => {
     expect(callAIJSON).toHaveBeenCalledOnce();
     expect(r.questions).toHaveLength(1);
   });
+  it("backfills topic from the source atom's term when the model omits it, instead of surfacing the raw stem", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({
+      questions: [
+        { stem: "A slide shows dilated axon terminals...?", choices: { A: "Herring bodies", B: "x", C: "y", D: "z" }, correct: "A" },
+        { stem: "Dopamine's effect on this hormone...?", choices: { A: "a", B: "Prolactin", C: "c", D: "d" }, correct: "B", topic: "Model's own topic" },
+      ],
+    });
+    const r = await generateFromAtoms({ atoms }, { callAIJSON });
+    const byStem = Object.fromEntries(r.questions.map((q) => [q.stem, q]));
+    expect(byStem["A slide shows dilated axon terminals...?"].topic).toBe("Herring bodies");
+    // The model's own topic, when present, is not clobbered by the backfill.
+    expect(byStem["Dopamine's effect on this hormone...?"].topic).toBe("Model's own topic");
+  });
   it("errors without an AI call when there are no atoms", async () => {
     const callAIJSON = vi.fn();
     const r = await generateFromAtoms({ atoms: [] }, { callAIJSON });

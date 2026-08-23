@@ -113,6 +113,11 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
             {row.lastActivityDate && ` · last ${row.lastActivityDate}`}
             {row.nextReview && ` · review ${row.nextReview}`}
           </div>
+          {row.topWeakConcepts.length > 0 && (
+            <div className="mt-0.5 font-mono text-[12px] text-bad" title="Your weakest concepts tied to this lecture">
+              ⚠ review: {row.topWeakConcepts.join(" · ")}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
           <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">

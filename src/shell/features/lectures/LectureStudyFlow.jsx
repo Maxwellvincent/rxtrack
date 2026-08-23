@@ -421,6 +421,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           blockId={blockId}
           lectureId={lecture?.id ?? null}
           userId={userId}
+          onExit={() => setQuestions(null)}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false } = {}) => {
             const nextDone = Math.max(done, round + 1);
             saveRoundProgress(userId, lecture?.id, nextDone);
