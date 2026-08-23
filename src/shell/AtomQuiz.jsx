@@ -5,6 +5,7 @@ import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
+import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
 // Handles patterns like "(A) text", "(B) text" anywhere in the string.
@@ -111,6 +112,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
     for (const q of questions) if (q.highlights?.length) map[q.stem] = q.highlights;
     return map;
   });
+
+  useFocusHudSignal("questions", questions[i]?.topic ?? null, { enabled: !done });
 
   const onHighlight = useCallback(
     (stem, phrase) => {

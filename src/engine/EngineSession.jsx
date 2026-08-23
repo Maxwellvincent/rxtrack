@@ -28,9 +28,13 @@ export function EngineSession({ userId, blockId, blockName, newPool = [], onExit
   const [diagErr, setDiagErr] = useState(false);
 
   // Tell focus-hud what is being worked on, so the time is attributed to the
-  // right lecture without anyone starting a timer by hand. Reports the lecture
-  // of the current item when there is one, falling back to the block.
-  useFocusHudSignal("questions", current?.item?.lecture ?? blockName ?? null, {
+  // right lecture/concept without anyone starting a timer by hand.
+  const focusHudDetail = current?.item?.lecture
+    ? current?.concept?.concept
+      ? `${current.item.lecture} — ${current.concept.concept}`
+      : current.item.lecture
+    : (current?.concept?.concept ?? blockName ?? null);
+  useFocusHudSignal("questions", focusHudDetail, {
     enabled: Boolean(items),
   });
 

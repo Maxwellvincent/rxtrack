@@ -11,6 +11,7 @@ import { useObjectives } from "../../hooks/useObjectives.js";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
 import { objectivePoolFrom, weakConceptNames } from "./recognition.js";
 import PatientRecognition from "./PatientRecognition.jsx";
+import { useFocusHudSignal } from "../../hooks/useFocusHudSignal.js";
 
 export function RecognitionContainer({ T, onClose, blockId = null, userId = null }) {
   const objectives = useObjectives(null, userId);
@@ -23,6 +24,12 @@ export function RecognitionContainer({ T, onClose, blockId = null, userId = null
     [objectives.data, blockId]
   );
   const weakConcepts = useMemo(() => weakConceptNames(weak.data), [weak.data]);
+
+  // No lecture/topic context surfaces at this container level (Patient
+  // Recognition draws from the whole block's objective pool, not one
+  // lecture) — block id is the best available label until PatientRecognition
+  // itself reports which case/objective it's currently showing.
+  useFocusHudSignal("review", blockId, { enabled: pool.length > 0 });
 
   return (
     <PatientRecognition

@@ -21,6 +21,7 @@ import { fetchTeachingMaps, withTeachingMaps } from "../../../lectureTeachingMap
 import { createObjectiveCommands, dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
 import { detectStudyMode } from "../../logic/studyMode.js";
 import { buildQuestionContext } from "../../logic/questionContext.js";
+import { useFocusHudSignal } from "../../hooks/useFocusHudSignal.js";
 
 const readStylePrefs = () => {
   try {
@@ -60,6 +61,16 @@ export function DeepLearnContainer({
    */
   const [teachingMaps, setTeachingMaps] = useState({});
   const lectureRows = lectures.data;
+
+  // Coarse-grained only: reflects the lecture DeepLearn opened on, not a live
+  // read of whichever lecture the legacy component's own picker switches to
+  // mid-session (DeepLearn.jsx keeps that state internally, unreported here).
+  // Still better than no signal at all for a study surface this heavily used.
+  const preselectedLecture = lectureRows?.find((l) => l.id === preselectLecId);
+  const focusHudDetail = preselectedLecture
+    ? (preselectedLecture.lectureTitle || preselectedLecture.title || preselectedLecture.fileName || null)
+    : null;
+  useFocusHudSignal("questions", focusHudDetail, { externalRef: "deep_learn" });
   useEffect(() => {
     let live = true;
     const uid = userId ?? getStoreHookUserId();

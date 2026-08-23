@@ -8,6 +8,7 @@ import { recordOutcome } from "./mastery.js";
 import { classify, summarize } from "./calibration.js";
 import { appendCalibration } from "./calibrationStore.js";
 import { BuildStatus, NothingToStudy } from "./SessionStatus.jsx";
+import { useFocusHudSignal } from "../shell/hooks/useFocusHudSignal.js";
 
 const BURST = 10;
 
@@ -36,6 +37,13 @@ export function CalibrationSession({ userId, blockId, blockName, newPool = [], o
   const [confidence, setConfidence] = useState(null);
   const [revealed, setRevealed] = useState(false);
   const [records, setRecords] = useState([]); // {concept, confidence, correct} this session
+
+  const focusHudDetail = current?.item?.lecture
+    ? current?.concept?.concept
+      ? `${current.item.lecture} — ${current.concept.concept}`
+      : current.item.lecture
+    : (current?.concept?.concept ?? blockName ?? null);
+  useFocusHudSignal("questions", focusHudDetail, { enabled: Boolean(items) });
 
   useEffect(() => {
     let alive = true;
