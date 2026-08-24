@@ -32,7 +32,13 @@ export function ExamLaunchModal({
 }) {
   const [format, setFormat] = useState("exam");
   const [count, setCount] = useState(String(defaultQuestionCount || 20));
-  const [duration, setDuration] = useState("");
+  // Auto-calculated from question count (1.5 min/question, matching real
+  // exam pacing) until the user types into the duration field themselves —
+  // then their value sticks and stops following count changes.
+  const [duration, setDuration] = useState(() =>
+    String(Math.round((defaultQuestionCount || 20) * 1.5))
+  );
+  const [durationTouched, setDurationTouched] = useState(false);
 
   const noLectures = !eligibleLectures || eligibleLectures.length === 0;
 
@@ -50,6 +56,12 @@ export function ExamLaunchModal({
     }
     const n = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(raw, 10) || 1));
     setCount(String(n));
+    if (!durationTouched) setDuration(String(Math.round(n * 1.5)));
+  };
+
+  const handleDurationChange = (e) => {
+    setDurationTouched(true);
+    setDuration(e.target.value);
   };
 
   const handleLaunch = () => {
@@ -128,10 +140,15 @@ export function ExamLaunchModal({
                 type="number"
                 min="1"
                 value={duration}
-                onChange={(e) => setDuration(e.target.value)}
+                onChange={handleDurationChange}
                 placeholder="Required"
                 className="w-24 rounded border border-border bg-bg-elevated px-2 py-1 font-mono text-sm text-text-1 focus:border-border-strong focus:outline-none"
               />
+              {!durationTouched && (
+                <div className="mt-1 font-mono text-[11px] text-text-3">
+                  1.5 min/question — edit to override
+                </div>
+              )}
             </div>
           )}
 

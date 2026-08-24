@@ -127,7 +127,58 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
-  it("exam format requires an explicit duration before launch is enabled", () => {
+  it("duration defaults to 1.5 min/question and launch is enabled without typing", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={20}
+        onLaunch={onLaunch}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const durationInput = host.querySelectorAll('input[type="number"]')[1];
+    expect(durationInput.value).toBe("30"); // 20 * 1.5
+
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    expect(startBtn.disabled).toBe(false);
+    act(() => startBtn.click());
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 20, durationMinutes: 30 });
+
+    unmount();
+  });
+
+  it("duration auto-recalculates as question count changes, until the user edits it directly", () => {
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={20}
+        onLaunch={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    );
+
+    const countInput = host.querySelector('input[type="number"]');
+    const durationInput = host.querySelectorAll('input[type="number"]')[1];
+    expect(durationInput.value).toBe("30");
+
+    act(() => setInputValue(countInput, "10"));
+    expect(durationInput.value).toBe("15"); // still auto-following: 10 * 1.5
+
+    // User types a duration directly — auto-calc stops following count.
+    act(() => setInputValue(durationInput, "60"));
+    act(() => setInputValue(countInput, "40"));
+    expect(durationInput.value).toBe("60"); // unchanged, no longer auto-calculated
+
+    unmount();
+  });
+
+  it("clearing a typed duration back to empty blocks launch (still exam format, still required)", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(
       <ExamLaunchModal
@@ -140,15 +191,15 @@ describe("ExamLaunchModal", () => {
       />
     );
 
+    const durationInput = host.querySelectorAll('input[type="number"]')[1];
+    act(() => setInputValue(durationInput, ""));
+
     const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
-    // No duration typed yet: exam format, disabled.
     expect(startBtn.disabled).toBe(true);
     act(() => startBtn.click());
     expect(onLaunch).not.toHaveBeenCalled();
 
-    const durationInput = host.querySelectorAll('input[type="number"]')[1];
     act(() => setInputValue(durationInput, "60"));
-
     expect(startBtn.disabled).toBe(false);
     act(() => startBtn.click());
     expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 60 });
