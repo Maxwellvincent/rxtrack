@@ -45,6 +45,7 @@ import {
   saveRoundProgress,
 } from "./lectureProgress.js";
 import * as questionStats from "../../../stores/lectureQuestionStats.js";
+import * as atomProgressStore from "../../../stores/atomProgress.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -85,6 +86,17 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const [done, setDone] = useState(() => readRoundProgress(userId, lecture?.id));
   // Refreshed when a round ends rather than per answer: the panel is not on screen mid-round.
   const [qStats, setQStats] = useState(() => questionStats.statsForLecture(userId, lecture?.id));
+  // The real progress bar: atoms answered correctly at least once, out of the atoms this lecture
+  // actually has right now. Empty until atoms load (the effect below recomputes it then), same
+  // staleness contract as qStats — refreshed at round/quiz end and on manual exit, not live.
+  const [atomMastery, setAtomMastery] = useState({ masteredCount: 0, totalCount: 0 });
+  const refreshAtomMastery = useCallback(
+    (currentAtoms) => {
+      const keys = (currentAtoms || atoms).map((a) => normAtomKey(a.term));
+      setAtomMastery(atomProgressStore.masterySummary(userId, lecture?.id, keys));
+    },
+    [atoms, userId, lecture?.id]
+  );
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Track last round result to surface "Go Deep" prompt on completion
@@ -152,6 +164,10 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     if (stored?.topics?.length) { setStudyGuide(stored); return; }
     generateGuide(atoms, lectureObjectives);
   }, [atoms]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // atomMastery is computed against the CURRENT atom list, so it has to recompute whenever atoms
+  // themselves load or change (initial async load, a re-extraction) — not just at round/quiz end.
+  useEffect(() => { refreshAtomMastery(atoms); }, [atoms]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Shell keys this component by lecture id, so switching lectures remounts it
   // with fresh state instead of needing a synchronous reset in here.
@@ -416,10 +432,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
         <div className="mb-3 flex items-center justify-between gap-3">
           <button
             onClick={() => {
-              // Answers already persisted per-question (AtomQuiz's recordAnswer) even though
-              // this round wasn't finished — re-read so the bar reflects them instead of
-              // sitting on whatever qStats was at round start.
+              // Answers already persisted per-question (AtomQuiz's recordAnswer/recordAtomAnswer)
+              // even though this round wasn't finished — re-read so the bars reflect them instead
+              // of sitting on whatever they were at round start.
               setQStats(questionStats.statsForLecture(userId, lecture?.id));
+              refreshAtomMastery();
               setQuestions(null);
             }}
             className="font-mono text-xs text-text-3 hover:text-text-1"
@@ -456,6 +473,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             saveRoundProgress(userId, lecture?.id, nextDone);
             setDone(nextDone);
             setQStats(questionStats.statsForLecture(userId, lecture?.id));
+            refreshAtomMastery();
             const isLastRound = nextDone >= rounds.length;
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
             if (isLastRound) setLastResult({ score, hasLandmines });
@@ -572,13 +590,12 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const objDeveloping = lectureObjectives.filter((o) => o.status === "developing").length;
   const objUntested = lectureObjectives.length - objMastered - objDeveloping;
   const objPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
-  // The bar shown here is effort you can SEE moving, not the mastery gate — a Quiz-button
-  // attempt answers real questions on this lecture and deserves to fill it too, even though
-  // it doesn't graduate an objective (that still needs a full Study pass or an 80%+ Quiz batch,
-  // untouched below). `done` itself (round-resume bookkeeping) is not touched by this blend.
-  const roundsFromQuestions = rounds.length > 0 ? Math.min(Math.floor(qStats.answered / ROUND_SIZE), rounds.length) : 0;
-  const displayDone = Math.max(done, roundsFromQuestions);
-  const roundPct = rounds.length > 0 ? Math.round((displayDone / rounds.length) * 100) : 0;
+  // The real progress bar: atoms answered correctly at least once. Unlike the old rounds-done
+  // counter, this can't go stale relative to itself — it's read straight from the same store
+  // every answer writes to, not blended from a separate heuristic.
+  const atomPct = atomMastery.totalCount > 0
+    ? Math.round((atomMastery.masteredCount / atomMastery.totalCount) * 100)
+    : 0;
   const accuracyPct = qStats.accuracy == null ? 0 : Math.round(qStats.accuracy * 100);
   // Banded rather than a gradient: the only decision this drives is whether the lecture goes back
   // on the review pile, and 70% is where that answer changes.
@@ -606,17 +623,17 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       {/* Status panel — shown once atoms are loaded */}
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 rounded-sm border border-border bg-bg-elevated divide-y divide-border/50">
-          {/* Row 1: round progress + difficulty */}
+          {/* Row 1: atom mastery + difficulty */}
           <div className="flex items-center gap-4 px-4 py-2.5">
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Rounds</span>
+              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Atoms</span>
               <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all"
-                  style={{ width: `${roundPct}%`, background: roundPct === 100 ? "var(--color-good)" : "var(--color-accent)" }}
+                  style={{ width: `${atomPct}%`, background: atomPct === 100 ? "var(--color-good)" : "var(--color-accent)" }}
                 />
               </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{displayDone}/{rounds.length}</span>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{atomMastery.masteredCount}/{atomMastery.totalCount}</span>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">Level</span>
@@ -712,14 +729,15 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               </Button>
               <span className="text-[12px] text-text-3">
                 {atoms.length} atoms · {lectureObjectives.length} objectives
-                {done > 0 ? ` · ${done}/${rounds.length} rounds done` : ""}
+                {atomMastery.totalCount > 0 ? ` · ${atomMastery.masteredCount}/${atomMastery.totalCount} atoms mastered` : ""}
                 {qStats.answered > 0 ? ` · ${qStats.answered} questions answered` : ""}
               </span>
               {done > 0 && (
                 <button
                   onClick={() => { clearRoundProgress(userId, lecture?.id); setDone(0); setRound(0); }}
-                  /* Question counts deliberately survive "start over" — they are a record of work
-                     done, not a bookmark, and resetting them would erase the lecture's history. */
+                  /* Resets only the in-session round bookmark (where the next Study pass picks
+                     up) — atom mastery and question counts are the lecture's real history and
+                     deliberately survive "start over", same as they always have. */
                   disabled={!!busy}
                   className="font-mono text-[12px] text-text-3 underline decoration-dotted hover:text-text-1"
                 >
