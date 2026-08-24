@@ -33,7 +33,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { readExemplars, resolveDefaultDifficulty } from "../objectives/quizLaunch.js";
+import { readExemplars, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
@@ -71,7 +71,7 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
-export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep, onStartObjectiveQuiz }) {
+export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
@@ -103,6 +103,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   const [lastResult, setLastResult] = useState(null);
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
+  // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
+  // atoms) rather than a sequential Study round — onDone below skips round-index bookkeeping
+  // for these (there is no "next round" to resume into) but still updates atom/objective
+  // mastery exactly the same way. One runner, two ways in.
+  const [adHocQuiz, setAdHocQuiz] = useState(false);
 
   // Atom key to scroll to + pulse-highlight once the atoms list is back on screen — set by a
   // "review this atom" click from a quiz Summary, cleared once the highlight has had its moment.
@@ -365,9 +370,45 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     );
 
     setRound(index);
+    setAdHocQuiz(false);
     setQuestions(questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity]);
+
+  /**
+   * "Quiz this lecture" — any count, any difficulty, drawn from real atoms same as a Study
+   * round (startObjectiveQuiz prioritizes not-yet-complete atoms per Q4), just not sliced into
+   * a fixed 5-atom round. Was a Shell-level generation call handed off to a separate top-level
+   * overlay; now it's the same runner Study rounds already use, so there is exactly one place
+   * questions get shown, one place answers get recorded, one place objective status updates.
+   */
+  const runQuiz = useCallback(async (count, difficulty) => {
+    setBusy("Writing questions…"); setError(""); setQuestions(null);
+    const result = await startObjectiveQuiz(
+      {
+        objectives: lectureObjectives,
+        lectureTitle: title,
+        blockId,
+        atoms,
+        difficulty,
+        questionCount: count,
+        userId,
+      },
+      { callAIJSON }
+    );
+    setBusy("");
+    if (result.error) { setError(result.error); return; }
+    if (!result.questions?.length) {
+      setError(
+        "No questions came back. The local bridge was unreachable and the cloud provider returned " +
+        "nothing — check that llm-bridge is running, or the console for the bridge reason."
+      );
+      return;
+    }
+    setAdHocQuiz(true);
+    setQuestions(result.questions);
+    logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+  }, [lectureObjectives, title, blockId, atoms, userId, lecture?.id, logActivity]);
 
 
   /*
@@ -426,7 +467,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   }
 
   if (questions) {
-    const hasNext = round + 1 < rounds.length;
+    // An ad-hoc quiz has no "next round" to resume into — it's a one-shot session.
+    const hasNext = !adHocQuiz && round + 1 < rounds.length;
     return (
       <div className="p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -444,7 +486,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
             ← back to atoms
           </button>
           <span className="font-mono text-[13px] text-text-3">
-            round {round + 1} of {rounds.length} · {roundLabel(round, rounds, atoms.length)} · {["easy","medium","hard","expert"][Math.min(round, 3)]}
+            {adHocQuiz
+              ? `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
+              : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${["easy","medium","hard","expert"][Math.min(round, 3)]}`}
           </span>
         </div>
         {(skippedAtoms.length > 0 || questions?.some((q) => q._isHighYield)) && (
@@ -469,12 +513,18 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           onExit={() => setQuestions(null)}
           onReviewAtom={(atomKey) => { setQuestions(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
-            const nextDone = Math.max(done, round + 1);
-            saveRoundProgress(userId, lecture?.id, nextDone);
-            setDone(nextDone);
+            // An ad-hoc quiz doesn't advance the round-resume bookmark — there is no sequence
+            // for it to be a position in — but it's always its own "last round" for the
+            // objective-status update below, since there's no next one coming.
+            const nextDone = adHocQuiz ? done : Math.max(done, round + 1);
+            let isLastRound = true;
+            if (!adHocQuiz) {
+              saveRoundProgress(userId, lecture?.id, nextDone);
+              setDone(nextDone);
+              isLastRound = nextDone >= rounds.length;
+            }
             setQStats(questionStats.statsForLecture(userId, lecture?.id));
             refreshAtomMastery();
-            const isLastRound = nextDone >= rounds.length;
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
             if (isLastRound) setLastResult({ score, hasLandmines });
 
@@ -561,7 +611,9 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           ) : (
             <div className="flex flex-col gap-3 w-full">
               <div className="rounded-lg border border-good/40 bg-good/5 px-4 py-3 text-sm font-semibold text-text-1">
-                ✓ Lecture complete — all {rounds.length} round{rounds.length === 1 ? "" : "s"} done
+                {adHocQuiz
+                  ? `✓ Quiz complete — ${questions.length} question${questions.length === 1 ? "" : "s"} answered`
+                  : `✓ Lecture complete — all ${rounds.length} round${rounds.length === 1 ? "" : "s"} done`}
               </div>
               {onGoDeep && lastResult && (lastResult.score < 70 || lastResult.hasLandmines) && (
                 <div className="rounded-lg border border-warn/40 bg-warn/5 px-4 py-3">
@@ -795,16 +847,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                   onClick={() => {
                     const { count, difficulty } = quizPicker;
                     setQuizPicker(null);
-                    onStartObjectiveQuiz(lectureObjectives, title, blockId, {
-                      lectureId: lecture?.id,
-                      atoms,
-                      difficulty,
-                      count,
-                    });
+                    runQuiz(count, difficulty);
                   }}
                   disabled={!!busy}
                 >
-                  Start {quizPicker.count}-question quiz
+                  {busyLabel || `Start ${quizPicker.count}-question quiz`}
                 </Button>
                 <button onClick={() => setQuizPicker(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
                   cancel
