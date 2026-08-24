@@ -62,10 +62,13 @@ export function Header({
           <div className="relative" ref={menuRef}>
             <button
               onClick={() => setMenuOpen((o) => !o)}
-              className="font-mono text-sm text-text-3 hover:text-text-1 transition-colors"
+              className="text-text-3 hover:text-text-1 transition-colors"
               title="More actions"
+              aria-label="More actions"
             >
-              ⋯
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 4.5H16M2 9H16M2 13.5H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[180px] rounded-sm border border-border bg-bg-elevated py-1 shadow-xl">

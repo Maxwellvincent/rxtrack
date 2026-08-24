@@ -61,6 +61,15 @@ export function writeLastView({ tab, selectedBlockId, moreView } = {}) {
   writePrefs({ ...readPrefs(), lastView: { tab, selectedBlockId, moreView } });
 }
 
+/** Today's Daily Plan task list — collapsed to skim the day-mode/progress bar without the list. */
+export function readTaskListCollapsed() {
+  return !!readPrefs().taskListCollapsed;
+}
+
+export function writeTaskListCollapsed(collapsed) {
+  writePrefs({ ...readPrefs(), taskListCollapsed: !!collapsed });
+}
+
 /** A collapsed term still has to show the active block, or the nav lies. */
 export function isTermVisible(term, { collapsed, activeBlockId }) {
   if (!collapsed?.has(term.id)) return true;

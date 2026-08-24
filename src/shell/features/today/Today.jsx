@@ -4,6 +4,7 @@ import { useToday } from "./useToday.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
+import { readTaskListCollapsed, writeTaskListCollapsed } from "../../navPrefs.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
 
@@ -756,6 +757,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? null);
   const [lecConfig, setLecConfig] = useState(() => readLecConfig(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
+  const [taskListCollapsed, setTaskListCollapsed] = useState(readTaskListCollapsed);
 
   const suggestedMode = useMemo(() => wakeTimeMode(wakeTime), [wakeTime]);
 
@@ -885,7 +887,26 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[13px] text-text-3">{dateStr}</div>
-          <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Daily Plan</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Daily Plan</h2>
+            <button
+              onClick={() => {
+                const next = !taskListCollapsed;
+                setTaskListCollapsed(next);
+                writeTaskListCollapsed(next);
+              }}
+              title={taskListCollapsed ? "Show task list" : "Hide task list"}
+              aria-label={taskListCollapsed ? "Show task list" : "Hide task list"}
+              className="text-text-3 hover:text-text-1 transition-colors"
+            >
+              <svg
+                width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"
+                className={`transition-transform ${taskListCollapsed ? "-rotate-90" : ""}`}
+              >
+                <path d="M3.5 5.25L7 8.75L10.5 5.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
         <div className="flex flex-col items-end gap-1">
           <span className="rounded-sm border border-border bg-panel px-3 py-1 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">
@@ -921,7 +942,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}
 
       {/* Task list */}
-      {filteredTasks.length === 0 ? (
+      {!taskListCollapsed && (filteredTasks.length === 0 ? (
         todayTasks.length > 0 && effectiveMode ? (
           <div className="rounded-sm border border-border p-4 text-xs text-text-3">
             No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === effectiveMode)?.label}</span> today.
@@ -965,7 +986,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
             />
           ))}
         </div>
-      )}
+      ))}
 
       {/* Work ahead — pre-read what is coming */}
       <WorkAheadSection
