@@ -827,15 +827,11 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   const onQuiz = useCallback((task) => {
     const objectives = objectivesForTask(task.lec.id);
     const title = task.lec?.lectureTitle || task.lec?.fileName || "Lecture";
-    // A pre-read's misses are the whole reason it exists: the first session
-    // after the lecture opens on the objectives it exposed as gaps.
+    // A pre-read's misses are the whole reason it exists: the first session after the lecture
+    // opens on the objectives it exposed as gaps — passed through as a priority order for
+    // Study's own quiz picker to apply, not pre-sorted here.
     const gapIds = preReadFor(task.lec.id)?.gapObjectiveIds || [];
-    const rank = (o) => {
-      const i = gapIds.indexOf(o.id);
-      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
-    };
-    const ordered = gapIds.length ? [...objectives].sort((a, b) => rank(a) - rank(b)) : objectives;
-    onStartObjectiveQuiz?.(ordered, title, blockId, { lectureId: task.lec.id });
+    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id, focusObjectiveIds: gapIds });
   }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor]);
 
   const onPreReadDone = useCallback(({ lectureId, gapObjectiveIds, durationMinutes }) => {

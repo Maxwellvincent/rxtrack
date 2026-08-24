@@ -46,6 +46,7 @@ import {
 } from "./lectureProgress.js";
 import * as questionStats from "../../../stores/lectureQuestionStats.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
+import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -71,7 +72,17 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
-export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep }) {
+export function LectureStudyFlow({
+  lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep,
+  // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
+  // launching its own separate screen — opens the same picker this file's "Quiz this lecture"
+  // button opens, just pre-triggered rather than waiting for a click.
+  autoOpenQuiz = false,
+  // Pre-read's misses are the reason a quiz got launched from Today in the first place —
+  // preserved here as a priority order rather than dropped when that entry point stopped
+  // having its own generation call to apply it to.
+  focusObjectiveIds = null,
+}) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
   const [images, setImages] = useState([]);
@@ -381,12 +392,39 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
    * a fixed 5-atom round. Was a Shell-level generation call handed off to a separate top-level
    * overlay; now it's the same runner Study rounds already use, so there is exactly one place
    * questions get shown, one place answers get recorded, one place objective status updates.
+   *
+   * focusObjectiveIds (a pre-read's gaps, when this quiz was launched from Today) moves those
+   * objectives to the front — startObjectiveQuiz's own weakest-first sort still applies within
+   * and after that, it's a priority order, not a filter.
    */
+  const orderedObjectives = useMemo(() => {
+    if (!focusObjectiveIds?.length) return lectureObjectives;
+    const rank = (o) => {
+      const i = focusObjectiveIds.indexOf(o.id);
+      return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return [...lectureObjectives].sort((a, b) => rank(a) - rank(b));
+  }, [lectureObjectives, focusObjectiveIds]);
+
   const runQuiz = useCallback(async (count, difficulty) => {
     setBusy("Writing questions…"); setError(""); setQuestions(null);
+
+    // A big enough saved pool serves without spending a generation call — same "use what's
+    // already been written for this lecture first" the old QuizConfigModal offered, just
+    // automatic instead of a checkbox, since there's no real reason to prefer regenerating.
+    const stored = lecture?.id ? generatedQuestionsStore.questionsForLecture(userId, lecture.id) : [];
+    if (stored.length >= count) {
+      const shuffled = [...stored].sort(() => Math.random() - 0.5).slice(0, count);
+      setBusy("");
+      setAdHocQuiz(true);
+      setQuestions(shuffled);
+      logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+      return;
+    }
+
     const result = await startObjectiveQuiz(
       {
-        objectives: lectureObjectives,
+        objectives: orderedObjectives,
         lectureTitle: title,
         blockId,
         atoms,
@@ -405,10 +443,21 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       );
       return;
     }
+    if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
     setAdHocQuiz(true);
     setQuestions(result.questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
-  }, [lectureObjectives, title, blockId, atoms, userId, lecture?.id, logActivity]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity]);
+
+  // An external "Quiz" click (Today/Lectures/ObjectiveTracker) opens the same picker the
+  // in-page button opens — once per mount, so revisiting Study later for the same lecture
+  // doesn't keep re-triggering it.
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (!autoOpenQuiz || autoOpenedRef.current || stage !== "quiz" || !atoms.length) return;
+    autoOpenedRef.current = true;
+    setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
+  }, [autoOpenQuiz, stage, atoms.length, qStats.accuracy]);
 
 
   /*

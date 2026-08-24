@@ -22,12 +22,10 @@ import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAl
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
 import { RecognitionContainer } from "./features/recognition/RecognitionContainer.jsx";
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
-import { AtomQuiz } from "./AtomQuiz.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
 import { ImportObjectivesPdfModal } from "./features/objectives/ImportObjectivesPdfModal.jsx";
 import { ReExtractAllModal } from "./features/objectives/ReExtractAllModal.jsx";
 import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
-import { fetchLectureContent } from "../supabase.js";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
 import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
@@ -43,17 +41,12 @@ import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
 import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
 import { ExamContainer } from "./features/exam/ExamContainer.jsx";
-import { startObjectiveQuiz, readExemplars, resolveDefaultDifficulty } from "./features/objectives/quizLaunch.js";
-import { statsForLecture } from "../stores/lectureQuestionStats.js";
-import { QuizConfigModal } from "./features/objectives/QuizConfigModal.jsx";
-import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
-import { callAIJSON } from "../aiClient.js";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { useToday } from "./features/today/useToday.js";
 import { themes } from "../theme.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import * as lectureRoundsStore from "../stores/lectureRounds.js";
-import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "./logic/objectives.js";
+import { selectBlockObjectives, setStatus } from "./logic/objectives.js";
 import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";
 
@@ -176,18 +169,12 @@ function ShellMain({ theme, toggle, userId }) {
   }, [tab, activeBlockId, moreView]);
   const [deepLearnPreselectId, setDeepLearnPreselectId] = useState(null);
   const [examFocusLectureId, setExamFocusLectureId] = useState(null);
-  // Objective quiz: { lectureId, loading, error, questions, title, count, startedAt }
-  const [quiz, setQuiz] = useState(null);
-  const [quizElapsed, setQuizElapsed] = useState(0);
-  useEffect(() => {
-    if (!quiz?.loading) { setQuizElapsed(0); return; }
-    const t = setInterval(() => setQuizElapsed(Math.round((Date.now() - (quiz.startedAt || Date.now())) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [quiz?.loading, quiz?.startedAt]);
-  // Pending quiz config: { objectives, lectureTitle, blockId, extraMeta } — shown in QuizConfigModal
-  const [pendingQuiz, setPendingQuiz] = useState(null);
   // Per-lecture study flow (T2.1) — the lecture whose atoms we are working on.
   const [studyLecture, setStudyLecture] = useState(null);
+  // Set alongside studyLecture by a "Quiz" click from Today/Lectures/ObjectiveTracker — Study
+  // itself owns quiz generation now (one runner, see docs/plans/2026-08-23-unify-quiz-study-rounds.md),
+  // this just tells it to open its picker immediately instead of waiting for an in-page click.
+  const [pendingAutoQuiz, setPendingAutoQuiz] = useState(null); // null | { focusObjectiveIds }
   // LectureList unmounts every time a lecture is opened (or the tab is left)
   // and remounts fresh on return, dropping scroll position. `main` itself
   // never unmounts, so its scrollTop is saved here and restored once the
@@ -268,90 +255,31 @@ function ShellMain({ theme, toggle, userId }) {
   const onContinue = useCallback(() => setSessionMode("engine"), []);
   const onCalibrate = useCallback(() => setSessionMode("calibrate"), []);
 
-  const switchTab = useCallback((t) => { setTab(t); setMoreView(null); setQuiz(null); }, []);
+  const switchTab = useCallback((t) => { setTab(t); setMoreView(null); }, []);
 
   // "Study →" on a lecture row: resolve the id to the stored lecture, then hand
   // it to the flow, which sources its text (locally or from Firestore) itself.
-  const onStudyLecture = useCallback((lectureId) => {
+  // `opts.autoQuiz` (a "Quiz" click, not "Study →") opens Study's own picker immediately;
+  // `opts.focusObjectiveIds` carries a pre-read's gap ordering through to it.
+  const onStudyLecture = useCallback((lectureId, opts = {}) => {
     const lecture = (lecturesStore.read(userId) || []).find((l) => l?.id === lectureId);
-    if (lecture) setStudyLecture(lecture);
+    if (!lecture) return;
+    setStudyLecture(lecture);
+    setPendingAutoQuiz(opts.autoQuiz ? { focusObjectiveIds: opts.focusObjectiveIds || null } : null);
   }, [userId]);
 
-  // Core generation — called directly (pre-specified count) or after modal confirmation.
-  const runQuizGeneration = useCallback(
-    async ({ objectives, lectureTitle, blockId: bid, extraMeta = {} }, { count, difficulty, useStored = false }) => {
-      const lectureId =
-        extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
-      setQuiz({ lectureId, loading: true, title: lectureTitle, count, startedAt: Date.now() });
-
-      if (useStored && lectureId) {
-        const stored = generatedQuestionsStore.questionsForLecture(userId, lectureId);
-        if (stored.length >= count) {
-          const shuffled = [...stored].sort(() => Math.random() - 0.5).slice(0, count);
-          setQuiz({ lectureId, questions: shuffled, title: lectureTitle });
-          return;
-        }
-      }
-
-      // The Today/Lectures "Quiz" buttons only have the lightweight list-view lecture
-      // (title + counts) — no atoms/text. Without this fetch, generation silently has
-      // nothing to work from and bails with "not enough lecture text" every time.
-      let atoms = extraMeta?.atoms || [];
-      if (!atoms.length && lectureId) {
-        try {
-          const remote = await fetchLectureContent(userId, lectureId);
-          atoms = remote?.atoms || [];
-        } catch { /* fall through — generation will report if it truly has nothing */ }
-      }
-
-      const result = await startObjectiveQuiz(
-        {
-          objectives,
-          lectureTitle,
-          blockId: bid,
-          lectures: lecturesStore.read(userId) || [],
-          exemplars: readExemplars(userId),
-          atoms,
-          questionCount: count,
-          difficulty,
-        },
-        { callAIJSON }
-      );
-      if (result.error || !result.questions?.length) {
-        setQuiz({ lectureId, error: result.error || "No questions came back.", title: lectureTitle });
-        return;
-      }
-      if (lectureId && result.questions?.length) {
-        generatedQuestionsStore.addQuestions(userId, lectureId, result.questions);
-      }
-      setQuiz({ lectureId, questions: result.questions, title: lectureTitle });
-    },
-    [userId]
-  );
-
-  // Step 1: intercept quiz launch — skip modal when caller pre-specifies count+difficulty.
+  // Every "Quiz" button used to call this directly (objectives, lectureTitle, blockId, extraMeta)
+  // to launch Shell's OWN generation + a separate top-level AtomQuiz overlay — a second runner
+  // with its own duplicate objective-status update, no atom tracking, no atoms-list, no
+  // jump-back. Callers now go through onStudyLecture instead; this stays only as the shape
+  // ObjectiveTracker/Today/LectureList's existing call sites still pass, translated to it.
   const onStartObjectiveQuiz = useCallback(
     (objectives, lectureTitle, optionalBlockId, extraMeta = {}) => {
-      const quizCtx = { objectives, lectureTitle, blockId: optionalBlockId ?? activeBlockId, extraMeta };
-      if (extraMeta.count && extraMeta.difficulty) {
-        // Inline picker already decided — generate directly, no modal.
-        runQuizGeneration(quizCtx, { count: extraMeta.count, difficulty: extraMeta.difficulty });
-      } else {
-        setPendingQuiz(quizCtx);
-      }
+      const lectureId =
+        extraMeta?.lectureId ?? (objectives || []).map((o) => o?.linkedLecId).find(Boolean) ?? null;
+      if (lectureId) onStudyLecture(lectureId, { autoQuiz: true, focusObjectiveIds: extraMeta?.focusObjectiveIds });
     },
-    [activeBlockId, runQuizGeneration]
-  );
-
-  // Step 2: QuizConfigModal confirmed.
-  const onConfirmQuiz = useCallback(
-    async ({ count, difficulty, useStored }) => {
-      if (!pendingQuiz) return;
-      const { objectives, lectureTitle, blockId: bid, extraMeta } = pendingQuiz;
-      setPendingQuiz(null);
-      await runQuizGeneration({ objectives, lectureTitle, blockId: bid, extraMeta }, { count, difficulty, useStored });
-    },
-    [pendingQuiz, runQuizGeneration]
+    [onStudyLecture]
   );
 
   return (
@@ -364,8 +292,8 @@ function ShellMain({ theme, toggle, userId }) {
           setSessionMode(null);
           setTab("today");
           setMoreView(null);
-          setQuiz(null);
           setStudyLecture(null);
+          setPendingAutoQuiz(null);
         }}
         onOpenPalette={() => setPaletteOpen(true)}
       />
@@ -389,33 +317,8 @@ function ShellMain({ theme, toggle, userId }) {
           onSignOut={() => signOut().then(() => window.location.reload())}
         />
         {/* Tab bar — hidden while a full-screen overlay is active */}
-        {blocks.length > 0 && !sessionMode && !quiz?.questions?.length && !studyLecture && (
+        {blocks.length > 0 && !sessionMode && !studyLecture && (
           <TabBar active={tab} onChange={switchTab} />
-        )}
-        {/* Quiz generation feedback — fixed so it shows no matter which tab/view
-            launched the quiz (Today, Lectures, Objectives, or inside a lecture's
-            study flow). Previously this only rendered inside the studyLecture
-            branch, so a quiz started from Today/Lectures gave zero feedback for
-            the whole generation — looked completely broken even when it worked. */}
-        {quiz?.loading && (
-          <div className="fixed inset-0 z-40 flex items-center justify-center bg-bg/80 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent" />
-              <span className="font-mono text-[13px] text-text-2">
-                Writing {quiz.count ? `${quiz.count} questions` : "questions"}…
-              </span>
-              <span className="font-mono text-[11px] text-text-3">
-                {quizElapsed > 0 ? `${quizElapsed}s` : "starting…"}
-                {quiz.count ? ` · ~${Math.max(0, Math.round(quiz.count * 4 - quizElapsed))}s remaining` : ""}
-              </span>
-            </div>
-          </div>
-        )}
-        {quiz?.error && !quiz?.loading && !quiz?.questions?.length && tab !== "objectives" && (
-          <div className="fixed bottom-4 left-4 right-4 z-40 rounded-sm border border-bad/30 bg-bad/10 px-4 py-3 font-mono text-[12px] text-bad">
-            {quiz.error}
-            <button onClick={() => setQuiz(null)} className="ml-3 underline opacity-70 hover:opacity-100">dismiss</button>
-          </div>
         )}
         <main ref={mainRef} onScroll={onMainScroll} className="flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
@@ -440,39 +343,6 @@ function ShellMain({ theme, toggle, userId }) {
                 onExit={() => setSessionMode(null)}
               />
             )
-          ) : quiz?.questions?.length ? (
-            <div className="p-5">
-              <button onClick={() => setQuiz(null)} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
-                ← back
-              </button>
-              <AtomQuiz
-                questions={quiz.questions}
-                blockId={activeBlockId}
-                lectureId={quiz.lectureId ?? null}
-                userId={userId}
-                onExit={() => setQuiz(null)}
-                onDone={({ correct = 0, total = 0 } = {}) => {
-                  if (!quiz.lectureId) return;
-                  const passedQuiz = total > 0 && correct / total >= 0.8;
-                  try {
-                    const store = objectivesStore.read(userId) || {};
-                    let objs = selectBlockObjectives(store, activeBlockId);
-                    const lecObjs = objs.filter(
-                      (o) => o?.linkedLecId === quiz.lectureId &&
-                        (!o.status || o.status === "untested" || (passedQuiz && o.status === "developing"))
-                    );
-                    if (!lecObjs.length) return;
-                    for (const obj of lecObjs) {
-                      const next = passedQuiz && obj.status === "developing" ? "mastered" : "developing";
-                      objs = setStatus(objs, obj.id, next, new Date());
-                    }
-                    const storeKey = storageKeyFor(store, activeBlockId);
-                    const nextEntry = toEntry(store[storeKey], objs);
-                    objectivesStore.write(userId, { ...store, [storeKey]: nextEntry });
-                  } catch { /* non-critical */ }
-                }}
-              />
-            </div>
           ) : studyLecture ? (
             <div className="relative flex-1">
               <LectureStudyFlow
@@ -482,10 +352,12 @@ function ShellMain({ theme, toggle, userId }) {
                 userId={userId}
                 logActivity={logActivity}
                 examDates={examDates.data}
-                onClose={() => setStudyLecture(null)}
-                onStartObjectiveQuiz={onStartObjectiveQuiz}
+                onClose={() => { setStudyLecture(null); setPendingAutoQuiz(null); }}
+                autoOpenQuiz={!!pendingAutoQuiz}
+                focusObjectiveIds={pendingAutoQuiz?.focusObjectiveIds}
                 onGoDeep={(lecId) => {
                   setStudyLecture(null);
+                  setPendingAutoQuiz(null);
                   setDeepLearnPreselectId(lecId);
                   switchTab("more");
                   setMoreView("deeplearn");
@@ -496,7 +368,6 @@ function ShellMain({ theme, toggle, userId }) {
             <LectureList
               blockId={activeBlockId}
               userId={userId}
-              quizBusyLectureId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
               onStudyLecture={onStudyLecture}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               focusLectureId={examFocusLectureId}
@@ -524,10 +395,7 @@ function ShellMain({ theme, toggle, userId }) {
               userId={userId}
               termColor={active?.termColor}
               T={legacyTheme}
-              quiz={quiz}
-              pendingQuiz={pendingQuiz}
-              onBack={() => { switchTab("today"); setQuiz(null); }}
-              onCloseQuiz={() => setQuiz(null)}
+              onBack={() => switchTab("today")}
               onStartObjectiveQuiz={onStartObjectiveQuiz}
               onStudyLecture={onStudyLecture}
               onImportObjectives={() => setShowImportObjectives(true)}
@@ -566,7 +434,6 @@ function ShellMain({ theme, toggle, userId }) {
                 <Today
                   blockId={activeBlockId}
                   userId={userId}
-                  quizBusyLectureId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
                   onStudyLecture={onStudyLecture}
                   onStartObjectiveQuiz={onStartObjectiveQuiz}
                 />
@@ -584,7 +451,7 @@ function ShellMain({ theme, toggle, userId }) {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         items={paletteItems}
-        onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setTab("today"); setMoreView(null); setQuiz(null); setStudyLecture(null); }}
+        onPick={(it) => { setSelectedBlockId(it.id); setSessionMode(null); setTab("today"); setMoreView(null); setStudyLecture(null); setPendingAutoQuiz(null); }}
       />
       {showImportObjectives && activeBlockId && (
         <ImportObjectivesPdfModal
@@ -654,21 +521,6 @@ function ShellMain({ theme, toggle, userId }) {
         onClose={() => setShowRoutine(false)}
         onOpenWeakConcepts={() => { setShowRoutine(false); setTab("more"); setMoreView("weak"); }}
       />
-      {pendingQuiz && (
-        <QuizConfigModal
-          storedCount={
-            pendingQuiz.extraMeta?.lectureId
-              ? generatedQuestionsStore.countForLecture(userId, pendingQuiz.extraMeta.lectureId)
-              : 0
-          }
-          defaultCount={10}
-          initialDifficulty={resolveDefaultDifficulty(
-            statsForLecture(userId, pendingQuiz.extraMeta?.lectureId).accuracy
-          )}
-          onStart={onConfirmQuiz}
-          onCancel={() => setPendingQuiz(null)}
-        />
-      )}
       {showApiKeyModal && <UserApiKeyModal onClose={() => setShowApiKeyModal(false)} />}
       {showFocusHudModal && <FocusHudLinkModal onClose={() => setShowFocusHudModal(false)} />}
       {showDailyPlanSettings && activeBlockId && (
@@ -707,11 +559,11 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
 }
 
 /**
- * Objectives surface: the ported tracker. A generated quiz renders one level up
- * (ShellMain) so it behaves the same whether it was launched from here or from
- * Today.
+ * Objectives surface: the ported tracker. A "Quiz" click now navigates straight into Study
+ * (one runner — see docs/plans/2026-08-23-unify-quiz-study-rounds.md), which shows its own
+ * generation/error state on its own screen, so there's nothing to render here anymore.
  */
-function ObjectivesView({ blockId, userId, termColor, T, quiz, pendingQuiz, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
+function ObjectivesView({ blockId, userId, termColor, T, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
   return (
     <div className="p-2">
       <ObjectivesContainer
@@ -719,8 +571,6 @@ function ObjectivesView({ blockId, userId, termColor, T, quiz, pendingQuiz, onBa
         userId={userId}
         termColor={termColor}
         T={T}
-        quizLoadingId={(quiz?.loading ? quiz.lectureId : null) ?? (pendingQuiz?.extraMeta?.lectureId ?? null)}
-        quizErrorId={quiz?.error ? quiz.lectureId : null}
         onStartObjectiveQuiz={onStartObjectiveQuiz}
         onStudyLecture={onStudyLecture}
         headerActions={
@@ -737,11 +587,6 @@ function ObjectivesView({ blockId, userId, termColor, T, quiz, pendingQuiz, onBa
           </div>
         }
       />
-      {quiz?.error && (
-        <div className="mx-3 mt-2 rounded border border-border px-3 py-2 text-xs text-bad">
-          Quiz failed: {quiz.error}
-        </div>
-      )}
     </div>
   );
 }
