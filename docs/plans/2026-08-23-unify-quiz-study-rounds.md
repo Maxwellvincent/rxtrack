@@ -1,7 +1,10 @@
 # Unify Quiz, Study, and Rounds around atom completion
 
+> **Living document — status: shipped.** Last verified against the tree: 2026-08-23.
 > Drafted from a direct `mattpocock-skills:grilling` session (no `/to-spec`) —
-> user chose to build straight from the locked decisions below.
+> built straight from the locked decisions below. All 7 are live on `main`
+> (commits `42f775e`..`1026ca0`). Kept here as the design record — the "Changes
+> by file" section below now describes what IS built, not what was planned.
 
 ## Problem
 
