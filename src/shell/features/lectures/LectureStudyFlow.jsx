@@ -19,7 +19,7 @@ import {
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
-import { computeTargetStatus } from "../../logic/graduationGate.js";
+import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
 import * as atomTermIndex from "../../../stores/atomTermIndex.js";
@@ -525,11 +525,15 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
               let changed = false;
 
               for (const obj of lectureObjectives) {
-                const target = computeTargetStatus({
+                const target = resolveObjectiveTarget({
+                  objective: obj,
+                  atoms,
                   sessions,
+                  avgConfidence,
+                  hasLandmines,
                   blockExamDate,
                   comprehensiveExamDate,
-                  currentStatus: obj.status ?? "untested",
+                  masterySummary: (atomKeys) => atomProgressStore.masterySummary(userId, lecture?.id, atomKeys),
                 });
                 if (target && obj.status !== target) {
                   objs = setStatus(objs, obj.id, target, new Date());

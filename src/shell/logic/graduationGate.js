@@ -8,6 +8,7 @@
  * only days left. A comprehensive (semester) exam date re-opens the mastered
  * status for review regardless of block exam outcome.
  */
+import { normAtomKey } from "../../engine/atomNorm.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -99,4 +100,61 @@ export function computeTargetStatus({
   const gap = sessions.length >= 2 ? daysBetween(sessions[1].at, sessions[0].at) : 0;
   if (gap < 7) return "developing";
   return score >= 80 && avgConf >= 0.6 ? "mastered" : "developing";
+}
+
+/**
+ * `computeTargetStatus` for ONE objective, off ITS OWN linked atoms rather than one aggregate
+ * score blanket-applied to every objective on the lecture (a lecture with 20 objectives
+ * shouldn't all flip to mastered together because 5 questions on 2 of them went well).
+ *
+ * The exam-pressure curve above reads `sessions[0]`'s score/avgConfidence/hasLandmines for the
+ * mastery THRESHOLD, but `sessions.length` and `sessions[1].at` for session-COUNT/gap CADENCE
+ * gates — cadence is legitimately lecture-wide (it's about how many times you've sat down with
+ * this material, not per-objective), so the real session array's length and timestamps are kept
+ * intact; only sessions[0]'s threshold fields get overridden with this objective's own current
+ * atom-mastery fraction.
+ *
+ * `masterySummary(atomKeys)` is injected (matches `atomProgressStore.masterySummary`'s shape)
+ * so this stays pure and testable without touching the store.
+ *
+ * Falls back to the lecture-wide session score, unmodified, when this objective has no atoms
+ * tagged to it yet (tagging hasn't run) — freezing it at "untested" forever for lack of a
+ * per-atom signal would be worse than the old blanket behavior, not better.
+ */
+export function resolveObjectiveTarget({
+  objective,
+  atoms = [],
+  sessions = [],
+  avgConfidence,
+  hasLandmines,
+  blockExamDate,
+  comprehensiveExamDate,
+  masterySummary,
+  now = new Date(),
+}) {
+  const objAtomKeys = atoms
+    .filter((a) => a?.objectiveIds?.includes(objective?.id))
+    .map((a) => normAtomKey(a.term));
+
+  const summary = objAtomKeys.length ? masterySummary?.(objAtomKeys) : null;
+  const objSessions =
+    summary && summary.totalCount > 0 && sessions.length
+      ? [
+          {
+            ...sessions[0],
+            score: Math.round((summary.masteredCount / summary.totalCount) * 100),
+            avgConfidence,
+            hasLandmines,
+          },
+          ...sessions.slice(1),
+        ]
+      : sessions;
+
+  return computeTargetStatus({
+    sessions: objSessions,
+    blockExamDate,
+    comprehensiveExamDate,
+    currentStatus: objective?.status ?? "untested",
+    now,
+  });
 }
