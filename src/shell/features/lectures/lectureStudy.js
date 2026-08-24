@@ -13,6 +13,7 @@ import { generateFromAtoms } from "../../../engine/mcq.js";
 import { getChunkBody } from "../../../lectureText.js";
 import { imageForAtom, isUsableImage, attachImagesToQuestions } from "../../../lectureImages.js";
 import { matchTextToCandidates } from "../../logic/examReportWeakConcepts.js";
+import { normAtomKey } from "../../../engine/atomNorm.js";
 
 /** Minimum characters worth sending to the extractor. */
 export const MIN_TEXT = 200;
@@ -175,6 +176,27 @@ export function roundLabel(index, rounds, total, size = ROUND_SIZE) {
   const start = index * size + 1;
   const end = start + (rounds[index]?.length || 0) - 1;
   return `atoms ${start}–${end} of ${total}`;
+}
+
+/**
+ * Which `count` atoms a quiz should draw, in order — not-yet-complete atoms first (so a request
+ * for N questions spends all N on what you actually don't know yet), only cycling back to
+ * already-mastered atoms once every incomplete one has had a turn. Repeats once `count` exceeds
+ * the atom list, still incomplete-weighted (a full lap favors incomplete atoms again before any
+ * complete atom gets a second look).
+ *
+ * `progress` is one lecture's `atomProgress.progressForLecture()` map — a bare object keyed by
+ * `normAtomKey(term)`, not the store itself, so this stays a pure function.
+ */
+export function selectAtomsForQuiz(atoms, progress, count) {
+  const list = Array.isArray(atoms) ? atoms.filter(Boolean) : [];
+  const n = Math.max(0, count | 0);
+  if (!list.length || !n) return [];
+  const isComplete = (a) => progress?.[normAtomKey(a.term)]?.status === "complete";
+  const ordered = [...list.filter((a) => !isComplete(a)), ...list.filter(isComplete)];
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(ordered[i % ordered.length]);
+  return out;
 }
 
 /**

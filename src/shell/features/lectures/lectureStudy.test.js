@@ -7,6 +7,7 @@ import {
   quizFromAtoms,
   roundDifficulty,
   topicsToAutoCheck,
+  selectAtomsForQuiz,
 } from "./lectureStudy.js";
 
 const BODY = "Brachial plexus anatomy in detail. ".repeat(20);
@@ -192,5 +193,53 @@ describe("topicsToAutoCheck", () => {
       { concept: "dopamine inhibition of prolactin secretion", correct: true },
     ];
     expect(topicsToAutoCheck(records, atoms, topics)).toEqual(["t2"]);
+  });
+});
+
+describe("selectAtomsForQuiz", () => {
+  const a = (term) => ({ type: "definition", term, content: "x" });
+  const list = [a("Thyroglobulin"), a("Pendrin"), a("TSH receptor"), a("Deiodinase")];
+
+  it("with no progress at all, returns the first N atoms in order", () => {
+    const out = selectAtomsForQuiz(list, {}, 2);
+    expect(out.map((x) => x.term)).toEqual(["Thyroglobulin", "Pendrin"]);
+  });
+
+  it("puts not-yet-complete atoms before already-mastered ones", () => {
+    const progress = { thyroglobulin: { status: "complete" }, pendrin: { status: "needs-review" } };
+    const out = selectAtomsForQuiz(list, progress, 3);
+    // pendrin (needs-review), tsh receptor + deiodinase (untouched) all outrank the completed one
+    expect(out.map((x) => x.term)).toEqual(["Pendrin", "TSH receptor", "Deiodinase"]);
+  });
+
+  it("never repeats an atom while incomplete ones remain to cover the count", () => {
+    const progress = { thyroglobulin: { status: "complete" } };
+    const out = selectAtomsForQuiz(list, progress, 3);
+    expect(new Set(out.map((x) => x.term)).size).toBe(3);
+    expect(out.map((x) => x.term)).not.toContain("Thyroglobulin");
+  });
+
+  it("only starts repeating once every atom has had a turn, incomplete atoms first on the repeat lap", () => {
+    const out = selectAtomsForQuiz(list, {}, 6); // 4 atoms, 6 requested
+    expect(out.map((x) => x.term)).toEqual([
+      "Thyroglobulin", "Pendrin", "TSH receptor", "Deiodinase", // first lap
+      "Thyroglobulin", "Pendrin", // second lap starts over
+    ]);
+  });
+
+  it("draws from mastered atoms once every incomplete atom is already covered by the count", () => {
+    const progress = {
+      thyroglobulin: { status: "needs-review" },
+      pendrin: { status: "complete" },
+      "tsh receptor": { status: "complete" },
+      deiodinase: { status: "complete" },
+    };
+    const out = selectAtomsForQuiz(list, progress, 2);
+    expect(out.map((x) => x.term)).toEqual(["Thyroglobulin", "Pendrin"]);
+  });
+
+  it("returns nothing for zero atoms or zero count", () => {
+    expect(selectAtomsForQuiz([], {}, 5)).toEqual([]);
+    expect(selectAtomsForQuiz(list, {}, 0)).toEqual([]);
   });
 });

@@ -14,6 +14,8 @@ import { generateFromAtoms, generateMcqs } from "../../../engine/mcq.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import { getLecText } from "../../../lectureText.js";
+import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
+import * as atomProgressStore from "../../../stores/atomProgress.js";
 
 /** Weakest first — fewest consecutive correct answers get quizzed first. */
 export function sortWeakestFirst(objectives) {
@@ -152,10 +154,17 @@ export function objectivesAsAtoms(objectives) {
  * Build the config, then generate. `deps.callAIJSON` is the AI transport, so a
  * test drives the whole path without a network call.
  *
- * Two generators, same contract: with lecture text the questions are grounded in
- * the lecture (App's behavior); without it — imported objectives whose lecture
- * was never uploaded — the objectives themselves become the facts to test, one
- * question each, rather than failing the launch outright.
+ * Three tiers, in order of preference:
+ *  1. Real lecture atoms exist — draw `count` of them via `selectAtomsForQuiz` (not-yet-complete
+ *     first, per that lecture's atomProgress) and generate one question per atom, same posture
+ *     Study's rounds use. Every question comes back with an exact `atomKey`, so answering it
+ *     counts toward that atom's mastery — this is what makes Quiz and Study the same underlying
+ *     system instead of two that happen to look similar.
+ *  2. No atoms, but lecture text or objectives exist — the old free-form generator, ungrounded in
+ *     any specific atom (its questions get no atomKey, so they inform objective-level calibration
+ *     only, not atom mastery).
+ *  3. Nothing at all except objectives — the objectives themselves become the facts to test, one
+ *     question each, rather than failing the launch outright.
  */
 export async function startObjectiveQuiz(args, deps = {}) {
   const atoms = Array.isArray(args.atoms) ? args.atoms : [];
@@ -164,11 +173,21 @@ export async function startObjectiveQuiz(args, deps = {}) {
   if (built.error && !atoms.length) return { error: built.error, questions: [] };
 
   const { config, lectureId } = built;
+
+  if (atoms.length) {
+    const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
+    const selected = selectAtomsForQuiz(atoms, progress, config.count);
+    const result = await generateFromAtoms(
+      { atoms: selected, subject: config.subject, difficulty: config.difficulty, examples: config.examples },
+      deps
+    );
+    return { ...result, lectureId };
+  }
+
   const hasText = String(config?.lectureText || "").trim().length >= MIN_LECTURE_TEXT;
   const hasObjectives = (config?.objectives || []).length > 0;
 
-  // Prefer the full MCQ generator when we have text or objectives (or atoms as context)
-  if (hasText || hasObjectives || atoms.length) {
+  if (hasText || hasObjectives) {
     const result = await generateMcqs({ ...config, atoms }, deps);
     return { ...result, lectureId };
   }

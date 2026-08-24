@@ -11,6 +11,7 @@ import {
   startObjectiveQuiz,
   resolveDefaultDifficulty,
 } from "./quizLaunch.js";
+import * as atomProgressStore from "../../../stores/atomProgress.js";
 
 const LECTURE_BODY = "Brachial plexus anatomy. ".repeat(20); // well over the 150-char floor
 
@@ -186,6 +187,69 @@ describe("startObjectiveQuiz", () => {
     );
     expect(result.error).toBe("model down");
     expect(result.questions).toEqual([]);
+  });
+});
+
+describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
+  beforeEach(() => installDomStorage());
+
+  const atoms = [
+    { type: "definition", term: "Thyroglobulin", content: "Scaffold protein for T3/T4 synthesis." },
+    { type: "relationship", term: "Pendrin", content: "Apical iodide/chloride exchanger." },
+  ];
+
+  it("prefers real atoms over the free-form generator when atoms are available", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({
+      questions: [
+        { stem: "A slide shows a thyroid follicle...?", choices: { A: "Thyroglobulin", B: "x", C: "y", D: "z" }, correct: "A" },
+      ],
+    });
+    const result = await startObjectiveQuiz(
+      { objectives: [], lectureTitle: "Thyroid", blockId: "b1", lectures: [], atoms, questionCount: 1, userId: "u1", lectureIdHint: "lec1" },
+      { callAIJSON }
+    );
+    // One-per-atom prompt, not the free-form buildMcqPrompt shape
+    expect(callAIJSON.mock.calls[0][1]).toMatch(/one question per fact/i);
+    expect(result.questions[0].atomKey).toBe("thyroglobulin");
+  });
+
+  it("draws not-yet-complete atoms first, per that lecture's own atomProgress", async () => {
+    // objectives carry linkedLecId so buildQuizConfig/findLectureForQuiz resolves a lectureId —
+    // simplest path here is a lecture match by title, same as the "generates from the lecture" test.
+    atomProgressStore.recordAtomAnswer("u1", "lec1", "thyroglobulin", true); // already complete
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    await startObjectiveQuiz(
+      {
+        objectives: [],
+        lectureTitle: "Brachial Plexus and Upper Limb",
+        blockId: "b1",
+        lectures,
+        atoms,
+        questionCount: 1,
+        userId: "u1",
+      },
+      { callAIJSON }
+    );
+    // Only 1 question requested, and pendrin (needs-review/untouched) outranks the completed atom.
+    const prompt = callAIJSON.mock.calls[0][1];
+    expect(prompt).toContain("Pendrin");
+    expect(prompt).not.toContain("Thyroglobulin");
+  });
+
+  it("falls back to the free-form generator when there are no atoms at all", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    await startObjectiveQuiz(
+      {
+        objectives: [{ id: "a", objective: "Describe the brachial plexus." }],
+        lectureTitle: "Brachial Plexus and Upper Limb",
+        blockId: "b1",
+        lectures,
+        atoms: [],
+        userId: "u1",
+      },
+      { callAIJSON }
+    );
+    expect(callAIJSON.mock.calls[0][1]).not.toMatch(/one question per fact/i);
   });
 });
 
