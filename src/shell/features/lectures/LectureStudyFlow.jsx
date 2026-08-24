@@ -92,6 +92,11 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
 
+  // Atom key to scroll to + pulse-highlight once the atoms list is back on screen — set by a
+  // "review this atom" click from a quiz Summary, cleared once the highlight has had its moment.
+  const [reviewAtomKey, setReviewAtomKey] = useState(null);
+  const atomsDetailsRef = useRef(null);
+
   // Study guide — auto-generated searchable topic list, one per lecture mount
   const [studyGuide, setStudyGuide] = useState(null);
   const [generatingGuide, setGeneratingGuide] = useState(false);
@@ -106,6 +111,20 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
     return () => clearInterval(t);
   }, [busy]);
   const busyLabel = busy ? `${busy}${elapsed ? ` ${elapsed}s` : ""}` : "";
+
+  // Runs once `questions` has cleared and the atoms list is actually in the DOM (a Summary
+  // "review this atom" click sets reviewAtomKey the same tick it exits the quiz, so this has to
+  // wait a render rather than act synchronously). Expands the collapsed <details>, scrolls to the
+  // card, and leaves it highlighted for a few seconds — a highlight nobody has time to notice is
+  // as useless as no highlight.
+  useEffect(() => {
+    if (!reviewAtomKey || questions) return;
+    if (atomsDetailsRef.current) atomsDetailsRef.current.open = true;
+    const el = document.getElementById(`atom-${reviewAtomKey}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setReviewAtomKey(null), 3000);
+    return () => clearTimeout(t);
+  }, [reviewAtomKey, questions]);
 
   const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
 
@@ -431,6 +450,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
           lectureId={lecture?.id ?? null}
           userId={userId}
           onExit={() => setQuestions(null)}
+          onReviewAtom={(atomKey) => { setQuestions(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             const nextDone = Math.max(done, round + 1);
             saveRoundProgress(userId, lecture?.id, nextDone);
@@ -847,7 +867,7 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
       )}
 
       {atoms.length > 0 && (
-        <details className="group mt-4">
+        <details ref={atomsDetailsRef} className="group mt-4">
           <summary className="cursor-pointer list-none font-mono text-[13px] text-text-3 hover:text-text-1">
             ▸ review all {atoms.length} atoms
           </summary>
@@ -862,8 +882,19 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                   {meta.label} <span className="font-normal text-text-3">· {meta.hint} · {list.length}</span>
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  {list.map((a, i) => (
-                    <div key={i} className={"rounded-lg border-l-2 bg-bg-elevated px-3 py-2 text-xs " + meta.accent}>
+                  {list.map((a, i) => {
+                    const atomKey = normAtomKey(a.term);
+                    const isTarget = reviewAtomKey === atomKey;
+                    return (
+                    <div
+                      key={i}
+                      id={`atom-${atomKey}`}
+                      className={
+                        "rounded-lg border-l-2 bg-bg-elevated px-3 py-2 text-xs transition-colors duration-500 " +
+                        meta.accent +
+                        (isTarget ? " ring-2 ring-accent bg-accent-soft" : "")
+                      }
+                    >
                       <span className="font-semibold text-text-1">{a.term}</span>
                       {a.isHighYield && (
                         <span className="ml-1.5 rounded bg-accent/15 px-1 font-mono text-[13px] text-accent" title={`Appears in ${a.crossCount} lectures`}>
@@ -885,7 +916,8 @@ export function LectureStudyFlow({ lecture, blockId, userId, logActivity, examDa
                         </div>
                       )}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
