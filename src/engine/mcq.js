@@ -2,6 +2,7 @@
 // genTopicVignettesWithContext prompt + validation into the shell/engine).
 // The exam-bank questions the student uploaded become few-shot STYLE exemplars
 // so the model asks questions in their school's exact style.
+import { normAtomKey } from "./atomNorm.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -99,6 +100,11 @@ export function normalizeQuestions(raw) {
       choiceLayout: q.choiceLayout === "table" ? "table" : null,
       choiceColumns: Array.isArray(q.choiceColumns) ? q.choiceColumns.map(String) : null,
       hasImage: !!q.hasImage,
+      // Exact atom identity when the question was generated one-per-atom
+      // (backfillTopicsFromAtoms stamps this before normalization) — the reliable half of atom
+      // attribution, since `topic` is free text the model sometimes drifts on even when told to
+      // echo the term.
+      atomKey: q.atomKey ? String(q.atomKey) : null,
     };
     out.push(shuffleChoices(validated));
     if (out.length >= 100) break;
@@ -202,15 +208,24 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
  * model leaves `topic` out (it happens). Without this, normalizeQuestions'
  * `topic` ends up null and callers fall back to slicing the raw question
  * stem for display — unreadable as a "concept to review" label.
+ *
+ * `atomKey` is stamped unconditionally (not just when topic is missing) — it's the
+ * exact join back to atomProgress tracking, positional and not dependent on the
+ * model's own wording ever matching. This is the ONLY place that link gets made;
+ * normalizeQuestions just carries the field through afterward.
  */
-function backfillTopicsFromAtoms(raw, atoms) {
+export function backfillTopicsFromAtoms(raw, atoms) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
   const questions = list.map((q, i) => {
-    const term = atoms[i]?.term;
-    if (q && typeof q === "object" && !String(q.topic || "").trim() && term) {
-      return { ...q, topic: term };
-    }
-    return q;
+    if (!q || typeof q !== "object") return q;
+    const atom = atoms[i];
+    if (!atom?.term) return q;
+    const atomKey = normAtomKey(atom.term);
+    return {
+      ...q,
+      topic: String(q.topic || "").trim() || atom.term,
+      atomKey,
+    };
   });
   return Array.isArray(raw) ? questions : { ...raw, questions };
 }

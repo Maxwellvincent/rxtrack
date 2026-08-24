@@ -56,3 +56,23 @@ export function summarize(records = []) {
 
   return { curve, landmines, quadrants };
 }
+
+/**
+ * Every atom this session left needs-review, landmines first — the broader, atom-aware sibling of
+ * `landmines` above. `landmines` stays as-is (CalibrationSession.jsx's own summary reads it and
+ * its records don't all carry an atomKey); this is specifically for a quiz whose questions were
+ * generated one-per-atom, where "what to go re-study" can point at something real.
+ *
+ * Deduped by atomKey, keeping each atom's LAST attempt this session — if you missed it then got
+ * it right on a retry within the same session, it does not belong on a review list.
+ */
+export function atomsToReview(records = []) {
+  const lastByAtom = new Map();
+  for (const r of records) {
+    if (!r?.atomKey) continue;
+    lastByAtom.set(r.atomKey, r);
+  }
+  return [...lastByAtom.values()]
+    .filter((r) => !r.correct)
+    .sort((a, b) => (isLandmine(b) ? 1 : 0) - (isLandmine(a) ? 1 : 0));
+}

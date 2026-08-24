@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
 import { Button } from "../ui/Button.jsx";
-import { classify, summarize } from "../engine/calibration.js";
+import { classify, summarize, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
+import { recordAtomAnswer } from "../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
@@ -96,7 +97,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = null, userId, onDone, onExit }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = null, userId, onDone, onExit, onReviewAtom }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState(null);
   const [confidence, setConfidence] = useState(null);
@@ -127,7 +128,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
     [lectureId, userId]
   );
 
-  if (done) return <Summary records={records} onExit={onExit} />;
+  if (done) return <Summary records={records} onExit={onExit} onReviewAtom={onReviewAtom} />;
 
   const q = questions[i];
   const revealed = confidence != null;
@@ -138,11 +139,22 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
     if (picked == null || revealed) return;
     const isCorrect = picked === q.correct;
     setConfidence(level);
-    const rec = { concept: q.topic || q.stem.slice(0, 60), stem: q.stem.slice(0, 100), confidence: level, correct: isCorrect };
+    const rec = {
+      concept: q.topic || q.stem.slice(0, 60),
+      stem: q.stem.slice(0, 100),
+      confidence: level,
+      correct: isCorrect,
+      atomKey: q.atomKey || null,
+    };
     appendCalibration(userId, blockId, rec);
     // Counted at reveal, not at "next": leaving the round here still cost you the question, so
     // the lecture's total has to reflect it.
-    if (lectureId) recordAnswer(userId, lectureId, isCorrect);
+    if (lectureId) {
+      recordAnswer(userId, lectureId, isCorrect);
+      // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
+      // generator doesn't, yet) — no atomKey means no mastery claim gets made on its behalf.
+      if (q.atomKey) recordAtomAnswer(userId, lectureId, q.atomKey, isCorrect);
+    }
     setRecords((prev) => [...prev, rec]);
   };
 
@@ -277,8 +289,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   );
 }
 
-function Summary({ records, onExit }) {
+function Summary({ records, onExit, onReviewAtom }) {
   const s = summarize(records);
+  const toReview = atomsToReview(records);
   const pct = (a) => (a == null ? "—" : Math.round(a * 100) + "%");
   return (
     <div className="mb-5 space-y-3">
@@ -295,20 +308,47 @@ function Summary({ records, onExit }) {
           </div>
         ))}
       </div>
-      {s.landmines.length > 0 && (
+      {/* Every atom left needs-review this session, not just the landmines (sure-but-wrong) —
+          those are still sorted first, but a plain miss deserves a way back too instead of
+          silently not appearing anywhere. */}
+      {toReview.length > 0 && (
         <div className="rounded-lg border border-bad bg-bg-elevated p-3">
-          <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-bad">⚠ Review first — sure but wrong</div>
+          <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-bad">
+            ⚠ {toReview.length} atom{toReview.length === 1 ? "" : "s"} to review
+          </div>
           <ul className="flex flex-col gap-2">
-            {s.landmines.map((l, i) => (
-              <li key={i} className="flex flex-col gap-0.5">
-                <span className="text-[13px] font-semibold text-text-1">✕ {l.concept}</span>
-                {l.stem && (
-                  <span className="font-mono text-[11px] text-text-3 leading-snug">
-                    {l.stem}{l.stem.length >= 100 ? "…" : ""}
-                  </span>
-                )}
-              </li>
-            ))}
+            {toReview.map((r) => {
+              const landmine = classify(r) === "confident-wrong";
+              const label = (
+                <>
+                  <span className="text-[13px] font-semibold text-text-1">✕ {r.concept}</span>
+                  {landmine && (
+                    <span className="ml-1.5 rounded bg-bad/15 px-1 font-mono text-[13px] text-bad">
+                      sure but wrong
+                    </span>
+                  )}
+                  {r.stem && (
+                    <span className="block font-mono text-[11px] text-text-3 leading-snug">
+                      {r.stem}{r.stem.length >= 100 ? "…" : ""}
+                    </span>
+                  )}
+                </>
+              );
+              return (
+                <li key={r.atomKey}>
+                  {onReviewAtom ? (
+                    <button
+                      onClick={() => onReviewAtom(r.atomKey)}
+                      className="flex w-full flex-col gap-0.5 rounded text-left hover:underline"
+                    >
+                      {label}
+                    </button>
+                  ) : (
+                    <div className="flex flex-col gap-0.5">{label}</div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

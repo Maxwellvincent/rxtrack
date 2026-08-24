@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classify, confidenceFromPercent, isLandmine, summarize, CONFIDENT_THRESHOLD } from "./calibration.js";
+import { classify, confidenceFromPercent, isLandmine, summarize, atomsToReview, CONFIDENT_THRESHOLD } from "./calibration.js";
 
 describe("classify", () => {
   it("confidence >= 4 and correct → confident-right", () => {
@@ -101,5 +101,49 @@ describe("confidenceFromPercent", () => {
   it("so a 90%-sure miss is a landmine and a 70%-sure miss is not", () => {
     expect(isLandmine({ confidence: confidenceFromPercent(90), correct: false })).toBe(true);
     expect(isLandmine({ confidence: confidenceFromPercent(70), correct: false })).toBe(false);
+  });
+});
+
+describe("atomsToReview", () => {
+  it("includes any missed atom, not just landmines", () => {
+    const out = atomsToReview([
+      { atomKey: "a", concept: "A", confidence: 2, correct: false },
+      { atomKey: "b", concept: "B", confidence: 3, correct: true },
+    ]);
+    expect(out.map((r) => r.atomKey)).toEqual(["a"]);
+  });
+
+  it("sorts landmines (confident-wrong) before plain misses", () => {
+    const out = atomsToReview([
+      { atomKey: "unsure-miss", concept: "U", confidence: 2, correct: false },
+      { atomKey: "landmine", concept: "L", confidence: 5, correct: false },
+    ]);
+    expect(out.map((r) => r.atomKey)).toEqual(["landmine", "unsure-miss"]);
+  });
+
+  it("ignores records with no atomKey — nothing to link back to", () => {
+    const out = atomsToReview([{ concept: "no atom link", confidence: 5, correct: false }]);
+    expect(out).toEqual([]);
+  });
+
+  it("dedupes by atomKey, keeping only the last attempt this session", () => {
+    const out = atomsToReview([
+      { atomKey: "a", concept: "A", confidence: 5, correct: false },
+      { atomKey: "a", concept: "A", confidence: 3, correct: true },
+    ]);
+    expect(out).toEqual([]); // corrected on retry within the session — nothing to review
+  });
+
+  it("keeps a re-miss after an earlier correct answer in the same session", () => {
+    const out = atomsToReview([
+      { atomKey: "a", concept: "A", confidence: 3, correct: true },
+      { atomKey: "a", concept: "A", confidence: 5, correct: false },
+    ]);
+    expect(out).toHaveLength(1);
+  });
+
+  it("is empty for a clean session", () => {
+    expect(atomsToReview([{ atomKey: "a", correct: true, confidence: 3 }])).toEqual([]);
+    expect(atomsToReview([])).toEqual([]);
   });
 });

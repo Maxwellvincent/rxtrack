@@ -149,6 +149,18 @@ describe("generateFromAtoms", () => {
     expect(callAIJSON).not.toHaveBeenCalled();
     expect(r.error).toBeTruthy();
   });
+  it("stamps each question with its source atom's normalized key, positionally — regardless of what the model said its topic was", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({
+      questions: [
+        { stem: "A slide shows dilated axon terminals...?", choices: { A: "Herring bodies", B: "x", C: "y", D: "z" }, correct: "A" },
+        { stem: "Dopamine's effect on this hormone...?", choices: { A: "a", B: "Prolactin", C: "c", D: "d" }, correct: "B", topic: "totally different wording" },
+      ],
+    });
+    const r = await generateFromAtoms({ atoms }, { callAIJSON });
+    const byStem = Object.fromEntries(r.questions.map((q) => [q.stem, q]));
+    expect(byStem["A slide shows dilated axon terminals...?"].atomKey).toBe("herring bodies");
+    expect(byStem["Dopamine's effect on this hormone...?"].atomKey).toBe("prolactin");
+  });
   it("caps the fact list so the response JSON can't overflow", () => {
     const many = Array.from({ length: 20 }, (_, i) => ({ type: "definition", term: "T" + i, content: "c" }));
     const p = buildAtomQuestionsPrompt({ atoms: many });
