@@ -112,6 +112,12 @@ export function LectureStudyFlow({
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Track last round result to surface "Go Deep" prompt on completion
   const [lastResult, setLastResult] = useState(null);
+  // Whether the CURRENT round/quiz has actually been finished (AtomQuiz's onDone fired below).
+  // Reset false whenever a new round/quiz starts. Without this, the "Next round"/"complete"
+  // controls rendered under <AtomQuiz> were gated only on hasNext — which is unconditionally
+  // false for an ad-hoc quiz — so the "Quiz complete" banner showed beside question 1 of 10,
+  // before a single question had been answered.
+  const [roundDone, setRoundDone] = useState(false);
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
@@ -382,6 +388,7 @@ export function LectureStudyFlow({
 
     setRound(index);
     setAdHocQuiz(false);
+    setRoundDone(false);
     setQuestions(questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity]);
@@ -417,6 +424,7 @@ export function LectureStudyFlow({
       const shuffled = [...stored].sort(() => Math.random() - 0.5).slice(0, count);
       setBusy("");
       setAdHocQuiz(true);
+      setRoundDone(false);
       setQuestions(shuffled);
       logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
       return;
@@ -445,6 +453,7 @@ export function LectureStudyFlow({
     }
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
     setAdHocQuiz(true);
+    setRoundDone(false);
     setQuestions(result.questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity]);
@@ -562,6 +571,7 @@ export function LectureStudyFlow({
           onExit={() => setQuestions(null)}
           onReviewAtom={(atomKey) => { setQuestions(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
+            setRoundDone(true);
             // An ad-hoc quiz doesn't advance the round-resume bookmark — there is no sequence
             // for it to be a position in — but it's always its own "last round" for the
             // objective-status update below, since there's no next one coming.
@@ -647,6 +657,7 @@ export function LectureStudyFlow({
             } catch { /* non-critical */ }
           }}
         />
+        {roundDone && (
         <div className="mt-4 flex items-center gap-3">
           {hasNext ? (
             <>
@@ -685,6 +696,7 @@ export function LectureStudyFlow({
             </div>
           )}
         </div>
+        )}
         {figuresPrompt}
       </div>
     );
