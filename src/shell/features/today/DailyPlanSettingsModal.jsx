@@ -10,10 +10,10 @@ function readSleepWake(blockId) {
 function readLecConfig(blockId) {
   try {
     const raw = localStorage.getItem(lecConfigKey(blockId));
-    if (raw) return JSON.parse(raw);
+    if (raw) return { smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30", ...JSON.parse(raw) };
     const oldTime = localStorage.getItem(`rxt-lectime-${blockId}`);
-    return { time: oldTime || null, duration: 50 };
-  } catch { return { time: null, duration: 50 }; }
+    return { time: oldTime || "08:00", duration: 60, smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30" };
+  } catch { return { time: "08:00", duration: 60, smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30" }; }
 }
 
 export function DailyPlanSettingsModal({ blockId, onClose }) {
@@ -51,6 +51,42 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
               onChange={(e) => setWakeTime(e.target.value)}
               className="rounded border border-border bg-bg-elevated px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
             />
+          </div>
+
+          <div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Day structure</div>
+            <label className="mb-3 flex cursor-pointer items-center gap-2 text-sm text-text-2">
+              <input
+                type="checkbox"
+                checked={lecConfig.smallGroup !== false}
+                onChange={(e) => setLecConfig((c) => ({ ...c, smallGroup: e.target.checked }))}
+                className="h-4 w-4 accent-accent"
+              />
+              Small group / lab scheduled (1–3 PM)
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[12px] text-text-3">gym starts</span>
+              <input
+                type="time"
+                value={lecConfig.gymTime ?? "21:00"}
+                onChange={(e) => setLecConfig((c) => ({ ...c, gymTime: e.target.value || "21:00" }))}
+                className="rounded border border-border bg-bg-elevated px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Morning anchor</div>
+            <div className="mb-2 font-mono text-[12px] text-text-3">Wake time can move; leaving home remains fixed.</div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[12px] text-text-3">out the door</span>
+              <input
+                type="time"
+                value={lecConfig.leaveHomeTime ?? "06:30"}
+                onChange={(e) => setLecConfig((c) => ({ ...c, leaveHomeTime: e.target.value || "06:30" }))}
+                className="rounded border border-border bg-bg-elevated px-2 py-1 font-mono text-xs text-text-1 focus:outline-none focus:border-border-strong"
+              />
+            </div>
           </div>
 
           <div>

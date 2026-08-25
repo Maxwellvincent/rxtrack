@@ -39,11 +39,11 @@ function lecConfigKey(blockId) { return `rxt-lecconfig-${blockId}`; }
 function readLecConfig(blockId) {
   try {
     const raw = localStorage.getItem(lecConfigKey(blockId));
-    if (raw) return JSON.parse(raw);
+    if (raw) return { smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30", ...JSON.parse(raw) };
     // Migrate from old single-key format
     const oldTime = localStorage.getItem(`rxt-lectime-${blockId}`);
-    return { time: oldTime || null, duration: 50 };
-  } catch { return { time: null, duration: 50 }; }
+    return { time: oldTime || "08:00", duration: 60, smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30" };
+  } catch { return { time: "08:00", duration: 60, smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30" }; }
 }
 
 // ─── Schedule time helpers ─────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ function fmtRange(s, e) { return `${fromMins(s)}–${fromMins(e)}`; }
  *                   Deep-learn both lectures in the afternoon.
  *   LATE  (≥10am) — morning pre-learn before lectures, then filter + review.
  */
-function computeSchedule(mode, wakeTime, lectureTime, lectureDuration) {
+function computeLegacySchedule(mode, wakeTime, lectureTime, lectureDuration) {
   const w   = toMins(wakeTime)    ?? 7 * 60;    // fallback 07:00
   const l   = toMins(lectureTime) ?? 13 * 60;   // fallback 13:00
   const dur = lectureDuration > 0 ? lectureDuration : 60;
@@ -169,6 +169,103 @@ function computeSchedule(mode, wakeTime, lectureTime, lectureDuration) {
   }
 
   return [];
+}
+
+/**
+ * Optimized routine recovered from the Study Routine Optimization chat.
+ * Every tool has one job: retain → expose → build → retrieve → apply →
+ * repair → remediate → prepare. Travel and meals are real blocks, not gaps.
+ */
+export function computeSchedule(mode, wakeTime, lectureTime, lectureDuration, config = {}) {
+  const w = toMins(wakeTime) ?? 6 * 60;
+  const l = toMins(lectureTime) ?? 8 * 60;
+  const dur = lectureDuration > 0 ? lectureDuration : 60;
+  const lecEnd = l + dur * 2;
+  const gym = toMins(config.gymTime) ?? 21 * 60;
+  const leaveHome = toMins(config.leaveHomeTime) ?? 6 * 60 + 30;
+  const smallGroup = config.smallGroup !== false;
+  const block = (start, end, phase, label, note = "", key = false) => ({
+    time: end == null ? fromMins(start) : fmtRange(start, end), start, end, phase, label, note, key,
+  });
+
+  if (mode === "lecture") {
+    const retentionStart = Math.min(w + 15, leaveHome - 20);
+    const retentionEnd = Math.max(retentionStart, leaveHome - 20);
+    const arrival = leaveHome + 15;
+    const morning = [
+      block(w, w + 15, "RESET", "🌅 Wake + reset", "Water, bathroom, get moving."),
+      ...(retentionEnd > retentionStart ? [block(retentionStart, retentionEnd, "RETAIN", "🔁 Anki — retention", `Due reviews only. ${Math.min(60, retentionEnd - retentionStart)} minutes available today; stop when it is time to leave.`, true)] : []),
+      block(Math.max(w + 15, leaveHome - 20), leaveHome - 5, "RESET", "🍳 Breakfast + get ready", "Pack food and study materials."),
+      block(leaveHome - 5, leaveHome, "TRAVEL", "🚶 Walk to bus stop"),
+      block(leaveHome, arrival, "TRAVEL", "🚌 Travel to school", "Out-of-house anchor. No required studying."),
+      ...(l - 20 > arrival ? [block(arrival, l - 20, "PREPARE", "📖 Light preview / overflow", "Objectives or leftover reviews. Do not introduce many new cards.")] : []),
+      block(Math.max(arrival, l - 20), l, "RESET", "🚶 Settle into lecture", "Bathroom, water, seat, mental reset."),
+      block(l, lecEnd, "EXPOSE", "🎓 Lectures ×2", "Listen for the story; do not transcribe slides.", true),
+      block(lecEnd, lecEnd + 15, "TRAVEL", "🚶 Travel to study room", "Reset before active work."),
+      block(lecEnd + 15, lecEnd + 45, "BUILD", "🧠 Build Lecture 1", "Skeleton → essential atoms. Park side trails.", true),
+      block(lecEnd + 45, lecEnd + 75, "BUILD", "🧠 Build Lecture 2", "Skeleton → essential atoms. Explain the story."),
+      block(lecEnd + 75, lecEnd + 135, "RETRIEVE", "🟦 Anki — acquisition", "Today's lecture cards, now attached to the models. Hard stop."),
+      block(lecEnd + 135, lecEnd + 150, "TRAVEL", "🚶 Get lunch"),
+      block(lecEnd + 150, lecEnd + 180, "RESET", "🍽️ Lunch", "Eat. Do not turn lunch into Anki."),
+    ];
+
+    if (smallGroup) return [
+      ...morning,
+      block(lecEnd + 180, lecEnd + 300, "EXPOSE", "👥 Small group / lab", "Required session when scheduled."),
+      block(lecEnd + 300, lecEnd + 315, "TRAVEL", "🚶 Return to study room", "Decompress and reset."),
+      block(lecEnd + 315, lecEnd + 375, "APPLY", "❓ Questions", "Today's + recent material. Starts even if Anki is unfinished.", true),
+      block(lecEnd + 375, lecEnd + 420, "REPAIR", "🔬 Repair identified gaps", "Review misses → targeted video, drawing, or compare/contrast.", true),
+      block(lecEnd + 420, lecEnd + 465, "REMEDIATE", "🟠 Anki — remediation", "Learning + Deep Review + buried remediation only."),
+      block(lecEnd + 465, lecEnd + 495, "PREPARE", "👀 Tomorrow prep", "Objectives and required lab/small-group preparation only."),
+      block(lecEnd + 495, gym - 25, "RESET", "🚌🍽️ Home, dinner + reset", "Travel counts. Academic work is finished."),
+      block(gym - 25, gym, "TRAVEL", "🚶 Travel to gym"),
+      block(gym, gym + 60, "RECOVER", "🏋️ Gym"),
+      block(gym + 60, gym + 80, "TRAVEL", "🚶 Gym to home"),
+      block(gym + 80, null, "RECOVER", "🚿 Wind down + sleep", "Protect the 5 AM wake-up.", true),
+    ];
+
+    return [
+      ...morning,
+      block(lecEnd + 180, lecEnd + 225, "APPLY", "❓ Questions", "Protected question block.", true),
+      block(lecEnd + 225, lecEnd + 270, "REPAIR", "🔬 Review + repair", "Classify misses; repair only real model gaps."),
+      block(lecEnd + 270, lecEnd + 315, "REMEDIATE", "🟠 Learning + Deep Review Anki", "Hard stop at 45 minutes."),
+      block(lecEnd + 315, lecEnd + 360, "APPLY", "❓ Additional questions / understanding", "Apply again or finish targeted repair."),
+      block(lecEnd + 360, lecEnd + 390, "PREPARE", "👀 Tomorrow prep", "15–30 minute scaffold only."),
+      block(lecEnd + 390, gym - 25, "RECOVER", "Free time / early gym option", "Academic work can end earlier today."),
+      block(gym - 25, gym, "TRAVEL", "🚶 Travel to gym"),
+      block(gym, gym + 60, "RECOVER", "🏋️ Gym"),
+      block(gym + 60, null, "RECOVER", "🚿 Home, wind down + sleep", "Protect the 5 AM wake-up.", true),
+    ];
+  }
+
+  if (mode === "review") return [
+    block(w, w + 15, "RESET", "🌅 Wake + reset"),
+    block(w + 15, w + 75, "RETAIN", "🔁 Anki — retention", "Due reviews only. Hard stop at 60 minutes.", true),
+    block(w + 75, w + 105, "RESET", "🍳 Breakfast + plan"),
+    block(w + 105, w + 165, "APPLY", "❓ Cumulative questions", "Questions start before more Anki.", true),
+    block(w + 165, w + 210, "REPAIR", "🔬 Review + repair", "Fact: retrieve once. Confusion: compare. Model gap: targeted repair."),
+    block(w + 210, w + 255, "REMEDIATE", "🟠 Learning + Deep Review Anki", "Persistent and Again-heavy cards only."),
+    block(w + 255, w + 300, "RESET", "🍽️ Lunch + reset"),
+    block(w + 300, w + 345, "APPLY", "❓ Second question block", "Recent + weak objectives."),
+    block(w + 345, w + 390, "BUILD", "🧠 Rebuild weakest model", "One mechanism map or teach-back—not broad rereading."),
+    block(w + 390, w + 420, "PREPARE", "👀 Tomorrow prep", "Objectives, headings, diagrams, unfamiliar vocabulary."),
+    block(w + 420, gym - 25, "RECOVER", "Life / dinner / recovery", "Stop when the plan is complete."),
+    block(gym - 25, gym, "TRAVEL", "🚶 Travel to gym"),
+    block(gym, gym + 60, "RECOVER", "🏋️ Gym"),
+    block(gym + 60, null, "RECOVER", "🚿 Wind down + sleep", "Protect tomorrow's wake time.", true),
+  ];
+
+  if (mode === "triage") return [
+    block(w, w + 15, "RESET", "🌅 Reset", "Today is recovery, not punishment."),
+    block(w + 15, w + 60, "RETAIN", "🔁 Due Anki only", "Hard stop. Zero new unsuspends.", true),
+    ...(lectureTime ? [block(l, lecEnd, "EXPOSE", "🎓 Required lectures", "Listen for the story; capture only major gaps.", true)] : []),
+    block(Math.max(w + 60, lecEnd), Math.max(w + 60, lecEnd) + 30, "BUILD", "🧠 One essential mental model", "Choose the highest-yield lecture only."),
+    block(Math.max(w + 60, lecEnd) + 30, Math.max(w + 60, lecEnd) + 60, "APPLY", "❓ 10–15 questions", "Protect application even on a bad day.", true),
+    block(Math.max(w + 60, lecEnd) + 60, Math.max(w + 60, lecEnd) + 90, "REPAIR", "🔬 One major gap", "Only if questions exposed a real model failure."),
+    block(Math.max(w + 60, lecEnd) + 90, null, "RECOVER", "Stop + recover", "Prereading and extra Anki are the first things dropped.", true),
+  ];
+
+  return computeLegacySchedule(mode, wakeTime, lectureTime, lectureDuration);
 }
 
 // ─── Checked + session state (day-scoped per block) ───────────────────────
@@ -339,7 +436,13 @@ function ClassificationBadge({ wakeTime, mode }) {
 
 function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
   const [collapsed, setCollapsed] = useState(true);
-  const blocks = computeSchedule(mode, wakeTime, lecConfig?.time, lecConfig?.duration);
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(new Date()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const blocks = computeSchedule(mode, wakeTime, lecConfig?.time, lecConfig?.duration, lecConfig);
+  const nowMins = clock.getHours() * 60 + clock.getMinutes();
   if (!blocks.length) return null;
   return (
     <div className="rounded-sm border border-border bg-bg-elevated overflow-hidden">
@@ -355,17 +458,31 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
       {!collapsed && (
         <div className="divide-y divide-border/40">
           {blocks.map((b, i) => (
+            <div key={i}>
+            {(i === 0 || blocks[i - 1]?.phase !== b.phase) && (
+              <div className="border-b border-border/40 bg-bg px-3 py-1 font-condensed text-[10px] font-bold uppercase tracking-[0.14em] text-accent">
+                {b.phase}
+              </div>
+            )}
             <div
-              key={i}
-              className={["flex items-start gap-3 px-3 py-2", b.key ? "bg-panel/40" : ""].join(" ")}
+              className={[
+                "flex items-start gap-3 border-l-2 px-3 py-2 transition-colors",
+                b.end != null && nowMins >= b.end ? "border-transparent opacity-50" :
+                  nowMins >= b.start && (b.end == null || nowMins < b.end) ? "border-accent bg-accent-soft" :
+                    b.key ? "border-transparent bg-panel/40" : "border-transparent",
+              ].join(" ")}
             >
               <span className="w-[88px] flex-shrink-0 font-mono text-[13px] text-text-3 pt-0.5 leading-snug">{b.time}</span>
               <div className="flex-1 min-w-0">
                 <div className={["text-[13px] leading-snug", b.key ? "font-semibold text-text-1" : "text-text-2"].join(" ")}>
                   {b.label}
+                  {nowMins >= b.start && (b.end == null || nowMins < b.end) && (
+                    <span className="ml-2 rounded bg-accent px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase text-bg">now</span>
+                  )}
                 </div>
                 {b.note && <div className="font-mono text-[13px] text-text-3 mt-0.5 leading-snug">{b.note}</div>}
               </div>
+            </div>
             </div>
           ))}
         </div>
@@ -742,6 +859,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   });
 
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
+  const [modePickerOpen, setModePickerOpen] = useState(() => !readDayMode(blockId));
   const [checked, setChecked] = useState(() => readChecked(blockId));
   const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? null);
@@ -765,6 +883,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   const handleDayMode = useCallback((m) => {
     setDayMode(m);
     writeDayMode(blockId, m);
+    setModePickerOpen(false);
   }, [blockId]);
 
   const handleCheck = useCallback((id) => {
@@ -905,12 +1024,15 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
               : "Set day type"
             }
           </span>
+          <button onClick={() => setModePickerOpen((open) => !open)} className="font-mono text-[11px] text-text-3 hover:text-text-1">
+            {modePickerOpen ? "hide modes" : "change mode"}
+          </button>
           <span className="font-mono text-[12px] text-text-3">{daysLeft}d to exam</span>
         </div>
       </div>
 
       {/* Day mode picker */}
-      <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />
+      {modePickerOpen && <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />}
 
       {/* Progress */}
       {filteredTasks.length > 0 && (
