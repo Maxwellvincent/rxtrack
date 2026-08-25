@@ -21,6 +21,10 @@ import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
 import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
 import { callAIJSON } from "../../../aiClient.js";
+import { generateStudyGuide } from "../../../engine/studyGuide.js";
+import { generateMentalModel } from "../../../engine/mentalModel.js";
+import * as studyGuideStore from "../../../stores/studyGuide.js";
+import * as mentalModelStore from "../../../stores/mentalModel.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
@@ -133,8 +137,10 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       });
       setRow(entry.filename, { status: "objectives" });
       let objectiveCount = 0;
+      let foundObjectives = [];
       try {
         const found = await extractObjectivesFromLecture(text, lecture, blockId);
+        foundObjectives = found;
         objectiveCount = found.length;
         if (found.length) commands.replaceLectureObjectives(blockId, lecture.id, found);
       } catch (e) {
@@ -168,6 +174,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
 
       setRow(entry.filename, { status: "atoms" });
       let atomCount = 0;
+      let extractedAtoms = [];
       if (text.trim().length >= MIN_TEXT) {
         try {
           const result = await extractAtomsForLecture(
@@ -176,14 +183,35 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
             { callAIJSON, saveAtoms: saveLectureAtoms, userId }
           );
           atomCount = result.atoms?.length || 0;
+          extractedAtoms = result.atoms || [];
         } catch (e) {
           setRow(entry.filename, { note: "atoms failed: " + (e?.message || String(e)) });
         }
       }
 
+      if (extractedAtoms.length) {
+        setRow(entry.filename, { note: "building study guide + mental map" });
+        try {
+          const subject = lecture.lectureTitle || lecture.title || "this lecture";
+          const [guideResult, modelResult] = await Promise.all([
+            generateStudyGuide({ objectives: foundObjectives, atoms: extractedAtoms, subject }, { callAIJSON }),
+            generateMentalModel({ atoms: extractedAtoms, subject }, { callAIJSON }),
+          ]);
+          if (guideResult.topics?.length) {
+            studyGuideStore.write(userId, lecture.id, {
+              topics: guideResult.topics.map((topic, i) => ({ id: `t${i}`, text: topic, checked: false })),
+              generated: Date.now(),
+            });
+          }
+          if (modelResult.model) mentalModelStore.write(userId, lecture.id, modelResult.model);
+        } catch (e) {
+          setRow(entry.filename, { note: "study assets failed: " + (e?.message || String(e)) });
+        }
+      }
+
       setRow(entry.filename, {
         status: "done",
-        note: `${objectiveCount} objectives · ${sections} sections · ${atomCount} atoms`,
+        note: `${objectiveCount} objectives · ${sections} sections · ${atomCount} atoms${atomCount ? " · study assets ready" : ""}`,
       });
       return { objectiveCount, sections, atomCount };
     },

@@ -1114,6 +1114,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       {preReadTarget && (
         <PreReadModal
           lecture={preReadTarget.lec}
+          userId={userId}
           objectives={objectivesForTask(preReadTarget.lec.id)}
           cached={cachedFor(preReadTarget.lec, objectivesForTask(preReadTarget.lec.id))}
           onClose={() => setPreReadTarget(null)}

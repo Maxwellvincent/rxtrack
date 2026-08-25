@@ -28,6 +28,10 @@ import { analyzeLecture } from "../../../ingest/teachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
 import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
 import { callAIJSON } from "../../../aiClient.js";
+import { generateStudyGuide } from "../../../engine/studyGuide.js";
+import { generateMentalModel } from "../../../engine/mentalModel.js";
+import * as studyGuideStore from "../../../stores/studyGuide.js";
+import * as mentalModelStore from "../../../stores/mentalModel.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
@@ -62,6 +66,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [objectiveResult, setObjectiveResult] = useState("");
   const [mapResult, setMapResult] = useState("");
   const [atomsResult, setAtomsResult] = useState("");
+  const [assetsResult, setAssetsResult] = useState("");
 
   const onFile = useCallback(
     async (file) => {
@@ -126,7 +131,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         const found = await extractObjectivesFromLecture(lectureText(lec), lec, blockId);
         if (!found.length) {
           setObjectiveResult("No objectives found — no SOM codes and nothing verb-led in the text.");
-          return;
+          return [];
         }
 
         makeObjectiveCommands(userId).replaceLectureObjectives(blockId, lec.id, found);
@@ -139,8 +144,10 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         setObjectiveResult(
           `${found.length} objective${found.length === 1 ? "" : "s"} saved${coded ? ` · ${coded} SOM-coded` : ""}.`
         );
+        return found;
       } catch (e) {
         setObjectiveResult("⚠ Objective extraction failed: " + (e?.message || String(e)));
+        return [];
       } finally {
         setProgress("");
       }
@@ -207,7 +214,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       const text = lectureText(lec);
       if (text.trim().length < MIN_TEXT) {
         setAtomsResult("Skipped — not enough lecture text to extract from.");
-        return;
+        return [];
       }
       setProgress("Pulling high-yield facts out of the lecture…");
       try {
@@ -218,17 +225,48 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         );
         if (result.error) {
           setAtomsResult("⚠ " + result.error);
-          return;
+          return [];
         }
         setAtomsResult(`${result.atoms.length} atom${result.atoms.length === 1 ? "" : "s"} extracted.`);
+        return result.atoms;
       } catch (e) {
         setAtomsResult("⚠ Atom extraction failed: " + (e?.message || String(e)));
+        return [];
       } finally {
         setProgress("");
       }
     },
     [saved, userId]
   );
+
+  const buildStudyAssets = useCallback(async (lecture, objectives, atoms) => {
+    if (!atoms?.length) return;
+    setProgress("Building the study guide and mental map…");
+    try {
+      const subject = lecture?.lectureTitle || lecture?.title || "this lecture";
+      const [guideResult, modelResult] = await Promise.all([
+        generateStudyGuide({ objectives, atoms, subject }, { callAIJSON }),
+        generateMentalModel({ atoms, subject }, { callAIJSON }),
+      ]);
+      const made = [];
+      if (guideResult.topics?.length) {
+        studyGuideStore.write(userId, lecture.id, {
+          topics: guideResult.topics.map((text, i) => ({ id: `t${i}`, text, checked: false })),
+          generated: Date.now(),
+        });
+        made.push("study guide");
+      }
+      if (modelResult.model) {
+        mentalModelStore.write(userId, lecture.id, modelResult.model);
+        made.push("mental map");
+      }
+      setAssetsResult(made.length ? `${made.join(" + ")} ready.` : "⚠ Study assets could not be generated.");
+    } catch (e) {
+      setAssetsResult("⚠ Study assets failed: " + (e?.message || String(e)));
+    } finally {
+      setProgress("");
+    }
+  }, [userId]);
 
   /**
    * Save, then pull everything out of the lecture without being asked. Each AI
@@ -237,7 +275,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
    */
   const addAndProcess = useCallback(async () => {
     if (!preview) return;
-    setBusy(true); setError(""); setObjectiveResult(""); setMapResult(""); setAtomsResult("");
+    setBusy(true); setError(""); setObjectiveResult(""); setMapResult(""); setAtomsResult(""); setAssetsResult("");
     try {
       const incoming = { ...preview.lecture, lectureDate: lectureDate || null };
       const current = lecturesStore.read(userId) || [];
@@ -259,9 +297,10 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setSaved(lecture);
       onAdded?.(lecture);
 
-      await extractObjectives(lecture);
+      const objectives = await extractObjectives(lecture);
       await buildTeachingMap(lecture);
-      await extractAtomsStep(lecture);
+      const atoms = await extractAtomsStep(lecture);
+      await buildStudyAssets(lecture, objectives, atoms);
     } catch (e) {
       const msg = e?.message || String(e);
       setError(
@@ -273,7 +312,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep]);
+  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep, buildStudyAssets]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
@@ -356,6 +395,9 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             </div>
             <div className={`mt-1 font-mono text-[13px] ${atomsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◆ {atomsResult || (busy ? "extracting high-yield atoms…" : "—")}
+            </div>
+            <div className={`mt-1 font-mono text-[13px] ${assetsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
+              ◉ {assetsResult || (busy ? "building study guide + mental map…" : "—")}
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => extractObjectives()} disabled={busy}>

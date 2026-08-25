@@ -16,6 +16,7 @@ import { callAIJSON } from "../../../aiClient.js";
 import * as preReadCacheStore from "../../../stores/preReadCache.js";
 import { cacheEntry, preReadsToGenerate, readCached } from "../../logic/preReadCache.js";
 import { generatePreRead } from "./preRead.js";
+import { fetchLectureContent } from "../../../supabase.js";
 
 const whenIdle = (fn) =>
   typeof requestIdleCallback === "function"
@@ -51,7 +52,14 @@ export function usePreReadPrefetch(lectures, { objectivesFor, userId, enabled = 
         for (const lec of todo) {
           if (cancelled) return;
           const objectives = objectivesRef.current(lec.id);
-          const result = await generatePreRead({ lecture: lec, objectives }, { callAIJSON });
+          let fullLecture = lec;
+          if (userId) {
+            try {
+              const cloud = await fetchLectureContent(userId, lec.id);
+              if (cloud) fullLecture = { ...lec, ...(cloud.meta || {}), chunks: cloud.chunks || lec.chunks, atoms: cloud.atoms || lec.atoms };
+            } catch { /* generate from objectives/title if cloud hydration is unavailable */ }
+          }
+          const result = await generatePreRead({ lecture: fullLecture, objectives }, { callAIJSON });
           // A failed generation is not cached — the modal retries on open, by
           // which point the provider may well be reachable again.
           if (cancelled || result.error || !result.questions?.length) continue;

@@ -378,6 +378,7 @@ export function LectureList({
       {preReadTarget && (
         <PreReadModal
           lecture={preReadTarget.lec}
+          userId={userId}
           objectives={objectivesForTask(preReadTarget.lectureId)}
           onClose={() => setPreReadTarget(null)}
           onComplete={({ lectureId, gapObjectiveIds, durationMinutes }) => {

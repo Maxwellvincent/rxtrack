@@ -28,7 +28,7 @@ export const PRE_READ_SOFT_CAP_MINUTES = 15;
  * when that stub still has to be pre-readable. A title is enough for a model to
  * produce searchable subject-level topics.
  *
- * @returns {{kind: "text"|"objectives"|"title"|"none", text: string, subject: string}}
+ * @returns {{kind: "text"|"atoms"|"objectives"|"title"|"none", text: string, subject: string}}
  */
 export function preReadSource(lecture, objectives = []) {
   const subject =
@@ -38,6 +38,11 @@ export function preReadSource(lecture, objectives = []) {
   if (String(body || "").trim().length >= MIN_TEXT) {
     return { kind: "text", text: body, subject };
   }
+
+  const atomText = (lecture?.atoms || [])
+    .map((a) => `${a?.term || ""}: ${a?.content || ""}`.trim())
+    .filter((s) => s.length > 8);
+  if (atomText.length) return { kind: "atoms", text: atomText.join("\n"), subject };
 
   const objText = (objectives || [])
     .map((o) => o?.objective || o?.text || "")
@@ -69,6 +74,7 @@ export function buildPreReadPrompt({ source, objectives = [], count = PRE_READ_Q
 
   const sourceLabel = {
     text: "LECTURE MATERIAL",
+    atoms: "EXTRACTED HIGH-YIELD LECTURE FACTS",
     objectives: "LEARNING OBJECTIVES (no lecture material uploaded yet)",
     title: "LECTURE TITLE ONLY (nothing uploaded yet)",
     none: "NOTHING",
@@ -77,17 +83,21 @@ export function buildPreReadPrompt({ source, objectives = [], count = PRE_READ_Q
   return (
     `A medical student is about to attend a lecture on "${source.subject}". They have NOT been taught ` +
     `this material yet. Prepare a short pre-read.\n\n` +
-    `Produce exactly two things:\n` +
-    `1. "topics": 5-8 concise, subject-level concept phrases (3-7 words) they can search for and study ` +
+    `Produce a compact orientation scaffold, not a full lesson:\n` +
+    `1. "bigPicture": 2-3 sentences explaining what system or clinical problem this lecture organizes.\n` +
+    `2. "roadmap": 4-7 major headings in the order the student should expect them.\n` +
+    `3. "vocabulary": 4-8 unfamiliar terms with a very short meaning, formatted "term — meaning".\n` +
+    `4. "diagramTargets": 2-5 pathways, spatial relationships, tables, or figures worth locating in the slides.\n` +
+    `5. "topics": 5-8 concise, subject-level concept phrases (3-7 words) they can search for and study ` +
     `on their own — mechanisms, pathways, drug classes, disease processes. Do NOT copy objective text ` +
     `verbatim; distill to the searchable core concept.\n` +
-    `2. "questions": exactly ${count} prediction questions asked BEFORE they study. These are not a test — ` +
+    `6. "questions": exactly ${count} prediction questions asked BEFORE they study. These are not a test — ` +
     `they exist to expose what the student does not know yet and make them curious. Prefer the highest-yield ` +
     `concepts. Each has 4 choices, a 0-based correctIndex, a one-sentence explanation, and "objectiveId" set ` +
     `to the id of the learning objective it maps to (use null when none applies).\n\n` +
     (objLines.length ? `LEARNING OBJECTIVES:\n${objLines.join("\n")}\n\n` : "") +
     `${sourceLabel}:\n${String(source.text || "").slice(0, 12000)}\n\n` +
-    `Return ONLY valid JSON: {"topics":["..."],"questions":[{"question":"...","choices":["...","...","...","..."],` +
+    `Return ONLY valid JSON: {"bigPicture":"...","roadmap":["..."],"vocabulary":["..."],"diagramTargets":["..."],"topics":["..."],"questions":[{"question":"...","choices":["...","...","...","..."],` +
     `"correctIndex":0,"explanation":"...","objectiveId":"..."}]}`
   );
 }
@@ -102,7 +112,7 @@ export async function generatePreRead({ lecture, objectives = [], count = PRE_RE
   const { callAIJSON, maxTokens = 2500 } = deps;
   const source = preReadSource(lecture, objectives);
 
-  const empty = { topics: [], questions: [], sourceKind: source.kind, subject: source.subject };
+  const empty = { bigPicture: "", roadmap: [], vocabulary: [], diagramTargets: [], topics: [], questions: [], sourceKind: source.kind, subject: source.subject };
   if (source.kind === "none") {
     return { ...empty, error: "Nothing to pre-read — this lecture has no title, objectives or material." };
   }
@@ -113,7 +123,7 @@ export async function generatePreRead({ lecture, objectives = [], count = PRE_RE
     const raw = await callAIJSON(
       SYSTEM,
       buildPreReadPrompt({ source, objectives, count }),
-      { topics: [], questions: [] },
+      { bigPicture: "", roadmap: [], vocabulary: [], diagramTargets: [], topics: [], questions: [] },
       maxTokens
     );
 
@@ -135,7 +145,18 @@ export async function generatePreRead({ lecture, objectives = [], count = PRE_RE
         objectiveId: validIds.has(q.objectiveId) ? q.objectiveId : null,
       }));
 
-    return { ...empty, topics, questions };
+    const cleanList = (value, limit) => Array.isArray(value)
+      ? value.filter((v) => typeof v === "string" && v.trim()).map((v) => v.trim()).slice(0, limit)
+      : [];
+    return {
+      ...empty,
+      bigPicture: typeof raw?.bigPicture === "string" ? raw.bigPicture.trim() : "",
+      roadmap: cleanList(raw?.roadmap, 7),
+      vocabulary: cleanList(raw?.vocabulary, 8),
+      diagramTargets: cleanList(raw?.diagramTargets, 5),
+      topics,
+      questions,
+    };
   } catch (e) {
     return { ...empty, error: e?.message || String(e) };
   }
