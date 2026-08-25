@@ -390,19 +390,6 @@ export function recommendedSessionsFor({ sessions, tally, nextReview, today, las
 }
 
 /**
- * Completion is the cross-surface activity ledger (manual review, Anki and
- * Study launches). Performance is older quiz-only history. They overlap for
- * some modern Study sessions, so use the larger count rather than adding them.
- */
-export function lecturePassCount(performance, completion) {
-  const performanceCount = Array.isArray(performance?.sessions) ? performance.sessions.length : 0;
-  const activityCount = Array.isArray(completion?.activityLog)
-    ? completion.activityLog.filter((activity) => activity?.activityType !== "pre_read").length
-    : Number(completion?.sessionCount || 0);
-  return Math.max(performanceCount, activityCount);
-}
-
-/**
  * Day-by-day plan to the exam: score every lecture, then fill each day in three
  * passes — lectures happening that day, spaced-rep due, then by urgency.
  */
@@ -455,11 +442,11 @@ export function generateDailySchedule(context) {
     const lastScore = perf?.lastScore ?? null;
     const confidence = perf?.confidenceLevel || "Low";
     const nextReview = perf?.nextReview ? new Date(perf.nextReview) : null;
+    const sessions = perf?.sessions?.length || 0;
     const lecCompletion = completion[`${lec.id}__${blockId}`] || null;
-    const sessions = lecturePassCount(perf, lecCompletion);
 
     const isFullyMastered = tally.total > 0 && tally.mastered === tally.total;
-    const lastSessionAt = lecCompletion?.lastActivityDate ?? perf?.sessions?.[0]?.at ?? null;
+    const lastSessionAt = perf?.sessions?.[0]?.at ?? null;
     const daysSinceLast = lastSessionAt ? Math.round((today - new Date(lastSessionAt)) / DAY_MS) : 999;
     const compDaysLeft = comprehensiveExamDate
       ? Math.max(0, daysBetween(today, startOfDay(comprehensiveExamDate)))

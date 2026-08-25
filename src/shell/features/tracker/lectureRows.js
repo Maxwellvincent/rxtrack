@@ -16,7 +16,6 @@ import {
   recommendedSessionsFor,
   statusTally,
   weakConceptsForLecture,
-  lecturePassCount,
 } from "../../logic/schedule.js";
 import { isLandmine, rankConcepts } from "./weakConcepts.js";
 
@@ -63,8 +62,7 @@ export function scoreLectures(context) {
     const lecObjs = objectivesForLecture(objectives, lec);
     const tally = statusTally(lecObjs);
     const perf = lecturePerformance[lec.id] ?? null;
-    const entry = completion[`${lec.id}__${blockId}`] || null;
-    const sessions = lecturePassCount(perf, entry);
+    const sessions = perf?.sessions?.length || 0;
     const lastScore = perf?.lastScore ?? null;
     const confidence = perf?.confidenceLevel || "Low";
     const nextReview = perf?.nextReview ? new Date(perf.nextReview) : null;

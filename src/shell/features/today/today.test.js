@@ -4,7 +4,7 @@ import { detectStudyMode, hasUploadedContent } from "../../logic/studyMode.js";
 import { appendActivity, computeReviewDates, getNextSaturday, localDateString } from "../../logic/completionLog.js";
 import { buildScheduleContext, resolveBlockMeta, lecturePerformanceFor } from "./scheduleContext.js";
 import { todayTasks } from "./fallback.js";
-import { generateDailySchedule, buildStudySchedule, lecturePassCount } from "../../logic/schedule.js";
+import { generateDailySchedule, buildStudySchedule } from "../../logic/schedule.js";
 
 describe("detectStudyMode", () => {
   it("routes by lecture title", () => {
@@ -35,12 +35,6 @@ describe("detectStudyMode", () => {
 });
 
 describe("completion logging", () => {
-  it("counts completion activity as lecture passes without double-counting performance", () => {
-    expect(lecturePassCount({ sessions: [{}, {}] }, { activityLog: [{ activityType: "anki" }] })).toBe(2);
-    expect(lecturePassCount(null, { activityLog: [{ activityType: "anki" }, { activityType: "review" }] })).toBe(2);
-    expect(lecturePassCount(null, { activityLog: [{ activityType: "pre_read" }] })).toBe(0);
-  });
-
   it("uses the local calendar day for late-evening completion logs", () => {
     const lateLocal = new Date(2026, 7, 24, 23, 30, 0);
     expect(localDateString(lateLocal)).toBe("2026-08-24");
