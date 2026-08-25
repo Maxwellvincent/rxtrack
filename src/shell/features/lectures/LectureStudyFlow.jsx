@@ -37,7 +37,9 @@ import { readExemplars, resolveDefaultDifficulty, startObjectiveQuiz } from "../
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
-import { ROUND_SIZE, atomRounds, extractAtoms, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
+import { generateMentalModel } from "../../../engine/mentalModel.js";
+import * as mentalModelStore from "../../../stores/mentalModel.js";
+import { ROUND_SIZE, atomRounds, extractAtoms, isActiveQuizComplete, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
 import {
   clearRoundProgress,
   readRoundProgress,
@@ -72,6 +74,145 @@ function objectiveChips(objectiveIds, objectiveById) {
   return [...seen.values()];
 }
 
+/** Clickable terms under a framework node — jumps to that atom in the review list below. */
+function AtomChips({ terms, onAtomClick }) {
+  if (!terms?.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {terms.map((term) => (
+        <button
+          key={term}
+          onClick={() => onAtomClick(term)}
+          className="rounded border border-border px-1.5 py-0.5 font-mono text-[12px] text-text-3 hover:border-accent hover:text-accent"
+        >
+          {term}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A reasoning framework, not a summary — big picture -> components -> relationships ->
+ * mechanisms -> cause/effect -> clinical application -> easily-confused pairs. Every node that
+ * traces to real atoms shows them as chips so the atoms attach onto the structure instead of
+ * sitting beside it.
+ */
+export function MentalModelView({ model, onAtomClick }) {
+  const {
+    bigPicture, components = [], relationships = [], mechanisms = [],
+    causeEffect = [], clinicalApplication = [], confusedPairs = [],
+  } = model;
+
+  return (
+    <div className="mt-3 flex flex-col gap-4">
+      {bigPicture && (
+        <div className="rounded-lg border border-border bg-bg-elevated p-3">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">Big picture</div>
+          <p className="text-sm text-text-1">{bigPicture}</p>
+        </div>
+      )}
+
+      {components.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-text-1">Components</div>
+          <div className="flex flex-col gap-1.5">
+            {components.map((c, i) => (
+              <div key={i} className="rounded-lg border-l-2 border-l-accent bg-bg-elevated px-3 py-2 text-xs">
+                <span className="font-semibold text-text-1">{c.name}</span>
+                {c.role && <span className="text-text-2"> — {c.role}</span>}
+                <AtomChips terms={c.atomTerms} onAtomClick={onAtomClick} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {relationships.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-text-1">Relationships</div>
+          <div className="flex flex-col gap-1.5">
+            {relationships.map((r, i) => (
+              <div key={i} className="rounded-lg border-l-2 border-l-good bg-bg-elevated px-3 py-2 text-xs">
+                <span className="font-semibold text-text-1">{r.from} → {r.to}</span>
+                {r.connection && <span className="text-text-2"> — {r.connection}</span>}
+                {r.why && <div className="mt-1 text-text-3">why: {r.why}</div>}
+                <AtomChips terms={r.atomTerms} onAtomClick={onAtomClick} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {mechanisms.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-text-1">Mechanisms &amp; flows</div>
+          <div className="flex flex-col gap-1.5">
+            {mechanisms.map((m, i) => (
+              <div key={i} className="rounded-lg border-l-2 border-l-accent bg-bg-elevated px-3 py-2 text-xs">
+                <span className="font-semibold text-text-1">{m.name}</span>
+                {m.steps?.length > 0 && (
+                  <ol className="mt-1 list-decimal pl-4 text-text-2">
+                    {m.steps.map((s, j) => <li key={j}>{s}</li>)}
+                  </ol>
+                )}
+                <AtomChips terms={m.atomTerms} onAtomClick={onAtomClick} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {causeEffect.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-text-1">Cause &amp; effect</div>
+          <div className="flex flex-col gap-1.5">
+            {causeEffect.map((ce, i) => (
+              <div key={i} className="rounded-lg border-l-2 border-l-bad bg-bg-elevated px-3 py-2 text-xs">
+                <span className="font-semibold text-text-1">{ce.cause}</span>
+                <span className="text-text-2"> ⇒ {ce.effect}</span>
+                {ce.why && <div className="mt-1 text-text-3">why: {ce.why}</div>}
+                <AtomChips terms={ce.atomTerms} onAtomClick={onAtomClick} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {clinicalApplication.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-text-1">Clinical application</div>
+          <div className="flex flex-col gap-1.5">
+            {clinicalApplication.map((c, i) => (
+              <div key={i} className="rounded-lg border-l-2 border-l-good bg-bg-elevated px-3 py-2 text-xs">
+                <span className="font-semibold text-text-1">{c.scenario}</span>
+                {c.connection && <span className="text-text-2"> — {c.connection}</span>}
+                <AtomChips terms={c.atomTerms} onAtomClick={onAtomClick} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {confusedPairs.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-sm font-semibold text-text-1">Easily confused</div>
+          <div className="flex flex-col gap-1.5">
+            {confusedPairs.map((p, i) => (
+              <div key={i} className="rounded-lg border-l-2 border-l-warn bg-bg-elevated px-3 py-2 text-xs">
+                <span className="font-semibold text-text-1">{p.a}</span>
+                <span className="text-text-3"> vs </span>
+                <span className="font-semibold text-text-1">{p.b}</span>
+                {p.distinction && <div className="mt-1 text-text-2">{p.distinction}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function LectureStudyFlow({
   lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep,
   // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
@@ -89,6 +230,12 @@ export function LectureStudyFlow({
   const [figures, setFigures] = useState(null); // in-review, not yet uploaded
   const [stage, setStage] = useState("loading"); // loading | upload | extract | quiz
   const [questions, setQuestions] = useState(null);
+  // Completion belongs to a particular generated question set. A bare boolean can be written
+  // by an older AtomQuiz after a replacement quiz has already started, which is how a fresh
+  // question 1/10 could appear above the previous quiz's "complete" banner.
+  const quizSessionCounter = useRef(0);
+  const [quizSessionId, setQuizSessionId] = useState(0);
+  const [completedQuizSessionId, setCompletedQuizSessionId] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [round, setRound] = useState(0);
@@ -112,12 +259,6 @@ export function LectureStudyFlow({
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Track last round result to surface "Go Deep" prompt on completion
   const [lastResult, setLastResult] = useState(null);
-  // Whether the CURRENT round/quiz has actually been finished (AtomQuiz's onDone fired below).
-  // Reset false whenever a new round/quiz starts. Without this, the "Next round"/"complete"
-  // controls rendered under <AtomQuiz> were gated only on hasNext — which is unconditionally
-  // false for an ad-hoc quiz — so the "Quiz complete" banner showed beside question 1 of 10,
-  // before a single question had been answered.
-  const [roundDone, setRoundDone] = useState(false);
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
@@ -125,6 +266,14 @@ export function LectureStudyFlow({
   // for these (there is no "next round" to resume into) but still updates atom/objective
   // mastery exactly the same way. One runner, two ways in.
   const [adHocQuiz, setAdHocQuiz] = useState(false);
+
+  const startQuizSession = useCallback((nextQuestions) => {
+    const nextId = quizSessionCounter.current + 1;
+    quizSessionCounter.current = nextId;
+    setQuizSessionId(nextId);
+    setCompletedQuizSessionId(null);
+    setQuestions(nextQuestions);
+  }, []);
 
   // Atom key to scroll to + pulse-highlight once the atoms list is back on screen — set by a
   // "review this atom" click from a quiz Summary, cleared once the highlight has had its moment.
@@ -135,6 +284,11 @@ export function LectureStudyFlow({
   const [studyGuide, setStudyGuide] = useState(null);
   const [generatingGuide, setGeneratingGuide] = useState(false);
   const guideGenRef = useRef(false);
+
+  // Mental model — the reasoning framework built from this lecture's atoms. Built on demand
+  // (not auto, like the study guide) since it costs more tokens per call; cached per lecture.
+  const [mentalModel, setMentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
+  const [generatingModel, setGeneratingModel] = useState(false);
 
   // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
   // as a hung app, and the honest fix is to show the wait, not to hide it.
@@ -177,6 +331,22 @@ export function LectureStudyFlow({
     studyGuideStore.write(userId, lecture?.id, guide);
     setStudyGuide(guide);
   }, [title, userId, lecture?.id]);
+
+  const generateModel = useCallback(async () => {
+    setGeneratingModel(true); setError("");
+    const result = await generateMentalModel({ atoms, subject: title }, { callAIJSON });
+    setGeneratingModel(false);
+    if (result.error) { setError(result.error); return; }
+    mentalModelStore.write(userId, lecture?.id, result.model);
+    setMentalModel(result.model);
+  }, [atoms, title, userId, lecture?.id]);
+
+  // Jump to an atom referenced by the framework — same target the quiz Summary's
+  // "review this atom" link uses, so the highlight/scroll behavior is shared.
+  const jumpToAtomTerm = useCallback((term) => {
+    if (atomsDetailsRef.current) atomsDetailsRef.current.open = true;
+    setReviewAtomKey(normAtomKey(term));
+  }, []);
 
   // Auto-trigger: load cached guide or generate when atoms first populate
   useEffect(() => {
@@ -388,10 +558,9 @@ export function LectureStudyFlow({
 
     setRound(index);
     setAdHocQuiz(false);
-    setRoundDone(false);
-    setQuestions(questions);
+    startQuizSession(questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
-  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity]);
+  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession]);
 
   /**
    * "Quiz this lecture" — any count, any difficulty, drawn from real atoms same as a Study
@@ -424,8 +593,7 @@ export function LectureStudyFlow({
       const shuffled = [...stored].sort(() => Math.random() - 0.5).slice(0, count);
       setBusy("");
       setAdHocQuiz(true);
-      setRoundDone(false);
-      setQuestions(shuffled);
+      startQuizSession(shuffled);
       logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
       return;
     }
@@ -453,10 +621,9 @@ export function LectureStudyFlow({
     }
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
     setAdHocQuiz(true);
-    setRoundDone(false);
-    setQuestions(result.questions);
+    startQuizSession(result.questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession]);
 
   // An external "Quiz" click (Today/Lectures/ObjectiveTracker) opens the same picker the
   // in-page button opens — once per mount, so revisiting Study later for the same lecture
@@ -564,6 +731,7 @@ export function LectureStudyFlow({
           </div>
         )}
         <AtomQuiz
+          key={quizSessionId}
           questions={questions}
           blockId={blockId}
           lectureId={lecture?.id ?? null}
@@ -571,7 +739,7 @@ export function LectureStudyFlow({
           onExit={() => setQuestions(null)}
           onReviewAtom={(atomKey) => { setQuestions(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
-            setRoundDone(true);
+            setCompletedQuizSessionId(quizSessionId);
             // An ad-hoc quiz doesn't advance the round-resume bookmark — there is no sequence
             // for it to be a position in — but it's always its own "last round" for the
             // objective-status update below, since there's no next one coming.
@@ -657,7 +825,7 @@ export function LectureStudyFlow({
             } catch { /* non-critical */ }
           }}
         />
-        {roundDone && (
+        {isActiveQuizComplete(completedQuizSessionId, quizSessionId) && (
         <div className="mt-4 flex items-center gap-3">
           {hasNext ? (
             <>
@@ -942,6 +1110,44 @@ export function LectureStudyFlow({
       )}
 
       {figuresPrompt}
+
+      {/* Mental model — the reasoning framework this lecture's atoms attach to. Not a summary:
+          big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
+          application, each node linked back to the atoms that support it. */}
+      {stage === "quiz" && atoms.length > 0 && (
+        <div className="mt-5 border-t border-border pt-4">
+          <div className="mb-2 flex items-center gap-3">
+            <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">
+              Mental model
+            </span>
+            {mentalModel && !generatingModel && (
+              <button
+                onClick={generateModel}
+                disabled={!!busy}
+                className="font-mono text-[11px] text-text-3 underline decoration-dotted hover:text-text-1"
+              >
+                regenerate
+              </button>
+            )}
+          </div>
+          {!mentalModel && !generatingModel && (
+            <div className="flex items-center gap-3">
+              <Button variant="outline" onClick={generateModel} disabled={!!busy}>
+                ◇ Build mental model
+              </Button>
+              <span className="text-[12px] text-text-3">
+                how these atoms connect — components, relationships, mechanisms, cause/effect, clinical use
+              </span>
+            </div>
+          )}
+          {generatingModel && (
+            <span className="font-mono text-[12px] text-text-3">reasoning through the atoms…</span>
+          )}
+          {mentalModel && !generatingModel && (
+            <MentalModelView model={mentalModel} onAtomClick={jumpToAtomTerm} />
+          )}
+        </div>
+      )}
 
       {/* The atom list is reference, not the session. Reading it is the passive habit this
           screen used to force; it stays one click away for when you actually want it. */}
