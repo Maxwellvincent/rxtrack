@@ -10,6 +10,7 @@ import {
   updateObjective,
   setStatus,
   selfRate,
+  recordObjectiveAttempt,
   assignToLecture,
   assignManyToLecture,
   removeLectureLink,
@@ -102,6 +103,16 @@ describe("reducers", () => {
     expect(setStatus(objs("a"), "a", "mastered", NOW, { includeLastDrilled: true })[0].lastDrilled).toBe(NOW);
     expect(selfRate(objs("a"), "a", "struggling", NOW)[0])
       .toEqual({ id: "a", status: "struggling", lastTested: NOW });
+  });
+
+  it("syncs objective mastery evidence on every linked question answer", () => {
+    const start = [{ id: "a", status: "untested", consecutiveCorrect: 0 }];
+    const first = recordObjectiveAttempt(start, "a", true, NOW);
+    expect(first[0]).toMatchObject({ status: "inprogress", attempts: 1, correctCount: 1, consecutiveCorrect: 1 });
+    const second = recordObjectiveAttempt(first, "a", true, NOW);
+    expect(second[0]).toMatchObject({ status: "mastered", attempts: 2, correctCount: 2, consecutiveCorrect: 2 });
+    const missed = recordObjectiveAttempt(second, "a", false, NOW);
+    expect(missed[0]).toMatchObject({ status: "struggling", attempts: 3, consecutiveCorrect: 0 });
   });
 
   it("assigns and unassigns lectures", () => {

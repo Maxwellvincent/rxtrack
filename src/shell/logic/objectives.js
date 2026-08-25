@@ -144,6 +144,29 @@ export function selfRate(objectives, objId, status, now) {
   return updateObjective(objectives, objId, { status, lastTested: now });
 }
 
+/** Record objective evidence immediately for an objective-linked question. */
+export function recordObjectiveAttempt(objectives, objId, correct, now = new Date()) {
+  const list = objectives || [];
+  const objective = list.find((o) => o?.id === objId);
+  if (!objective) return list;
+  const attempts = (objective.attempts || objective.totalAttempts || 0) + 1;
+  const correctCount = (objective.correctCount || 0) + (correct ? 1 : 0);
+  const consecutiveCorrect = correct ? (objective.consecutiveCorrect || 0) + 1 : 0;
+  let status = objective.status || "untested";
+  if (!correct) status = "struggling";
+  else if (consecutiveCorrect >= 2) status = "mastered";
+  else if (status === "untested" || status === "struggling") status = "inprogress";
+  return updateObjective(list, objId, {
+    attempts,
+    totalAttempts: attempts,
+    correctCount,
+    consecutiveCorrect,
+    status,
+    lastTested: now,
+    lastUpdated: now,
+  });
+}
+
 /** Link an objective to a lecture, marking it manually aligned. */
 export function assignToLecture(objectives, objId, lecId, now) {
   if (!objId || !lecId) return objectives || [];

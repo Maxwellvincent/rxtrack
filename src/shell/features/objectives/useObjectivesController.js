@@ -97,5 +97,13 @@ export function useObjectivesController(blockId, userId) {
     [commands, blockId, blockLectures, renameLecture]
   );
 
-  return { objectives, blockLectures, getLecPerf, commands, ...actions };
+  return {
+    objectives,
+    blockLectures,
+    getLecPerf,
+    commands,
+    loading: objectivesRes.loading || lecturesRes.loading,
+    error: objectivesRes.error || lecturesRes.error || performanceRes.error,
+    ...actions,
+  };
 }

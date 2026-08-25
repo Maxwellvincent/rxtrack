@@ -29,13 +29,23 @@ export function ObjectivesContainer({
 }) {
   const [editingLecId, setEditingLecId] = useState(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const { objectives, blockLectures, getLecPerf, ...actions } = useObjectivesController(
+  const { objectives, blockLectures, getLecPerf, loading, error, ...actions } = useObjectivesController(
     blockId,
     userId
   );
 
+  if (loading && !objectives.length) {
+    return <div className="rounded-lg border border-border p-4 text-sm text-text-3">Syncing objectives…</div>;
+  }
+
   return (
-    <ObjectiveTracker
+    <div>
+      {error && (
+        <div role="alert" className="mb-3 rounded-lg border border-bad/40 bg-bg-elevated px-3 py-2 text-[13px] text-bad">
+          Objectives could not sync: {error?.message || String(error)}
+        </div>
+      )}
+      <ObjectiveTracker
       blockId={blockId}
       blockLectures={blockLectures}
       objectives={objectives}
@@ -57,8 +67,9 @@ export function ObjectivesContainer({
       quizFlashLectureId={quizFlashLectureId}
       onReExtractObjectives={onReExtractObjectives}
       reExtractingLectureId={reExtractingLectureId}
-      {...actions}
-    />
+        {...actions}
+      />
+    </div>
   );
 }
 

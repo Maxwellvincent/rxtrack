@@ -6,6 +6,8 @@ import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
 import { recordEvidence, recordReflection } from "../stores/learnerEvidence.js";
 import { classifyLeadIn, ERROR_REASONS, extractLeadIn } from "./features/exam/questionReading.js";
+import * as objectivesStore from "../stores/blockObjectives.js";
+import { recordObjectiveAttempt, selectBlockObjectives, storageKeyFor, toEntry } from "./logic/objectives.js";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
@@ -168,6 +170,15 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       responseMs,
       taskType: classifyLeadIn(q.stem),
     });
+    if (blockId && q.objectiveIds?.length) {
+      const objectiveMap = objectivesStore.read(userId) || {};
+      let blockObjectives = selectBlockObjectives(objectiveMap, blockId);
+      for (const objectiveId of [...new Set(q.objectiveIds)]) {
+        blockObjectives = recordObjectiveAttempt(blockObjectives, objectiveId, isCorrect, new Date());
+      }
+      const storeKey = storageKeyFor(objectiveMap, blockId);
+      objectivesStore.write(userId, { ...objectiveMap, [storeKey]: toEntry(objectiveMap[storeKey], blockObjectives) });
+    }
     // Counted at reveal, not at "next": leaving the round here still cost you the question, so
     // the lecture's total has to reflect it.
     if (lectureId) {

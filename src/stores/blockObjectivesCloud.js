@@ -139,6 +139,12 @@ function mirrorHot() {
   }
 }
 
+function reportWriteError(userId, blockId, error) {
+  state.error = error;
+  console.warn(`block objectives: write failed for ${blockId}`, error?.message || error);
+  notifyStoreChanged(key, { userId, blockId, source: "firestore-write-error" });
+}
+
 function ensureSubscribed(userId) {
   if (!userId) return;
   if (state.unsub && state.userId === userId) return;
@@ -248,7 +254,10 @@ export function write(userId, value) {
           )
         ),
         ...staleDeletes,
-      ]).catch((e) => console.warn(`block objectives: sharded write failed for ${blockId}`, e?.message || e));
+      ]).then(() => {
+        state.error = null;
+        notifyStoreChanged(key, { userId, blockId, source: "firestore-write-complete" });
+      }).catch((e) => reportWriteError(userId, blockId, e));
     } else {
       state.shardCounts.set(blockId, 1);
       // Delete any stale shard docs from a previous oversized write.
@@ -263,7 +272,10 @@ export function write(userId, value) {
           { merge: false }
         ),
         ...staleDeletes,
-      ]).catch((e) => console.warn(`block objectives: write failed for ${blockId}`, e?.message || e));
+      ]).then(() => {
+        state.error = null;
+        notifyStoreChanged(key, { userId, blockId, source: "firestore-write-complete" });
+      }).catch((e) => reportWriteError(userId, blockId, e));
     }
   }
 
