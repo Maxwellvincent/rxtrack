@@ -19,7 +19,15 @@ import {
 } from "../../logic/schedule.js";
 import { isLandmine, rankConcepts } from "./weakConcepts.js";
 
-export const FILTERS = ["all", "struggling", "untested", "unstarted", "done"];
+export const FILTERS = ["active", "today", "struggling", "untested", "unstarted", "done", "all"];
+export const ACTIVITY_TYPES = ["all", "LEC", "DLA", "SG", "TBL", "LAB", "IMCQ"];
+
+export function inferActivityType(lecture = {}) {
+  const explicit = String(lecture.lectureType || "").toUpperCase();
+  if (explicit && explicit !== "UNKNOWN") return explicit;
+  const source = `${lecture.lectureTitle || ""} ${lecture.fileName || lecture.filename || ""}`;
+  return source.match(/\b(DLA|CLIN|LEC|SG|TBL|LAB|US|IMCQ)\b/i)?.[1]?.toUpperCase() || "LEC";
+}
 
 // A lecture dated "today" may not have happened yet, so pre-read should not
 // vanish at midnight. 3pm local is a reasonable "you've probably had it by now"
@@ -41,6 +49,7 @@ export function scoreLectures(context) {
   const now = context?.now ? new Date(context.now) : new Date();
   const today = new Date(now);
   today.setHours(0, 0, 0, 0);
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
   const examDate = context?.examDate ?? null;
   // No exam, or one already gone: score without pressure inflation.
@@ -75,6 +84,8 @@ export function scoreLectures(context) {
       confidence,
       nextReview,
       availableDate,
+      todayKey,
+      scheduledToday: !!(availableDate && availableDate.getTime() === today.getTime()),
       isFuture: !!(availableDate && availableDate > today),
       hasNoDate: !availableDate,
       preReadOpen: !availableDate || now < preReadCutoff,
@@ -115,7 +126,7 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
       lecture.fileName ||
       lecture.filename ||
       (lecture.subject ? `${lecture.subject} (unnamed)` : "Untitled lecture"),
-    type: lecture.lectureType || "LEC",
+    type: inferActivityType(lecture),
     number: lecture.lectureNumber ?? null,
     urgency: score.urgency,
     mastered: score.mastered,
@@ -128,6 +139,8 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
     lastScore: score.lastScore,
     confidence: score.confidence,
     lastActivityDate: entry?.lastActivityDate ?? null,
+    completedToday: !!(entry?.lastActivityDate && entry.lastActivityDate === score.todayKey),
+    scheduledToday: !!score.scheduledToday,
     lastConfidence: entry?.lastConfidence ?? null,
     nextReview: entry?.reviewDates?.[0] ?? null,
     ankiInRotation: !!entry?.ankiInRotation,
@@ -147,6 +160,10 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
 
 export function matchesFilter(row, filter) {
   switch (filter) {
+    case "active":
+      return !row.done;
+    case "today":
+      return row.scheduledToday || row.completedToday;
     case "struggling":
       return row.struggling > 0;
     case "untested":
@@ -172,12 +189,14 @@ export const SORTS = {
   lecture: (a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.title.localeCompare(b.title),
   coverage: (a, b) => (a.coverage ?? -1) - (b.coverage ?? -1),
   recent: (a, b) => String(b.lastActivityDate || "").localeCompare(String(a.lastActivityDate || "")),
+  date: (a, b) => (a.availableDate?.getTime?.() ?? Infinity) - (b.availableDate?.getTime?.() ?? Infinity) || SORTS.lecture(a, b),
+  type: (a, b) => a.type.localeCompare(b.type) || SORTS.lecture(a, b),
 };
 
-export function buildLectureRows(scores, { completion, blockId, filter = "all", search = "", sort = "urgency" } = {}) {
+export function buildLectureRows(scores, { completion, blockId, filter = "active", activityType = "all", search = "", sort = "urgency" } = {}) {
   const rows = (scores || [])
     .map((score) => lectureRow(score, { completion, blockId }))
-    .filter((row) => matchesFilter(row, filter) && matchesSearch(row, search));
+    .filter((row) => matchesFilter(row, filter) && (activityType === "all" || row.type === activityType) && matchesSearch(row, search));
 
   return [...rows].sort(SORTS[sort] || SORTS.urgency);
 }
@@ -187,6 +206,8 @@ export function lectureCounts(scores, { completion, blockId } = {}) {
   const rows = (scores || []).map((score) => lectureRow(score, { completion, blockId }));
   return {
     all: rows.length,
+    active: rows.filter((r) => matchesFilter(r, "active")).length,
+    today: rows.filter((r) => matchesFilter(r, "today")).length,
     struggling: rows.filter((r) => matchesFilter(r, "struggling")).length,
     untested: rows.filter((r) => matchesFilter(r, "untested")).length,
     unstarted: rows.filter((r) => matchesFilter(r, "unstarted")).length,

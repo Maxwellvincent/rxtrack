@@ -76,6 +76,11 @@ const toDateString = (value, fallback) => {
   return fallback;
 };
 
+export const localDateString = (value = new Date()) => {
+  const d = new Date(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
 export const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
 
 /**
@@ -87,7 +92,7 @@ export const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
 export function appendActivity(store, { lectureId, blockId, activityType, confidenceRating, date, examDate, durationMinutes = null, note = null, now = new Date(), id }) {
   if (!lectureId || !blockId) return null;
 
-  const activityDate = toDateString(date, new Date(now).toISOString().slice(0, 10));
+  const activityDate = toDateString(date, localDateString(now));
   const key = completionKey(lectureId, blockId);
   const current = store?.[key] || null;
 

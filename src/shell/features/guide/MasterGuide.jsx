@@ -188,7 +188,7 @@ export function MasterGuide({ blockId, userId, lectures = [] }) {
   );
 
   return (
-    <div className="flex flex-col gap-4 p-5">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-5">
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>

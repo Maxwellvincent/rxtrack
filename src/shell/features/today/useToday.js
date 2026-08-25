@@ -15,7 +15,7 @@ import { useObjectives } from "../../hooks/useObjectives.js";
 import { usePerformance } from "../../hooks/usePerformance.js";
 import { useTerms } from "../../hooks/useTerms.js";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
-import { appendActivity } from "../../logic/completionLog.js";
+import { appendActivity, localDateString } from "../../logic/completionLog.js";
 import { appendPreRead } from "../../logic/preReadLog.js";
 import { buildStudySchedule, generateDailySchedule, objectivesForLecture } from "../../logic/schedule.js";
 import { workAheadLectures } from "../../logic/workAhead.js";
@@ -83,7 +83,7 @@ export function useToday(blockId, userId, { now } = {}) {
   // Map lectureId → next scheduled review date string from buildStudySchedule.
   const nextReviewByLectureId = useMemo(() => {
     const map = {};
-    const todayStr = new Date().toISOString().slice(0, 10);
+    const todayStr = localDateString(context.now);
     for (const [dateStr, items] of study?.schedule || []) {
       if (dateStr < todayStr) continue;
       for (const item of items || []) {

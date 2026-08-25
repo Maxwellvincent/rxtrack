@@ -13,6 +13,7 @@ import {
   buildLectureRows,
   lectureCounts,
   scoreLectures,
+  inferActivityType,
 } from "./lectureRows.js";
 
 const concept = (over = {}) => ({
@@ -148,6 +149,17 @@ describe("lecture rows", () => {
     expect(matchesSearch(row, "cardiac")).toBe(true);
     expect(matchesSearch(row, "LEC 4")).toBe(true);
     expect(matchesSearch(row, "renal")).toBe(false);
+  });
+
+  it("infers DLA and other activity types from legacy titles when lectureType is missing", () => {
+    expect(inferActivityType({ lectureTitle: "DLA 4 — Pelvic anatomy" })).toBe("DLA");
+    expect(inferActivityType({ filename: "ER TBL 2.pdf" })).toBe("TBL");
+  });
+
+  it("filters the focused today view by scheduled or completed date", () => {
+    const row = lectureRow(score({ todayKey: "2026-07-20", scheduledToday: true }), { completion, blockId: "b1" });
+    expect(row.completedToday).toBe(true);
+    expect(matchesFilter(row, "today")).toBe(true);
   });
 
   it("sorts by urgency by default, and counts over the unfiltered set", () => {

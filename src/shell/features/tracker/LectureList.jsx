@@ -10,7 +10,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
-import { buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
+import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 
 const CONFIDENCE = [
@@ -19,7 +19,7 @@ const CONFIDENCE = [
   { key: "struggling", label: "Shaky" },
 ];
 
-const SORT_LABELS = { urgency: "urgency", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
+const SORT_LABELS = { urgency: "priority", date: "date", type: "activity type", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
 const SORT_STORAGE_KEY = "rxt-lecture-list-sort";
 
 function readStoredSort() {
@@ -88,7 +88,7 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div className="min-w-0">
           <span className="font-mono text-[12px] text-text-3">
-            {row.type} {row.number ?? ""}
+            <span className="rounded bg-panel px-1.5 py-0.5 font-bold text-text-2">{row.type} {row.number ?? ""}</span>
           </span>{" "}
           <span
             className="cursor-pointer text-sm text-text-1 hover:underline"
@@ -97,6 +97,8 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
             {row.studyMode?.icon} {row.title}
           </span>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
+            {row.scheduledToday && <span className="rounded bg-accent/15 px-1.5 py-0.5 font-bold text-accent-text">scheduled today</span>}
+            {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">completed today</span>}
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             <span>·</span>
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
@@ -198,11 +200,13 @@ export function LectureList({
   const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
   const lecturesResource = useLectures(null, userId);
   const questionStats = useLectureQuestionStats(userId);
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("active");
+  const [activityType, setActivityType] = useState("all");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState(readStoredSort);
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
+  const [visibleCount, setVisibleCount] = useState(30);
 
   // Task 12, Part B2 — scroll the focused lecture's row into view and give
   // it a brief highlight on mount. Additive only: with no `focusLectureId`
@@ -230,13 +234,20 @@ export function LectureList({
   const scores = useMemo(() => scoreLectures(context), [context]);
 
   const rows = useMemo(
-    () => buildLectureRows(scores, { completion: context.completion, blockId, filter, search, sort }),
-    [scores, context.completion, blockId, filter, search, sort]
+    () => buildLectureRows(scores, { completion: context.completion, blockId, filter, activityType, search, sort }),
+    [scores, context.completion, blockId, filter, activityType, search, sort]
   );
   const counts = useMemo(
     () => lectureCounts(scores, { completion: context.completion, blockId }),
     [scores, context.completion, blockId]
   );
+  const typeCounts = useMemo(() => {
+    const all = buildLectureRows(scores, { completion: context.completion, blockId, filter: "all" });
+    return Object.fromEntries(ACTIVITY_TYPES.map((type) => [type, type === "all" ? all.length : all.filter((row) => row.type === type).length]));
+  }, [scores, context.completion, blockId]);
+  const visibleRows = rows.slice(0, visibleCount);
+
+  useEffect(() => setVisibleCount(30), [filter, activityType, search, sort, blockId]);
 
   // One-shot per focusLectureId value: `rows` is a dependency only so this
   // can wait for the target row to actually be present (e.g. still loading
@@ -279,10 +290,15 @@ export function LectureList({
   );
 
   return (
-    <div className="p-5">
-      <button onClick={onBack} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
-      <h2 className="text-sm font-bold text-text-1">Lectures</h2>
-      <div className="mb-3 font-mono text-[12px] text-text-3">{counts.all} in this block</div>
+    <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <button onClick={onBack} className="mb-1 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
+          <h2 className="text-lg font-bold text-text-1">Lectures</h2>
+          <div className="font-mono text-[12px] text-text-3">{counts.active} active · {counts.done} complete · {counts.all} total</div>
+        </div>
+        <div className="font-mono text-[12px] text-text-3">showing {Math.min(visibleCount, rows.length)} of {rows.length}</div>
+      </div>
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}
 
@@ -299,11 +315,24 @@ export function LectureList({
             {f} {counts[f] != null ? `(${counts[f]})` : ""}
           </button>
         ))}
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-bg-elevated p-2">
+        <span className="mr-1 font-mono text-[11px] uppercase tracking-wider text-text-3">Activity</span>
+        {ACTIVITY_TYPES.filter((type) => type === "all" || typeCounts[type] > 0).map((type) => (
+          <button
+            key={type}
+            onClick={() => setActivityType(type)}
+            className={"rounded px-2 py-1 font-mono text-[12px] " + (activityType === type ? "bg-accent text-bg" : "text-text-3 hover:bg-panel hover:text-text-1")}
+          >
+            {type === "all" ? "All types" : type} ({typeCounts[type]})
+          </button>
+        ))}
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="search…"
-          className="ml-auto rounded border border-border bg-panel px-2 py-0.5 text-[13px] text-text-1"
+          className="ml-auto min-w-40 rounded border border-border bg-panel px-2 py-1 text-[13px] text-text-1"
         />
         <select
           value={sort}
@@ -311,7 +340,7 @@ export function LectureList({
             setSort(e.target.value);
             if (typeof localStorage !== "undefined") localStorage.setItem(SORT_STORAGE_KEY, e.target.value);
           }}
-          className="rounded border border-border bg-panel px-1.5 py-0.5 font-mono text-[12px] text-text-2"
+          className="rounded border border-border bg-panel px-1.5 py-1 font-mono text-[12px] text-text-2"
         >
           {Object.entries(SORT_LABELS).map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
@@ -323,7 +352,7 @@ export function LectureList({
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
       ) : (
         <div className="rounded-lg border border-border px-3">
-          {rows.map((row) => (
+          {visibleRows.map((row) => (
             <Row
               key={row.lectureId}
               row={row}
@@ -339,6 +368,11 @@ export function LectureList({
             />
           ))}
         </div>
+      )}
+      {visibleCount < rows.length && (
+        <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
+          Show 30 more · {rows.length - visibleCount} remaining
+        </button>
       )}
 
       {preReadTarget && (

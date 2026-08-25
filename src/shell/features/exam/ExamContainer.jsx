@@ -218,7 +218,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   if (activeSessionId) {
     return (
-      <div>
+      <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
         {launchWarning && (
           <div
             role="alert"
@@ -245,7 +245,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   }
 
   return (
-    <div className="p-5">
+    <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-bold text-text-1">Integrated Exam</h2>
         <div className="flex items-center gap-3">

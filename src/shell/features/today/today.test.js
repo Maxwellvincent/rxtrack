@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import { detectStudyMode, hasUploadedContent } from "../../logic/studyMode.js";
-import { appendActivity, computeReviewDates, getNextSaturday } from "../../logic/completionLog.js";
+import { appendActivity, computeReviewDates, getNextSaturday, localDateString } from "../../logic/completionLog.js";
 import { buildScheduleContext, resolveBlockMeta, lecturePerformanceFor } from "./scheduleContext.js";
 import { todayTasks } from "./fallback.js";
 import { generateDailySchedule, buildStudySchedule } from "../../logic/schedule.js";
@@ -35,6 +35,13 @@ describe("detectStudyMode", () => {
 });
 
 describe("completion logging", () => {
+  it("uses the local calendar day for late-evening completion logs", () => {
+    const lateLocal = new Date(2026, 7, 24, 23, 30, 0);
+    expect(localDateString(lateLocal)).toBe("2026-08-24");
+    const logged = appendActivity({}, { lectureId: "l", blockId: "b", now: lateLocal });
+    expect(logged.entry.lastActivityDate).toBe("2026-08-24");
+  });
+
   it("spaces the first review by confidence, on the right calendar day", () => {
     // Absolute dates now: a YYYY-MM-DD is treated as a local calendar date, so
     // logging on Jul 1 schedules from Jul 1 in every timezone.

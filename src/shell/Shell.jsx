@@ -435,8 +435,8 @@ function ShellMain({ theme, toggle, userId }) {
             )
           ) : (
             // Default: Today tab (also shown when tab === "today" or no block-specific tab)
-            <div className="flex flex-col gap-0">
-              <div className="p-5 pb-3">
+            <div className="mx-auto flex w-full max-w-6xl flex-col gap-0">
+              <div className="p-4 pb-3 sm:p-5 sm:pb-3">
                 <Today
                   blockId={activeBlockId}
                   userId={userId}
@@ -549,12 +549,12 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
     { label: "🔴 Struggle Tracker", desc: "deep/persistent + buried cards synced in from Anki", action: onStruggle },
   ];
   return (
-    <div className="flex flex-col gap-3 p-5">
+    <div className="mx-auto grid w-full max-w-5xl grid-cols-1 gap-3 p-4 sm:grid-cols-2 sm:p-5">
       {items.map((item) => (
         <button
           key={item.label}
           onClick={item.action}
-          className="flex flex-col items-start rounded-sm border border-border bg-bg-elevated px-4 py-3 text-left hover:border-accent/40 hover:bg-panel transition-colors"
+          className="flex min-h-24 flex-col items-start justify-center rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:border-accent/40 hover:bg-panel"
         >
           <span className="font-condensed text-sm font-semibold uppercase tracking-wide text-text-1">{item.label}</span>
           <span className="mt-0.5 font-mono text-[12px] normal-case tracking-normal text-text-3">{item.desc}</span>
@@ -571,7 +571,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
  */
 function ObjectivesView({ blockId, userId, termColor, T, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
   return (
-    <div className="p-2">
+    <div className="mx-auto w-full max-w-6xl p-3 sm:p-4">
       <ObjectivesContainer
         blockId={blockId}
         userId={userId}
