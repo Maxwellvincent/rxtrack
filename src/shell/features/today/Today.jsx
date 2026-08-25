@@ -289,7 +289,7 @@ function CoverageBar({ mastered = 0, inprogress = 0, struggling = 0, untested = 
 function RoundDots({ done, total }) {
   if (total <= 0) return null;
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" title="Progress through today's recommended study passes">
       {Array.from({ length: total }).map((_, i) => (
         <span
           key={i}
@@ -299,7 +299,7 @@ function RoundDots({ done, total }) {
           ].join(" ")}
         />
       ))}
-      <span className="ml-1 font-mono text-[12px] text-text-3">{done}/{total}</span>
+      <span className="ml-1 font-mono text-[12px] text-text-3">today plan {done}/{total}</span>
     </div>
   );
 }

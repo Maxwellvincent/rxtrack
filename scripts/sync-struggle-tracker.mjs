@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { encodeDocId } from "../src/idCodec.js";
+import { matchReviewToLecture, normalizeReviewLabel } from "./struggle-review-match.mjs";
 
 const args = process.argv.slice(2);
 const WATCH = args.includes("--watch");
@@ -54,7 +55,55 @@ function loadExport() {
   }
   const raw = fs.readFileSync(EXPORT_PATH, "utf-8");
   const parsed = JSON.parse(raw);
-  return Array.isArray(parsed?.tasks) ? parsed.tasks : [];
+  return {
+    tasks: Array.isArray(parsed?.tasks) ? parsed.tasks : [],
+    ankiReviews: Array.isArray(parsed?.ankiReviews) ? parsed.ankiReviews : [],
+  };
+}
+
+async function syncAnkiReviews(reviews) {
+  if (!reviews.length) return { matched: 0, unmatched: 0 };
+  const lectureSnap = await db.collection("users").doc(FB_UID).collection("lectures").get();
+  const lectures = lectureSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  const stateRef = db.collection("users").doc(FB_UID).collection("state").doc("completion");
+  let matched = 0;
+  let unmatched = 0;
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(stateRef);
+    const store = { ...(snap.data()?.data || {}) };
+    for (const review of reviews) {
+      const lecture = matchReviewToLecture(review, lectures);
+      if (!lecture?.blockId) { unmatched++; continue; }
+      const key = `${lecture.id}__${lecture.blockId}`;
+      const current = store[key] || {};
+      const id = `anki-auto:${review.date}:${normalizeReviewLabel(review.deck).replace(/ /g, "-")}`;
+      const activityLog = Array.isArray(current.activityLog) ? [...current.activityLog] : [];
+      if (activityLog.some((activity) => activity.id === id)) continue;
+      activityLog.push({
+        id,
+        date: review.date,
+        activityType: "anki",
+        confidenceRating: "okay",
+        cardCount: Number(review.cardCount || 0),
+        note: `Automatically matched from ${review.deck}`,
+      });
+      activityLog.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+      store[key] = {
+        ...current,
+        lectureId: lecture.id,
+        blockId: lecture.blockId,
+        ankiInRotation: true,
+        lastAnkiLogDate: activityLog.filter((a) => a.activityType === "anki")[0]?.date || review.date,
+        lastActivityDate: activityLog[0]?.date || review.date,
+        firstCompletedDate: current.firstCompletedDate || review.date,
+        activityLog,
+        sessionCount: activityLog.filter((a) => a.activityType !== "pre_read").length,
+      };
+      matched++;
+    }
+    tx.set(stateRef, { data: store, updatedAt: admin.firestore.FieldValue.serverTimestamp() }, { merge: true });
+  });
+  return { matched, unmatched };
 }
 
 /** Fields that determine whether a task doc actually needs rewriting. */
@@ -63,8 +112,9 @@ function fingerprint(t) {
 }
 
 async function sync() {
-  const tasks = loadExport();
-  if (tasks === null) return;
+  const exported = loadExport();
+  if (exported === null) return;
+  const { tasks, ankiReviews } = exported;
 
   const coll = db.collection("users").doc(FB_UID).collection("struggleTasks");
   const existingSnap = await coll.get();
@@ -111,8 +161,11 @@ async function sync() {
   }
   await flush();
 
+  const reviewSync = await syncAnkiReviews(ankiReviews);
+
   console.log(
-    `Struggle Tracker sync: ${tasks.length} exported, ${written} written, ${skipped} unchanged, ${deleted} removed.`
+    `Struggle Tracker sync: ${tasks.length} exported, ${written} written, ${skipped} unchanged, ${deleted} removed; ` +
+    `${reviewSync.matched} Anki lecture passes added, ${reviewSync.unmatched} unmatched.`
   );
 }
 

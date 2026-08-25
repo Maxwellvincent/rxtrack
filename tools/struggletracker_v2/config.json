@@ -1,0 +1,22 @@
+{
+  "window_hours": 24,
+  "watch_again_count": 2,
+  "deep_again_count": 3,
+  "persistent_again_count": 4,
+  "persistent_on_deep_days": 2,
+  "deep_day_lookback_days": 14,
+  "backfill_days": 7,
+  "show_transition_tooltips": true,
+  "show_deep_card_tooltip": true,
+  "llm_enabled": true,
+  "llm_auto_analyze_on_deep": true,
+  "llm_max_cards_per_batch": 50,
+  "llm_timeout_seconds": 300,
+  "llm_include_answer": true,
+  "llm_include_note_fields": true,
+  "llm_max_text_chars": 4500,
+  "existing_concept_candidates": 20,
+  "llm_bridge_url": "http://127.0.0.1:4319",
+  "llm_bridge_model": "struggle-tracker",
+  "mental_map_rewrite_shortcut": "Meta+Shift+M"
+}
