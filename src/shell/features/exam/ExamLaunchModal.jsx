@@ -1,6 +1,20 @@
 import { useState } from "react";
 
-const MAX_QUESTION_COUNT = 50;
+// A full school-prep sitting can now reach 100 questions. Keeping the cap here
+// (rather than accepting an arbitrary number) still protects the generation
+// path from accidental, very expensive launches.
+const MAX_QUESTION_COUNT = 100;
+
+export function examBlueprint(eligibleLectures = [], questionCount = 0) {
+  const lectures = (eligibleLectures || []).filter((l) => l?.lectureId);
+  const objectiveCount = lectures.reduce((sum, l) => sum + (l.objectiveCount || 0), 0);
+  return {
+    lectureCount: lectures.length,
+    objectiveCount,
+    guaranteedLectureCoverage: Math.min(lectures.length, questionCount),
+    objectiveSamplingCapacity: Math.min(objectiveCount, questionCount),
+  };
+}
 
 /**
  * Presentational config modal shown before launching an Integrated Exam
@@ -47,6 +61,7 @@ export function ExamLaunchModal({
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
   const canLaunch = !noLectures && durationValid;
+  const blueprint = examBlueprint(eligibleLectures, parsedCount);
 
   const handleCountChange = (e) => {
     const raw = e.target.value;
@@ -110,6 +125,17 @@ export function ExamLaunchModal({
                 </button>
               ))}
             </div>
+            {!noLectures && (
+              <div className="mt-2 rounded border border-border bg-panel p-2.5 font-mono text-[12px] leading-relaxed text-text-2">
+                <div className="font-bold text-text-1">Objective blueprint</div>
+                <div>{blueprint.objectiveCount} objectives across {blueprint.lectureCount} lectures</div>
+                <div>
+                  Guaranteed lecture coverage: {blueprint.guaranteedLectureCoverage}/{blueprint.lectureCount}
+                  {" · "}up to {blueprint.objectiveSamplingCapacity} objective slots
+                </div>
+                <div className="text-text-3">Weak and untested objectives receive extra allocation.</div>
+              </div>
+            )}
           </div>
 
           {/* Question count */}

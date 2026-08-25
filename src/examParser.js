@@ -29,10 +29,25 @@ export async function loadPDFJS() {
   });
 }
 
-function detectFormat(pages, fullText) {
+export function detectFormat(pages, fullText) {
+  // School PowerPoint keys commonly repeat each numbered question on the next
+  // slide, adding a highlighted answer and an objective code. Treat those as a
+  // paired answer-key deck before the generic "grid" heuristic sees the many
+  // A-F labels and misclassifies every slide as several questions.
+  const numericPageLabels = (pages || []).map((p) =>
+    String(p?.text || "").match(/^\s*(\d+)[.)]\s+/)?.[1] || null
+  );
+  const pairedNumericSlides = numericPageLabels.filter(
+    (n, i) => n && numericPageLabels[i + 1] === n
+  ).length;
+  if (pairedNumericSlides >= 3) return "pairedkey";
   // Slide deck with numbered QUESTION labels spanning pages
   const slideLabels = fullText.match(/QUESTION\s+\d+/gi) || [];
   const uniqueNums = new Set(slideLabels.map((s) => s.match(/\d+/)[0]));
+  const labelsPerPage = pages.map((p) => (p.text.match(/\bQUESTION\s+\d+/gi) || []).length);
+  // A continuous ExamSoft export has multiple "Question N" blocks on a page. Treating it as
+  // one-question-per-slide merges those blocks and disconnects them from the answer key.
+  if (uniqueNums.size >= 3 && labelsPerPage.some((count) => count > 1)) return "standard";
   if (uniqueNums.size > 3) return "slidedeck";
 
   // Grid format: single page has 3+ question blocks with A. B. C. D. choices
@@ -47,6 +62,181 @@ function detectFormat(pages, fullText) {
   if (numbered.length > 3) return "standard";
 
   return "standard";
+}
+
+function parseSlideQuestionText(text) {
+  const source = String(text || "").replace(/\r/g, "").trim();
+  const first = source.match(/^\s*(\d+)[.)]\s+([\s\S]*)$/);
+  if (!first) return null;
+  const num = Number(first[1]);
+  const lines = first[2].split("\n");
+  const stemLines = [];
+  const choices = {};
+  let letter = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || /^SOM\.[A-Z0-9.]+\s+/i.test(line)) continue;
+    const choice = line.match(/^([A-H])[.)]\s*(.*)$/);
+    if (choice) {
+      letter = choice[1].toUpperCase();
+      choices[letter] = choice[2].trim();
+    } else if (letter) {
+      choices[letter] = `${choices[letter]} ${line}`.trim();
+    } else {
+      stemLines.push(line);
+    }
+  }
+  return { num, stem: stemLines.join(" ").replace(/\s+/g, " ").trim(), choices };
+}
+
+/**
+ * Parse paired school answer-key slides such as the ER IMCQ keys. Slide one
+ * presents the item; slide two repeats it with a visual answer highlight and
+ * a SOM objective. Text alone cannot reliably identify the highlight, so the
+ * parser deliberately returns the deduplicated structure and lets the visual
+ * AI pass determine `correct` from both rendered pages.
+ */
+export function groupPairedKeySlides(pages) {
+  const groups = [];
+  for (let i = 0; i < (pages || []).length; i++) {
+    const parsed = parseSlideQuestionText(pages[i]?.text);
+    if (!parsed || Object.keys(parsed.choices).length < 2) continue;
+    const next = parseSlideQuestionText(pages[i + 1]?.text);
+    const answerPage = next?.num === parsed.num ? pages[i + 1] : null;
+    const objectiveMatch = String(answerPage?.text || pages[i]?.text || "").match(
+      /\b(SOM\.[A-Z0-9.]+)\s+([^\n]+)/i
+    );
+    groups.push({
+      ...parsed,
+      questionPage: pages[i],
+      answerPage,
+      schoolObjectiveCode: objectiveMatch?.[1] || null,
+      schoolObjective: objectiveMatch?.[2]?.trim() || null,
+    });
+    if (answerPage) i++;
+  }
+  return groups;
+}
+
+async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
+  const groups = groupPairedKeySlides(pages);
+  onProgress?.(`🔑 Found ${groups.length} paired school-key questions…`);
+  const questions = [];
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
+    const renderB64 = async (pdfPage) => {
+      const vp = pdfPage.getViewport({ scale: 1.8 });
+      const canvas = document.createElement("canvas");
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      await pdfPage.render({ canvasContext: canvas.getContext("2d"), viewport: vp }).promise;
+      return canvas.toDataURL("image/png").split(",")[1];
+    };
+    const images = [];
+    if (group.answerPage?.pdfPage) images.push({ base64: await renderB64(group.answerPage.pdfPage), mimeType: "image/png" });
+    if (group.questionPage?.pdfPage) images.push({ base64: await renderB64(group.questionPage.pdfPage), mimeType: "image/png" });
+    const prompt =
+      "Extract this one medical-school multiple-choice question. The first image is the keyed answer slide; the second is the unmarked question when supplied. Identify the visibly highlighted/checked correct option. Return ONLY JSON: " +
+      '{"correct":"A","explanation":"brief reason or null","topic":"specific topic","type":"clinicalVignette|mechanismBased|laboratory|anatomy"}. ' +
+      "Do not infer a different key from medical knowledge when the slide visibly marks one.";
+    let visual = {};
+    try {
+      const raw = (await callAIWithImages(null, prompt, images, 1200, 0.1)).trim().replace(/^```json\s*/i, "").replace(/```$/i, "").trim();
+      visual = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+    } catch (e) {
+      console.warn(`Paired key question ${group.num} visual parse failed:`, e.message);
+    }
+    questions.push({
+      id: `q${group.num}`,
+      num: group.num,
+      type: visual.type || "clinicalVignette",
+      imageQuestion: group.questionPage?.imgCount > 0,
+      subject: "Uploaded",
+      topic: visual.topic || examTitle || "School review",
+      stem: group.stem,
+      choices: group.choices,
+      correct: visual.correct && group.choices[visual.correct] ? visual.correct : null,
+      explanation: visual.explanation || null,
+      difficulty: "hard",
+      hasImage: group.questionPage?.imgCount > 0,
+      schoolObjectiveCode: group.schoolObjectiveCode,
+      schoolObjective: group.schoolObjective,
+    });
+    onProgress?.(`🔑 Reading school key ${i + 1} of ${groups.length}…`);
+  }
+  return questions;
+}
+
+/**
+ * Parse a continuous ExamSoft-style bank without an AI round trip.
+ *
+ * Expected shape: repeated `Question N` blocks followed by an `Answer Key` whose entries begin
+ * `QN: A - explanation`. The parser intentionally requires several blocks before claiming the
+ * document so unrelated prose containing one "Question 1" falls through to the AI parser.
+ */
+export function parseNumberedQuestionBankText(fullText, examTitle = "") {
+  const source = String(fullText || "").replace(/\r/g, "");
+  const answerHeading = source.search(/\n\s*Answer Key\s*\n/i);
+  const questionText = answerHeading >= 0 ? source.slice(0, answerHeading) : source;
+  const answerText = answerHeading >= 0 ? source.slice(answerHeading) : "";
+  const answers = new Map();
+  const answerRe = /(?:^|\n)\s*Q(\d+)\s*:\s*([A-H])\s*(?:[—–-])\s*([\s\S]*?)(?=(?:\n\s*Q\d+\s*:)|$)/gi;
+  for (const match of answerText.matchAll(answerRe)) {
+    answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].trim() });
+  }
+
+  const blocks = [];
+  // Marker/LLM cleanup sometimes changes `Question 12` into `12.`. Accept
+  // both while still requiring a line-leading integer, so option letters can
+  // never start a false question block.
+  const questionRe = /(?:^|\n)\s*(?:Question\s+)?(\d+)[.)]?\s*\n([\s\S]*?)(?=(?:\n\s*(?:Question\s+)?\d+[.)]?\s*\n)|$)/gi;
+  for (const match of questionText.matchAll(questionRe)) blocks.push({ num: Number(match[1]), body: match[2] });
+  if (blocks.length < 3) return [];
+
+  return blocks.map(({ num, body }) => {
+    const lines = body.split("\n");
+    const stemLines = [];
+    const choices = {};
+    let letter = null;
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line || line === "[PAGE_BREAK]") continue;
+      const choice = line.match(/^([A-H])[.)]\s*(.*)$/);
+      if (choice) {
+        letter = choice[1].toUpperCase();
+        choices[letter] = choice[2].trim();
+      } else if (letter) {
+        choices[letter] = `${choices[letter]} ${line}`.trim();
+      } else {
+        stemLines.push(line);
+      }
+    }
+    const answer = answers.get(num);
+    const stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
+    return {
+      id: `q${num}`,
+      num,
+      type: "clinicalVignette",
+      imageQuestion: false,
+      subject: "Uploaded",
+      topic: examTitle || "Exam Review",
+      stem,
+      choices,
+      correct: answer?.correct || null,
+      explanation: answer?.explanation || null,
+      difficulty: "medium",
+      choiceLayout: null,
+      choiceColumns: null,
+      hasImage: /\b(?:figure|image|photomicrograph|graph|pathway)\b/i.test(stem),
+    };
+  }).filter((q) => q.stem.length > 20 && Object.keys(q.choices).length >= 2);
+}
+
+export function expectedQuestionCountFromAnswerKey(fullText) {
+  const ids = [...String(fullText || "").matchAll(/(?:^|\n)\s*Q(\d+)\s*:\s*[A-H]\b/gim)]
+    .map((m) => Number(m[1]))
+    .filter(Number.isFinite);
+  return ids.length ? new Set(ids).size : null;
 }
 
 /**
@@ -628,22 +818,48 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     slidedeck: "Slide deck format",
     standard: "Standard question bank format",
     nbme: "NBME style format",
+    pairedkey: "Paired school answer-key slides",
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
 
   const examTitle = file.name.replace(/\.(pdf|md|markdown|txt)$/i, "");
   let questions = [];
 
-  if (format === "grid") {
+  if (format === "pairedkey") {
+    questions = await parsePairedKeyFormat(pages, onProgress, examTitle);
+  } else if (format === "grid") {
     questions = await parseGridFormat(pages, onProgress);
   } else if (format === "slidedeck") {
     questions = await parseSlidedeckFormat(pages, pdf, onProgress);
   } else {
-    onProgress?.("🧠 AI parsing questions...");
-    questions = await parseWithAI(fullText, format, onProgress, examTitle);
+    const deterministic = parseNumberedQuestionBankText(fullText, examTitle);
+    if (deterministic.length >= 3) {
+      onProgress?.("✓ Parsed numbered question bank and answer key");
+      questions = deterministic;
+    } else {
+      onProgress?.("🧠 AI parsing questions...");
+      questions = await parseWithAI(fullText, format, onProgress, examTitle);
+    }
   }
 
   questions = attachImagesToExamQuestions(questions, slideImages);
+
+  // A numbered answer key is a stronger completeness signal than an AI
+  // parser's self-reported output. Never overwrite a good bank with a silent
+  // partial import (the 30-question ExamSoft file previously landed as 17).
+  const expectedFromKey = expectedQuestionCountFromAnswerKey(fullText);
+  if (expectedFromKey && questions.length < expectedFromKey) {
+    const recovered = parseNumberedQuestionBankText(fullText, examTitle);
+    if (recovered.length >= expectedFromKey) {
+      questions = attachImagesToExamQuestions(recovered, slideImages);
+      onProgress?.(`✓ Recovered all ${expectedFromKey} questions from the answer key`);
+    } else {
+      throw new Error(
+        `Partial import blocked: the answer key contains ${expectedFromKey} questions, but only ${questions.length} were extracted. ` +
+        "Turn off LLM cleanup for this text-based PDF and try again."
+      );
+    }
+  }
 
   onProgress?.("✓ Extracted " + questions.length + " questions");
 
@@ -653,6 +869,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     questions,
     examTitle,
     totalQuestions: questions.length,
+    expectedQuestions: expectedFromKey,
     format,
     fullText,
     chunks,

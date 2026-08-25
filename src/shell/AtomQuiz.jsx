@@ -1,9 +1,11 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { classify, summarize, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
+import { recordEvidence, recordReflection } from "../stores/learnerEvidence.js";
+import { classifyLeadIn, ERROR_REASONS, extractLeadIn } from "./features/exam/questionReading.js";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
@@ -104,6 +106,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const [records, setRecords] = useState([]);
   const [done, setDone] = useState(false);
   const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
+  const [errorReason, setErrorReason] = useState(null);
+  const questionStartedAtRef = useRef(Date.now());
+  useEffect(() => { questionStartedAtRef.current = Date.now(); }, [i]);
   // Keyed by stem (same key generatedQuestions dedupes on) — select text in
   // the stem to mark it, like underlining on a real exam. Seeded from
   // whatever's already stored so a question you've marked before shows it
@@ -138,6 +143,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const rate = (level) => {
     if (picked == null || revealed) return;
     const isCorrect = picked === q.correct;
+    const responseMs = Date.now() - questionStartedAtRef.current;
     setConfidence(level);
     const rec = {
       concept: q.topic || q.stem.slice(0, 60),
@@ -145,8 +151,23 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       confidence: level,
       correct: isCorrect,
       atomKey: q.atomKey || null,
+      responseMs,
+      taskType: classifyLeadIn(q.stem),
     };
     appendCalibration(userId, blockId, rec);
+    recordEvidence(userId, {
+      source: "quiz",
+      blockId,
+      lectureId,
+      objectiveIds: q.objectiveIds || [],
+      atomKey: q.atomKey || null,
+      correct: isCorrect,
+      confidence: level,
+      difficulty: q.difficulty || null,
+      misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
+      responseMs,
+      taskType: classifyLeadIn(q.stem),
+    });
     // Counted at reveal, not at "next": leaving the round here still cost you the question, so
     // the lecture's total has to reflect it.
     if (lectureId) {
@@ -168,13 +189,26 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       onDone?.({ correct: correctCount, total: questions.length, avgConfidence, hasLandmines, records });
       return;
     }
-    setI(i + 1); setPicked(null); setConfidence(null); setCrossed(new Set());
+    setI(i + 1); setPicked(null); setConfidence(null); setCrossed(new Set()); setErrorReason(null);
   };
 
   return (
     <div className="mb-5 space-y-3">
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Calibrated quiz — from your atoms</span><span className="text-text-3">{i + 1}/{questions.length}</span>
+      </div>
+      <div
+        className="h-1.5 overflow-hidden rounded-full bg-panel"
+        role="progressbar"
+        aria-label="Quiz progress"
+        aria-valuemin={1}
+        aria-valuemax={questions.length}
+        aria-valuenow={i + 1}
+      >
+        <div
+          className="h-full rounded-full bg-accent transition-[width]"
+          style={{ width: `${((i + 1) / questions.length) * 100}%` }}
+        />
       </div>
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         {/* Stimulus first, the way a real Step 1 item presents it: read the tissue, then the
@@ -187,6 +221,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
+        <div className="mb-2 rounded border-l-2 border-accent bg-panel px-2.5 py-2">
+          <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">Read the lead-in first · what are they asking for?</div>
+          <div className="mt-1 text-sm font-semibold text-text-1">{extractLeadIn(q.stem)}</div>
+        </div>
         <LabAnnotatedText
           text={q.stem}
           className="mb-2 block text-sm text-text-1"
@@ -213,6 +251,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 <button
                   disabled={revealed}
                   onClick={() => !revealed && !isCrossed && setPicked(letter)}
+                  aria-pressed={isPicked}
                   className={"flex flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + borderCls}
                 >
                   <span className="font-mono text-text-3">{letter}</span>
@@ -228,9 +267,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                       if (next.has(letter) && picked === letter) setPicked(null);
                       return next;
                     })}
-                    title={isCrossed ? "Restore" : "Eliminate"}
+                    aria-label={`${isCrossed ? "Restore" : "Eliminate"} answer ${letter}`}
+                    aria-pressed={isCrossed}
+                    title={`${isCrossed ? "Restore" : "Eliminate"} answer ${letter}`}
                     className={[
-                      "flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border font-mono text-[12px] transition-colors",
+                      "flex h-9 w-9 flex-shrink-0 items-center justify-center rounded border font-mono text-[12px] transition-colors",
                       isCrossed
                         ? "border-border bg-panel text-text-2 hover:border-border-strong"
                         : "border-border text-text-3 hover:border-border-strong hover:text-bad",
@@ -280,6 +321,27 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 whyWrong={q.whyWrong}
                 choices={q.choices}
               />
+            )}
+            {!correct && (
+              <div className="rounded-lg border border-border bg-panel p-2.5">
+                <div className="mb-2 font-mono text-[12px] font-bold text-text-2">What most caused this miss?</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {ERROR_REASONS.map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => {
+                        if (errorReason) return;
+                        setErrorReason(value);
+                        recordReflection(userId, value);
+                      }}
+                      className={`rounded border px-2 py-1 text-[12px] ${errorReason === value ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-1"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
             <Button onClick={next}>{i + 1 >= questions.length ? "See calibration" : "Next →"}</Button>
           </div>

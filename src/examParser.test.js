@@ -1,5 +1,81 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey } from "./examParser.js";
+
+describe("paired school answer-key slides", () => {
+  const q = `1. A patient has a finding. Which mechanism is most likely?\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta`;
+  const keyed = `${q}\nSOM.MK.I.BPM2.2.ER.1.HCB.1010 Discuss hormone production and secretion.`;
+  const pages = [1, 2, 3].flatMap((n) => [
+    { text: q.replace(/^1/, String(n)), imgCount: 1 },
+    { text: keyed.replace(/^1/, String(n)), imgCount: 1 },
+  ]);
+
+  it("detects repeated numeric question/key slide pairs before the grid heuristic", () => {
+    expect(detectFormat(pages, pages.map((p) => p.text).join("\n"))).toBe("pairedkey");
+  });
+
+  it("deduplicates pairs and preserves the linked school objective", () => {
+    const groups = groupPairedKeySlides(pages);
+    expect(groups).toHaveLength(3);
+    expect(groups[0].choices).toEqual({ A: "Alpha", B: "Beta", C: "Gamma", D: "Delta" });
+    expect(groups[0].schoolObjectiveCode).toBe("SOM.MK.I.BPM2.2.ER.1.HCB.1010");
+    expect(groups[0].schoolObjective).toContain("hormone production");
+  });
+});
+
+describe("ExamSoft continuous question banks", () => {
+  const text = `ExamSoft Practice
+Question 1
+A patient has a finding. Which mechanism is most likely?
+A. First mechanism
+B. Second mechanism
+C. Third mechanism
+D. Fourth mechanism
+
+Question 2
+The pathway shown in the figure is abnormal. Which enzyme is deficient?
+A. Enzyme one
+B. Enzyme two
+C. Enzyme three
+D. Enzyme four
+E. Enzyme five
+
+Question 3
+Which laboratory result is expected?
+A. High sodium
+B. Low sodium
+C. High calcium
+D. Low calcium
+
+Answer Key
+Q1: B — The second mechanism explains the finding.
+Q2: E — Enzyme five is required for this reaction.
+Q3: A — High sodium is expected.`;
+
+  it("does not misclassify multiple Question blocks per page as a slide deck", () => {
+    expect(detectFormat([{ text, imgCount: 0 }], text)).toBe("standard");
+  });
+
+  it("extracts variable option counts and joins the separate answer key", () => {
+    const questions = parseNumberedQuestionBankText(text, "ExamSoft Practice");
+    expect(questions).toHaveLength(3);
+    expect(questions[0]).toMatchObject({ correct: "B", topic: "ExamSoft Practice" });
+    expect(Object.keys(questions[1].choices)).toEqual(["A", "B", "C", "D", "E"]);
+    expect(questions[1].hasImage).toBe(true);
+    expect(questions[2].explanation).toContain("High sodium");
+  });
+
+  it("accepts cleanup output that changes Question N headings to plain N.", () => {
+    const cleaned = text.replace(/Question (\d+)/g, "$1.");
+    const questions = parseNumberedQuestionBankText(cleaned, "ExamSoft Practice");
+    expect(questions).toHaveLength(3);
+    expect(questions.map((q) => q.correct)).toEqual(["B", "E", "A"]);
+  });
+
+  it("uses the numbered answer key as an authoritative expected count", () => {
+    expect(expectedQuestionCountFromAnswerKey(text)).toBe(3);
+    expect(expectedQuestionCountFromAnswerKey("No key here")).toBeNull();
+  });
+});
 
 describe("buildExamExtractionPrompt", () => {
   it("embeds the source text and asks for the questions JSON shape", () => {

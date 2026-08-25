@@ -1,6 +1,7 @@
 import "../theme/tokens.css";
 import "../theme/tailwind.css";
-import { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import "../theme/readability.css";
+import { lazy, Suspense, useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useTheme } from "./useTheme";
 import * as lecturesStore from "../stores/lectures.js";
 import { useBlocks } from "./hooks/useBlocks.js";
@@ -20,17 +21,13 @@ import { CalibrationSession } from "../engine/CalibrationSession.jsx";
 import { Button } from "../ui/Button.jsx";
 import { signInWithGoogle, signOut, onAuthChange, completeRedirectSignIn, pullAllDataFromSupabase } from "../supabase.js";
 import AnkiSyncModal from "../AnkiSyncModal.jsx";
-import { RecognitionContainer } from "./features/recognition/RecognitionContainer.jsx";
 import { ScheduleImportModal } from "./ScheduleImportModal.jsx";
 import { ObjectivesContainer } from "./features/objectives/ObjectivesContainer.jsx";
 import { ImportObjectivesPdfModal } from "./features/objectives/ImportObjectivesPdfModal.jsx";
 import { ReExtractAllModal } from "./features/objectives/ReExtractAllModal.jsx";
-import { LectureStudyFlow } from "./features/lectures/LectureStudyFlow.jsx";
 import { AddLectureModal } from "./features/lectures/AddLectureModal.jsx";
 import { BulkImportModal } from "./features/lectures/BulkImportModal.jsx";
-import { QuestionBankModal } from "./features/lectures/QuestionBankModal.jsx";
 import { Today } from "./features/today/Today.jsx";
-import { MasterGuide } from "./features/guide/MasterGuide.jsx";
 import { DailyPlanSettingsModal } from "./features/today/DailyPlanSettingsModal.jsx";
 import { FocusHudLinkModal } from "./FocusHudLinkModal.jsx";
 import { UserApiKeyModal } from "./UserApiKeyModal.jsx";
@@ -39,8 +36,6 @@ import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
-import { DeepLearnContainer } from "./features/deeplearn/DeepLearnContainer.jsx";
-import { ExamContainer } from "./features/exam/ExamContainer.jsx";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { useToday } from "./features/today/useToday.js";
 import { themes } from "../theme.js";
@@ -49,6 +44,13 @@ import * as lectureRoundsStore from "../stores/lectureRounds.js";
 import { selectBlockObjectives, setStatus } from "./logic/objectives.js";
 import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";
+
+const RecognitionContainer = lazy(() => import("./features/recognition/RecognitionContainer.jsx").then((m) => ({ default: m.RecognitionContainer })));
+const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow.jsx").then((m) => ({ default: m.LectureStudyFlow })));
+const QuestionBankModal = lazy(() => import("./features/lectures/QuestionBankModal.jsx").then((m) => ({ default: m.QuestionBankModal })));
+const MasterGuide = lazy(() => import("./features/guide/MasterGuide.jsx").then((m) => ({ default: m.MasterGuide })));
+const DeepLearnContainer = lazy(() => import("./features/deeplearn/DeepLearnContainer.jsx").then((m) => ({ default: m.DeepLearnContainer })));
+const ExamContainer = lazy(() => import("./features/exam/ExamContainer.jsx").then((m) => ({ default: m.ExamContainer })));
 
 /**
  * Auth (Firebase) + cloud-load gate. localStorage is per-origin, so the shell
@@ -122,7 +124,11 @@ export default function Shell() {
       </div>
     );
   }
-  return <ShellMain theme={theme} toggle={toggle} userId={userId} />;
+  return (
+    <Suspense fallback={wrap(<div className="text-sm text-text-3">Loading workspace…</div>)}>
+      <ShellMain theme={theme} toggle={toggle} userId={userId} />
+    </Suspense>
+  );
 }
 
 function ShellMain({ theme, toggle, userId }) {

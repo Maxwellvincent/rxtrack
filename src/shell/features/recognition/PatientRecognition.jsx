@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { callAIJSON } from "../../../aiClient";
 import { fetchRecognitionItems, pickWeightedItems } from "../../../recognitionBank";
 import { buildUserPrompt, isUsableCase, pickAnchors, SYSTEM_PROMPT } from "./recognition.js";
+import { recordEvidence } from "../../../stores/learnerEvidence.js";
 
 // ── Patient Recognition ────────────────────────────────────────────────────
 // Vignette → diagnosis mode. Shows a USMLE Step 1-style clinical vignette built
@@ -113,6 +114,13 @@ export default function PatientRecognition({
     setPicked(letter);
     setSeen((n) => n + 1);
     if (letter === correctLetter) setCorrect((n) => n + 1);
+    recordEvidence(userId, {
+      source: "recognition",
+      blockId,
+      objectiveIds: anchors.map((a) => a?.id).filter(Boolean),
+      correct: letter === correctLetter,
+      misconception: letter === correctLetter ? null : "recognition-error",
+    });
   };
 
   const teachDeeper = async () => {

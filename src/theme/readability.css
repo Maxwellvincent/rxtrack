@@ -1,0 +1,34 @@
+/*
+ * Readability floor
+ *
+ * RXTrack intentionally uses dense typography, but fixed 8–13px utility sizes
+ * become difficult to scan on laptop-density displays. Keep the information
+ * hierarchy while ensuring functional labels and study content render at a
+ * comfortable minimum size. This file is imported after Tailwind so these
+ * accessibility overrides remain the single source of truth.
+ */
+
+:where(.text-\[8px\]) {
+  font-size: 0.75rem;
+}
+
+:where(.text-\[10px\]) {
+  font-size: 0.75rem;
+}
+
+:where(.text-\[11px\]) {
+  font-size: 0.8125rem;
+}
+
+:where(.text-\[12px\], .text-xs) {
+  font-size: 0.875rem;
+}
+
+:where(.text-\[13px\]) {
+  font-size: 0.9375rem;
+}
+
+/* Avoid tight leading when a small label wraps on a narrower laptop window. */
+:where(.text-\[8px\], .text-\[10px\], .text-\[11px\], .text-\[12px\], .text-\[13px\], .text-xs) {
+  line-height: 1.45;
+}

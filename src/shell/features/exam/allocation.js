@@ -70,7 +70,7 @@ function weightedPickIndex(pool, totalWeight, rand) {
  *
  * @returns {{ [lectureId: string]: number }}
  */
-export function allocateQuestions({ eligibleLectures, requestedCount, weakConcepts, blockId, sessionId }) {
+export function allocateQuestions({ eligibleLectures, requestedCount, weakConcepts, learnerEvidence, blockId, sessionId }) {
   if (!eligibleLectures || eligibleLectures.length === 0 || !requestedCount) {
     return {};
   }
@@ -92,7 +92,11 @@ export function allocateQuestions({ eligibleLectures, requestedCount, weakConcep
     const severity = Math.min(weakCount, 5) / 5;
     const objectiveCountNorm =
       maxEligibleObjectiveCount > 0 ? (lec.objectiveCount || 0) / maxEligibleObjectiveCount : 0;
-    const weight = severity * 0.6 + objectiveCountNorm * 0.4;
+    const evidence = learnerEvidence?.lectures?.[lec.lectureId];
+    const evidenceDeficit = evidence?.attempts
+      ? 1 - (evidence.correct || 0) / evidence.attempts
+      : 0.65; // unseen lectures still receive purposeful exploration
+    const weight = severity * 0.45 + objectiveCountNorm * 0.25 + evidenceDeficit * 0.3;
     return { lectureId: lec.lectureId, weight };
   });
 

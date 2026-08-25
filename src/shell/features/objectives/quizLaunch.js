@@ -73,6 +73,18 @@ export function readExemplars(userId = null) {
   }
 }
 
+/** Pure block selection used by both synchronous readers and hydrated React consumers. */
+export function selectExemplarsForBlock(banks = {}, meta = {}, blockId = null) {
+  const all = Object.values(banks || {}).flat().filter((q) => q && q.stem && q.choices);
+  const filenames = Object.values(meta || {})
+    .filter((entry) => entry && entry.blockId === blockId)
+    .map((entry) => entry.filename);
+  const scoped = filenames
+    .flatMap((filename) => banks?.[filename] || [])
+    .filter((q) => q && q.stem && q.choices);
+  return scoped.length ? scoped : all;
+}
+
 /**
  * Block-scoped exemplars — same shape and filtering as `readExemplars`, but
  * limited to banks uploaded for `blockId` (via `questionBankMeta`) instead of
@@ -86,15 +98,7 @@ export function readExemplarsForBlock(userId = null, blockId = null) {
   try {
     const meta = questionBankMetaStore.read(userId) || {};
     const banks = questionBanksStore.read(userId) || {};
-    const filenames = Object.values(meta)
-      .filter((entry) => entry && entry.blockId === blockId)
-      .map((entry) => entry.filename);
-
-    const exemplars = filenames
-      .flatMap((filename) => banks[filename] || [])
-      .filter((q) => q && q.stem && q.choices);
-
-    return exemplars.length ? exemplars : readExemplars(userId);
+    return selectExemplarsForBlock(banks, meta, blockId);
   } catch {
     return readExemplars(userId);
   }
@@ -111,6 +115,7 @@ export function buildQuizConfig({
   lectures = [],
   exemplars = [],
   atoms = [],
+  avoidStems = [],
   difficulty = "medium",
   questionCount,
 }) {
@@ -122,6 +127,10 @@ export function buildQuizConfig({
   const lecture = findLectureForQuiz(lectures, blockId, lectureTitle);
   const lectureText = lecture ? getLecText(lecture) : "";
 
+  if (!selected.length && !atoms.length && !lectureText.trim()) {
+    return { error: "No objectives, lecture facts, or lecture text are available to quiz." };
+  }
+
   return {
     config: {
       subject: lectureTitle || "these objectives",
@@ -129,6 +138,7 @@ export function buildQuizConfig({
       atoms,
       lectureText,
       examples: exemplars,
+      avoidStems,
       difficulty,
       count,
     },
@@ -178,7 +188,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
     const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
     const selected = selectAtomsForQuiz(atoms, progress, config.count);
     const result = await generateFromAtoms(
-      { atoms: selected, subject: config.subject, difficulty: config.difficulty, examples: config.examples },
+      { atoms: selected, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems },
       deps
     );
     return { ...result, lectureId };
@@ -187,18 +197,22 @@ export async function startObjectiveQuiz(args, deps = {}) {
   const hasText = String(config?.lectureText || "").trim().length >= MIN_LECTURE_TEXT;
   const hasObjectives = (config?.objectives || []).length > 0;
 
-  if (hasText || hasObjectives) {
+  if (hasText) {
     const result = await generateMcqs({ ...config, atoms }, deps);
     return { ...result, lectureId };
   }
 
-  // Pure fallback: objectives-as-atoms when nothing else is available
+  // Objective documents are valid source material on their own. Route them through the
+  // fact-targeted generator; generateMcqs enforces a lecture-text floor and used to reject this
+  // supposedly-supported path before the model was ever called.
+  if (!hasObjectives) return { error: "No quiz source material is available.", questions: [], lectureId };
   return {
     ...(await generateFromAtoms(
       {
         atoms: objectivesAsAtoms(config?.objectives || []),
         difficulty: config?.difficulty,
         examples: config?.examples,
+        avoidStems: config?.avoidStems,
         subject: config?.subject,
       },
       deps

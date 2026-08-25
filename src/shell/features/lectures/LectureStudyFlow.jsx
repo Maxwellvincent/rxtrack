@@ -33,7 +33,9 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { readExemplars, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
+import { resolveDefaultDifficulty, selectExemplarsForBlock, startObjectiveQuiz } from "../objectives/quizLaunch.js";
+import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
+import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
 import * as studyGuideStore from "../../../stores/studyGuide.js";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
@@ -266,6 +268,17 @@ export function LectureStudyFlow({
   // for these (there is no "next round" to resume into) but still updates atom/objective
   // mastery exactly the same way. One runner, two ways in.
   const [adHocQuiz, setAdHocQuiz] = useState(false);
+
+  // Start both cloud subscriptions as soon as Study opens. Previously the first generation
+  // itself started hydration and immediately read an empty fallback, so uploaded Esoft examples
+  // were often absent from precisely the first quiz where they were expected.
+  const questionBanksRes = useQuestionBanks(userId);
+  const questionBankMetaRes = useQuestionBankMeta(userId);
+  const schoolExemplars = useMemo(
+    () => selectExemplarsForBlock(questionBanksRes.data, questionBankMetaRes.data, blockId),
+    [questionBanksRes.data, questionBankMetaRes.data, blockId]
+  );
+  const schoolExamplesLoading = questionBanksRes.loading || questionBankMetaRes.loading;
 
   const startQuizSession = useCallback((nextQuestions) => {
     const nextId = quizSessionCounter.current + 1;
@@ -522,6 +535,10 @@ export function LectureStudyFlow({
 
   /** Questions for one round only — five atoms, with mastered-objective skip + HY sort. */
   const runRound = useCallback(async (index) => {
+    if (schoolExamplesLoading) {
+      setError("Your uploaded school examples are still loading. Try again in a moment.");
+      return;
+    }
     const roundAtoms = rounds[index];
     if (!roundAtoms?.length) return;
     setBusy("Writing questions…"); setError(""); setQuestions(null);
@@ -538,8 +555,14 @@ export function LectureStudyFlow({
     setSkippedAtoms(skipped);
 
     const quizAtoms = toQuiz.length ? toQuiz : roundAtoms; // fallback: quiz all if nothing left
+    const priorQuestions = lecture?.id
+      ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
+      : [];
     const r = await quizFromAtoms({ ...lecture, images }, quizAtoms, {
-      callAIJSON, exemplars: readExemplars(userId), difficulty,
+      callAIJSON,
+      exemplars: schoolExemplars,
+      difficulty,
+      avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
     });
     setBusy("");
     if (r.error) { setError(r.error); return; }
@@ -555,12 +578,13 @@ export function LectureStudyFlow({
     const questions = (r.questions || []).map((q) =>
       q.topic && hyKeys.has(normAtomKey(q.topic)) ? { ...q, _isHighYield: true } : q
     );
+    if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
 
     setRound(index);
     setAdHocQuiz(false);
     startQuizSession(questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
-  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession]);
+  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
 
   /**
    * "Quiz this lecture" — any count, any difficulty, drawn from real atoms same as a Study
@@ -583,20 +607,15 @@ export function LectureStudyFlow({
   }, [lectureObjectives, focusObjectiveIds]);
 
   const runQuiz = useCallback(async (count, difficulty) => {
-    setBusy("Writing questions…"); setError(""); setQuestions(null);
-
-    // A big enough saved pool serves without spending a generation call — same "use what's
-    // already been written for this lecture first" the old QuizConfigModal offered, just
-    // automatic instead of a checkbox, since there's no real reason to prefer regenerating.
-    const stored = lecture?.id ? generatedQuestionsStore.questionsForLecture(userId, lecture.id) : [];
-    if (stored.length >= count) {
-      const shuffled = [...stored].sort(() => Math.random() - 0.5).slice(0, count);
-      setBusy("");
-      setAdHocQuiz(true);
-      startQuizSession(shuffled);
-      logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+    if (schoolExamplesLoading) {
+      setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
     }
+    setBusy("Writing questions…"); setError(""); setQuestions(null);
+
+    const priorQuestions = lecture?.id
+      ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
+      : [];
 
     const result = await startObjectiveQuiz(
       {
@@ -607,11 +626,24 @@ export function LectureStudyFlow({
         difficulty,
         questionCount: count,
         userId,
+        exemplars: schoolExemplars,
+        avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
       },
       { callAIJSON }
     );
     setBusy("");
-    if (result.error) { setError(result.error); return; }
+    if (result.error) {
+      // Saved questions are an offline/error fallback, never the default path. Reusing them
+      // before generation made a requested harder round repeat the exact prior quiz.
+      const matching = priorQuestions.filter((q) => String(q?.difficulty || "").toLowerCase() === difficulty);
+      if (matching.length >= count) {
+        startQuizSession([...matching].sort(() => Math.random() - 0.5).slice(0, count));
+        setAdHocQuiz(true);
+        return;
+      }
+      setError(result.error);
+      return;
+    }
     if (!result.questions?.length) {
       setError(
         "No questions came back. The local bridge was unreachable and the cloud provider returned " +
@@ -623,7 +655,7 @@ export function LectureStudyFlow({
     setAdHocQuiz(true);
     startQuizSession(result.questions);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
 
   // An external "Quiz" click (Today/Lectures/ObjectiveTracker) opens the same picker the
   // in-page button opens — once per mount, so revisiting Study later for the same lecture
@@ -710,11 +742,18 @@ export function LectureStudyFlow({
           >
             ← back to atoms
           </button>
-          <span className="font-mono text-[13px] text-text-3">
-            {adHocQuiz
-              ? `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
-              : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${["easy","medium","hard","expert"][Math.min(round, 3)]}`}
-          </span>
+          <div className="text-right font-mono text-[13px] text-text-3">
+            <div>
+              {adHocQuiz
+                ? `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
+                : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
+            </div>
+            <div className={schoolExemplars.length ? "text-accent" : "text-warn"}>
+              {schoolExemplars.length
+                ? `school style active · ${schoolExemplars.length} examples available`
+                : "school style unavailable · no parsed examples found"}
+            </div>
+          </div>
         </div>
         {(skippedAtoms.length > 0 || questions?.some((q) => q._isHighYield)) && (
           <div className="mb-3 flex flex-wrap gap-2 font-mono text-[12px]">
@@ -1016,6 +1055,11 @@ export function LectureStudyFlow({
                 {atoms.length} atoms · {lectureObjectives.length} objectives
                 {atomMastery.totalCount > 0 ? ` · ${atomMastery.masteredCount}/${atomMastery.totalCount} atoms mastered` : ""}
                 {qStats.answered > 0 ? ` · ${qStats.answered} questions answered` : ""}
+                {schoolExamplesLoading
+                  ? " · loading school examples…"
+                  : schoolExemplars.length
+                    ? ` · school style: ${schoolExemplars.length} examples`
+                    : " · no school examples loaded"}
               </span>
               {done > 0 && (
                 <button

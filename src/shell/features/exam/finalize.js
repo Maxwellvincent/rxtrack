@@ -21,6 +21,8 @@ import { read as readWeakConcepts, writeAwait as writeWeakConceptsAwait } from "
 import { mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
 import { withRecordedStats } from "../../../examSessions.js";
 import { pendingStatsQuestionIds, computeWeakConceptEntry } from "./finalizeLogic.js";
+import { recordEvidenceAwait } from "../../../stores/learnerEvidence.js";
+import { classifyLeadIn } from "./questionReading.js";
 
 export async function finalizeExamSession(
   userId,
@@ -69,6 +71,19 @@ export async function finalizeExamSession(
 
     try {
       await recordAnswerAwait(userId, question?.lectureId, wasCorrect);
+      await recordEvidenceAwait(userId, {
+        source: "integrated-exam",
+        blockId: session.blockId,
+        lectureId: question?.lectureId,
+        objectiveIds: question?.objectiveIds || [],
+        atomKey: question?.atomKey || null,
+        correct: wasCorrect,
+        difficulty: question?.difficulty || null,
+        misconception: wasCorrect ? null : "exam-error",
+        responseMs: answer?.responseMs,
+        answerChanges: answer?.answerChanges || 0,
+        taskType: classifyLeadIn(question?.stem),
+      });
     } catch (e) {
       return { ok: false, error: e?.message || String(e), resumable: true };
     }

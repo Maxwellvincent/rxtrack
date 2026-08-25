@@ -17,11 +17,13 @@
  * component — Task 5 already filtered table-shaped choices out before a
  * session is ever created.
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
 import { useTutorExplanation } from "./useTutorExplanation.js";
+import { ERROR_REASONS, extractLeadIn } from "./questionReading.js";
+import { recordReflection } from "../../../stores/learnerEvidence.js";
 
 // Task 12, Part B1 — additive tutor-mode mount. Each instance owns its own
 // `useTutorExplanation` call (the hook's cache is module-level and keyed by
@@ -49,6 +51,51 @@ function formatClock(ms) {
 
 function pickedFor(session, questionId) {
   return session?.answers?.find((a) => a.questionId === questionId)?.value ?? null;
+}
+
+function QuestionMeta({ question }) {
+  const objectiveCount = question?.objectiveIds?.length || 0;
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5 font-mono text-[11px] text-text-3">
+      {question?.difficulty && <span className="rounded border border-border px-1.5 py-0.5">{question.difficulty}</span>}
+      {objectiveCount > 0 && <span className="rounded border border-border px-1.5 py-0.5">{objectiveCount} objective{objectiveCount === 1 ? "" : "s"}</span>}
+      {question?.source && <span className="rounded border border-border px-1.5 py-0.5">{question.source}</span>}
+      {Number.isFinite(question?.schoolStyleScore) && (
+        <span className="rounded border border-border px-1.5 py-0.5" title="Structural similarity to your uploaded school questions">
+          school style {question.schoolStyleScore}%
+        </span>
+      )}
+    </div>
+  );
+}
+
+function LeadInCue({ stem }) {
+  return (
+    <div className="mb-2 rounded border-l-2 border-accent bg-panel px-2.5 py-2">
+      <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">Lead-in first · define the task</div>
+      <div className="mt-1 text-sm font-semibold text-text-1">{extractLeadIn(stem)}</div>
+    </div>
+  );
+}
+
+function MissReflection({ userId }) {
+  const [selected, setSelected] = useState(null);
+  return (
+    <div className="mt-2 rounded border border-border bg-panel p-2.5">
+      <div className="mb-2 font-mono text-[12px] font-bold text-text-2">What most caused this miss?</div>
+      <div className="flex flex-wrap gap-1.5">
+        {ERROR_REASONS.map(([value, label]) => (
+          <button key={value} type="button" onClick={() => {
+            if (selected) return;
+            setSelected(value);
+            recordReflection(userId, value);
+          }} className={`rounded border px-2 py-1 text-[12px] ${selected === value ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-1"}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // Small, unobtrusive autosave-status readout — deliberately no more visually
@@ -161,6 +208,8 @@ function ExamFormat({ controller, submitOpts }) {
 
       {q && (
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
+          <QuestionMeta question={q} />
+          <LeadInCue stem={q.stem} />
           <div className="mb-2 text-sm text-text-1">{q.stem}</div>
           <ChoiceList
             choices={q.choices}
@@ -224,6 +273,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
       </div>
 
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
+        <QuestionMeta question={q} />
+        <LeadInCue stem={q.stem} />
         <div className="mb-2 text-sm text-text-1">{q.stem}</div>
         <ChoiceList
           choices={q.choices}
@@ -271,7 +322,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
 // all. Now this always renders for a submitted format-"exam" session;
 // `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
 // it, which is the actual preference-gated piece.
-function SubmittedExamReview({ session, tutorModeEnabled, callAI }) {
+function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
   const questions = session.questions || [];
   const correctCount = questions.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   return (
@@ -286,6 +337,8 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI }) {
         const picked = pickedFor(session, q.questionId);
         return (
           <div key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3">
+            <QuestionMeta question={q} />
+            <LeadInCue stem={q.stem} />
             <div className="mb-2 text-sm text-text-1">{q.stem}</div>
             <ChoiceList choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             {q.explanation && (
@@ -293,6 +346,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI }) {
                 {q.explanation}
               </div>
             )}
+            {picked !== q.correct && <MissReflection userId={userId} />}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
           </div>
         );
@@ -369,7 +423,7 @@ export function ExamSessionRunner({
         <div className="text-sm font-bold text-text-1">Submitted.</div>
         {onExit && <Button onClick={onExit}>Done</Button>}
         {session.format === "exam" && (
-          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} />
+          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} />
         )}
       </div>
     );

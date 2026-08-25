@@ -103,7 +103,7 @@ describe("allocateQuestions", () => {
     expect(sumCounts(counts)).toBe(100);
     expect(counts["lec-hi"]).toBeGreaterThan(counts["lec-lo"]);
     // Exact values for this fixed seed — locks in determinism, not just direction.
-    expect(counts).toEqual({ "lec-hi": 98, "lec-lo": 2 });
+    expect(counts).toEqual({ "lec-hi": 83, "lec-lo": 17 });
   });
 
   it("below-minimum-coverage: selects exactly requestedCount distinct lectures, none repeated", () => {

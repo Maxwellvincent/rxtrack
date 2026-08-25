@@ -105,6 +105,7 @@ export function normalizeQuestions(raw) {
       // attribution, since `topic` is free text the model sometimes drifts on even when told to
       // echo the term.
       atomKey: q.atomKey ? String(q.atomKey) : null,
+      objectiveIds: Array.isArray(q.objectiveIds) ? q.objectiveIds.map(String).filter(Boolean) : [],
     };
     out.push(shuffleChoices(validated));
     if (out.length >= 100) break;
@@ -172,7 +173,37 @@ function renderChoices(choices) {
   return LETTERS.filter((l) => choices?.[l]).map((l) => `${l}: ${choiceText(choices[l])}`).join("  ");
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], subject = "this lecture" } = {}) {
+/**
+ * A small but representative school-style sample.
+ *
+ * Taking the first five questions overfits to the beginning of one file (and in the supplied
+ * ExamSoft bank misses its 6-8-option formats). Prefer option-count diversity, then fill from
+ * across the remaining bank. Image-dependent exemplars are excluded because their image is not
+ * sent with the text prompt and would teach the model to reference a figure it cannot provide.
+ */
+export function selectStyleExemplars(examples = [], limit = 5) {
+  const valid = examples.filter((q) => q?.stem && q?.choices && !q.hasImage);
+  const selected = [];
+  const seenCounts = new Set();
+  for (const q of valid) {
+    const optionCount = Object.keys(q.choices).length;
+    if (seenCounts.has(optionCount)) continue;
+    selected.push(q);
+    seenCounts.add(optionCount);
+    if (selected.length >= limit) return selected;
+  }
+  const selectedSet = new Set(selected);
+  const remaining = valid.filter((q) => !selectedSet.has(q));
+  while (selected.length < limit && remaining.length) {
+    const index = selected.length === limit - 1
+      ? remaining.length - 1
+      : Math.floor((selected.length / limit) * remaining.length);
+    selected.push(remaining.splice(Math.max(0, index), 1)[0]);
+  }
+  return selected;
+}
+
+export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture" } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -182,11 +213,17 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
     .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.hasImage ? IMAGE_NOTE : ""}`)
     .join("\n");
 
-  const examplesSection = examples.length
+  const styleExamples = selectStyleExemplars(examples);
+  const examplesSection = styleExamples.length
     ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
-      examples.slice(0, 5).map((q, i) =>
+      styleExamples.map((q, i) =>
         `EXAMPLE ${i + 1}:\nQ: ${q.stem}\n${renderChoices(q.choices)}\nCorrect: ${q.correct}`
       ).join("\n\n")
+    : "";
+
+  const avoidSection = avoidStems.length
+    ? "\n\nQUESTIONS ALREADY USED — do not repeat, paraphrase, or test the same clue-to-answer route:\n" +
+      avoidStems.slice(-30).map((stem, i) => `${i + 1}. ${String(stem).slice(0, 240)}`).join("\n")
     : "";
 
   return (
@@ -196,7 +233,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
     WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
-    examplesSection +
+    examplesSection + avoidSection +
     `\n\nReturn ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","difficulty":"${diff}"}]}`
   );
@@ -225,6 +262,7 @@ export function backfillTopicsFromAtoms(raw, atoms) {
       ...q,
       topic: String(q.topic || "").trim() || atom.term,
       atomKey,
+      objectiveIds: Array.isArray(atom.objectiveIds) ? atom.objectiveIds.filter(Boolean) : [],
     };
   });
   return Array.isArray(raw) ? questions : { ...raw, questions };
@@ -262,17 +300,18 @@ const DIFF_LINE = {
   easy: "Straightforward single-concept questions, direct recall.",
   medium: "USMLE Step 1 standard — 2-step clinical reasoning.",
   hard: "Multi-step reasoning, integrated concepts, challenging plausible distractors.",
-  expert: "Hardest USMLE level — synthesis across topics, all distractors plausible.",
+  expert: "Hardest transfer level — require 3+ reasoning steps, combine the tested fact with at least one other provided fact, conceal the diagnosis, use indirect clinical/lab clues, and make every distractor plausible. Never produce a direct-definition or simple recall question.",
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
 export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10 } = {}) {
   const diff = String(difficulty).toLowerCase();
 
-  const examplesSection = examples.length
+  const styleExamples = selectStyleExemplars(examples);
+  const examplesSection = styleExamples.length
     ? "\n\nEXAMPLE QUESTIONS FROM YOUR SCHOOL'S EXAM BANK:\n" +
       "(Model your questions after this exact style, format, length, and clinical depth.)\n" +
-      examples.slice(0, 5).map((q, i) =>
+      styleExamples.map((q, i) =>
         `EXAMPLE ${i + 1}:\nQ: ${q.stem}\n${renderChoices(q.choices)}\nCorrect: ${q.correct}\nExplanation: ${q.explanation || "N/A"}`
       ).join("\n\n")
     : "";

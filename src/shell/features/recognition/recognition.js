@@ -17,7 +17,7 @@ export function objectivePoolFrom(objectivesMap, blockId = null) {
     for (const objective of flattenEntry(entry)) {
       const text = objective?.objective || objective?.text || objective?.term || "";
       if (typeof text === "string" && text.trim().length > 8) {
-        pool.push({ text: text.trim(), block });
+        pool.push({ ...(objective?.id ? { id: objective.id } : {}), text: text.trim(), block });
       }
     }
   }

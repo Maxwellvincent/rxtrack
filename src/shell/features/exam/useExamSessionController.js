@@ -60,6 +60,7 @@ export function useExamSessionController(sessionId, userId) {
   // for the same session — the second caller gets handed the first call's
   // promise instead of starting a concurrent finalize.
   const submitPromiseRef = useRef(null);
+  const firstSeenAtRef = useRef(new Map());
 
   if (writerIdRef.current == null) writerIdRef.current = newWriterId();
 
@@ -86,6 +87,7 @@ export function useExamSessionController(sessionId, userId) {
     autosaveStoppedRef.current = false;
     submitPromiseRef.current = null;
     seqRef.current = 0;
+    firstSeenAtRef.current = new Map();
     mountWallRef.current = Date.now();
     mountPerfRef.current = performance.now();
     setCurrentIndex(0);
@@ -98,6 +100,13 @@ export function useExamSessionController(sessionId, userId) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `load` itself
     // is derived from [userId, sessionId], so re-running on those is enough.
   }, [userId, sessionId]);
+
+  useEffect(() => {
+    const questionId = session?.questions?.[currentIndex]?.questionId;
+    if (questionId && !firstSeenAtRef.current.has(questionId)) {
+      firstSeenAtRef.current.set(questionId, Date.now());
+    }
+  }, [session?.questions, currentIndex]);
 
   // Timer: format "exam" only, only while the session is actually running.
   useEffect(() => {
@@ -195,6 +204,16 @@ export function useExamSessionController(sessionId, userId) {
         answeredAt: Date.now(),
         seq: seqRef.current++,
         writerId: writerIdRef.current,
+        responseMs: (() => {
+          const existing = session.answers?.find((a) => a.questionId === questionId);
+          if (Number.isFinite(existing?.responseMs)) return existing.responseMs;
+          const firstSeen = firstSeenAtRef.current.get(questionId);
+          return firstSeen ? Math.max(0, Date.now() - firstSeen) : null;
+        })(),
+        answerChanges: (() => {
+          const existing = session.answers?.find((a) => a.questionId === questionId);
+          return (existing?.answerChanges || 0) + (existing && existing.value !== value ? 1 : 0);
+        })(),
       };
 
       // Optimistic local update — the UI shouldn't wait on a round trip.

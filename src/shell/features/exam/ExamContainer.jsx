@@ -285,12 +285,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       )}
 
-      <ExamDashboard
-        blockId={blockId}
-        userId={userId}
-        lecturesById={lecturesById}
-        onNavigateToLecture={onNavigateToLecture}
-      />
+        <ExamDashboard
+          blockId={blockId}
+          userId={userId}
+          lecturesById={lecturesById}
+          objectives={objectives}
+          onNavigateToLecture={onNavigateToLecture}
+        />
     </div>
   );
 }

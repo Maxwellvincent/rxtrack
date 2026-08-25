@@ -31,7 +31,8 @@ html {
   --border-strong:oklch(0.310 0.022 145);
   --text-1:       oklch(0.920 0.010 145);
   --text-2:       oklch(0.650 0.020 145);
-  --text-3:       oklch(0.460 0.016 145);
+  /* Secondary metadata still needs to be readable during long study sessions. */
+  --text-3:       oklch(0.600 0.018 145);
   --accent:       oklch(0.650 0.150 145);
   --accent-soft:  oklch(0.185 0.042 145);
   --accent-text:  oklch(0.760 0.128 145);

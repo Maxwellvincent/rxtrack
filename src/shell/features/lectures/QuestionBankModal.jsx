@@ -75,12 +75,17 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   const totalQuestions = Object.values(banks).reduce((n, qs) => n + (qs?.length || 0), 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={busy ? undefined : onClose}>
-      <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 text-lg font-bold text-text-1">Question banks</div>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={busy ? undefined : onClose}>
+      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-bg shadow-xl sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <div className="text-lg font-bold text-text-1">Question banks</div>
+          <button type="button" disabled={busy} onClick={onClose} className="p-1 text-text-3 hover:text-text-1 disabled:opacity-40" aria-label="Close question banks">✕</button>
+        </div>
+        <div className="overflow-y-auto px-5 py-4">
         <div className="mb-4 font-mono text-[12px] text-text-3">
           Past exam PDFs — parsed as style exemplars so generated questions match how your school writes them.
           A score report (with a category-by-category breakdown) also flags your weak categories automatically.
+          Re-uploading the same filename replaces its existing bank.
           {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
         </div>
 
@@ -137,7 +142,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
               {showManage ? "▾ hide" : "▸ manage"} {names.length} bank{names.length === 1 ? "" : "s"}
             </button>
             {showManage && (
-              <div className="mt-2 rounded-lg border border-border">
+              <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-border">
                 {names.map((name) => (
                   <div key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-0 text-[13px]">
                     <span className="flex-1 truncate text-text-2">{name}</span>
@@ -153,6 +158,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
 
         <div className="flex justify-end">
           <Button variant="outline" onClick={onClose} disabled={busy}>Done</Button>
+        </div>
         </div>
       </div>
     </div>

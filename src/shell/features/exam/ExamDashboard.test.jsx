@@ -8,6 +8,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const listExamSessionsMock = vi.fn();
 const readWeakConceptsMock = vi.fn();
+const readLearnerEvidenceMock = vi.fn();
 
 vi.mock("../../../supabase.js", () => ({
   listExamSessions: (...args) => listExamSessionsMock(...args),
@@ -17,7 +18,44 @@ vi.mock("../../../stores/weakConcepts.js", () => ({
   read: (...args) => readWeakConceptsMock(...args),
 }));
 
-const { ExamDashboard } = await import("./ExamDashboard.jsx");
+vi.mock("../../../stores/learnerEvidence.js", () => ({
+  read: (...args) => readLearnerEvidenceMock(...args),
+  subscribe: () => () => {},
+}));
+
+const { ExamDashboard, computeObjectiveReadiness, computePacingMetrics } = await import("./ExamDashboard.jsx");
+
+describe("computeObjectiveReadiness", () => {
+  it("reports objective coverage, accuracy, ready, and weak counts", () => {
+    const sessions = [{
+      questions: [
+        { questionId: "q1", correct: "A", objectiveIds: ["o1"] },
+        { questionId: "q2", correct: "A", objectiveIds: ["o1"] },
+        { questionId: "q3", correct: "A", objectiveIds: ["o2"] },
+        { questionId: "q4", correct: "A", objectiveIds: ["o2"] },
+      ],
+      answers: [
+        { questionId: "q1", value: "A" }, { questionId: "q2", value: "A" },
+        { questionId: "q3", value: "B" }, { questionId: "q4", value: "B" },
+      ],
+    }];
+    expect(computeObjectiveReadiness(sessions, [{ id: "o1" }, { id: "o2" }, { id: "o3" }])).toMatchObject({
+      tested: 2, total: 3, ready: 1, weak: 1, accuracy: 0.5,
+    });
+  });
+});
+
+describe("computePacingMetrics", () => {
+  it("reports overall pace, unanswered items, and accuracy by exam quarter", () => {
+    const questions = Array.from({ length: 8 }, (_, i) => ({ questionId: `q${i}`, correct: "A" }));
+    const answers = questions.slice(0, 7).map((q, i) => ({ questionId: q.questionId, value: i < 4 ? "A" : "B" }));
+    const out = computePacingMetrics([{ questions, answers, startedAt: 1000, submittedAt: 121000 }]);
+    expect(out.secondsPerQuestion).toBe(15);
+    expect(out.unanswered).toBe(1);
+    expect(out.quarters[0].accuracy).toBe(1);
+    expect(out.quarters[3].accuracy).toBe(0);
+  });
+});
 
 function render(ui) {
   const host = document.createElement("div");
@@ -68,6 +106,7 @@ beforeEach(() => {
   listExamSessionsMock.mockReset();
   readWeakConceptsMock.mockReset();
   readWeakConceptsMock.mockReturnValue({});
+  readLearnerEvidenceMock.mockReturnValue({ testTaking: { reasons: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } });
 });
 
 afterEach(() => {

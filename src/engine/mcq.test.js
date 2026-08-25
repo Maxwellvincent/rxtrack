@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -49,6 +49,17 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/EXAM BANK|EXAMPLE/i);
     expect(prompt).toContain("A patient with X");
   });
+
+  it("tells later generations not to repeat previously used stems", () => {
+    const prompt = buildAtomQuestionsPrompt({
+      atoms: [{ type: "definition", term: "Insulin", content: "Lowers serum glucose." }],
+      difficulty: "expert",
+      avoidStems: ["A 52-year-old man has fasting glucose of 210 mg/dL. What is the diagnosis?"],
+    });
+    expect(prompt).toContain("QUESTIONS ALREADY USED");
+    expect(prompt).toContain("do not repeat, paraphrase, or test the same clue-to-answer route");
+    expect(prompt).toContain("3+ reasoning steps");
+  });
   it("includes lecture content, objectives, difficulty and count", () => {
     expect(prompt).toContain("Insulin is an anabolic hormone");
     expect(prompt).toContain("Describe insulin secretion");
@@ -59,6 +70,23 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/"questions"/);
     expect(prompt).toMatch(/stem/);
     expect(prompt).toMatch(/choices/);
+  });
+});
+
+describe("selectStyleExemplars", () => {
+  const q = (stem, count, extra = {}) => ({
+    stem,
+    choices: Object.fromEntries("ABCDEFGH".slice(0, count).split("").map((letter) => [letter, letter])),
+    ...extra,
+  });
+
+  it("represents the school's different option counts and excludes unusable image-only examples", () => {
+    const selected = selectStyleExemplars([
+      q("four-1", 4), q("four-2", 4), q("five", 5), q("six", 6), q("seven", 7),
+      q("image", 8, { hasImage: true }), q("eight", 8),
+    ]);
+    expect(selected.map((item) => Object.keys(item.choices).length)).toEqual([4, 5, 6, 7, 8]);
+    expect(selected.map((item) => item.stem)).not.toContain("image");
   });
 });
 

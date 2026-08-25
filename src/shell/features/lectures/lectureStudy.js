@@ -102,7 +102,7 @@ export async function extractAtoms(lecture, text, deps = {}) {
  * quiz can render it. Both halves are no-ops for a lecture ingested without images.
  */
 export async function quizFromAtoms(lecture, atoms, deps = {}) {
-  const { callAIJSON, exemplars = [], difficulty = "medium" } = deps;
+  const { callAIJSON, exemplars = [], difficulty = "medium", avoidStems = [] } = deps;
   const images = (lecture?.images || []).filter(isUsableImage);
 
   // Flag atoms that have a matching image, then cap image-questions at 35% so a
@@ -126,6 +126,7 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
       subject: lecture?.lectureTitle || lecture?.title || "this lecture",
       difficulty,
       examples: exemplars,
+      avoidStems,
     },
     { callAIJSON }
   );
@@ -153,6 +154,9 @@ const DIFFICULTY_SCALE = ["easy", "medium", "hard", "expert"];
  * round-1-easy every single time, same as Quiz mode no longer does.
  */
 export function roundDifficulty(baseDifficulty, index) {
+  // Round one establishes the baseline; every later round is the transfer/synthesis round.
+  // Do not spend a second generated set on a barely-harder restatement of the same facts.
+  if (index >= 1) return "expert";
   const baseIndex = DIFFICULTY_SCALE.indexOf(baseDifficulty);
   const start = baseIndex === -1 ? 0 : baseIndex;
   return DIFFICULTY_SCALE[Math.min(start + index, DIFFICULTY_SCALE.length - 1)];
@@ -197,6 +201,11 @@ export function selectAtomsForQuiz(atoms, progress, count) {
   const out = [];
   for (let i = 0; i < n; i++) out.push(ordered[i % ordered.length]);
   return out;
+}
+
+/** A completion event is displayable only for the question set currently on screen. */
+export function isActiveQuizComplete(completedSessionId, activeSessionId) {
+  return activeSessionId > 0 && completedSessionId === activeSessionId;
 }
 
 /**

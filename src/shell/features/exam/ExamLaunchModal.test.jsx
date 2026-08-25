@@ -207,7 +207,7 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
-  it("question count input is capped at 50", () => {
+  it("question count input is capped at 100", () => {
     const { host, unmount } = render(
       <ExamLaunchModal
         blockId="b1"
@@ -222,7 +222,7 @@ describe("ExamLaunchModal", () => {
     const countInput = host.querySelectorAll('input[type="number"]')[0];
     act(() => setInputValue(countInput, "999"));
 
-    expect(countInput.value).toBe("50");
+    expect(countInput.value).toBe("100");
 
     unmount();
   });

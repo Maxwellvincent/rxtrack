@@ -8,6 +8,7 @@ import {
   roundDifficulty,
   topicsToAutoCheck,
   selectAtomsForQuiz,
+  isActiveQuizComplete,
 } from "./lectureStudy.js";
 
 const BODY = "Brachial plexus anatomy in detail. ".repeat(20);
@@ -128,10 +129,10 @@ describe("quizFromAtoms", () => {
 });
 
 describe("roundDifficulty", () => {
-  it("ramps easy -> medium -> hard -> expert by round index when starting fresh", () => {
+  it("uses the baseline for round one and expert transfer questions from round two onward", () => {
     expect(roundDifficulty("easy", 0)).toBe("easy");
-    expect(roundDifficulty("easy", 1)).toBe("medium");
-    expect(roundDifficulty("easy", 2)).toBe("hard");
+    expect(roundDifficulty("easy", 1)).toBe("expert");
+    expect(roundDifficulty("easy", 2)).toBe("expert");
     expect(roundDifficulty("easy", 3)).toBe("expert");
   });
 
@@ -139,7 +140,7 @@ describe("roundDifficulty", () => {
     expect(roundDifficulty("easy", 10)).toBe("expert");
   });
 
-  it("starts further up the scale when the lecture's accuracy already earned it, still ramping from there", () => {
+  it("starts at the earned baseline before the expert transfer round", () => {
     expect(roundDifficulty("hard", 0)).toBe("hard");
     expect(roundDifficulty("hard", 1)).toBe("expert");
     expect(roundDifficulty("hard", 2)).toBe("expert"); // capped
@@ -241,5 +242,14 @@ describe("selectAtomsForQuiz", () => {
   it("returns nothing for zero atoms or zero count", () => {
     expect(selectAtomsForQuiz([], {}, 5)).toEqual([]);
     expect(selectAtomsForQuiz(list, {}, 0)).toEqual([]);
+  });
+});
+
+describe("quiz completion ownership", () => {
+  it("does not show an old quiz's completion state under a newly generated quiz", () => {
+    expect(isActiveQuizComplete(1, 1)).toBe(true);
+    expect(isActiveQuizComplete(null, 2)).toBe(false);
+    // A late completion callback from session 1 must not complete active session 2.
+    expect(isActiveQuizComplete(1, 2)).toBe(false);
   });
 });

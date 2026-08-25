@@ -9,6 +9,7 @@ import { allocateQuestions } from "./allocation.js";
 import { generateExamQuestions } from "./generation.js";
 import { createSessionShape } from "../../../examSessions.js";
 import { createExamSession } from "../../../supabase.js";
+import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 
 // Same fallback pattern as generation.js's makeQuestionId — reused here for
 // consistency rather than inventing a second id-generation approach.
@@ -39,6 +40,7 @@ export async function launchExamSession(
     lectures,
     weakConceptAccuracyByLecture,
     weakConcepts,
+    learnerEvidence,
   },
   deps = {}
 ) {
@@ -48,6 +50,7 @@ export async function launchExamSession(
     eligibleLectures,
     requestedCount: questionCount,
     weakConcepts,
+    learnerEvidence: learnerEvidence || readLearnerEvidence(userId),
     blockId,
     sessionId,
   });

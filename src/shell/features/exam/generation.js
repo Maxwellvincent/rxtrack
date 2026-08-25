@@ -12,6 +12,7 @@
 // existing per-lecture Quiz mode.
 
 import { readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
+import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity } from "./questionQuality.js";
 
 const MAX_ATTEMPTS = 3; // initial attempt + 2 retries
 
@@ -95,7 +96,9 @@ export async function generateExamQuestions(
       );
 
       const generated = Array.isArray(result?.questions) ? result.questions : [];
-      const renderable = generated.filter(isRenderableQuestion);
+      const renderable = generated
+        .filter(isRenderableQuestion)
+        .filter((q) => !isSemanticDuplicate(q, [...questions, ...survivors]));
       survivors.push(...renderable);
       stillNeeded = requested - survivors.length;
     }
@@ -106,7 +109,12 @@ export async function generateExamQuestions(
         questionId: makeQuestionId(),
         blockId,
         lectureId,
-        objectiveIds,
+        // Atom-based questions carry their exact objective links. Older/free-form
+        // questions fall back to the lecture's objective set for compatibility.
+        objectiveIds: q.objectiveIds?.length ? q.objectiveIds : objectiveIds,
+        fingerprint: questionFingerprint(q),
+        schoolStyleScore: schoolStyleSimilarity(q, exemplars),
+        source: exemplars.length ? "school-style generated" : "lecture generated",
       });
     }
 

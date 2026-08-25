@@ -419,12 +419,12 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
             : "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)",
       }}
     >
-      <div className="flex items-start gap-3 px-4 py-3">
+      <div className="flex items-start gap-3 px-4 py-3.5">
         {/* Checkbox */}
         <button
           onClick={() => onCheck(task.lec.id)}
           className={[
-            "mt-[3px] flex h-[18px] w-[18px] flex-shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
+            "mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded border-[1.5px] transition-colors",
             checked
               ? "border-good bg-good text-bg"
               : partiallyDone
@@ -437,7 +437,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
           {!checked && partiallyDone && <span className="text-[11px] font-bold leading-none">~</span>}
         </button>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
           {/* Row 1: title + actions */}
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1">
@@ -449,7 +449,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
               <div className="flex items-center gap-1">
                 <button
                   className={[
-                    "text-left text-[13px] font-semibold leading-snug hover:underline",
+                    "text-left text-base font-semibold leading-snug hover:underline",
                     checked ? "line-through text-text-3" : "text-text-1",
                   ].join(" ")}
                   onClick={() => !checked && onStudy(task.lec.id)}
@@ -459,13 +459,13 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
                 </button>
                 <button
                   onClick={() => setExpanded((e) => !e)}
-                  className="px-0.5 text-[11px] text-text-3 hover:text-text-2"
+                  className="min-h-7 min-w-7 px-1 text-sm text-text-3 hover:text-text-2"
                   title={expanded ? "Hide details" : "Show details"}
                 >
                   {expanded ? "▴" : "▾"}
                 </button>
               </div>
-              <div className="mt-0.5 font-mono text-[11px] text-text-3">
+              <div className="mt-1 font-mono text-sm text-text-3">
                 {task.availableDate
                   ? task.availableDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · "
                   : task.lec.weekNumber
@@ -506,7 +506,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
                 struggling={task.struggling}
                 untested={task.untested}
               />
-              <div className="flex flex-wrap gap-x-3 gap-y-0 font-mono text-[11px]">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs">
                 {task.mastered > 0 && <span className="text-good">✓ {task.mastered} mastered</span>}
                 {task.inprogress > 0 && <span className="text-accent">◑ {task.inprogress} learning</span>}
                 {task.struggling > 0 && <span className="text-warn">⚠ {task.struggling} struggling</span>}
@@ -519,55 +519,45 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
             </div>
           )}
 
-          {/* Row 3: review history */}
+          {/* One compact footer: review history, round progress, and secondary logging. */}
           {!checked && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-0 font-mono text-[11px] text-text-3">
-              {task.sessions > 0 ? (
-                <>
-                  <span>Reviewed {task.sessions}×</span>
-                  {task.daysSinceLast != null && (
-                    <span>last {fmtDaysAgo(task.daysSinceLast)}</span>
-                  )}
-                </>
-              ) : (
-                <span>Never reviewed</span>
-              )}
-              {nextReviewDate && (
-                <span className={task.sessions === 0 ? "text-text-3" : "text-accent/80"}>
-                  next {fmtDaysUntil(nextReviewDate)}
-                </span>
-              )}
-            </div>
-          )}
-
-          {/* Row 4: round progress dots */}
-          {!checked && targetRounds > 0 && (
-            <RoundDots done={roundsDone} total={targetRounds} />
-          )}
-
-          {/* Row 5: log row */}
-          {!checked && (
-            <div className="flex flex-wrap items-center gap-2">
-              {logging ? (
-                <>
-                  <span className="font-mono text-[11px] text-text-3">how did {logging} go?</span>
-                  {[{ key: "good", label: "Solid" }, { key: "okay", label: "OK" }, { key: "struggling", label: "Shaky" }].map((c) => (
-                    <button
-                      key={c.key}
-                      onClick={() => { onLog(task.lec.id, logging, c.key); setLogging(null); }}
-                      className="rounded border border-border px-2 py-0.5 text-[11px] text-text-2 hover:text-text-1"
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                  <button onClick={() => setLogging(null)} className="font-mono text-[11px] text-text-3 hover:text-text-1">✕</button>
-                </>
-              ) : (
-                <>
-                  <button onClick={() => setLogging("anki")} className="font-mono text-[11px] text-text-3 hover:text-text-1">📇 log anki</button>
-                  <button onClick={() => setLogging("review")} className="font-mono text-[11px] text-text-3 hover:text-text-1">✓ log review</button>
-                </>
-              )}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/60 pt-2 font-mono text-xs text-text-3">
+              <div className="flex flex-wrap items-center gap-x-3">
+                {task.sessions > 0 ? (
+                  <>
+                    <span>Reviewed {task.sessions}×</span>
+                    {task.daysSinceLast != null && <span>last {fmtDaysAgo(task.daysSinceLast)}</span>}
+                  </>
+                ) : <span>Never reviewed</span>}
+                {nextReviewDate && (
+                  <span className={task.sessions === 0 ? "text-text-3" : "text-accent/80"}>
+                    next {fmtDaysUntil(nextReviewDate)}
+                  </span>
+                )}
+              </div>
+              {targetRounds > 0 && <RoundDots done={roundsDone} total={targetRounds} />}
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {logging ? (
+                  <>
+                    <span>How did {logging} go?</span>
+                    {[{ key: "good", label: "Solid" }, { key: "okay", label: "OK" }, { key: "struggling", label: "Shaky" }].map((c) => (
+                      <button
+                        key={c.key}
+                        onClick={() => { onLog(task.lec.id, logging, c.key); setLogging(null); }}
+                        className="min-h-7 rounded border border-border px-2 text-text-2 hover:text-text-1"
+                      >
+                        {c.label}
+                      </button>
+                    ))}
+                    <button onClick={() => setLogging(null)} className="min-h-7 px-1 hover:text-text-1" aria-label="Cancel logging">✕</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={() => setLogging("anki")} className="min-h-7 hover:text-text-1">📇 Log Anki</button>
+                    <button onClick={() => setLogging("review")} className="min-h-7 hover:text-text-1">✓ Log review</button>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>

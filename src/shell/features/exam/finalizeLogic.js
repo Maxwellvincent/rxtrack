@@ -94,6 +94,13 @@ export function computeWeakConceptEntry({
   const cumulativeMissRate = totalQuestions > 0 ? totalMisses / totalQuestions : 0;
 
   const consecutiveCleanSessions = computeCleanSessionStreak(sortedSessions, lectureId);
+  const objectiveIds = [...new Set(
+    sortedSessions.flatMap((session) =>
+      (session?.questions || [])
+        .filter((q) => q.lectureId === lectureId)
+        .flatMap((q) => q.objectiveIds || [])
+    )
+  )];
 
   let masteryLevel = null;
   if (consecutiveCleanSessions >= 4) {
@@ -115,7 +122,7 @@ export function computeWeakConceptEntry({
     blockName,
     linkedLecIds: [lectureId],
     lectureLabels: [lectureLabel || lectureId],
-    objectiveIds: [],
+    objectiveIds,
     missCount: totalMisses,
     lastMissed: now,
     lastCorrect: consecutiveCleanSessions > 0 ? now : existingEntry?.lastCorrect ?? null,
