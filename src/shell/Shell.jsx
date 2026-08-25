@@ -35,6 +35,7 @@ import StudyRoutineModal, { MissNoteToast } from "../StudyRoutineModal.jsx";
 import { LectureList } from "./features/tracker/LectureList.jsx";
 import { WeakConcepts } from "./features/tracker/WeakConcepts.jsx";
 import { StruggleTasks } from "./features/tracker/StruggleTasks.jsx";
+import { StruggleTaskDrawer } from "./features/tracker/StruggleTaskDrawer.jsx";
 import { ExamDateModal } from "./ExamDateModal.jsx";
 import { setStoreHookUserId } from "./hooks/currentUser.js";
 import { useToday } from "./features/today/useToday.js";
@@ -536,6 +537,7 @@ function ShellMain({ theme, toggle, userId }) {
         />
       )}
       <MissNoteToast />
+      <StruggleTaskDrawer userId={userId} />
     </div>
   );
 }

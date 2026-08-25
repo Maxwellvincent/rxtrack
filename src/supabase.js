@@ -1205,6 +1205,25 @@ export async function setStruggleTaskDone(uid, id, done) {
 }
 
 /**
+ * Final acknowledgement for a completed Struggle Tracker task. The document
+ * stays as a tombstone while Anki still exports the card, preventing the next
+ * desktop sync from resurrecting it. The sync job deletes the tombstone once
+ * the card has actually left Anki's unresolved export.
+ */
+export async function releaseStruggleTask(uid, id) {
+  if (!uid || !id) return;
+  try {
+    await setDoc(
+      doc(db, "users", uid, "struggleTasks", id),
+      { releasedLocally: true, releasedAt: serverTimestamp() },
+      { merge: true }
+    );
+  } catch (e) {
+    console.warn("releaseStruggleTask exception:", e?.message);
+  }
+}
+
+/**
  * Read-only fetch of recognition-bank items for a block (optionally a subject).
  * recognitionItems is server-write-only — writes go through the
  * buildRecognitionBank Cloud Function, never the client.

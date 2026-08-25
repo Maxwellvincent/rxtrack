@@ -32,6 +32,7 @@ const UID_MAP = {
 const CONTENT_FIELDS = [
   "cardId", "state", "remediation", "concept", "subject", "lecture",
   "reason", "front", "deck", "tags", "buriedAt",
+  "releasedLocally", "releasedAt",
 ];
 
 let focusHudApp = null;

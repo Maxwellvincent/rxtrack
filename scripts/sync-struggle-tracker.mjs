@@ -101,7 +101,9 @@ async function sync() {
   let deleted = 0;
   for (const [id, data] of existing.entries()) {
     if (seenIds.has(id)) continue;
-    if (data.doneLocally) continue; // leave resolved-and-acknowledged docs for manual cleanup
+    // A released tombstone is only needed while Anki still exports the card.
+    // Once the card leaves the export, delete it from both apps via the bridge.
+    if (data.doneLocally && !data.releasedLocally) continue;
     batch.delete(coll.doc(id));
     batchCount++;
     deleted++;

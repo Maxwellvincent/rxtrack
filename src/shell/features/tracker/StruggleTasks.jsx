@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from "react";
 import { useStruggleTasks } from "../../hooks/useStruggleTasks.js";
-import { setStruggleTaskDone } from "../../../supabase.js";
+import { releaseStruggleTask, setStruggleTaskDone } from "../../../supabase.js";
 import { STATE_RANK, filterTasksToBlock, groupStruggleTasks } from "./struggleTasks.js";
 
 const STATE_BADGE = {
@@ -24,7 +24,7 @@ const REMEDIATION_BADGE = {
   draw: { icon: "✍️", label: "Draw / Work It Out" },
 };
 
-function TaskRow({ task, onToggleDone }) {
+function TaskRow({ task, onToggleDone, onRelease }) {
   const state = STATE_BADGE[task.state];
   const remediation = REMEDIATION_BADGE[task.remediation];
   return (
@@ -60,11 +60,21 @@ function TaskRow({ task, onToggleDone }) {
           {[task.lecture, task.deck].filter(Boolean).join(" · ")}
         </div>
       </div>
+      {task.doneLocally && onRelease && (
+        <button
+          type="button"
+          onClick={() => onRelease(task.id)}
+          className="shrink-0 rounded border border-border px-2 py-1 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1"
+          title="Remove this completed task from RXtrack and Focus HUD"
+        >
+          release
+        </button>
+      )}
     </div>
   );
 }
 
-function OcclusionGroupRow({ tasks, onToggleDone }) {
+function OcclusionGroupRow({ tasks, onToggleDone, onRelease }) {
   const [expanded, setExpanded] = useState(false);
   const head = tasks[0];
   const state = tasks.reduce(
@@ -107,7 +117,7 @@ function OcclusionGroupRow({ tasks, onToggleDone }) {
       {expanded && (
         <div className="ml-6 mt-1 border-l border-border pl-3">
           {tasks.map((t) => (
-            <TaskRow key={t.id} task={t} onToggleDone={onToggleDone} />
+            <TaskRow key={t.id} task={t} onToggleDone={onToggleDone} onRelease={onRelease} />
           ))}
         </div>
       )}
@@ -124,14 +134,16 @@ export function StruggleTasks({ userId, lectures = [], onBack }) {
   // comprehensive/Step 1 review.
   const [scope, setScope] = useState("block");
 
+  const visibleTasks = useMemo(() => allTasks.filter((task) => !task.releasedLocally), [allTasks]);
   const tasks = useMemo(
-    () => (scope === "block" ? filterTasksToBlock(allTasks, lectures) : allTasks),
-    [allTasks, lectures, scope]
+    () => (scope === "block" ? filterTasksToBlock(visibleTasks, lectures) : visibleTasks),
+    [visibleTasks, lectures, scope]
   );
 
   const groups = useMemo(() => groupStruggleTasks(tasks, { showDone }), [tasks, showDone]);
 
   const onToggleDone = (id, done) => setStruggleTaskDone(userId, id, done);
+  const onRelease = (id) => releaseStruggleTask(userId, id);
 
   const total = tasks.length;
   const done = tasks.filter((t) => t.doneLocally).length;
@@ -175,14 +187,14 @@ export function StruggleTasks({ userId, lectures = [], onBack }) {
 
       {loading ? (
         <div className="font-mono text-[12px] text-text-3">Loading…</div>
-      ) : allTasks.length === 0 ? (
+      ) : visibleTasks.length === 0 ? (
         <div className="font-mono text-[12px] text-text-3">
           Nothing synced yet. In Anki: Tools → Struggle Tracker → 📤 Export to RxTrack Now — syncs
           automatically within ~30s.
         </div>
       ) : total === 0 ? (
         <div className="font-mono text-[12px] text-text-3">
-          Nothing struggling in this block — {allTasks.length} synced task{allTasks.length === 1 ? "" : "s"} live
+          Nothing struggling in this block — {visibleTasks.length} synced task{visibleTasks.length === 1 ? "" : "s"} live
           elsewhere. Check "everything" for the full list.
         </div>
       ) : (
@@ -197,9 +209,9 @@ export function StruggleTasks({ userId, lectures = [], onBack }) {
             </div>
             {rows.map((r) =>
               r.kind === "group" ? (
-                <OcclusionGroupRow key={r.tasks[0].id} tasks={r.tasks} onToggleDone={onToggleDone} />
+                <OcclusionGroupRow key={r.tasks[0].id} tasks={r.tasks} onToggleDone={onToggleDone} onRelease={onRelease} />
               ) : (
-                <TaskRow key={r.task.id} task={r.task} onToggleDone={onToggleDone} />
+                <TaskRow key={r.task.id} task={r.task} onToggleDone={onToggleDone} onRelease={onRelease} />
               )
             )}
           </div>
