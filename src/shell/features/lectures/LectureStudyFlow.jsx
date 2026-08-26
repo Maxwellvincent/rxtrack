@@ -52,6 +52,7 @@ import {
 import * as questionStats from "../../../stores/lectureQuestionStats.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
+import { deleteLectureFully } from "../../logic/deleteLecture.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -324,6 +325,8 @@ export function LectureStudyFlow({
   // for these (there is no "next round" to resume into) but still updates atom/objective
   // mastery exactly the same way. One runner, two ways in.
   const [adHocQuiz, setAdHocQuiz] = useState(false);
+  const [confirmDeleteLecture, setConfirmDeleteLecture] = useState(false);
+  const [deletingLecture, setDeletingLecture] = useState(false);
 
   // Start both cloud subscriptions as soon as Study opens. Previously the first generation
   // itself started hydration and immediately read an empty fallback, so uploaded Esoft examples
@@ -1005,9 +1008,34 @@ export function LectureStudyFlow({
 
   return (
     <div className="p-5">
-      <button onClick={onClose} className="mb-3 font-mono text-xs text-text-3 hover:text-text-1">
-        ← back
-      </button>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <button onClick={onClose} className="font-mono text-xs text-text-3 hover:text-text-1">← back</button>
+        {!confirmDeleteLecture ? (
+          <button onClick={() => setConfirmDeleteLecture(true)} className="font-mono text-[11px] text-text-3 hover:text-bad">delete lecture…</button>
+        ) : (
+          <div className="flex items-center gap-2 rounded border border-bad/40 bg-bad/5 px-2 py-1">
+            <span className="text-[12px] text-text-2">Permanently delete?</span>
+            <button
+              disabled={deletingLecture}
+              onClick={async () => {
+                setDeletingLecture(true); setError("");
+                try {
+                  await deleteLectureFully({ userId, lectureId: lecture?.id, blockId });
+                  onClose?.();
+                } catch (e) {
+                  setError(`Delete failed: ${e?.message || String(e)}`);
+                  setDeletingLecture(false);
+                  setConfirmDeleteLecture(false);
+                }
+              }}
+              className="rounded bg-bad px-2 py-0.5 text-[12px] font-bold text-white disabled:opacity-50"
+            >
+              {deletingLecture ? "Deleting…" : "Confirm"}
+            </button>
+            <button onClick={() => setConfirmDeleteLecture(false)} disabled={deletingLecture} className="text-[12px] text-text-3">Cancel</button>
+          </div>
+        )}
+      </div>
       <h2 className="text-lg font-bold text-text-1">{title}</h2>
       <div className="mb-4 font-mono text-[13px] text-text-3">
         {stage === "loading" ? "loading lecture…" : `${atoms.length} high-yield atoms`}

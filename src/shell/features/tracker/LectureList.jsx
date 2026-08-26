@@ -12,8 +12,7 @@ import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
-import { addLectureTombstoneId, deleteLectureFromCloud, overwriteObjectivesInCloud } from "../../../supabase.js";
-import * as objectivesStore from "../../../stores/blockObjectives.js";
+import { deleteLectureFully } from "../../logic/deleteLecture.js";
 
 const CONFIDENCE = [
   { key: "good", label: "Solid" },
@@ -335,33 +334,14 @@ export function LectureList({
     setDeletingLectureId(lectureId);
     setLogged(null);
     try {
-      if (userId) await deleteLectureFromCloud(userId, lectureId);
-      addLectureTombstoneId(lectureId);
-      await lecturesResource.mutate((lecturesResource.data || []).filter((lec) => lec.id !== lectureId));
-
-      const objectiveMap = objectivesStore.read(userId) || {};
-      const entry = objectiveMap[blockId];
-      if (entry) {
-        let nextEntry;
-        if (Array.isArray(entry)) {
-          nextEntry = entry.map((o) => o?.linkedLecId === lectureId ? { ...o, linkedLecId: null, sourceFile: null } : o);
-        } else {
-          nextEntry = {
-            ...entry,
-            imported: (entry.imported || []).map((o) => o?.linkedLecId === lectureId ? { ...o, linkedLecId: null, sourceFile: null } : o),
-            extracted: (entry.extracted || []).filter((o) => o?.linkedLecId !== lectureId),
-          };
-        }
-        objectivesStore.write(userId, { ...objectiveMap, [blockId]: nextEntry });
-        if (userId) await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {});
-      }
+      await deleteLectureFully({ userId, lectureId, blockId });
       setLogged(`Deleted ${row.title}.`);
     } catch (e) {
       setLogged(`Could not delete ${row.title}: ${e?.message || String(e)}`);
     } finally {
       setDeletingLectureId(null);
     }
-  }, [blockId, deletingLectureId, lecturesResource, userId]);
+  }, [blockId, deletingLectureId, userId]);
 
   return (
     <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
