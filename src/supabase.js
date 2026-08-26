@@ -151,6 +151,14 @@ export function readLectureTombstoneIds() {
   }
 }
 
+/** Remember an intentional lecture deletion so a stale cloud snapshot cannot restore it. */
+export function addLectureTombstoneId(lecId) {
+  if (!lecId) return readLectureTombstoneIds();
+  const next = [...new Set([...readLectureTombstoneIds(), String(lecId)])].slice(-200);
+  try { localStorage.setItem("rxt-id-tombstones", JSON.stringify(next)); } catch { /* cloud delete still stands */ }
+  return new Set(next);
+}
+
 /** Delete a lecture's cloud doc. The one exception to "lectures are never deleted". */
 export async function deleteLectureFromCloud(userId, lecId) {
   if (!userId || !lecId) return false;

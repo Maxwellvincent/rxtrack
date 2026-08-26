@@ -12,6 +12,8 @@ import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
+import { addLectureTombstoneId, deleteLectureFromCloud, overwriteObjectivesInCloud } from "../../../supabase.js";
+import * as objectivesStore from "../../../stores/blockObjectives.js";
 
 const CONFIDENCE = [
   { key: "good", label: "Solid" },
@@ -72,10 +74,12 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy, focused, rowRef }) {
+function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef }) {
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
     <div
@@ -128,6 +132,41 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, busy
           )}
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
+          <div className="relative">
+            <button
+              onClick={() => { setMenuOpen((v) => !v); setConfirmDelete(false); }}
+              aria-label={`More actions for ${row.title}`}
+              className="rounded px-2 font-mono text-[14px] text-text-3 hover:bg-panel hover:text-text-1"
+            >
+              ⋯
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-7 z-20 min-w-44 rounded border border-border bg-bg p-2 shadow-lg">
+                {!confirmDelete ? (
+                  <button
+                    onClick={() => setConfirmDelete(true)}
+                    className="w-full rounded px-2 py-1.5 text-left text-[13px] text-bad hover:bg-bad/10"
+                  >
+                    Delete lecture…
+                  </button>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-[12px] leading-snug text-text-2">Delete this lecture and its extracted content? This cannot be undone.</p>
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => onDelete(row)}
+                        disabled={deleting === row.lectureId}
+                        className="rounded bg-bad px-2 py-1 text-[12px] font-bold text-white disabled:opacity-50"
+                      >
+                        {deleting === row.lectureId ? "Deleting…" : "Confirm delete"}
+                      </button>
+                      <button onClick={() => setConfirmDelete(false)} className="px-2 py-1 text-[12px] text-text-3">Cancel</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">
             log
           </button>
@@ -207,6 +246,7 @@ export function LectureList({
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
   const [visibleCount, setVisibleCount] = useState(30);
+  const [deletingLectureId, setDeletingLectureId] = useState(null);
 
   // Task 12, Part B2 — scroll the focused lecture's row into view and give
   // it a brief highlight on mount. Additive only: with no `focusLectureId`
@@ -289,6 +329,40 @@ export function LectureList({
     [lecturesResource]
   );
 
+  const onDelete = useCallback(async (row) => {
+    const lectureId = row?.lectureId;
+    if (!lectureId || deletingLectureId) return;
+    setDeletingLectureId(lectureId);
+    setLogged(null);
+    try {
+      if (userId) await deleteLectureFromCloud(userId, lectureId);
+      addLectureTombstoneId(lectureId);
+      await lecturesResource.mutate((lecturesResource.data || []).filter((lec) => lec.id !== lectureId));
+
+      const objectiveMap = objectivesStore.read(userId) || {};
+      const entry = objectiveMap[blockId];
+      if (entry) {
+        let nextEntry;
+        if (Array.isArray(entry)) {
+          nextEntry = entry.map((o) => o?.linkedLecId === lectureId ? { ...o, linkedLecId: null, sourceFile: null } : o);
+        } else {
+          nextEntry = {
+            ...entry,
+            imported: (entry.imported || []).map((o) => o?.linkedLecId === lectureId ? { ...o, linkedLecId: null, sourceFile: null } : o),
+            extracted: (entry.extracted || []).filter((o) => o?.linkedLecId !== lectureId),
+          };
+        }
+        objectivesStore.write(userId, { ...objectiveMap, [blockId]: nextEntry });
+        if (userId) await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {});
+      }
+      setLogged(`Deleted ${row.title}.`);
+    } catch (e) {
+      setLogged(`Could not delete ${row.title}: ${e?.message || String(e)}`);
+    } finally {
+      setDeletingLectureId(null);
+    }
+  }, [blockId, deletingLectureId, lecturesResource, userId]);
+
   return (
     <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
@@ -363,6 +437,8 @@ export function LectureList({
               onLog={onLog}
               onUpdateDate={onUpdateDate}
               onPreRead={setPreReadTarget}
+              onDelete={onDelete}
+              deleting={deletingLectureId}
               focused={row.lectureId === highlightId}
               rowRef={row.lectureId === focusLectureId ? focusRowRef : undefined}
             />
