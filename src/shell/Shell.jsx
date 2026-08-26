@@ -45,6 +45,7 @@ import * as lectureRoundsStore from "../stores/lectureRounds.js";
 import { selectBlockObjectives, setStatus } from "./logic/objectives.js";
 import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";
+import { BackgroundJobCenter } from "./BackgroundJobCenter.jsx";
 
 const RecognitionContainer = lazy(() => import("./features/recognition/RecognitionContainer.jsx").then((m) => ({ default: m.RecognitionContainer })));
 const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow.jsx").then((m) => ({ default: m.LectureStudyFlow })));
@@ -523,6 +524,7 @@ function ShellMain({ theme, toggle, userId }) {
           onClose={() => setShowQuestionBanks(false)}
         />
       )}
+      <BackgroundJobCenter />
       <StudyRoutineModal
         open={showRoutine}
         onClose={() => setShowRoutine(false)}

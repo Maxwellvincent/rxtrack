@@ -38,6 +38,7 @@ import {
   summarizePlan,
   toLocalRow,
 } from "../../logic/bulkIngest.js";
+import { startBackgroundJob } from "../../backgroundJobs.js";
 
 const STATUS_LABEL = {
   queued: "queued",
@@ -218,32 +219,29 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
     [blockId, termId, userId, useLlm, setRow]
   );
 
-  const run = useCallback(async () => {
+  const run = useCallback(() => {
     if (!plan.length) return;
     cancelled.current = false;
     setRunning(true); setError(""); setSummary("");
-    try {
-      const results = await runQueue(plan, importOne, { concurrency: 3 });
-      const ok = results.filter((r) => r.ok);
-      const failed = results.filter((r) => !r.ok);
-      for (const f of failed) setRow(f.item.filename, { status: "error", note: f.error });
-
-      // One authoritative objectives write for the whole batch: the ordinary
-      // push is read-merge-write, so the objectives a replace removed would
-      // otherwise walk straight back in on the next pull.
-      if (userId) await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {});
-
-      setSummary(
-        `${ok.length} imported${failed.length ? `, ${failed.length} failed` : ""} · ` +
-        `${ok.reduce((n, r) => n + (r.value?.objectiveCount || 0), 0)} objectives in total.`
-      );
-      onImported?.();
-    } catch (e) {
-      setError("Import stopped: " + (e?.message || String(e)));
-    } finally {
-      setRunning(false);
-    }
-  }, [plan, importOne, userId, setRow, onImported]);
+    const total = plan.length;
+    startBackgroundJob({
+      label: `Processing ${total} lecture${total === 1 ? "" : "s"}`,
+      detail: `0/${total} complete`,
+      run: async (update) => {
+        const results = await runQueue(plan, importOne, {
+          concurrency: 3,
+          onProgress: (done, count) => update(`${done}/${count} complete · you can keep studying`),
+        });
+        const ok = results.filter((r) => r.ok);
+        const failed = results.filter((r) => !r.ok);
+        if (userId) await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {});
+        onImported?.();
+        if (!ok.length && failed.length) throw new Error(`All ${failed.length} lectures failed to process.`);
+        return `${ok.length} complete${failed.length ? ` · ${failed.length} failed` : ""} · ${ok.reduce((n, r) => n + (r.value?.objectiveCount || 0), 0)} objectives`;
+      },
+    });
+    onClose?.();
+  }, [plan, importOne, userId, onImported, onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={running ? undefined : onClose}>

@@ -38,6 +38,7 @@ import {
   upsertLecture,
 } from "../../logic/lectureIngest.js";
 import { toLocalRow } from "../../logic/bulkIngest.js";
+import { startBackgroundJob } from "../../backgroundJobs.js";
 
 /** Commands over the objectives store, built per call so no stale store is captured. */
 function makeObjectiveCommands(userId) {
@@ -308,11 +309,23 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setPreview(null);
       setSaved(lecture);
 
-      const objectives = await extractObjectives(lecture);
-      await buildTeachingMap(lecture);
-      const atoms = await extractAtomsStep(lecture);
-      await buildStudyAssets(lecture, objectives, atoms);
-      onAdded?.(lecture);
+      startBackgroundJob({
+        label: `Processing ${lecture.lectureTitle}`,
+        detail: "Reading objectives…",
+        run: async (update) => {
+          const objectives = await extractObjectives(lecture);
+          update(`Mapped ${objectives.length} objectives · analyzing lecture…`);
+          await buildTeachingMap(lecture);
+          update("Extracting high-yield atoms…");
+          const atoms = await extractAtomsStep(lecture);
+          if (!atoms.length) throw new Error("No high-yield atoms were extracted. Open the lecture and run Atoms again.");
+          update(`${atoms.length} atoms · building study guide and mental map…`);
+          await buildStudyAssets(lecture, objectives, atoms);
+          onAdded?.(lecture);
+          return `${objectives.length} objectives · ${atoms.length} atoms · study assets ready`;
+        },
+      });
+      onClose?.();
     } catch (e) {
       const msg = e?.message || String(e);
       setError(
