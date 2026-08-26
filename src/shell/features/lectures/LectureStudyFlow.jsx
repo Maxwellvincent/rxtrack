@@ -41,6 +41,7 @@ import * as studyGuideStore from "../../../stores/studyGuide.js";
 import * as masterGuideStore from "../../../stores/masterGuide.js";
 import { generateMentalModel } from "../../../engine/mentalModel.js";
 import * as mentalModelStore from "../../../stores/mentalModel.js";
+import * as mentalModelImpactStore from "../../../stores/mentalModelImpact.js";
 import { ROUND_SIZE, atomRounds, extractAtoms, isActiveQuizComplete, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
 import {
   clearRoundProgress,
@@ -215,6 +216,61 @@ export function MentalModelView({ model, onAtomClick }) {
   );
 }
 
+const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
+const seconds = (ms) => ms == null ? "—" : `${Math.round(ms / 1000)}s`;
+
+function MentalModelImpact({ entry, onMarkReviewed }) {
+  const impact = mentalModelImpactStore.impactFor(entry);
+  if (impact.state === "not-started") {
+    return (
+      <div className="mt-4 rounded-lg border border-border bg-bg-elevated p-4">
+        <div className="text-sm font-semibold text-text-1">Measure whether this model works</div>
+        <p className="mt-1 text-[13px] leading-relaxed text-text-2">
+          Explain the framework aloud without looking, then mark it reviewed. RXtrack will compare your existing baseline with new, timed questions.
+        </p>
+        <Button variant="outline" onClick={onMarkReviewed} className="mt-3">Start impact tracking</Button>
+      </div>
+    );
+  }
+
+  const labels = {
+    collecting: "Collecting evidence",
+    working: "Working",
+    partial: "Partially working",
+    "not-working": "Not improving yet",
+    mixed: "Mixed result",
+  };
+  const statusClass = impact.state === "working" ? "text-good" : impact.state === "not-working" ? "text-bad" : "text-accent";
+  const metric = (label, value, detail) => (
+    <div className="rounded border border-border bg-bg p-3">
+      <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">{label}</div>
+      <div className="mt-1 text-lg font-bold text-text-1">{value}</div>
+      <div className="font-mono text-[11px] text-text-3">{detail}</div>
+    </div>
+  );
+  return (
+    <div className="mt-4 rounded-lg border border-border bg-bg-elevated p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <div className="text-sm font-semibold text-text-1">Mental Model Impact</div>
+          <div className={`font-mono text-[12px] font-bold ${statusClass}`}>{labels[impact.state]}</div>
+        </div>
+        <button onClick={onMarkReviewed} className="font-mono text-[11px] text-text-3 underline">log another review</button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
+        {metric("Baseline", pct(impact.baseline.accuracy), `${impact.baseline.count} questions`)}
+        {metric("After model", pct(impact.post.accuracy), `${impact.post.count}/10 needed`)}
+        {metric("Hard / expert", pct(impact.transfer.accuracy), `${impact.transfer.count} transfer Qs`)}
+        {metric("24h+ retention", pct(impact.delayed24h.accuracy), `${impact.delayed24h.count} delayed Qs`)}
+        {metric("Median speed", seconds(impact.post.medianMs), impact.baseline.medianMs == null ? "new tracking" : `was ${seconds(impact.baseline.medianMs)}`)}
+      </div>
+      <p className="mt-3 font-mono text-[11px] leading-relaxed text-text-3">
+        A verdict appears after ≥5 baseline and ≥10 post-model questions. Seven-day retention: {pct(impact.retained7d.accuracy)} ({impact.retained7d.count}).
+      </p>
+    </div>
+  );
+}
+
 export function LectureStudyFlow({
   lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep,
   // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
@@ -302,6 +358,14 @@ export function LectureStudyFlow({
   // (not auto, like the study guide) since it costs more tokens per call; cached per lecture.
   const [mentalModel, setMentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
   const [generatingModel, setGeneratingModel] = useState(false);
+  const [impactEntry, setImpactEntry] = useState(() => mentalModelImpactStore.read(userId)[lecture?.id] || null);
+
+  useEffect(() => {
+    setImpactEntry(mentalModelImpactStore.read(userId)[lecture?.id] || null);
+    return mentalModelImpactStore.subscribe(() => {
+      setImpactEntry(mentalModelImpactStore.read(userId)[lecture?.id] || null);
+    });
+  }, [userId, lecture?.id]);
 
   // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
   // as a hung app, and the honest fix is to show the wait, not to hide it.
@@ -353,6 +417,11 @@ export function LectureStudyFlow({
     mentalModelStore.write(userId, lecture?.id, result.model);
     setMentalModel(result.model);
   }, [atoms, title, userId, lecture?.id]);
+
+  const markModelReviewed = useCallback(() => {
+    const next = mentalModelImpactStore.markReviewed(userId, lecture?.id, qStats);
+    setImpactEntry(next);
+  }, [userId, lecture?.id, qStats]);
 
   // Jump to an atom referenced by the framework — same target the quiz Summary's
   // "review this atom" link uses, so the highlight/scroll behavior is shared.
@@ -1188,7 +1257,10 @@ export function LectureStudyFlow({
             <span className="font-mono text-[12px] text-text-3">reasoning through the atoms…</span>
           )}
           {mentalModel && !generatingModel && (
-            <MentalModelView model={mentalModel} onAtomClick={jumpToAtomTerm} />
+            <>
+              <MentalModelView model={mentalModel} onAtomClick={jumpToAtomTerm} />
+              <MentalModelImpact entry={impactEntry} onMarkReviewed={markModelReviewed} />
+            </>
           )}
         </div>
       )}

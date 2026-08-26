@@ -11,6 +11,7 @@ import { recordObjectiveAttempt, selectBlockObjectives, storageKeyFor, toEntry }
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
+import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModelImpact.js";
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
 // Handles patterns like "(A) text", "(B) text" anywhere in the string.
@@ -155,6 +156,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       atomKey: q.atomKey || null,
       responseMs,
       taskType: classifyLeadIn(q.stem),
+      difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
     recordEvidence(userId, {
@@ -183,6 +185,13 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
     // the lecture's total has to reflect it.
     if (lectureId) {
       recordAnswer(userId, lectureId, isCorrect);
+      recordMentalModelAttempt(userId, lectureId, {
+        correct: isCorrect,
+        responseMs,
+        difficulty: q.difficulty || null,
+        taskType: classifyLeadIn(q.stem),
+        stem: q.stem,
+      });
       // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
       // generator doesn't, yet) — no atomKey means no mastery claim gets made on its behalf.
       if (q.atomKey) recordAtomAnswer(userId, lectureId, q.atomKey, isCorrect);
