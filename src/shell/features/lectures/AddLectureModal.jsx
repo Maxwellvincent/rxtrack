@@ -16,7 +16,6 @@ import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
 import {
   overwriteObjectivesInCloud,
-  pushAllLocalDataToSupabase,
   saveLectureAtoms,
   saveLectureToCloud,
 } from "../../../supabase.js";
@@ -38,6 +37,7 @@ import {
   parseLectureFilename,
   upsertLecture,
 } from "../../logic/lectureIngest.js";
+import { toLocalRow } from "../../logic/bulkIngest.js";
 
 /** Commands over the objectives store, built per call so no stale store is captured. */
 function makeObjectiveCommands(userId) {
@@ -185,8 +185,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         );
         if (userId) await saveLectureToCloud(userId, { ...lec, teachingMap: map, teachingMapDate });
         setSaved((prev) => (prev ? { ...prev, teachingMap: map, teachingMapDate } : prev));
-        if (userId) await pushAllLocalDataToSupabase(userId);
-
         setMapResult(
           `${sections} section${sections === 1 ? "" : "s"} mapped${map.clinicalHook ? " · clinical hook ready" : ""}.`
         );
@@ -285,8 +283,22 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       const { lectures, lecture: merged, action } = upsertLecture(current, incoming);
       const lecture = merged || incoming;
 
-      lecturesStore.write(userId, lectures);
-      if (userId) await pushAllLocalDataToSupabase(userId);
+      setProgress("Saving the full lecture…");
+      if (userId) {
+        const cloudResult = await saveLectureToCloud(userId, lecture);
+        if (!cloudResult?.saved) throw new Error(
+          cloudResult?.reason === "oversized"
+            ? "The extracted lecture is too large for one cloud document."
+            : `Lecture cloud save failed (${cloudResult?.reason || "unknown reason"}).`
+        );
+      }
+      // The full text is already durable in the lecture document. Keeping a
+      // second copy in localStorage is what made dense single uploads fail at
+      // the button press, before any enrichment could begin.
+      lecturesStore.write(
+        userId,
+        lectures.map((row) => row.id === lecture.id && userId ? toLocalRow(row) : row)
+      );
 
       setDone(
         action === "filled"
@@ -295,12 +307,12 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       );
       setPreview(null);
       setSaved(lecture);
-      onAdded?.(lecture);
 
       const objectives = await extractObjectives(lecture);
       await buildTeachingMap(lecture);
       const atoms = await extractAtomsStep(lecture);
       await buildStudyAssets(lecture, objectives, atoms);
+      onAdded?.(lecture);
     } catch (e) {
       const msg = e?.message || String(e);
       setError(
@@ -315,8 +327,8 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep, buildStudyAssets]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!busy) onClose?.(); }}>
+      <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">Add a lecture</div>
         <div className="mb-4 text-xs text-text-3">
           Drop a PDF in: it goes through marker OCR (local server → Datalab → Mistral, falling back to
@@ -417,7 +429,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           <Button onClick={addAndProcess} disabled={!preview || busy}>
             {busy ? "Working…" : preview?.action === "filled" ? "Fill and process" : "Add and process"}
           </Button>
-          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button variant="outline" onClick={onClose} disabled={busy}>Close</Button>
         </div>
       </div>
     </div>

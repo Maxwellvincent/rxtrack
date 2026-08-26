@@ -187,7 +187,12 @@ export async function fetchLectureContent(userId, lecId) {
  */
 export async function saveLectureToCloud(userId, lecture) {
   if (!userId || !lecture?.id) return { saved: false, reason: "no user or lecture id" };
-  const { chunks, ...rest } = lecture;
+  const { chunks, fullText, ...rest } = lecture;
+  // OCR records often carry the same lecture twice: page chunks plus one
+  // concatenated fullText field. Persisting both can cross Firestore's 1 MB
+  // document limit and make a perfectly extracted deck appear to save while
+  // nothing reaches the cloud. Chunks are the canonical body when present.
+  if ((!chunks || !chunks.length) && fullText) rest.fullText = fullText;
   // Firestore rejects undefined outright, and one bad field kills the write.
   const meta = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
   const payload = {
