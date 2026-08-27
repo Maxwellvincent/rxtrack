@@ -107,6 +107,15 @@ function AtomChips({ terms, onAtomClick }) {
  * traces to real atoms shows them as chips so the atoms attach onto the structure instead of
  * sitting beside it.
  */
+export function ModelSection({ title, children, count }) {
+  return <details className="rounded-lg border border-border bg-bg-elevated p-3">
+    <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+      {title}{count != null && <span className="ml-2 text-sm font-normal text-text-2">({count})</span>}
+    </summary>
+    <div className="mt-2 text-sm leading-relaxed">{children}</div>
+  </details>;
+}
+
 export function MentalModelView({ model, onAtomClick }) {
   const {
     bigPicture, components = [], relationships = [], mechanisms = [],
@@ -116,107 +125,92 @@ export function MentalModelView({ model, onAtomClick }) {
   return (
     <div className="mt-3 flex flex-col gap-4">
       {bigPicture && (
-        <div className="rounded-lg border border-border bg-bg-elevated p-3">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">Big picture</div>
+        <ModelSection title="Big picture">
           <p className="text-sm text-text-1">{bigPicture}</p>
-        </div>
+        </ModelSection>
       )}
 
       {components.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-sm font-semibold text-text-1">Components</div>
+        <ModelSection title="Components" count={components.length}>
           <div className="flex flex-col gap-1.5">
             {components.map((c, i) => (
-              <div key={i} className="rounded-lg border-l-2 border-l-accent bg-bg-elevated px-3 py-2 text-xs">
-                <span className="font-semibold text-text-1">{c.name}</span>
+              <ModelSection key={i} title={c.name}>
                 {c.role && <span className="text-text-2"> — {c.role}</span>}
                 <AtomChips terms={c.atomTerms} onAtomClick={onAtomClick} />
-              </div>
+              </ModelSection>
             ))}
           </div>
-        </div>
+        </ModelSection>
       )}
 
       {relationships.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-sm font-semibold text-text-1">Relationships</div>
+        <ModelSection title="Relationships" count={relationships.length}>
           <div className="flex flex-col gap-1.5">
             {relationships.map((r, i) => (
-              <div key={i} className="rounded-lg border-l-2 border-l-good bg-bg-elevated px-3 py-2 text-xs">
-                <span className="font-semibold text-text-1">{r.from} → {r.to}</span>
+              <ModelSection key={i} title={`${r.from} → ${r.to}`}>
                 {r.connection && <span className="text-text-2"> — {r.connection}</span>}
                 {r.why && <div className="mt-1 text-text-3">why: {r.why}</div>}
                 <AtomChips terms={r.atomTerms} onAtomClick={onAtomClick} />
-              </div>
+              </ModelSection>
             ))}
           </div>
-        </div>
+        </ModelSection>
       )}
 
       {mechanisms.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-sm font-semibold text-text-1">Mechanisms &amp; flows</div>
+        <ModelSection title="Mechanisms & flows" count={mechanisms.length}>
           <div className="flex flex-col gap-1.5">
             {mechanisms.map((m, i) => (
-              <div key={i} className="rounded-lg border-l-2 border-l-accent bg-bg-elevated px-3 py-2 text-xs">
-                <span className="font-semibold text-text-1">{m.name}</span>
+              <ModelSection key={i} title={m.name}>
                 {m.steps?.length > 0 && (
                   <ol className="mt-1 list-decimal pl-4 text-text-2">
                     {m.steps.map((s, j) => <li key={j}>{s}</li>)}
                   </ol>
                 )}
                 <AtomChips terms={m.atomTerms} onAtomClick={onAtomClick} />
-              </div>
+              </ModelSection>
             ))}
           </div>
-        </div>
+        </ModelSection>
       )}
 
       {causeEffect.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-sm font-semibold text-text-1">Cause &amp; effect</div>
+        <ModelSection title="Cause & effect" count={causeEffect.length}>
           <div className="flex flex-col gap-1.5">
             {causeEffect.map((ce, i) => (
-              <div key={i} className="rounded-lg border-l-2 border-l-bad bg-bg-elevated px-3 py-2 text-xs">
-                <span className="font-semibold text-text-1">{ce.cause}</span>
+              <ModelSection key={i} title={ce.cause}>
                 <span className="text-text-2"> ⇒ {ce.effect}</span>
                 {ce.why && <div className="mt-1 text-text-3">why: {ce.why}</div>}
                 <AtomChips terms={ce.atomTerms} onAtomClick={onAtomClick} />
-              </div>
+              </ModelSection>
             ))}
           </div>
-        </div>
+        </ModelSection>
       )}
 
       {clinicalApplication.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-sm font-semibold text-text-1">Clinical application</div>
+        <ModelSection title="Clinical application" count={clinicalApplication.length}>
           <div className="flex flex-col gap-1.5">
             {clinicalApplication.map((c, i) => (
-              <div key={i} className="rounded-lg border-l-2 border-l-good bg-bg-elevated px-3 py-2 text-xs">
-                <span className="font-semibold text-text-1">{c.scenario}</span>
+              <ModelSection key={i} title={c.scenario}>
                 {c.connection && <span className="text-text-2"> — {c.connection}</span>}
                 <AtomChips terms={c.atomTerms} onAtomClick={onAtomClick} />
-              </div>
+              </ModelSection>
             ))}
           </div>
-        </div>
+        </ModelSection>
       )}
 
       {confusedPairs.length > 0 && (
-        <div>
-          <div className="mb-1.5 text-sm font-semibold text-text-1">Easily confused</div>
+        <ModelSection title="Easily confused" count={confusedPairs.length}>
           <div className="flex flex-col gap-1.5">
             {confusedPairs.map((p, i) => (
-              <div key={i} className="rounded-lg border-l-2 border-l-warn bg-bg-elevated px-3 py-2 text-xs">
-                <span className="font-semibold text-text-1">{p.a}</span>
-                <span className="text-text-3"> vs </span>
-                <span className="font-semibold text-text-1">{p.b}</span>
+              <ModelSection key={i} title={`${p.a} vs ${p.b}`}>
                 {p.distinction && <div className="mt-1 text-text-2">{p.distinction}</div>}
-              </div>
+              </ModelSection>
             ))}
           </div>
-        </div>
+        </ModelSection>
       )}
     </div>
   );
@@ -1288,11 +1282,12 @@ export function LectureStudyFlow({
           big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
           application, each node linked back to the atoms that support it. */}
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mt-5 w-full max-w-3xl border-t border-border pt-4">
+        <details className="mt-5 w-full max-w-3xl border-t border-border pt-4">
+          <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
+            Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span>
+          </summary>
+          <p className="my-2 text-sm text-text-2">Use this as a reference for your own mental model. Open only the connection you want to work on.</p>
           <div className="mb-2 flex items-center gap-3">
-            <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">
-              Mental model
-            </span>
             {mentalModel && !generatingModel && (
               <button
                 onClick={generateModel}
@@ -1319,10 +1314,12 @@ export function LectureStudyFlow({
           {mentalModel && !generatingModel && (
             <>
               <MentalModelView model={mentalModel} onAtomClick={jumpToAtomTerm} />
-              <MentalModelImpact entry={impactEntry} onMarkReviewed={markModelReviewed} />
+              <ModelSection title="Model impact & review tracking">
+                <MentalModelImpact entry={impactEntry} onMarkReviewed={markModelReviewed} />
+              </ModelSection>
             </>
           )}
-        </div>
+        </details>
       )}
 
       {/* The atom list is reference, not the session. Reading it is the passive habit this

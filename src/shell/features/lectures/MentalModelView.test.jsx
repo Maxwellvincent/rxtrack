@@ -47,4 +47,21 @@ describe("MentalModelView", () => {
     const container = mount(<MentalModelView model={{}} onAtomClick={() => {}} />);
     expect(container.querySelector("div").children.length).toBe(0);
   });
+  it("starts every section and individual entry collapsed and toggles independently", () => {
+    const container = mount(<MentalModelView model={model} />);
+    const disclosures = [...container.querySelectorAll("details")];
+    expect(disclosures).toHaveLength(13);
+    expect(disclosures.every((d) => !d.open)).toBe(true);
+    const components = disclosures.find((d) => d.querySelector("summary").textContent.startsWith("Components"));
+    act(() => { components.querySelector("summary").click(); });
+    expect(components.open).toBe(true);
+    const renin = components.querySelector("details");
+    expect(renin.open).toBe(false);
+    act(() => { renin.querySelector("summary").click(); });
+    expect(renin.open).toBe(true);
+    expect(container.textContent).toContain("protease");
+    act(() => { components.querySelector("summary").click(); });
+    expect(components.open).toBe(false);
+    expect(disclosures.filter((d) => d !== renin).every((d) => !d.open)).toBe(true);
+  });
 });
