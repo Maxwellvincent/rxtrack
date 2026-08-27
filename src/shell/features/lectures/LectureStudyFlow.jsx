@@ -1338,16 +1338,17 @@ export function LectureStudyFlow({
           screen used to force; it stays one click away for when you actually want it. */}
       {/* Study guide — auto-generated searchable topics, checkable */}
       {(studyGuide || generatingGuide) && (
-        <div className="mt-5 border-t border-border pt-4">
-          <div className="mb-2 flex items-center gap-3">
-            <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">
+        <details className="mt-5 w-full max-w-3xl border-t border-border pt-4">
+          <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
               Study guide
               {studyGuide && !generatingGuide && (
-                <span className="ml-1.5 text-text-3 font-normal normal-case font-mono">
-                  · {studyGuide.topics.filter((t) => !t.checked).length} remaining
+                <span className="ml-1.5 text-sm text-text-2 font-normal">
+                  · {studyGuide.topics.filter((t) => t.checked).length}/{studyGuide.topics.length} complete
                 </span>
               )}
-            </span>
+              {generatingGuide && <span role="status" className="ml-1.5 text-sm font-normal text-text-2">· building…</span>}
+          </summary>
+          <div className="mt-2">
             {!generatingGuide && studyGuide && (
               <button
                 onClick={() => { guideGenRef.current = false; generateGuide(atoms, lectureObjectives); }}
@@ -1384,7 +1385,7 @@ export function LectureStudyFlow({
               ))}
             </div>
           )}
-        </div>
+        </details>
       )}
 
       {atoms.length > 0 && (
