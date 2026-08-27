@@ -16,7 +16,7 @@ const atom = (over = {}) => ({ type: "definition", term: "Plexus", content: "A n
 
 describe("lecture text", () => {
   it("prefers chunks, then flat fields", () => {
-    expect(lectureTextFrom({ chunks: [{ markdown: "a" }, { text: "b" }] })).toBe("a\n\nb");
+    expect(lectureTextFrom({ chunks: [{ markdown: "a" }, { text: "b" }] })).toBe("a\n\f\nb");
     expect(lectureTextFrom({ chunks: [], fullText: "flat" })).toBe("flat");
     expect(lectureTextFrom({ meta: { extractedText: "from meta" } })).toBe("from meta");
     expect(lectureTextFrom(null)).toBe("");

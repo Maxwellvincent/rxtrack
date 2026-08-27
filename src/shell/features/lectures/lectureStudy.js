@@ -21,7 +21,7 @@ export const MIN_TEXT = 200;
 /** Lecture body from whatever the source has: chunks first, then flat fields. */
 export function lectureTextFrom(source) {
   if (!source) return "";
-  const chunks = (source.chunks || []).map(getChunkBody).filter(Boolean).join("\n\n");
+  const chunks = (source.chunks || []).map(getChunkBody).filter(Boolean).join("\n\f\n");
   if (chunks.trim()) return chunks;
   const meta = source.meta || source;
   return String(meta.extractedText || meta.content || meta.fullText || "");

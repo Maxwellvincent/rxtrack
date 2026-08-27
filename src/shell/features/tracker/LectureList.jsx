@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
+import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
@@ -73,7 +74,7 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef }) {
+function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef }) {
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
@@ -141,6 +142,7 @@ function Row({ row, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDe
             </button>
             {menuOpen && (
               <div className="absolute right-0 top-7 z-20 min-w-44 rounded border border-border bg-bg p-2 shadow-lg">
+                <RenameLecture userId={userId} lectureId={row.lectureId} title={row.title} onRenamed={() => setMenuOpen(false)} />
                 {!confirmDelete ? (
                   <button
                     onClick={() => setConfirmDelete(true)}
@@ -416,6 +418,7 @@ export function LectureList({
               onQuiz={onQuiz}
               onLog={onLog}
               onUpdateDate={onUpdateDate}
+              userId={userId}
               onPreRead={setPreReadTarget}
               onDelete={onDelete}
               deleting={deletingLectureId}

@@ -56,6 +56,7 @@ import * as questionStats from "../../../stores/lectureQuestionStats.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
+import { RenameLecture } from "./RenameLecture.jsx";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -301,6 +302,7 @@ export function LectureStudyFlow({
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [objectiveNotice, setObjectiveNotice] = useState("");
+  const [renamedTitle, setRenamedTitle] = useState("");
   const objectiveResource = useObjectives(null, userId);
   const lectureObjectives = useMemo(() => {
     const all = selectBlockObjectives(objectiveResource.data, blockId);
@@ -1062,7 +1064,8 @@ export function LectureStudyFlow({
           </div>
         )}
       </div>
-      <h2 className="text-lg font-bold text-text-1">{title}</h2>
+      <h2 className="text-lg font-bold text-text-1">{renamedTitle || title}</h2>
+      <RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} />
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
@@ -1294,7 +1297,7 @@ export function LectureStudyFlow({
           big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
           application, each node linked back to the atoms that support it. */}
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mt-5 border-t border-border pt-4">
+        <div className="mt-5 w-full max-w-3xl border-t border-border pt-4">
           <div className="mb-2 flex items-center gap-3">
             <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">
               Mental model
@@ -1360,7 +1363,7 @@ export function LectureStudyFlow({
           {studyGuide && (
             <div className="flex flex-col gap-1.5">
               {studyGuide.topics.map((t) => (
-                <label key={t.id} className="flex cursor-pointer items-start gap-2.5 group">
+                <label key={t.id} className="flex w-fit max-w-full cursor-pointer items-start gap-2.5 rounded py-2 group">
                   <input
                     type="checkbox"
                     checked={t.checked || false}

@@ -4,6 +4,13 @@ import { extractTypedHighYield } from "./extractHighYield.js";
 const longText = "Endocrine physiology. ".repeat(30); // > 200 chars
 
 describe("extractTypedHighYield", () => {
+  it("preserves provider errors rather than calling them empty lectures", async () => {
+    const callAIJSON = vi.fn().mockRejectedValue(new Error("AI usage limit reached"));
+    const result = await extractTypedHighYield(longText, {}, { callAIJSON });
+    expect(result.error).toContain("usage limit");
+    expect(callAIJSON.mock.calls[0][6]).toEqual({ throwOnError: true });
+    expect(callAIJSON).toHaveBeenCalledOnce();
+  });
   it("calls the injected AI with the lecture text and normalizes the atoms", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({
       atoms: [

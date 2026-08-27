@@ -207,7 +207,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
    * manually, right after upload.
    */
   const extractAtomsStep = useCallback(
-    async (lecture) => {
+    async (lecture, throwOnFailure = false) => {
       const lec = lecture || saved;
       if (!lec) return;
       const text = lectureText(lec);
@@ -223,13 +223,13 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           { callAIJSON, saveAtoms: saveLectureAtoms, userId }
         );
         if (result.error) {
-          setAtomsResult("⚠ " + result.error);
-          return [];
+          throw new Error(result.error);
         }
         setAtomsResult(`${result.atoms.length} atom${result.atoms.length === 1 ? "" : "s"} extracted.`);
         return result.atoms;
       } catch (e) {
         setAtomsResult("⚠ Atom extraction failed: " + (e?.message || String(e)));
+        if (throwOnFailure) throw e;
         return [];
       } finally {
         setProgress("");
@@ -317,7 +317,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           update(`Mapped ${objectives.length} objectives · analyzing lecture…`);
           await buildTeachingMap(lecture);
           update("Extracting high-yield atoms…");
-          const atoms = await extractAtomsStep(lecture);
+          const atoms = await extractAtomsStep(lecture, true);
           if (!atoms.length) throw new Error("No high-yield atoms were extracted. Open the lecture and run Atoms again.");
           update(`${atoms.length} atoms · building study guide and mental map…`);
           await buildStudyAssets(lecture, objectives, atoms);

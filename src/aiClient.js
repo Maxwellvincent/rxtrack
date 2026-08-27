@@ -282,7 +282,8 @@ export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explici
 }
 
 /**
- * JSON completion — never throws, returns `fallback` on any failure (parse
+ * JSON completion — defaults to `fallback` on failure; extraction can opt into
+ * throwing with the seventh argument { throwOnError: true }. (Parse
  * errors are handled server-side; transport/provider errors are caught here).
  * 5th arg: explicit provider, or omit for DEFAULT_PROVIDER.
  */
@@ -292,7 +293,8 @@ export async function callAIJSON(
   fallback = {},
   maxTokens = 1000,
   explicitProvider,
-  temperature
+  temperature,
+  options = {}
 ) {
   const safeFallback = fallback !== undefined && fallback !== null ? fallback : {};
   const provider =
@@ -316,7 +318,7 @@ export async function callAIJSON(
     const userResult = await callUserKeyDirect(systemPrompt, userPrompt, true, maxTokens);
     if (userResult !== null) {
       try { return JSON.parse(userResult); }
-      catch { return safeFallback; }
+      catch { console.warn("User key returned invalid JSON; trying cloud."); }
     }
   } catch (e) {
     if (e.message !== "no-key") console.warn("user key JSON call failed, using cloud:", e.message);
@@ -327,11 +329,13 @@ export async function callAIJSON(
       aiCompleteCall({ system: systemPrompt, prompt: userPrompt, json: true, maxTokens, model, temperature })
     );
     markProviderHealthy(provider);
+    if (res.data?.data == null) throw new Error("AI returned an empty or invalid JSON response. Please retry.");
     return res.data.data;
   } catch (err) {
     const { is403, is429, msg } = classifyProviderFailure(err);
     if (is403 || is429) markProviderError(provider, is403 ? 403 : 429);
     console.error("callAIJSON failed:", msg);
+    if (options.throwOnError) throw new Error(msg || "AI service unavailable. Check the local bridge or cloud AI connection and retry.");
     return safeFallback;
   }
 }

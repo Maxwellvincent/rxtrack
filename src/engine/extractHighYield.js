@@ -51,7 +51,7 @@ Type: ${lecInfo.lectureType || "LEC"}
 
 ${retry ? "The earlier content window produced no usable atoms. Extract concrete testable facts from this window; do not return an empty list when medical facts are present.\n\n" : ""}LECTURE CONTENT (markdown — bolded terms appear inside **double asterisks**):
 ${text}`;
-    const result = await callAIJSON(SYSTEM, user, { atoms: [] }, maxTokens);
+    const result = await callAIJSON(SYSTEM, user, { atoms: [] }, maxTokens, undefined, undefined, { throwOnError: true });
     return normalizeResponse(result);
   };
 
