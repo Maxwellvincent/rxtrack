@@ -216,6 +216,19 @@ export function MentalModelView({ model, onAtomClick }) {
   );
 }
 
+export function MentalModelOverview({ model, onAtomClick, children }) {
+  return <div className="mt-3 space-y-3">
+    <p className="text-base leading-relaxed text-text-1">
+      {model.bigPicture || "No overview paragraph was saved for this model. The reference details are still available below."}
+    </p>
+    <ModelSection title="Reference details">
+      <p className="text-sm text-text-2">Optional lookup material for your chat walkthrough—not a checklist to complete.</p>
+      <MentalModelView model={{ ...model, bigPicture: null }} onAtomClick={onAtomClick} />
+      {children}
+    </ModelSection>
+  </div>;
+}
+
 const pct = (value) => value == null ? "—" : `${Math.round(value * 100)}%`;
 const seconds = (ms) => ms == null ? "—" : `${Math.round(ms / 1000)}s`;
 
@@ -1286,25 +1299,13 @@ export function LectureStudyFlow({
           <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
             Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span>
           </summary>
-          <p className="my-2 text-sm text-text-2">Use this as a reference for your own mental model. Open only the connection you want to work on.</p>
-          <div className="mb-2 flex items-center gap-3">
-            {mentalModel && !generatingModel && (
-              <button
-                onClick={generateModel}
-                disabled={!!busy}
-                className="font-mono text-[11px] text-text-3 underline decoration-dotted hover:text-text-1"
-              >
-                regenerate
-              </button>
-            )}
-          </div>
           {!mentalModel && !generatingModel && (
             <div className="flex items-center gap-3">
               <Button variant="outline" onClick={generateModel} disabled={!!busy}>
                 ◇ Build mental model
               </Button>
               <span className="text-[12px] text-text-3">
-                how these atoms connect — components, relationships, mechanisms, cause/effect, clinical use
+                a big-picture paragraph, with optional reference details
               </span>
             </div>
           )}
@@ -1312,12 +1313,14 @@ export function LectureStudyFlow({
             <span className="font-mono text-[12px] text-text-3">reasoning through the atoms…</span>
           )}
           {mentalModel && !generatingModel && (
-            <>
-              <MentalModelView model={mentalModel} onAtomClick={jumpToAtomTerm} />
+            <MentalModelOverview model={mentalModel} onAtomClick={jumpToAtomTerm}>
               <ModelSection title="Model impact & review tracking">
                 <MentalModelImpact entry={impactEntry} onMarkReviewed={markModelReviewed} />
               </ModelSection>
-            </>
+              <button onClick={generateModel} disabled={!!busy} className="mt-3 min-h-11 text-sm text-text-2 underline decoration-dotted">
+                Regenerate reference model
+              </button>
+            </MentalModelOverview>
           )}
         </details>
       )}

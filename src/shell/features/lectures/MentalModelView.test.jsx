@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { act } from "react";
 import { describe, expect, it } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
-import { MentalModelView } from "./LectureStudyFlow.jsx";
+import { MentalModelView, MentalModelOverview } from "./LectureStudyFlow.jsx";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,6 +27,22 @@ function mount(ui) {
 
 describe("MentalModelView", () => {
   installDomStorage();
+
+  it("puts the overview paragraph first and hides all lookup material behind one disclosure", () => {
+    const container = mount(<MentalModelOverview model={model}><button>Tracking tool</button></MentalModelOverview>);
+    const paragraph = container.querySelector("p");
+    expect(paragraph.textContent).toBe(model.bigPicture);
+    expect(paragraph.closest("details")).toBe(null);
+    const reference = container.querySelector("details");
+    expect(reference.querySelector("summary").textContent).toBe("Reference details");
+    expect(reference.open).toBe(false);
+    expect(reference.textContent).toContain("Renin");
+    expect(reference.textContent).toContain("Tracking tool");
+    expect(reference.textContent).not.toContain(model.bigPicture);
+    act(() => { reference.querySelector("summary").click(); });
+    expect(reference.open).toBe(true);
+    expect([...reference.querySelectorAll("details")].every((d) => !d.open)).toBe(true);
+  });
 
   it("renders every section without throwing and wires atom-chip clicks", () => {
     let clicked = null;
