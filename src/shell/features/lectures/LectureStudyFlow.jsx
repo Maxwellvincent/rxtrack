@@ -15,10 +15,13 @@ import {
   saveLectureAtoms,
   saveLectureImages,
   uploadLectureImages,
+  overwriteObjectivesInCloud,
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
-import { selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
+import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
+import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
+import { useObjectives } from "../../hooks/useObjectives.js";
 import { resolveObjectiveTarget } from "../../logic/graduationGate.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as performanceStore from "../../../stores/performance.js";
@@ -297,6 +300,12 @@ export function LectureStudyFlow({
   const [completedQuizSessionId, setCompletedQuizSessionId] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [objectiveNotice, setObjectiveNotice] = useState("");
+  const objectiveResource = useObjectives(null, userId);
+  const lectureObjectives = useMemo(() => {
+    const all = selectBlockObjectives(objectiveResource.data, blockId);
+    return all.filter((o) => o?.linkedLecId === lecture?.id);
+  }, [objectiveResource.data, blockId, lecture?.id]);
   const [round, setRound] = useState(0);
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
@@ -458,8 +467,31 @@ export function LectureStudyFlow({
     return () => { alive = false; };
   }, [lecture, userId]);
 
+  const recoverObjectives = useCallback(async (sourceText) => {
+    if (objectiveResource.loading) throw new Error("Objectives are still syncing. Try again in a moment.");
+    const found = await extractObjectivesFromLecture(sourceText, { ...lecture, chunks: [] }, blockId);
+    if (!found.length) throw new Error("No explicit objectives recovered from the stored text. The atoms have been preserved.");
+    const commands = createObjectiveCommands({
+      read: () => objectivesStore.read(userId) || {},
+      write: (next) => objectivesStore.write(userId, next),
+      notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
+    });
+    commands.replaceLectureObjectives(blockId, lecture?.id, found);
+    if (userId) {
+      const saved = await overwriteObjectivesInCloud(userId, { [blockId]: objectivesStore.read(userId)?.[blockId] });
+      if (saved.errors?.length) throw new Error("Objectives recovered locally, but cloud saving failed. Please retry when connected.");
+    }
+    setObjectiveNotice(`${found.length} lecture objectives recovered and linked.`);
+    return found;
+  }, [lecture, blockId, userId, objectiveResource.loading]);
+
   const runExtract = useCallback(async (sourceText) => {
     setBusy("Reading the lecture…"); setError("");
+    try {
+      if (!lectureObjectives.length) await recoverObjectives(sourceText);
+    } catch (e) {
+      setError(`Objective recovery: ${e?.message || String(e)}`);
+    }
     const r = await extractAtoms(lecture, sourceText, {
       callAIJSON, saveAtoms: saveLectureAtoms, userId,
     });
@@ -472,7 +504,7 @@ export function LectureStudyFlow({
     setStage("quiz");
     // Update cross-lecture atom index (non-blocking, non-critical)
     try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, r.atoms); } catch { /* ok */ }
-  }, [lecture, userId, blockId]);
+  }, [lecture, userId, blockId, recoverObjectives, lectureObjectives.length]);
 
   const onFile = useCallback(async (file) => {
     if (!file) return;
@@ -481,12 +513,6 @@ export function LectureStudyFlow({
     if (uploaded.trim().length < 200) { setError("That file has almost no text in it."); return; }
     await runExtract(uploaded);
   }, [runExtract]);
-
-  // This lecture's objectives, by id — the tagging target and the chip labels.
-  const lectureObjectives = useMemo(() => {
-    const all = selectBlockObjectives(objectivesStore.read(userId), blockId);
-    return all.filter((o) => o?.linkedLecId === lecture?.id);
-  }, [blockId, userId, lecture?.id]);
 
   const objectiveById = useMemo(
     () => new Map(lectureObjectives.map((o) => [o.id, o])),
@@ -1037,6 +1063,18 @@ export function LectureStudyFlow({
         )}
       </div>
       <h2 className="text-lg font-bold text-text-1">{title}</h2>
+      {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
+      {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
+        <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
+          <span className="text-sm text-text-2">{objectiveResource.loading ? "Syncing lecture objectives…" : "No objectives linked yet. Recover them from the saved lecture without replacing your atoms."}</span>
+          <Button variant="outline" disabled={!!busy || objectiveResource.loading} onClick={async () => {
+            setBusy("Recovering lecture objectives…"); setError("");
+            try { await recoverObjectives(text); }
+            catch (e) { setError(e?.message || String(e)); }
+            finally { setBusy(""); }
+          }}>{busy || "Recover lecture objectives"}</Button>
+        </div>
+      )}
       <div className="mb-4 font-mono text-[13px] text-text-3">
         {stage === "loading" ? "loading lecture…" : `${atoms.length} high-yield atoms`}
       </div>

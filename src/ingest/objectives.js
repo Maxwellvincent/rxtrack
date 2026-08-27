@@ -338,6 +338,27 @@ export function extractCodeDelimited(text, lec, blockId) {
   return results;
 }
 
+/** Prefer explicitly labelled objective slides over codes in unrelated DLA slides/footers. */
+export function extractScopedLectureObjectives(text, lec, blockId) {
+  // PDF page breaks are not JavaScript multiline anchors. Keep the boundary
+  // while allowing headings immediately after it to match as their own line.
+  const src = String(text || "").replace(/\f/g, "\n\f\n");
+  const headings = [...src.matchAll(/^[ \t#*]*(Lecture|DLA|TBL|LAB|SG)\b[^\n\f]{0,120}\bObjectives\b[^\n\f]*$/gim)];
+  const activity = String(lec?.lectureType || "LEC").toUpperCase();
+  const selected = headings.filter((h) => (h[1].toLowerCase() === "lecture" ? "LEC" : h[1].toUpperCase()) === activity);
+  if (!selected.length) return null;
+  const objectives = selected.flatMap((heading) => {
+    const start = heading.index + heading[0].length;
+    const following = headings.find((h) => h.index > heading.index)?.index ?? src.length;
+    const pageEnd = src.indexOf("\f", start);
+    const nextMarkdownHeading = src.slice(start).search(/\n[ \t]*(?:#{1,6}[ \t]+|---[ \t]*(?:\n|$))/);
+    const end = Math.min(following, pageEnd < 0 ? src.length : pageEnd,
+      nextMarkdownHeading < 0 ? src.length : start + nextMarkdownHeading);
+    return extractCodeDelimited(src.slice(start, end), lec, blockId);
+  });
+  return deduplicateExtractedObjectives(objectives);
+}
+
 export function extractFromTableText(text, lec, blockId) {
   if (!text) return [];
   const src = normalizeSomCodesInText(text.toString());
@@ -1057,6 +1078,11 @@ ${text.slice(0, 14000)}`;
 async function _extractObjectivesFromLectureCore(rawText, lec, blockId, fullText) {
   const bid = blockId ?? lec?.blockId;
   const isCPR = typeof bid === "string" && bid.toLowerCase().startsWith("cpr");
+
+  for (const source of [(lec?.chunks || []).map(getChunkBody).join("\f"), rawText]) {
+    const scoped = extractScopedLectureObjectives(source, lec, bid);
+    if (scoped?.length) return scoped;
+  }
 
   /**
    * Coded objectives come first, for EVERY block.

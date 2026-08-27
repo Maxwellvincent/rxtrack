@@ -12,7 +12,10 @@ import {
   extractCodeDelimited,
   extractFromTableText,
   parseObjectiveActivityTag,
+  extractObjectivesFromLecture,
+  extractScopedLectureObjectives,
 } from "./objectives.js";
+import { execFileSync } from "node:child_process";
 
 /** The AI-free half of the extractor. The passes that call a model are covered
  *  by the live upload, not here — what is worth pinning is the parsing. */
@@ -25,6 +28,30 @@ vi.mock("../aiClient.js", () => ({
 }));
 
 const lec = { id: "lec1", lectureType: "LEC", lectureNumber: 3, lectureTitle: "The Back" };
+
+describe("separate lecture and DLA objective slides", () => {
+  const mixed = "DLA: Developmental Genetics Objectives\nSOM.MK.ER.GNET.1001 Describe developmental signaling.\fLecture Objectives Genetic Screening\nSOM.MK.ER.GNET.1012 Differentiate screening strategies.\nSOM.MK.ER.GNET.1013 Discuss predictive testing.\fOther slide\nSOM.MK.ER.GNET.1014 Incidental footer content.";
+  it("selects only the lecture objective slide", async () => {
+    expect((await extractObjectivesFromLecture(mixed, lec, "er")).map((o) => o.code))
+      .toEqual(["SOM.MK.ER.GNET.1012", "SOM.MK.ER.GNET.1013"]);
+  });
+  it("keeps the DLA objectives available for a DLA upload", () => {
+    expect(extractScopedLectureObjectives(mixed, { ...lec, lectureType: "DLA" }, "er").map((o) => o.code))
+      .toEqual(["SOM.MK.ER.GNET.1001"]);
+  });
+  it("respects markdown page separators from the upload parser", async () => {
+    const markdown = mixed.replace(/\f/g, "\n\n---\n\n");
+    const result = await extractObjectivesFromLecture(markdown, lec, "er");
+    expect(result.map((o) => o.code)).toEqual(["SOM.MK.ER.GNET.1012", "SOM.MK.ER.GNET.1013"]);
+    expect(result[1].objective).not.toContain("Other slide");
+  });
+  it.skipIf(!process.env.RXTRACK_VERIFY_PDF)("verifies all eight objectives against the actual Genetic Screening PDF", async () => {
+    const text = execFileSync("pdftotext", ["-raw", process.env.RXTRACK_VERIFY_PDF, "-"], { encoding: "utf8" });
+    const result = await extractObjectivesFromLecture(text, { ...lec, lectureTitle: "Genetic Screening", lectureNumber: 21 }, "er");
+    expect(result.map((o) => o.code.split(".").at(-1))).toEqual(["1012", "1013", "1014", "1015", "1016", "1017", "1018", "1019"]);
+    expect(result.every((o) => o.linkedLecId === lec.id)).toBe(true);
+  });
+});
 
 beforeEach(() => {
   vi.spyOn(console, "warn").mockImplementation(() => {});
