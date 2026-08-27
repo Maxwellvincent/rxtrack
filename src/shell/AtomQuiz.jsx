@@ -194,7 +194,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       });
       // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
       // generator doesn't, yet) — no atomKey means no mastery claim gets made on its behalf.
-      if (q.atomKey) recordAtomAnswer(userId, lectureId, q.atomKey, isCorrect);
+      if (q.atomKey) recordAtomAnswer(userId, lectureId, q.atomKey, isCorrect, { ...q, picked, confidence: level });
     }
     setRecords((prev) => [...prev, rec]);
   };

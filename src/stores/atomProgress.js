@@ -22,6 +22,7 @@ import {
 } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 import { mergeAtomProgress } from "./merge.js";
+import { saveRepairEvidence } from "./modelRepairEvidence.js";
 
 export const key = "rxt-atom-progress";
 const fallback = {};
@@ -42,12 +43,13 @@ export function write(userId, value) {
  * `atomKey` is the caller's job to compute (`normAtomKey(atom.term)`) — this store doesn't know
  * what an atom is, only how to track outcomes against a key.
  */
-export function recordAtomAnswer(userId, lectureId, atomKey, wasCorrect) {
+export function recordAtomAnswer(userId, lectureId, atomKey, wasCorrect, question = null) {
   if (!lectureId || !atomKey) return read(userId);
   const current = read(userId);
   const prevLecture = current[lectureId] || {};
   const prev = prevLecture[atomKey] || { correctCount: 0, missCount: 0 };
   const entry = {
+    ...prev,
     status: wasCorrect ? "complete" : "needs-review",
     correctCount: prev.correctCount + (wasCorrect ? 1 : 0),
     missCount: prev.missCount + (wasCorrect ? 0 : 1),
@@ -57,6 +59,7 @@ export function recordAtomAnswer(userId, lectureId, atomKey, wasCorrect) {
     [lectureId]: { ...prevLecture, [atomKey]: entry },
   });
   write(userId, next);
+  if (!wasCorrect && question) saveRepairEvidence(userId, lectureId, atomKey, question);
   return next;
 }
 

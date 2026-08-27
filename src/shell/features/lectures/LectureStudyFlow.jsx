@@ -57,6 +57,7 @@ import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
+import { ModelRepairs } from "./ModelRepairs.jsx";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -327,8 +328,6 @@ export function LectureStudyFlow({
   );
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
-  // Track last round result to surface "Go Deep" prompt on completion
-  const [lastResult, setLastResult] = useState(null);
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
@@ -892,7 +891,6 @@ export function LectureStudyFlow({
             setQStats(questionStats.statsForLecture(userId, lecture?.id));
             refreshAtomMastery();
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
-            if (isLastRound) setLastResult({ score, hasLandmines });
 
             // A correctly-answered question earns its atom's matching study-guide topic a
             // check, same as ticking it by hand — a wrong answer never checks anything.
@@ -982,22 +980,10 @@ export function LectureStudyFlow({
                   ? `✓ Quiz complete — ${questions.length} question${questions.length === 1 ? "" : "s"} answered`
                   : `✓ Lecture complete — all ${rounds.length} round${rounds.length === 1 ? "" : "s"} done`}
               </div>
-              {onGoDeep && lastResult && (lastResult.score < 70 || lastResult.hasLandmines) && (
-                <div className="rounded-lg border border-warn/40 bg-warn/5 px-4 py-3">
-                  <div className="mb-2 font-mono text-[13px] text-warn">
-                    {lastResult.hasLandmines
-                      ? "Confident wrong answers detected — deep study recommended"
-                      : `Score ${lastResult.score}% — reinforce with clinical application`}
-                  </div>
-                  <Button onClick={() => onGoDeep(lecture?.id)}>
-                    Go Deep on this lecture →
-                  </Button>
-                </div>
-              )}
               <div className="flex flex-wrap gap-2">
                 <Button onClick={onClose}>← Back to Today</Button>
                 <Button variant="outline" onClick={() => { setQuestions(null); }}>
-                  Review atoms
+                  Back to lecture & model repairs
                 </Button>
               </div>
             </div>
@@ -1066,6 +1052,11 @@ export function LectureStudyFlow({
       </div>
       <h2 className="text-lg font-bold text-text-1">{renamedTitle || title}</h2>
       <RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} />
+      <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} />
+      {onGoDeep && <details className="my-3 max-w-3xl text-sm">
+        <summary className="min-h-11 cursor-pointer py-2 text-text-2">Optional study tools</summary>
+        <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>
+      </details>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">

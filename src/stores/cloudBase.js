@@ -209,7 +209,7 @@ export function readCloud(userId, logicalKey, fallback) {
  * delete has to stay deleted. The cache is updated first so the UI does not
  * wait for the round trip, and Firestore's own queue handles offline.
  */
-export function writeCloud(userId, logicalKey, value) {
+export function writeCloud(userId, logicalKey, value, { merge = false } = {}) {
   if (!userId) return value;
   const entry = entryFor(userId, logicalKey);
   entry.value = value;
@@ -219,7 +219,7 @@ export function writeCloud(userId, logicalKey, value) {
 
   const { setDoc: put, serverTimestamp: stamp } = api();
   Promise.resolve(
-    put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge: false })
+    put(docRef(userId, logicalKey), { data: stripUndefined(value), updatedAt: stamp() }, { merge })
   ).catch((e) => console.warn(`store ${logicalKey}: write failed`, e?.message || e));
 
   return value;

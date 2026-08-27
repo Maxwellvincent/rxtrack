@@ -102,6 +102,13 @@ describe("readCloud", () => {
 });
 
 describe("writeCloud", () => {
+  it("supports additive evidence writes without changing the default replacement policy", () => {
+    const put = vi.spyOn(backend.api, "setDoc");
+    writeCloud("u1", "rxt-model-repair-lec", { a: { stem: "Question" } }, { merge: true });
+    expect(put.mock.calls[0][2]).toEqual({ merge: true });
+    writeCloud("u1", "rxt-exam-dates", { b1: "date" });
+    expect(put.mock.calls[1][2]).toEqual({ merge: false });
+  });
   it("writes the document authoritatively and updates the cache immediately", () => {
     writeCloud("u1", "rxt-exam-dates", { b1: "2026-09-30" });
 
@@ -252,4 +259,3 @@ describe("listener errors", () => {
     expect(isHydrated("u1", "rxt-exam-dates")).toBe(true);
   });
 });
-
