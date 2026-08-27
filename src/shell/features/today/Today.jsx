@@ -1,6 +1,7 @@
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
+import { BlockPracticeCard } from "./BlockPracticeCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
@@ -992,6 +993,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
 
   return (
     <div className="flex flex-col gap-4">
+      <BlockPracticeCard blockId={blockId} userId={userId} />
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
