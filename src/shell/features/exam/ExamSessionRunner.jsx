@@ -18,6 +18,7 @@
  * session is ever created.
  */
 import { useEffect, useState } from "react";
+import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
 import { Button } from "../../../ui/Button.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
@@ -210,7 +211,8 @@ function ExamFormat({ controller, submitOpts }) {
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
           <QuestionMeta question={q} />
           <LeadInCue stem={q.stem} />
-          <div className="mb-2 text-sm text-text-1">{q.stem}</div>
+          <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
+          <SchoolQuestionFigure question={q} />
           <ChoiceList
             choices={q.choices}
             picked={pickedFor(session, q.questionId)}
@@ -275,7 +277,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         <QuestionMeta question={q} />
         <LeadInCue stem={q.stem} />
-        <div className="mb-2 text-sm text-text-1">{q.stem}</div>
+        <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
+        <SchoolQuestionFigure question={q} />
         <ChoiceList
           choices={q.choices}
           picked={picked}
@@ -339,7 +342,8 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
           <div key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3">
             <QuestionMeta question={q} />
             <LeadInCue stem={q.stem} />
-            <div className="mb-2 text-sm text-text-1">{q.stem}</div>
+            <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
+            <SchoolQuestionFigure question={q} />
             <ChoiceList choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             {q.explanation && (
               <div className="mt-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">

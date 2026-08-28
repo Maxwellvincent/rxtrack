@@ -80,6 +80,17 @@ describe("selectStyleExemplars", () => {
     ...extra,
   });
 
+  it("prioritizes IMCQ challenge references for hard/expert but school quizzes for medium", () => {
+    const school = q("School quiz", 5, { correct: "A" });
+    const imcq = q("IMCQ", 5, { sourceKind: "imcq", answerKeyVerified: true, correct: "A" });
+    const unverified = q("Unverified", 5, { sourceKind: "imcq", answerKeyVerified: false });
+    expect(selectStyleExemplars([school, imcq, unverified], 1, "expert")).toEqual([imcq]);
+    expect(selectStyleExemplars([imcq, school], 1, "medium")).toEqual([school]);
+    expect(selectStyleExemplars([school], 0)).toEqual([]);
+    expect(buildAtomQuestionsPrompt({ examples: [imcq], difficulty: "expert" })).toContain("IMCQ challenge reference");
+    expect(buildMcqPrompt({ examples: [imcq], difficulty: "expert" })).toContain("not calibrated");
+  });
+
   it("represents the school's different option counts and excludes unusable image-only examples", () => {
     const selected = selectStyleExemplars([
       q("four-1", 4), q("four-2", 4), q("five", 5), q("six", 6), q("seven", 7),
