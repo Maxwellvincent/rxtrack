@@ -3,10 +3,20 @@
 // The exam-bank questions the student uploaded become few-shot STYLE exemplars
 // so the model asks questions in their school's exact style.
 import { normAtomKey } from "./atomNorm.js";
+import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 const MCQ_SYSTEM = "You are a USMLE Step 1 question writer. Return ONLY valid JSON — no markdown, no prose.";
+
+function withSchoolContext(questions, cfg) {
+  const chosen = selectStyleExemplars(cfg.examples || [], 5, cfg.difficulty, cfg);
+  const references = alignSchoolQuestions(chosen, cfg.objectives, cfg.atoms).map(({question:q,links}) => ({
+    sourceFile:q.sourceFile || 'Uploaded bank', sourceQuestionId:q.id || String(q.num || ''),
+    links:links.slice(0,3).map(({targetId,basis,evidence})=>({targetId,basis,evidence})),
+  }));
+  return questions.map(q=>({...q,generationEvidence:{version:1,role:'retrieved prompt context; not independent question validation',references}}));
+}
 
 /** Generate MCQs via an injected callAIJSON (testable without a live model). */
 export async function generateMcqs(cfg = {}, deps = {}) {
@@ -17,7 +27,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   try {
     const prompt = buildMcqPrompt(cfg);
     const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    return { questions: normalizeQuestions(result) };
+    return { questions: withSchoolContext(normalizeQuestions(result), cfg) };
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
   }
@@ -181,13 +191,16 @@ function renderChoices(choices) {
  * across the remaining bank. Image-dependent exemplars are excluded because their image is not
  * sent with the text prompt and would teach the model to reference a figure it cannot provide.
  */
-export function selectStyleExemplars(examples = [], limit = 5, difficulty = "medium") {
+export function selectStyleExemplars(examples = [], limit = 5, difficulty = "medium", targets = {}) {
   if (limit <= 0) return [];
   const challenge = ["hard", "expert"].includes(String(difficulty).toLowerCase());
-  const valid = examples.filter((q) => q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false)
-    .sort((a, b) => challenge
+  const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
+  const candidates = examples.filter((q) => q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false);
+  const linked = candidates.filter(q => (relevance.get(q) || 0) > 0);
+  const valid = (linked.length ? linked : candidates)
+    .sort((a, b) => (relevance.get(b) || 0) - (relevance.get(a) || 0) || (challenge
       ? Number(b.sourceKind === "imcq") - Number(a.sourceKind === "imcq")
-      : Number(a.sourceKind === "imcq") - Number(b.sourceKind === "imcq"));
+      : Number(a.sourceKind === "imcq") - Number(b.sourceKind === "imcq")));
   const selected = [];
   const seenCounts = new Set();
   for (const q of valid) {
@@ -208,7 +221,7 @@ export function selectStyleExemplars(examples = [], limit = 5, difficulty = "med
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture" } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture" } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -218,7 +231,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
     .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.hasImage ? IMAGE_NOTE : ""}`)
     .join("\n");
 
-  const styleExamples = selectStyleExemplars(examples, 5, diff);
+  const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
   const examplesSection = styleExamples.length
     ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
       styleExamples.map((q, i) =>
@@ -239,7 +252,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], difficulty = "medium", ex
     WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
-    examplesSection + avoidSection +
+    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + avoidSection +
     `\n\nReturn ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","difficulty":"${diff}"}]}`
   );
@@ -281,7 +294,7 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
     const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    return { questions: normalizeQuestions(backfillTopicsFromAtoms(result, atoms)) };
+    return { questions: withSchoolContext(normalizeQuestions(backfillTopicsFromAtoms(result, atoms)), cfg) };
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
   }
@@ -313,7 +326,7 @@ const DIFF_LINE = {
 export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10 } = {}) {
   const diff = String(difficulty).toLowerCase();
 
-  const styleExamples = selectStyleExemplars(examples, 5, diff);
+  const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
   const examplesSection = styleExamples.length
     ? "\n\nEXAMPLE QUESTIONS FROM YOUR SCHOOL'S EXAM BANK:\n" +
       "(Use their structure and plausible distractors, not their exact cases. Keep factual scope within the supplied lecture/objectives and honor the requested difficulty. IMCQs are challenge references, not calibrated exam-difficulty benchmarks.)\n" +
@@ -333,7 +346,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     : "";
 
   const contentSection = lectureText
-    ? "\n\nLECTURE CONTENT (markdown; **bold** = high-yield):\n" + String(lectureText).slice(0, 4000)
+    ? "\n\nLECTURE CONTENT (retrieved across the lecture for these targets):\n" + retrieveLectureEvidence(lectureText, objectives, atoms)
     : "";
 
   return (
@@ -343,7 +356,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer.\n` +
     WHY_WRONG_RULE +
     examplesSection +
-    objectivesSection +
+    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection +
     atomsSection +
     contentSection +
     `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +

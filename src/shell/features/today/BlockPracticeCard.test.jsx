@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 const mocks = vi.hoisted(() => ({ list: vi.fn(), stats: {} }));
+vi.mock("./SchoolAlignmentPanel.jsx", () => ({ SchoolAlignmentPanel: () => null }));
 vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => mocks.list(...args) }));
 vi.mock("../../hooks/useLectures.js", () => ({ useLectures: () => ({ data: [{ id: "a", blockId: "er" }] }) }));
 vi.mock("../../hooks/useLectureQuestionStats.js", () => ({ useLectureQuestionStats: () => ({ data: mocks.stats, loading: false }) }));

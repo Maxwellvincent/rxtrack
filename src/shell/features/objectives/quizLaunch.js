@@ -82,7 +82,8 @@ export function selectExemplarsForBlock(banks = {}, meta = {}, blockId = null) {
   const scoped = filenames
     .flatMap((filename) => banks?.[filename] || [])
     .filter((q) => q && q.stem && q.choices);
-  return scoped.length ? scoped : all;
+  if (!blockId) return all;
+  return scoped.length ? scoped : all.filter(q => q.blockId === blockId);
 }
 
 /**
@@ -188,7 +189,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
     const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
     const selected = selectAtomsForQuiz(atoms, progress, config.count);
     const result = await generateFromAtoms(
-      { atoms: selected, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems },
+      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems },
       deps
     );
     return { ...result, lectureId };

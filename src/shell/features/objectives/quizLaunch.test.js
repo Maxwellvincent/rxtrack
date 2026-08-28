@@ -106,7 +106,7 @@ describe("block-filtered exemplars", () => {
     expect(result[0].stem).toBe("B1 Q?");
   });
 
-  it("falls back to readExemplars's full unfiltered result when no bank matches the block", () => {
+  it("does not borrow unrelated blocks when no bank matches the block", () => {
     localStorage.setItem(
       "rxt-question-banks",
       JSON.stringify({
@@ -121,9 +121,7 @@ describe("block-filtered exemplars", () => {
     );
 
     const result = readExemplarsForBlock(null, "b1");
-    expect(result).toEqual(readExemplars(null));
-    expect(result).toHaveLength(1);
-    expect(result[0].stem).toBe("B2 Q?");
+    expect(result).toEqual([]);
   });
 });
 
