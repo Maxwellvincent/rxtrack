@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const allocateQuestionsMock = vi.fn();
 const generateExamQuestionsMock = vi.fn();
 const createExamSessionMock = vi.fn();
+const checkExamAccessMock = vi.fn();
 
 vi.mock("./allocation.js", () => ({
   allocateQuestions: (...args) => allocateQuestionsMock(...args),
@@ -17,6 +18,7 @@ vi.mock("./generation.js", () => ({
 
 vi.mock("../../../supabase.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
+  checkExamAccess: (...args) => checkExamAccessMock(...args),
 }));
 
 const { launchExamSession } = await import("./launchExam.js");
@@ -53,11 +55,18 @@ beforeEach(() => {
   allocateQuestionsMock.mockReset();
   generateExamQuestionsMock.mockReset();
   createExamSessionMock.mockReset();
+  checkExamAccessMock.mockReset();
 
   allocateQuestionsMock.mockReturnValue({ "lec-1": 10 });
 });
 
 describe("launchExamSession", () => {
+  it("checks storage access before spending on generation", async () => {
+    checkExamAccessMock.mockRejectedValue(new Error("Access denied"));
+    await expect(launchExamSession(BASE_ARGS)).rejects.toThrow("Access denied");
+    expect(generateExamQuestionsMock).not.toHaveBeenCalled();
+    expect(createExamSessionMock).not.toHaveBeenCalled();
+  });
   it("happy path: creates a session and returns its sessionId", async () => {
     generateExamQuestionsMock.mockResolvedValue({
       questions: [makeQuestion("q1", "lec-1"), makeQuestion("q2", "lec-1")],

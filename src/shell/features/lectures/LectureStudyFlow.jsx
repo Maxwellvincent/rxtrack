@@ -982,22 +982,13 @@ export function LectureStudyFlow({
             </>
           ) : (
             <div className="flex flex-col gap-3 w-full">
-              <div className="rounded-lg border border-good/40 bg-good/5 px-4 py-3 text-sm font-semibold text-text-1">
-                {adHocQuiz
-                  ? `✓ Quiz complete — ${questions.length} question${questions.length === 1 ? "" : "s"} answered`
-                  : `✓ Lecture complete — all ${rounds.length} round${rounds.length === 1 ? "" : "s"} done`}
-              </div>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={onClose}>← Back to Today</Button>
-                <Button variant="outline" onClick={() => { setQuestions(null); }}>
-                  Back to lecture & model repairs
-                </Button>
+                <Button variant="outline" onClick={onClose}>← Back to Today</Button>
               </div>
             </div>
           )}
         </div>
         )}
-        {figuresPrompt}
       </div>
     );
   }

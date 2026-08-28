@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // A full school-prep sitting can now reach 100 questions. Keeping the cap here
 // (rather than accepting an arbitrary number) still protects the generation
@@ -43,7 +43,17 @@ export function ExamLaunchModal({
   onLaunch,
   onCancel,
   launching = false,
+  progress = null,
+  error = null,
 }) {
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!launching) return;
+    const started = Date.now();
+    setElapsed(0);
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [launching]);
   const [format, setFormat] = useState("exam");
   const [count, setCount] = useState(String(defaultQuestionCount || 20));
   // Auto-calculated from question count (1.5 min/question, matching real
@@ -94,15 +104,15 @@ export function ExamLaunchModal({
       aria-modal="true"
       aria-label="Exam settings"
       onClick={(e) => { if (!launching && e.target === e.currentTarget) onCancel?.(); }}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-14"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 sm:p-10"
     >
       <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-bold text-text-1">Exam settings</h2>
-          <button onClick={onCancel} className="font-mono text-xs text-text-3 hover:text-text-1">✕</button>
+          <button onClick={onCancel} disabled={launching} aria-label="Close exam settings" className="font-mono text-xs text-text-3 hover:text-text-1 disabled:opacity-40">✕</button>
         </div>
 
-        <div className="flex flex-col gap-4">
+        <fieldset disabled={launching} className="flex flex-col gap-4">
           {/* Format */}
           <div>
             <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Format</div>
@@ -130,7 +140,7 @@ export function ExamLaunchModal({
                 <div className="font-bold text-text-1">Objective blueprint</div>
                 <div>{blueprint.objectiveCount} objectives across {blueprint.lectureCount} lectures</div>
                 <div>
-                  Guaranteed lecture coverage: {blueprint.guaranteedLectureCoverage}/{blueprint.lectureCount}
+                  Planned lecture coverage: {blueprint.guaranteedLectureCoverage}/{blueprint.lectureCount}
                   {" · "}up to {blueprint.objectiveSamplingCapacity} objective slots
                 </div>
                 <div className="text-text-3">Weak and untested objectives receive extra allocation.</div>
@@ -184,7 +194,17 @@ export function ExamLaunchModal({
               No lectures in this block have objectives yet — nothing to build an exam from.
             </div>
           )}
-        </div>
+        </fieldset>
+
+        {launching && (
+          <div role="status" className="mt-4 rounded-lg border border-accent bg-panel p-3 text-sm text-text-1">
+            <div className="flex items-center gap-2"><span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Preparing your exam · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}</div>
+            <div className="mt-2">{progress?.message || "Preparing questions…"}</div>
+            {progress?.total > 0 && <><progress aria-label="Questions prepared" className="mt-2 w-full" value={progress.completed || 0} max={progress.total} /><div>{progress.completed || 0}/{progress.total} questions prepared</div></>}
+            <div className="mt-2 text-xs text-text-2">Each lecture requires a separate AI request and may take several minutes. Keep this tab open.</div>
+          </div>
+        )}
+        {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
 
         <div className="mt-5 flex justify-end gap-2">
           <button

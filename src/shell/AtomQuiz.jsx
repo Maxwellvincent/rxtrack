@@ -351,10 +351,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                       key={value}
                       type="button"
                       onClick={() => {
-                        if (errorReason) return;
+                        if (errorReason === value) return;
+                        recordReflection(userId, value, errorReason);
                         setErrorReason(value);
-                        recordReflection(userId, value);
                       }}
+                      aria-pressed={errorReason === value}
                       className={`rounded border px-2 py-1 text-[12px] ${errorReason === value ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-1"}`}
                     >
                       {label}
@@ -363,7 +364,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 </div>
               </div>
             )}
-            <Button onClick={next}>{i + 1 >= questions.length ? "See calibration" : "Next →"}</Button>
+            <Button onClick={next}>{i + 1 >= questions.length ? "See results" : "Next →"}</Button>
           </div>
         )}
       </div>
@@ -371,15 +372,18 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   );
 }
 
-function Summary({ records, onExit, onReviewAtom }) {
+export function Summary({ records, onExit, onReviewAtom }) {
   const s = summarize(records);
   const toReview = atomsToReview(records);
   const pct = (a) => (a == null ? "—" : Math.round(a * 100) + "%");
   return (
     <div className="mb-5 space-y-3">
-      <div className="text-sm font-bold text-text-1">Calibration · {records.length} answered</div>
-      <div className="rounded-lg border border-border bg-bg-elevated p-3">
-        <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">Accuracy by confidence</div>
+      <div className="rounded-lg border border-border bg-bg-elevated p-4">
+        <div className="text-3xl font-bold text-text-1">{pct(records.length ? records.filter((r) => r.correct).length / records.length : null)}</div>
+        <div className="text-sm text-text-2">{records.filter((r) => r.correct).length} / {records.length} correct · Quiz complete</div>
+      </div>
+      <details className="rounded-lg border border-border bg-bg-elevated p-3">
+        <summary className="cursor-pointer font-mono text-[12px] text-text-2">Accuracy by confidence</summary>
         {[...s.curve].reverse().map((r) => (
           <div key={r.level} className="flex items-center gap-2 text-xs">
             <span className="w-16 text-text-2">{CONF[r.level - 1].label}</span>
@@ -389,7 +393,7 @@ function Summary({ records, onExit, onReviewAtom }) {
             <span className="w-16 text-right font-mono text-text-3">{pct(r.accuracy)}{r.count ? ` (${r.count})` : ""}</span>
           </div>
         ))}
-      </div>
+      </details>
       {/* Every atom left needs-review this session, not just the landmines (sure-but-wrong) —
           those are still sorted first, but a plain miss deserves a way back too instead of
           silently not appearing anywhere. */}
@@ -434,7 +438,7 @@ function Summary({ records, onExit, onReviewAtom }) {
           </ul>
         </div>
       )}
-      {onExit && <Button onClick={onExit}>Done — back to lecture</Button>}
+      {onExit && <Button onClick={onExit}>Back to lecture & model repairs</Button>}
     </div>
   );
 }

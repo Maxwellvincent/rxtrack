@@ -8,7 +8,7 @@ import {
   signOut as fbSignOut, onAuthStateChanged,
 } from "firebase/auth";
 import {
-  doc, getDoc, deleteDoc, collection, getDocs, query, where, orderBy, limit,
+  doc, getDoc, getDocFromServer, deleteDoc, collection, getDocs, query, where, orderBy, limit,
   setDoc, runTransaction, writeBatch, serverTimestamp,
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
@@ -880,6 +880,22 @@ export async function fetchAllDeepLearnSessions(userId) {
 // task needs to query top-level `blockId` and `status` together.
 const examSessionRef = (userId, sessionId) =>
   doc(db, "users", userId, "examSessions", encodeDocId(sessionId));
+
+// Check the real server, not cached data, before spending time on generation.
+// Exam-session reads and writes share the same owner-only security rule.
+export async function checkExamAccess(userId) {
+  if (!userId || auth.currentUser?.uid !== userId) {
+    throw new Error("Sign in again before starting an exam. Your study data has not been changed.");
+  }
+  try {
+    await getDocFromServer(examSessionRef(userId, "access-check"));
+  } catch (error) {
+    if (error?.code === "permission-denied") {
+      throw new Error("Exam storage access was denied. No questions were generated. The app's Firebase exam-session permissions need to be checked.");
+    }
+    throw new Error("Cannot reach exam storage. Check your connection and retry; no questions were generated.");
+  }
+}
 
 /**
  * Persist a brand-new (or fully-replaced) exam session. Callers await this

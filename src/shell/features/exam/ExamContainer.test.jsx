@@ -62,8 +62,9 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
-  ExamLaunchModal: ({ onLaunch, onCancel, launching }) => (
+  ExamLaunchModal: ({ onLaunch, onCancel, launching, error }) => (
     <div data-testid="launch-modal" data-launching={launching ? "true" : "false"}>
+      {error && <div role="alert">{error}</div>}
       <button
         data-testid="fire-launch"
         disabled={launching}

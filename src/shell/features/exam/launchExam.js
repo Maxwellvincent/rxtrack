@@ -8,7 +8,7 @@
 import { allocateQuestions } from "./allocation.js";
 import { generateExamQuestions } from "./generation.js";
 import { createSessionShape } from "../../../examSessions.js";
-import { createExamSession } from "../../../supabase.js";
+import { createExamSession, checkExamAccess } from "../../../supabase.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 
 // Same fallback pattern as generation.js's makeQuestionId — reused here for
@@ -45,6 +45,8 @@ export async function launchExamSession(
   deps = {}
 ) {
   const sessionId = makeSessionId();
+  deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
+  await checkExamAccess(userId);
 
   const allocation = allocateQuestions({
     eligibleLectures,
@@ -91,6 +93,7 @@ export async function launchExamSession(
     deadline,
   });
 
+  deps.onProgress?.({ message: `Saving ${questions.length} questions…`, completed: questions.length, total: questions.length });
   const result = await createExamSession(userId, session);
   if (!result.ok) {
     return { ok: false, error: result.error };

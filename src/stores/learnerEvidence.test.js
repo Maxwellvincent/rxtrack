@@ -2,6 +2,12 @@ import { describe, expect, it } from "vitest";
 import { applyEvidence, applyReflection } from "./learnerEvidence.js";
 
 describe("learner evidence", () => {
+  it("replaces a miss reason without adding a second reflection", () => {
+    const first = applyReflection(null, "knowledge-gap");
+    const changed = applyReflection(first, "time-pressure", "knowledge-gap");
+    expect(changed.testTaking.reasons).toEqual({ "knowledge-gap": 0, "time-pressure": 1 });
+    expect(applyReflection(changed, "time-pressure", "time-pressure")).toBe(changed);
+  });
   it("aggregates objective, atom, lecture, source, and landmine evidence", () => {
     const model = applyEvidence(null, {
       source: "quiz", lectureId: "l1", objectiveIds: ["o1"], atomKey: "a1",

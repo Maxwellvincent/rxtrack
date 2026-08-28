@@ -57,6 +57,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [launchError, setLaunchError] = useState(null);
   const [launching, setLaunching] = useState(false);
+  const [launchProgress, setLaunchProgress] = useState(null);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
@@ -173,6 +174,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     if (launching) return;
     setLaunching(true);
     setLaunchError(null);
+    setLaunchProgress({ message: "Checking exam storage access…", completed: 0 });
     try {
       const result = await launchExamSession(
         {
@@ -191,7 +193,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         // to `{}` all the way down to `generateMcqs`, so every generation
         // call threw and every launch failed with "Could not generate any
         // questions." Same DI pattern Shell.jsx uses for `startObjectiveQuiz`.
-        { callAIJSON }
+        { callAIJSON, onProgress: setLaunchProgress }
       );
       if (result.ok) {
         setShowLaunchModal(false);
@@ -273,14 +275,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           onLaunch={handleLaunch}
           onCancel={() => setShowLaunchModal(false)}
           launching={launching}
+          progress={launchProgress}
+          error={launchError}
         />
       )}
 
-      {showLaunchModal && launchError && (
-        <div
-          role="alert"
-          className="fixed inset-x-0 bottom-6 z-50 mx-auto w-fit rounded-lg border border-bad/40 bg-bg-elevated px-3 py-2.5 font-mono text-[12px] text-bad shadow-xl"
-        >
+      {launchError && !showLaunchModal && (
+        <div role="alert" className="mb-3 rounded-lg border border-bad/40 bg-bg-elevated px-3 py-2.5 font-mono text-[12px] text-bad">
           {launchError}
         </div>
       )}

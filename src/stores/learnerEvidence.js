@@ -51,22 +51,26 @@ export function applyEvidence(model, rawEvent) {
   };
 }
 
-export function applyReflection(model, reason) {
+export function applyReflection(model, reason, previousReason = null) {
   const current = model || fallback;
+  if (!reason || reason === previousReason) return current;
   const process = current.testTaking || fallback.testTaking;
+  const reasons = { ...(process.reasons || {}) };
+  if (previousReason) reasons[previousReason] = Math.max(0, (reasons[previousReason] || 0) - 1);
+  reasons[reason] = (reasons[reason] || 0) + 1;
   return {
     ...current,
     updatedAt: Date.now(),
     testTaking: {
       ...process,
-      reasons: { ...(process.reasons || {}), [reason]: ((process.reasons || {})[reason] || 0) + 1 },
+      reasons,
     },
   };
 }
 
-export function recordReflection(userId, reason) {
+export function recordReflection(userId, reason, previousReason = null) {
   if (!reason) return read(userId);
-  const next = applyReflection(read(userId), reason);
+  const next = applyReflection(read(userId), reason, previousReason);
   if (userId) writeCloud(userId, key, next);
   else writeJson(userId, key, next);
   return next;

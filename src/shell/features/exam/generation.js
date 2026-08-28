@@ -65,6 +65,7 @@ export async function generateExamQuestions(
   const exemplars = readExemplarsForBlock(userId, blockId);
 
   const lectureIds = Object.keys(allocation || {}).filter((id) => (allocation[id] || 0) > 0);
+  const total = lectureIds.reduce((sum, id) => sum + allocation[id], 0);
 
   for (const lectureId of lectureIds) {
     const requested = allocation[lectureId];
@@ -81,6 +82,11 @@ export async function generateExamQuestions(
 
     while (stillNeeded > 0 && attempt < MAX_ATTEMPTS) {
       attempt += 1;
+      deps.onProgress?.({
+        completed: questions.length + survivors.length,
+        total,
+        message: `Generating lecture ${lectureIds.indexOf(lectureId) + 1}/${lectureIds.length}: ${lectureTitle || "Lecture"}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`,
+      });
       const result = await startObjectiveQuiz(
         {
           objectives,

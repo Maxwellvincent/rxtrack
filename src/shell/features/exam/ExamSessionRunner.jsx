@@ -87,10 +87,10 @@ function MissReflection({ userId }) {
       <div className="flex flex-wrap gap-1.5">
         {ERROR_REASONS.map(([value, label]) => (
           <button key={value} type="button" onClick={() => {
-            if (selected) return;
+            if (selected === value) return;
+            recordReflection(userId, value, selected);
             setSelected(value);
-            recordReflection(userId, value);
-          }} className={`rounded border px-2 py-1 text-[12px] ${selected === value ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-1"}`}>
+          }} aria-pressed={selected === value} className={`rounded border px-2 py-1 text-[12px] ${selected === value ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-1"}`}>
             {label}
           </button>
         ))}
