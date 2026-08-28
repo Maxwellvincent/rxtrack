@@ -8,6 +8,7 @@
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "./firebase.js";
 import { bridgeComplete, parseBridgeJSON } from "./llmBridge.js";
+import { withDeadline } from "./asyncDeadline.js";
 
 // ── User-provided key helpers ─────────────────────────────────────────────────
 
@@ -20,7 +21,7 @@ function readUserApiKey() {
  * Direct Gemini REST call from the browser (supports CORS).
  * Returns parsed JSON content string, or throws on failure.
  */
-async function callGeminiDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+async function callGeminiDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000, signal) {
   const { key } = readUserApiKey() || {};
   if (!key) throw new Error("no-key");
   const model = "gemini-2.0-flash";
@@ -35,6 +36,7 @@ async function callGeminiDirect(systemPrompt, userPrompt, json = false, maxToken
   };
   const res = await fetch(url, {
     method: "POST",
+    signal,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
@@ -49,7 +51,7 @@ async function callGeminiDirect(systemPrompt, userPrompt, json = false, maxToken
 /**
  * Direct OpenAI REST call from the browser (supports CORS).
  */
-async function callOpenAIDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+async function callOpenAIDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000, signal) {
   const { key } = readUserApiKey() || {};
   if (!key) throw new Error("no-key");
   const body = {
@@ -63,6 +65,7 @@ async function callOpenAIDirect(systemPrompt, userPrompt, json = false, maxToken
   };
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
+    signal,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
   });
@@ -80,11 +83,12 @@ async function callOpenAIDirect(systemPrompt, userPrompt, json = false, maxToken
  * browser but works fine when called from the local bridge or a server context.
  * We attempt it anyway; CORS failure falls through to the Cloud Function.
  */
-async function callAnthropicDirect(systemPrompt, userPrompt, maxTokens = 8000) {
+async function callAnthropicDirect(systemPrompt, userPrompt, maxTokens = 8000, signal) {
   const { key } = readUserApiKey() || {};
   if (!key) throw new Error("no-key");
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
+    signal,
     headers: {
       "Content-Type": "application/json",
       "x-api-key": key,
@@ -108,7 +112,7 @@ async function callAnthropicDirect(systemPrompt, userPrompt, maxTokens = 8000) {
 /**
  * Kimi (Moonshot AI) — OpenAI-compatible endpoint.
  */
-async function callKimiDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+async function callKimiDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000, signal) {
   const { key } = readUserApiKey() || {};
   if (!key) throw new Error("no-key");
   const body = {
@@ -122,6 +126,7 @@ async function callKimiDirect(systemPrompt, userPrompt, json = false, maxTokens 
   };
   const res = await fetch("https://api.moonshot.cn/v1/chat/completions", {
     method: "POST",
+    signal,
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify(body),
   });
@@ -133,13 +138,13 @@ async function callKimiDirect(systemPrompt, userPrompt, json = false, maxTokens 
   return data?.choices?.[0]?.message?.content ?? "";
 }
 
-async function callUserKeyDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000) {
+async function callUserKeyDirect(systemPrompt, userPrompt, json = false, maxTokens = 8000, signal) {
   const creds = readUserApiKey();
   if (!creds?.key) return null;
-  if (creds.provider === "openai") return callOpenAIDirect(systemPrompt, userPrompt, json, maxTokens);
-  if (creds.provider === "anthropic") return callAnthropicDirect(systemPrompt, userPrompt, maxTokens);
-  if (creds.provider === "kimi") return callKimiDirect(systemPrompt, userPrompt, json, maxTokens);
-  return callGeminiDirect(systemPrompt, userPrompt, json, maxTokens);
+  if (creds.provider === "openai") return callOpenAIDirect(systemPrompt, userPrompt, json, maxTokens, signal);
+  if (creds.provider === "anthropic") return callAnthropicDirect(systemPrompt, userPrompt, maxTokens, signal);
+  if (creds.provider === "kimi") return callKimiDirect(systemPrompt, userPrompt, json, maxTokens, signal);
+  return callGeminiDirect(systemPrompt, userPrompt, json, maxTokens, signal);
 }
 
 export const AI_PROVIDERS = {
@@ -296,6 +301,11 @@ export async function callAIJSON(
   temperature,
   options = {}
 ) {
+  if (options.timeoutMs) {
+    return withDeadline(signal => callAIJSON(systemPrompt, userPrompt, fallback, maxTokens, explicitProvider, temperature,
+      { ...options, timeoutMs: null, signal }), options.timeoutMs, options.signal);
+  }
+  options.signal?.throwIfAborted();
   const safeFallback = fallback !== undefined && fallback !== null ? fallback : {};
   const provider =
     explicitProvider !== undefined && explicitProvider !== null ? explicitProvider : DEFAULT_PROVIDER;
@@ -307,15 +317,19 @@ export async function callAIJSON(
       system: systemPrompt,
       prompt: userPrompt,
       json: true,
+      signal: options.signal,
+      timeoutMs: options.bridgeTimeoutMs,
     });
     if (bridged !== null) return parseBridgeJSON(bridged);
   } catch (err) {
+    options.signal?.throwIfAborted();
     console.warn("bridge JSON parse failed, using cloud:", err.message);
   }
 
   // User-provided key: direct REST call before Cloud Function.
+  options.signal?.throwIfAborted();
   try {
-    const userResult = await callUserKeyDirect(systemPrompt, userPrompt, true, maxTokens);
+    const userResult = await callUserKeyDirect(systemPrompt, userPrompt, true, maxTokens, options.signal);
     if (userResult !== null) {
       try { return JSON.parse(userResult); }
       catch { console.warn("User key returned invalid JSON; trying cloud."); }
@@ -326,7 +340,7 @@ export async function callAIJSON(
 
   try {
     const res = await withRetry(() =>
-      aiCompleteCall({ system: systemPrompt, prompt: userPrompt, json: true, maxTokens, model, temperature })
+      { options.signal?.throwIfAborted(); return aiCompleteCall({ system: systemPrompt, prompt: userPrompt, json: true, maxTokens, model, temperature }); }
     );
     markProviderHealthy(provider);
     if (res.data?.data == null) throw new Error("AI returned an empty or invalid JSON response. Please retry.");

@@ -9,6 +9,8 @@
 // callers fall through to the normal `aiComplete` Cloud Function path. Nothing breaks when
 // the bridge is absent, which is the common case (phone, other machines, other people).
 
+import { withDeadline } from "./asyncDeadline.js";
+
 const BRIDGE_URL =
   (typeof localStorage !== "undefined" && localStorage.getItem("rxt_bridge_url")) ||
   "http://127.0.0.1:4319";
@@ -22,6 +24,7 @@ const PROBE_OK_TTL_MS = 30_000;
 const PROBE_FAIL_TTL_MS = 3_000;
 const PROBE_TIMEOUT_MS = 4_000;
 let probe = { at: 0, ok: false };
+let cooldownUntil = 0;
 
 /** True while the cached probe result is still worth reusing. */
 export function probeIsFresh(p, now = Date.now()) {
@@ -32,6 +35,7 @@ export function probeIsFresh(p, now = Date.now()) {
 /** Test seam: reset the cached probe between cases. */
 export function resetBridgeProbe() {
   probe = { at: 0, ok: false };
+  cooldownUntil = 0;
 }
 
 /** Off by default is wrong here — the point is zero-cost when available. Explicit opt-out only. */
@@ -44,6 +48,7 @@ export function setBridgeEnabled(on) {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem("rxt_bridge", on ? "on" : "off");
   probe = { at: 0, ok: false };
+  cooldownUntil = 0;
 }
 
 /** Cached reachability check so we never add a round trip per call. */
@@ -70,10 +75,14 @@ export async function bridgeAvailable() {
  * @param {{system?:string, prompt:string, images?:Array<{mimeType:string,data:string}>, json?:boolean}} req
  */
 export async function bridgeComplete(req) {
+  req.signal?.throwIfAborted();
+  if (Date.now() < cooldownUntil) return null;
   if (!(await bridgeAvailable())) return null;
   try {
-    const r = await fetch(`${BRIDGE_URL}/complete`, {
+    const data = await withDeadline(async signal => {
+      const r = await fetch(`${BRIDGE_URL}/complete`, {
       method: "POST",
+      signal,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         system: req.system || "",
@@ -82,8 +91,9 @@ export async function bridgeComplete(req) {
         json: !!req.json,
       }),
     });
-    if (!r.ok) throw new Error(`bridge ${r.status}`);
-    const data = await r.json();
+      if (!r.ok) throw new Error(`bridge ${r.status}`);
+      return r.json();
+    }, req.timeoutMs || 300_000, req.signal, "Local AI bridge");
     if (!data.text) throw new Error("bridge returned no text");
     // A completed call is far better evidence of health than a health check, and it costs
     // nothing to record — the next call in a round skips probing entirely.
@@ -95,6 +105,8 @@ export async function bridgeComplete(req) {
     }
     return data.text;
   } catch (err) {
+    req.signal?.throwIfAborted();
+    cooldownUntil = Date.now() + 30_000;
     console.warn("llm-bridge unavailable, using cloud:", err.message);
     probe = { at: Date.now(), ok: false };
     return null;

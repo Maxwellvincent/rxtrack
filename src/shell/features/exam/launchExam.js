@@ -8,7 +8,8 @@
 import { allocateQuestions } from "./allocation.js";
 import { generateExamQuestions } from "./generation.js";
 import { createSessionShape } from "../../../examSessions.js";
-import { createExamSession, checkExamAccess } from "../../../supabase.js";
+import { checkExamAccess } from "../../../supabase.js";
+import { createQuestionPool } from "../../../questionPool.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 
 // Same fallback pattern as generation.js's makeQuestionId — reused here for
@@ -26,7 +27,16 @@ function makeSessionId() {
  * on success or `{ok: false, error}` on failure (either zero questions
  * generated, or `createExamSession` rejecting the write).
  */
-export async function launchExamSession(
+const activeLaunches = new Set();
+export async function launchExamSession(args, deps = {}) {
+  const key = `${args.userId}:${args.blockId}`;
+  if (activeLaunches.has(key)) return { ok: false, error: "Questions are already being prepared for this block. Check background progress, then retry." };
+  activeLaunches.add(key);
+  try { return await runLaunch(args, deps); }
+  finally { activeLaunches.delete(key); }
+}
+
+async function runLaunch(
   {
     userId,
     blockId,
@@ -41,12 +51,17 @@ export async function launchExamSession(
     weakConceptAccuracyByLecture,
     weakConcepts,
     learnerEvidence,
+    prepareOnly = false,
   },
   deps = {}
 ) {
   const sessionId = makeSessionId();
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
+  const pool = deps.pool || createQuestionPool(userId, blockId);
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly });
+  const startedGenerationAt = Date.now();
+  try {
 
   const allocation = allocateQuestions({
     eligibleLectures,
@@ -57,7 +72,7 @@ export async function launchExamSession(
     sessionId,
   });
 
-  const { questions, errors: generationErrors } = await generateExamQuestions(
+  const { questions, errors: generationErrors, cacheHits = 0 } = await generateExamQuestions(
     {
       allocation,
       lecturesById,
@@ -67,15 +82,25 @@ export async function launchExamSession(
       lectures,
       weakConceptAccuracyByLecture,
       userId,
+      generationId: sessionId,
     },
-    deps
+    { ...deps, pool }
   );
+
+  await pool.finish(sessionId, { status: "complete", readyCount: questions?.length || 0,
+    cacheHits, durationMs: Date.now() - startedGenerationAt, errors: generationErrors,
+    questionIds: (questions || []).map(q => q.poolId).filter(Boolean) });
 
   if (!questions || questions.length === 0) {
     return {
       ok: false,
       error: "Could not generate any questions — try again or reduce the question count.",
     };
+  }
+
+  if (prepareOnly) return { ok: true, prepared: questions.length, cacheHits, generationErrors };
+  if (format === "exam" && questions.length < questionCount) {
+    return { ok: false, error: `${questions.length}/${questionCount} questions are saved and ready. The timed exam has not started. Retry to fill the remaining slots. ${generationErrors[0]?.message || ""}` };
   }
 
   const lectureIds = [...new Set(questions.map((q) => q.lectureId))];
@@ -94,10 +119,14 @@ export async function launchExamSession(
   });
 
   deps.onProgress?.({ message: `Saving ${questions.length} questions…`, completed: questions.length, total: questions.length });
-  const result = await createExamSession(userId, session);
+  const result = await pool.commit(session);
   if (!result.ok) {
     return { ok: false, error: result.error };
   }
 
-  return { ok: true, sessionId, generationErrors };
+  return { ok: true, sessionId, generationErrors, cacheHits };
+  } catch (error) {
+    await pool.finish(sessionId, { status: "error", error: error.message, durationMs: Date.now() - startedGenerationAt }).catch(() => {});
+    throw error;
+  }
 }

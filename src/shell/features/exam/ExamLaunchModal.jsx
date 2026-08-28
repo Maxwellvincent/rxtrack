@@ -45,6 +45,7 @@ export function ExamLaunchModal({
   launching = false,
   progress = null,
   error = null,
+  onPrepare,
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -201,11 +202,16 @@ export function ExamLaunchModal({
             <div className="flex items-center gap-2"><span aria-hidden="true" className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />Preparing your exam · {Math.floor(elapsed / 60)}:{String(elapsed % 60).padStart(2, "0")}</div>
             <div className="mt-2">{progress?.message || "Preparing questions…"}</div>
             {progress?.total > 0 && <><progress aria-label="Questions prepared" className="mt-2 w-full" value={progress.completed || 0} max={progress.total} /><div>{progress.completed || 0}/{progress.total} questions prepared</div></>}
-            <div className="mt-2 text-xs text-text-2">Each lecture requires a separate AI request and may take several minutes. Keep this tab open.</div>
+            <div className="mt-2 text-xs text-text-2">Uses saved questions first, then generates up to two lectures at once. Completed questions are saved. Keep this tab open.</div>
           </div>
         )}
         {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
 
+        {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
+          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null })}
+            className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
+          <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
+        </div>}
         <div className="mt-5 flex justify-end gap-2">
           <button
             onClick={onCancel}

@@ -21,6 +21,7 @@ import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
 import { ExamSessionRunner } from "./ExamSessionRunner.jsx";
 import { ExamDashboard } from "./ExamDashboard.jsx";
 import { launchExamSession } from "./launchExam.js";
+import { startBackgroundJob } from "../../backgroundJobs.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
@@ -165,6 +166,20 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     });
   };
 
+  const prepareQuestions = (config) => {
+    setShowLaunchModal(false);
+    startBackgroundJob({ label: "Preparing exam questions", detail: "Checking saved questions…",
+      run: async report => {
+        const result = await launchExamSession({ userId, blockId, ...config, prepareOnly: true,
+          eligibleLectures, objectivesByLecture, atomsByLecture, lecturesById, lectures,
+          weakConceptAccuracyByLecture, weakConcepts },
+          { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
+        if (!result.ok) throw new Error(result.error);
+        return `${result.prepared}/${config.questionCount} questions saved in Firestore. Start an exam when ready.${result.generationErrors?.length ? " Some slots still need generation." : ""}`;
+      },
+    });
+  };
+
   const handleLaunch = async (config) => {
     // Task 12 review fix #2 — in-flight guard: without this, a second click
     // on "Start exam" during the multi-second generation call fires a
@@ -277,6 +292,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           launching={launching}
           progress={launchProgress}
           error={launchError}
+          onPrepare={prepareQuestions}
         />
       )}
 

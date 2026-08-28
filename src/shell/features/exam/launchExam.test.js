@@ -7,6 +7,10 @@ const allocateQuestionsMock = vi.fn();
 const generateExamQuestionsMock = vi.fn();
 const createExamSessionMock = vi.fn();
 const checkExamAccessMock = vi.fn();
+vi.mock("../../../questionPool.js", () => ({ createQuestionPool: userId => ({
+  begin: async () => {}, finish: async () => {},
+  commit: session => createExamSessionMock(userId, session),
+}) }));
 
 vi.mock("./allocation.js", () => ({
   allocateQuestions: (...args) => allocateQuestionsMock(...args),
@@ -74,7 +78,7 @@ describe("launchExamSession", () => {
     });
     createExamSessionMock.mockResolvedValue({ ok: true });
 
-    const result = await launchExamSession(BASE_ARGS);
+    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 2 });
 
     expect(result.ok).toBe(true);
     expect(result.sessionId).toEqual(expect.any(String));
@@ -99,7 +103,7 @@ describe("launchExamSession", () => {
     expect(createExamSessionMock).not.toHaveBeenCalled();
   });
 
-  it("partial generation: creates a session and surfaces generationErrors alongside ok:true", async () => {
+  it("partial timed generation stays saved without starting the exam", async () => {
     generateExamQuestionsMock.mockResolvedValue({
       questions: [makeQuestion("q1", "lec-1")],
       errors: ["lec-2: no material"],
@@ -108,9 +112,9 @@ describe("launchExamSession", () => {
 
     const result = await launchExamSession(BASE_ARGS);
 
-    expect(result.ok).toBe(true);
-    expect(result.generationErrors).toEqual(["lec-2: no material"]);
-    expect(createExamSessionMock).toHaveBeenCalledTimes(1);
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("1/10 questions are saved");
+    expect(createExamSessionMock).not.toHaveBeenCalled();
   });
 
   it("propagates createExamSession failure instead of claiming success", async () => {
@@ -120,7 +124,7 @@ describe("launchExamSession", () => {
     });
     createExamSessionMock.mockResolvedValue({ ok: false, error: "session too large" });
 
-    const result = await launchExamSession(BASE_ARGS);
+    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 1 });
 
     expect(result.ok).toBe(false);
     expect(result.error).toBe("session too large");
@@ -150,12 +154,19 @@ describe("launchExamSession", () => {
     createExamSessionMock.mockResolvedValue({ ok: true });
 
     const before = Date.now();
-    await launchExamSession({ ...BASE_ARGS, format: "exam", durationMinutes: 30 });
+    await launchExamSession({ ...BASE_ARGS, questionCount: 1, format: "exam", durationMinutes: 30 });
     const after = Date.now();
 
     const [, session] = createExamSessionMock.mock.calls[0];
     expect(session.startedAt).toBeGreaterThanOrEqual(before);
     expect(session.startedAt).toBeLessThanOrEqual(after);
     expect(session.deadline).toBe(session.startedAt + 30 * 60_000);
+  });
+  it("prepares questions without assigning them or starting a clock", async () => {
+    generateExamQuestionsMock.mockResolvedValue({ questions: [makeQuestion("q1", "lec-1")], errors: [] });
+    const result = await launchExamSession({ ...BASE_ARGS, prepareOnly: true });
+    expect(result).toMatchObject({ ok: true, prepared: 1 });
+    expect(result.sessionId).toBeUndefined();
+    expect(createExamSessionMock).not.toHaveBeenCalled();
   });
 });

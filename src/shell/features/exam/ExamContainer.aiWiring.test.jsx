@@ -29,6 +29,15 @@ vi.mock("../../../aiClient.js", () => ({
 const createExamSessionMock = vi.fn();
 vi.mock("../../../supabase.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
+  checkExamAccess: async () => {},
+}));
+vi.mock("../../../questionPool.js", async importOriginal => ({
+  ...await importOriginal(),
+  questionPoolKey: async () => "test-bucket",
+  createQuestionPool: userId => ({ begin: async () => {}, finish: async () => {},
+    history: async () => [], ready: async () => [], save: async q => ({ ...q, poolId: q.questionId }),
+    commit: session => createExamSessionMock(userId, session),
+  }),
 }));
 
 vi.mock("./tutorPrefs.js", () => ({
@@ -210,7 +219,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
 
     expect(host.querySelector('[data-testid="session-runner"]')).toBeTruthy();
     expect(host.querySelector('[role="alert"]')).toBeTruthy();
-    expect(host.textContent).toMatch(/Only generated 1 of 2 requested questions/);
+    expect(host.textContent).toMatch(/1\/2 questions ready/);
 
     unmount();
   });

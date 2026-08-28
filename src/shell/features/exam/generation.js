@@ -1,138 +1,96 @@
-// Task 5 — per-lecture question generation & provenance for the Integrated
-// Exam tab.
-//
-// Given Task 4's `allocateQuestions` output (`{[lectureId]: count}`), this
-// generates the actual questions — one `startObjectiveQuiz` call per lecture
-// (never one call per question), stamps each surviving question with
-// immutable provenance, and returns a pool the rest of the feature can trust.
-//
-// Reuses `startObjectiveQuiz` from quizLaunch.js rather than reimplementing
-// prompt-building or the text/atoms branching — that pipeline (buildQuizConfig,
-// generateMcqs vs generateFromAtoms) already exists and is exercised by the
-// existing per-lecture Quiz mode.
-
 import { readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity } from "./questionQuality.js";
+import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
+import { withDeadline } from "../../../asyncDeadline.js";
 
-const MAX_ATTEMPTS = 3; // initial attempt + 2 retries
-
-function makeQuestionId() {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `q_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 180_000;
+export function alreadyUsed(q, history) {
+  const stem = q.stem.toLowerCase().replace(/\s+/g, " ").trim();
+  return history.some(h => {
+    const previous = String(h.stem || "").toLowerCase().replace(/\s+/g, " ").trim();
+    // Older calibration entries retain only the first 100 characters.
+    return previous && (stem === previous || (previous.length >= 80 && stem.startsWith(previous)));
+  }) || isSemanticDuplicate(q, history);
 }
 
-/**
- * This codebase's shared `normalizeQuestions` (src/engine/mcq.js) deliberately
- * KEEPS table-shaped choices for a future table renderer that doesn't exist
- * yet for the exam tab's session UI — a later task's AtomQuiz.jsx-based
- * renderer would throw on an object child. Filter those out here; this is
- * exam-tab-specific filtering, not a change to the shared prompt/normalizer.
- */
-function isRenderableQuestion(q) {
-  if (!q || q.choiceLayout === "table" || !q.choices || typeof q.choices !== "object") return false;
-  return Object.values(q.choices).every((v) => typeof v === "string");
-}
-
-/**
- * Generates the exam pool for a per-lecture allocation. See task brief for
- * the full algorithm; the short version: for each lecture with a non-zero
- * allocation, call `startObjectiveQuiz` once per attempt (up to 3 attempts —
- * the initial call plus 2 retries for any shortfall), filter out
- * table-shaped/non-string choices, and stamp every surviving question with
- * provenance before flattening everything into one pool.
- */
-export async function generateExamQuestions(
-  {
-    allocation,
-    lecturesById,
-    objectivesByLecture,
-    atomsByLecture,
-    blockId,
-    lectures,
-    weakConceptAccuracyByLecture,
-    userId,
-  },
-  deps = {}
-) {
-  const questions = [];
-  const errors = [];
-
-  // Called once, not once per lecture — the block-filtered exemplar set
-  // doesn't vary by lecture, so there's no reason to re-read/re-filter the
-  // question-bank store on every iteration of the loop below.
+/** Two bounded workers, incremental cloud persistence, then atomic assignment
+ * at launch. A prepared pool is not an answer history or a mastery claim. */
+export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
+  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId }, deps = {}) {
+  const questions = [], errors = [], accepted = [];
   const exemplars = readExemplarsForBlock(userId, blockId);
+  const lectureIds = Object.keys(allocation || {}).filter(id => allocation[id] > 0);
+  const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
+  const history = deps.pool ? await deps.pool.history() : [];
+  let nextIndex = 0, cacheHits = 0, stopError = null;
+  const progress = message => deps.onProgress?.({ message, completed: questions.length, total, cacheHits });
 
-  const lectureIds = Object.keys(allocation || {}).filter((id) => (allocation[id] || 0) > 0);
-  const total = lectureIds.reduce((sum, id) => sum + allocation[id], 0);
-
-  for (const lectureId of lectureIds) {
+  async function generateLecture(lectureId) {
     const requested = allocation[lectureId];
     const objectives = objectivesByLecture?.[lectureId] || [];
     const atoms = atomsByLecture?.[lectureId] || [];
     const lecture = lecturesById?.[lectureId];
-    const lectureTitle = lecture?.lectureTitle || lecture?.fileName;
+    const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
     const difficulty = resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
-    const objectiveIds = objectives.map((o) => o?.id).filter(Boolean);
-
-    const survivors = [];
-    let stillNeeded = requested;
-    let attempt = 0;
-
-    while (stillNeeded > 0 && attempt < MAX_ATTEMPTS) {
-      attempt += 1;
-      deps.onProgress?.({
-        completed: questions.length + survivors.length,
-        total,
-        message: `Generating lecture ${lectureIds.indexOf(lectureId) + 1}/${lectureIds.length}: ${lectureTitle || "Lecture"}${attempt > 1 ? ` · retry ${attempt - 1}` : ""}`,
-      });
-      const result = await startObjectiveQuiz(
-        {
-          objectives,
-          lectureTitle,
-          blockId,
-          lectures,
-          exemplars,
-          atoms,
-          difficulty,
-          questionCount: stillNeeded,
-        },
-        deps
-      );
-
-      const generated = Array.isArray(result?.questions) ? result.questions : [];
-      const renderable = generated
-        .filter(isRenderableQuestion)
-        .filter((q) => !isSemanticDuplicate(q, [...questions, ...survivors]));
-      survivors.push(...renderable);
-      stillNeeded = requested - survivors.length;
+    const objectiveIds = objectives.map(o => o?.id).filter(Boolean);
+    const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars }) : null;
+    let obtained = 0, attempt = 0, errorMessage = null;
+    if (deps.pool) {
+      progress(`Checking saved questions: ${lectureTitle}`);
+      for (const q of await deps.pool.ready(bucket)) {
+        if (obtained >= requested) break;
+        if (alreadyUsed(q, [...history, ...accepted])) continue;
+        accepted.push(q); questions.push(q); obtained++; cacheHits++;
+      }
+      progress(`Loaded saved questions: ${lectureTitle}`);
     }
-
-    for (const q of survivors) {
-      questions.push({
-        ...q,
-        questionId: makeQuestionId(),
-        blockId,
-        lectureId,
-        // Atom-based questions carry their exact objective links. Older/free-form
-        // questions fall back to the lecture's objective set for compatibility.
-        objectiveIds: q.objectiveIds?.length ? q.objectiveIds : objectiveIds,
-        fingerprint: questionFingerprint(q),
-        schoolStyleScore: schoolStyleSimilarity(q, exemplars),
-        source: exemplars.length ? "school-style generated" : "lecture generated",
-      });
+    while (obtained < requested && attempt < MAX_ATTEMPTS && !stopError) {
+      attempt++;
+      progress(`Generating: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""} · up to 2 lectures at once`);
+      let result;
+      try {
+        result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, blockId, lectures, exemplars, atoms,
+          difficulty, userId, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
+          ...deps,
+          maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),
+          callAIJSON: (...args) => {
+            args[6] = { ...args[6], signal, bridgeTimeoutMs: 90_000, throwOnError: true };
+            return deps.callAIJSON(...args);
+          },
+        }), deps.requestTimeoutMs || REQUEST_TIMEOUT_MS);
+      } catch (error) { result = { error: error.message, questions: [] }; }
+      if (result?.error) {
+        errorMessage = result.error;
+        if (/timed out|deadline|quota|usage.limit|credit|exhaust|429|rate.limit|unavailable|network|403|401|permission/i.test(errorMessage)) stopError = errorMessage;
+        break; // Transport failures are not question shortfalls: don't repeat them three times.
+      }
+      for (const q of result?.questions || []) {
+        if (obtained >= requested) break;
+        if (!isValidPoolQuestion(q) || alreadyUsed(q, [...history, ...accepted])) continue;
+        const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
+          objectiveIds: q.objectiveIds?.length ? q.objectiveIds : objectiveIds,
+          fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
+          source: exemplars.length ? "school-style generated" : "lecture generated" };
+        // Reserve in this run before awaiting storage, preventing worker races.
+        accepted.push(stamped);
+        const saved = deps.pool ? await deps.pool.save(stamped, bucket, generationId) : stamped;
+        if (!saved) continue;
+        questions.push(saved); obtained++;
+        progress(`Saved ${questions.length}/${total} questions · ${cacheHits} from your prepared pool`);
+      }
     }
-
-    if (survivors.length < requested) {
-      errors.push({
-        lectureId,
-        requested,
-        obtained: survivors.length,
-        message: `Only generated ${survivors.length} of ${requested} requested questions for this lecture after ${attempt} attempt(s).`,
-      });
+    if (obtained < requested) errors.push({ lectureId, requested, obtained,
+      message: `${lectureTitle}: ${obtained}/${requested} questions ready. ${errorMessage || stopError || `Shortfall after ${attempt} attempts.`}` });
+  }
+  async function worker() {
+    while (nextIndex < lectureIds.length) {
+      const lectureId = lectureIds[nextIndex++];
+      await generateLecture(lectureId);
     }
   }
-
-  return { questions, errors };
+  const results = await Promise.allSettled(Array.from({ length: Math.min(2, lectureIds.length) }, worker));
+  const failed = results.find(r => r.status === "rejected");
+  if (failed) throw failed.reason;
+  return { questions, errors, cacheHits };
 }

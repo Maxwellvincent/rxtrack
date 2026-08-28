@@ -1,5 +1,20 @@
-import { describe, it, expect } from "vitest";
-import { probeIsFresh } from "./llmBridge.js";
+import { describe, it, expect, vi, afterEach } from "vitest";
+import { probeIsFresh, bridgeComplete, resetBridgeProbe } from "./llmBridge.js";
+import { installDomStorage } from "./stores/testEnv.js";
+
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetBridgeProbe(); });
+
+it("bounds a stalled completion and cools down before using the bridge again", async () => {
+  installDomStorage(); vi.useFakeTimers(); resetBridgeProbe();
+  const fetchMock = vi.fn().mockResolvedValueOnce({ ok: true }).mockImplementationOnce((_url, options) =>
+    new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason))));
+  vi.stubGlobal("fetch", fetchMock);
+  const result = bridgeComplete({ prompt: "test", timeoutMs: 100 });
+  await vi.advanceTimersByTimeAsync(101);
+  expect(await result).toBeNull();
+  expect(await bridgeComplete({ prompt: "next" })).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
 
 const NOW = 1_000_000;
 

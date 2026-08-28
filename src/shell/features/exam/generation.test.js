@@ -219,7 +219,7 @@ describe("generateExamQuestions", () => {
       JSON.stringify({ m1: { filename: "b1-exam.pdf", blockId: "b1", uploadedAt: 1 } })
     );
 
-    const callAIJSON = vi.fn().mockResolvedValue({ questions: [mcq("Q1")] });
+    const callAIJSON = vi.fn().mockResolvedValueOnce({ questions: [mcq("Q1")] }).mockResolvedValueOnce({ questions: [mcq("Q2")] });
 
     await generateExamQuestions(
       {
