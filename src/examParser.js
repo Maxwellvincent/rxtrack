@@ -272,7 +272,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
 
   const parsed = blocks.map(({ num, body, sourcePage }) => {
     const lines = body.split("\n");
-    const stemLines = [];
+    let stemLines = [];
     const choices = {};
     let letter = null;
     let inlineCorrect = null;
@@ -310,6 +310,23 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
         choices[letter] = `${choices[letter]} ${line}`.trim();
       } else {
         stemLines.push(line);
+      }
+    }
+    if (Object.keys(choices).length < 2) {
+      const flat = body.replace(/\[PAGE_BREAK(?::\d+)?\]/g, " ").replace(/\s+/g, " ").trim();
+      const firstChoice = flat.search(/(?:^|\s)A[.)]\s+/i);
+      if (firstChoice >= 0) {
+        const choiceText = flat.slice(firstChoice).trim();
+        const tokens = [...choiceText.matchAll(/(?:^|\s)([A-H])[.)]\s+/gi)];
+        if (tokens.length >= 2) {
+          for (const key of Object.keys(choices)) delete choices[key];
+          stemLines = [flat.slice(0, firstChoice).trim()];
+          tokens.forEach((token, index) => {
+            const start = (token.index || 0) + token[0].length;
+            const end = tokens[index + 1]?.index ?? choiceText.length;
+            choices[token[1].toUpperCase()] = choiceText.slice(start, end).trim();
+          });
+        }
       }
     }
     const answer = answers.get(num) || standaloneAnswers[num - 1] || markedCorrectAnswers[num - 1];

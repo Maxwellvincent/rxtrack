@@ -85,6 +85,14 @@ Q3: A — High sodium is expected.`;
     expect(questions.map((question) => question.correct)).toEqual(["B", "A", "D", "D", "C", "A"]);
   });
 
+  it("recovers answer choices when PDF.js collapses a page into one line", () => {
+    const collapsed = `1. A patient has a sufficiently detailed clinical presentation. Which finding is expected? A. Alpha B. Beta C. Gamma D. Delta\n2. A second patient has a sufficiently detailed clinical presentation. Which finding is expected? A. One B. Two C. Three D. Four\n3. A third patient has a sufficiently detailed clinical presentation. Which finding is expected? A. Red B. Blue C. Green D. Yellow\nAnswer Key: 1 B, 2 C, 3 A`;
+    const questions = parseNumberedQuestionBankText(collapsed, "Collapsed PDF");
+    expect(questions).toHaveLength(3);
+    expect(questions[0].choices).toEqual({ A: "Alpha", B: "Beta", C: "Gamma", D: "Delta" });
+    expect(questions.map((question) => question.correct)).toEqual(["B", "C", "A"]);
+  });
+
   it("uses the numbered answer key as an authoritative expected count", () => {
     expect(expectedQuestionCountFromAnswerKey(text)).toBe(3);
     expect(expectedQuestionCountFromAnswerKey("No key here")).toBeNull();
