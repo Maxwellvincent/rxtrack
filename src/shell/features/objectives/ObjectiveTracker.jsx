@@ -182,9 +182,11 @@ function LecObjectiveGroup({
   const isQuizLoading = lectureId != null && quizLoadingId === lectureId;
   const isQuizError = lectureId != null && quizErrorId === lectureId;
   const isFlash = lectureId != null && quizFlashLectureId === lectureId;
+  const groupCounts = countByStatus(dotObjsForDisplay);
 
   return (
     <div
+      className="desk-objective-lecture"
       style={{
         border: isFlash ? "1.5px solid #639922" : "1px solid " + T.border1,
         borderRadius: 12,
@@ -194,6 +196,7 @@ function LecObjectiveGroup({
       }}
     >
       <div
+        className="desk-objective-lecture-trigger"
         onClick={() => setOpen((o) => !o)}
         style={{
           padding: "12px 16px",
@@ -329,8 +332,8 @@ function LecObjectiveGroup({
           )}
         </div>
         {dotObjsForDisplay.length > 0 && (
-          <span style={{ fontFamily: MONO, color: aggDotColor, fontSize: 16, flexShrink: 0 }} title="Objectives in this lecture">
-            ●{dotObjsForDisplay.length}
+          <span className="desk-objective-count" style={{ fontFamily: MONO, color: aggDotColor, flexShrink: 0 }} title="Objective status in this lecture">
+            {groupCounts.st > 0 ? `${groupCounts.st} repair` : groupCounts.ut > 0 ? `${groupCounts.ut} untested` : `${groupCounts.m}/${groupCounts.t} mastered`}
           </span>
         )}
         {reExtractingLectureId === lectureId && (
@@ -385,36 +388,30 @@ function LecObjectiveGroup({
               ↻ Re-extract
             </button>
           )}
-        <div
-          style={{
-            width: 80,
-            height: 8,
-            background: T.border1,
-            borderRadius: 2,
-            flexShrink: 0,
-          }}
-        >
+        {hasQuizHistory ? <>
           <div
             style={{
-              width: barFill + "%",
-              height: "100%",
-              background: barColor,
+              width: 80,
+              height: 8,
+              background: T.border1,
               borderRadius: 2,
-              transition: "width 0.4s",
+              flexShrink: 0,
             }}
-          />
-        </div>
-        <span
-          style={{
-            fontFamily: MONO,
-            color: scoreLabelColor,
-            fontSize: 12,
-            minWidth: 36,
-            textAlign: "right",
-          }}
-        >
-          {perfScore != null && perfScore > 0 ? perfScore + "%" : "0%"}
-        </span>
+          >
+            <div
+              style={{
+                width: barFill + "%",
+                height: "100%",
+                background: barColor,
+                borderRadius: 2,
+                transition: "width 0.4s",
+              }}
+            />
+          </div>
+          <span style={{ fontFamily: MONO, color: scoreLabelColor, fontSize: 12, minWidth: 36, textAlign: "right" }}>
+            {perfScore}%
+          </span>
+        </> : <span className="desk-not-quizzed">Not quizzed</span>}
         {onStudyLecture && lectureId && (
           <button
             onClick={(e) => { e.stopPropagation(); onStudyLecture(lectureId); }}
@@ -481,16 +478,26 @@ function LecObjectiveGroup({
             "Quiz →"
           )}
         </button>
-        <span
+        <button
+          type="button"
+          aria-label={open ? "Collapse lecture objectives" : "Expand lecture objectives"}
+          aria-expanded={open}
+          onClick={(event) => {
+            event.stopPropagation();
+            setOpen((value) => !value);
+          }}
           style={{
+            border: 0,
+            background: "transparent",
             color: T.text3,
             fontSize: 13,
             transform: open ? "rotate(180deg)" : "none",
             transition: "transform 0.18s",
+            cursor: "pointer",
           }}
         >
           ▾
-        </span>
+        </button>
       </div>
       {open && (
         <div style={{ background: T.inputBg, borderTop: "1px solid " + T.border1 }}>
@@ -982,6 +989,31 @@ export default function ObjectiveTracker({
   return (
     <div className="desk-objectives" style={{ display: "flex", flexDirection: "column", gap: 16, padding: "0 4px 24px" }}>
       <style>{`@keyframes rxtObjSpin { to { transform: rotate(360deg); } }`}</style>
+      {headerActions && <div className="desk-objective-actions">{headerActions}</div>}
+      <section className="desk-objective-summary" aria-label="Objective readiness summary">
+        {[
+          { label: "School objectives", value: totalAll + unlinkedCount, note: `${blockLectures.length} lectures`, view: "lecture" },
+          { label: "Needs repair", value: countStruggling, note: "Missed or struggling", view: "status", filter: "struggling" },
+          { label: "Untested", value: countUntested, note: "No evidence yet", view: "status", filter: "untested" },
+          { label: "Developing", value: countInprogress, note: "Building consistency", view: "status", filter: "inprogress" },
+          { label: "Mastered", value: countMastered, note: "Current evidence", view: "status", filter: "mastered" },
+          { label: "Unlinked", value: unlinkedCount, note: "Needs lecture match", view: unlinkedCount ? "unlinked" : "coverage" },
+        ].map((metric) => (
+          <button
+            key={metric.label}
+            type="button"
+            className={`desk-objective-metric desk-objective-metric--${metric.label.toLowerCase().replace(/\s+/g, "-")}`}
+            onClick={() => {
+              setSubView(metric.view);
+              if (metric.filter) setStatusFilter(metric.filter);
+            }}
+          >
+            <span>{metric.label}</span>
+            <strong>{metric.value}</strong>
+            <small>{metric.note}</small>
+          </button>
+        ))}
+      </section>
       <div className="desk-objective-tabs" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {pills.map((p) => {
           const active = subView === p.key;
@@ -1017,7 +1049,6 @@ export default function ObjectiveTracker({
             </button>
           );
         })}
-        {headerActions}
       </div>
 
       {subView === "lecture" && (

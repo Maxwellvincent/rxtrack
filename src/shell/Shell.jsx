@@ -577,7 +577,7 @@ function MoreTab({ onContinue, onCalibrate, onWeak, onDeepLearn, onStruggle }) {
  */
 function ObjectivesView({ blockId, userId, termColor, T, onBack, onStartObjectiveQuiz, onStudyLecture, onImportObjectives, onReExtractAll }) {
   return (
-    <div className="mx-auto w-full max-w-6xl p-3 sm:p-4">
+    <div className="w-full">
       <ObjectivesContainer
         blockId={blockId}
         userId={userId}
