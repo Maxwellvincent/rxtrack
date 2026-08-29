@@ -91,7 +91,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={busy ? undefined : onClose}>
-      <div className="flex max-h-[calc(100dvh-2rem)] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-bg shadow-xl sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
+      <div className="desk-question-bank-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-bg shadow-xl sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="text-lg font-bold text-text-1">Question banks</div>
           <button type="button" disabled={busy} onClick={onClose} className="p-1 text-text-3 hover:text-text-1 disabled:opacity-40" aria-label="Close question banks">✕</button>

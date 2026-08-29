@@ -262,9 +262,12 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
-      <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-bold text-text-1">Integrated Exam</h2>
+    <div className="desk-page desk-exam mx-auto w-full max-w-6xl p-4 sm:p-5">
+      <div className="desk-page-heading mb-5 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold text-text-1">Integrated exam center</h2>
+          <p className="mt-1 text-sm text-text-3">School banks for faithful practice. Integrated exams for fresh readiness checks.</p>
+        </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1.5 font-mono text-[12px] text-text-3">
             <input type="checkbox" checked={tutorModeEnabled} onChange={toggleTutorMode} />

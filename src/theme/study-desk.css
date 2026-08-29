@@ -52,6 +52,21 @@
 .desk-practice-metrics > div > div:first-child { font-size: 1.9rem; letter-spacing: -.045em; }
 .desk-lecture-row { padding: 18px 4px; }
 .desk-lecture-row > div:first-child { align-items: center; }
+.desk-page-heading { padding: 18px 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-elevated); }
+.desk-count-summary { padding: 9px 12px; border-radius: 10px; background: var(--panel); }
+.desk-filter-strip { padding: 4px; }
+.desk-filter-strip button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 700; }
+.desk-toolbar { box-shadow: 0 8px 24px color-mix(in srgb, var(--text-1) 5%, transparent); }
+.desk-lecture-list { overflow: hidden; }
+.desk-objective-tabs { padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
+.desk-objective-tabs > button { min-height: 44px; border-radius: 9px !important; padding: 9px 14px !important; font-family: var(--font-sans) !important; }
+.desk-objectives > div:not(.desk-objective-tabs) > div { box-shadow: none; }
+.desk-bank-section { box-shadow: 0 8px 24px color-mix(in srgb, var(--text-1) 5%, transparent); }
+.desk-bank-row { transition: border-color .16s ease, transform .16s ease; }
+.desk-bank-row:hover { border-color: var(--border-strong); transform: translateY(-1px); }
+.desk-exam-dashboard { border-top: 1px solid var(--border); padding-top: 20px; }
+.desk-metric-card { min-height: 104px; }
+.desk-question-bank-modal { box-shadow: 0 28px 80px color-mix(in srgb, #000 32%, transparent); }
 .study-desk details > summary { min-height: 44px; }
 @media (max-width: 1100px) {
   .desk-sidebar { width: 214px; }
@@ -77,6 +92,11 @@
   .desk-today > .desk-day-heading h2 { font-size: 1.5rem; }
   .desk-task > div:first-child { padding: 14px; }
   .desk-task > div:first-child > div:last-child > div:first-child > div:first-child { flex-basis: 100%; }
+  .desk-page-heading { margin-inline: 0; padding: 16px; border-radius: 12px; }
+  .desk-toolbar > input { width: 100%; margin-left: 0; }
+  .desk-toolbar > select { flex: 1; }
+  .desk-objective-tabs { overflow-x: auto; flex-wrap: nowrap !important; }
+  .desk-objective-tabs > button { white-space: nowrap; }
 }
 @media (prefers-reduced-motion: reduce) {
   .study-desk *, .study-desk *::before, .study-desk *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }

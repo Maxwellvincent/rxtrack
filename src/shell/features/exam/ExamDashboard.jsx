@@ -219,7 +219,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
   }
 
   return (
-    <div className="p-5">
+    <div className="desk-exam-dashboard p-1 sm:p-2">
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
         Integrated Exam performance
       </div>
@@ -231,7 +231,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           ["Ready objectives", String(readiness.ready)],
           ["Weak objectives", String(readiness.weak)],
         ].map(([label, value]) => (
-          <div key={label} className="rounded-lg border border-border bg-panel p-3">
+          <div key={label} className="desk-metric-card rounded-xl border border-border bg-panel p-4">
             <div className="font-mono text-[12px] text-text-3">{label}</div>
             <div className="mt-1 text-xl font-bold text-text-1">{value}</div>
           </div>

@@ -967,10 +967,10 @@ export default function ObjectiveTracker({
   }, [coverageRows, coverageSort]);
 
   const pills = [
-    { key: "lecture", label: "📋 By Lecture" },
-    { key: "status", label: "🎯 By Status" },
-    { key: "coverage", label: "📊 Coverage" },
-    ...(unlinkedCount > 0 ? [{ key: "unlinked", label: `🔗 Unlinked (${unlinkedCount})`, amber: true }] : []),
+    { key: "lecture", label: "By lecture" },
+    { key: "status", label: "By status" },
+    { key: "coverage", label: "Coverage" },
+    ...(unlinkedCount > 0 ? [{ key: "unlinked", label: `Unlinked (${unlinkedCount})`, amber: true }] : []),
   ];
 
   const lectureOptionLabel = (l) => {
@@ -980,9 +980,9 @@ export default function ObjectiveTracker({
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16, padding: "0 4px 24px" }}>
+    <div className="desk-objectives" style={{ display: "flex", flexDirection: "column", gap: 16, padding: "0 4px 24px" }}>
       <style>{`@keyframes rxtObjSpin { to { transform: rotate(360deg); } }`}</style>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="desk-objective-tabs" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
         {pills.map((p) => {
           const active = subView === p.key;
           const isUn = p.key === "unlinked" && p.amber;

@@ -350,26 +350,26 @@ export function LectureList({
   }, [blockId, deletingLectureId, userId]);
 
   return (
-    <div className="mx-auto w-full max-w-6xl p-4 sm:p-5">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+    <div className="desk-page desk-lectures mx-auto w-full max-w-6xl p-4 sm:p-5">
+      <div className="desk-page-heading mb-4 flex flex-wrap items-end justify-between gap-3">
         <div>
           <button onClick={onBack} className="mb-1 font-mono text-xs text-text-3 hover:text-text-1">← block</button>
-          <h2 className="text-lg font-bold text-text-1">Lectures</h2>
-          <div className="font-mono text-[12px] text-text-3">{counts.active} active · {counts.done} complete · {counts.all} total</div>
+          <h2 className="text-2xl font-bold text-text-1">Lectures</h2>
+          <div className="text-sm text-text-3">Find the next useful lecture, not another endless list.</div>
         </div>
-        <div className="font-mono text-[12px] text-text-3">showing {Math.min(visibleCount, rows.length)} of {rows.length}</div>
+        <div className="desk-count-summary text-sm text-text-2"><strong>{counts.active}</strong> active · <strong>{counts.done}</strong> complete · {counts.all} total</div>
       </div>
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}
 
-      <div className="mb-3 flex flex-wrap items-center gap-1.5">
+      <div className="desk-filter-strip mb-3 flex flex-wrap items-center gap-2" aria-label="Lecture status filters">
         {FILTERS.map((f) => (
           <button
             key={f}
             onClick={() => { setFilter(f); if (f === "repairs") setSort("repairs"); }}
             aria-pressed={filter === f}
             className={
-              "rounded border px-2 py-0.5 font-mono text-[12px] " +
+              "rounded border px-3 py-2 text-sm " +
               (filter === f ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
             }
           >
@@ -378,13 +378,13 @@ export function LectureList({
         ))}
       </div>
 
-      <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-bg-elevated p-2">
-        <span className="mr-1 font-mono text-[11px] uppercase tracking-wider text-text-3">Activity</span>
+      <div className="desk-toolbar mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-bg-elevated p-3">
+        <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-text-3">Type</span>
         {ACTIVITY_TYPES.filter((type) => type === "all" || typeCounts[type] > 0).map((type) => (
           <button
             key={type}
             onClick={() => setActivityType(type)}
-            className={"rounded px-2 py-1 font-mono text-[12px] " + (activityType === type ? "bg-accent text-bg" : "text-text-3 hover:bg-panel hover:text-text-1")}
+            className={"rounded-lg px-3 py-2 text-sm " + (activityType === type ? "bg-accent text-bg" : "text-text-3 hover:bg-panel hover:text-text-1")}
           >
             {type === "all" ? "All types" : type} ({typeCounts[type]})
           </button>
@@ -392,8 +392,9 @@ export function LectureList({
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="search…"
-          className="ml-auto min-w-40 rounded border border-border bg-panel px-2 py-1 text-[13px] text-text-1"
+          placeholder="Search lectures"
+          aria-label="Search lectures"
+          className="ml-auto min-h-11 min-w-52 rounded-lg border border-border bg-panel px-3 text-sm text-text-1"
         />
         <select
           value={sort}
@@ -401,7 +402,8 @@ export function LectureList({
             setSort(e.target.value);
             if (typeof localStorage !== "undefined") localStorage.setItem(SORT_STORAGE_KEY, e.target.value);
           }}
-          className="rounded border border-border bg-panel px-1.5 py-1 font-mono text-[12px] text-text-2"
+          aria-label="Sort lectures"
+          className="min-h-11 rounded-lg border border-border bg-panel px-3 text-sm text-text-2"
         >
           {Object.entries(SORT_LABELS).map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
@@ -412,7 +414,7 @@ export function LectureList({
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
       ) : (
-        <div className="rounded-lg border border-border px-3">
+        <div className="desk-lecture-list rounded-xl border border-border bg-bg-elevated px-4">
           {visibleRows.map((row) => (
             <Row
               key={row.lectureId}
