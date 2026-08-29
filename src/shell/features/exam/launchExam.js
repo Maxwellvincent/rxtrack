@@ -52,6 +52,7 @@ async function runLaunch(
     weakConcepts,
     learnerEvidence,
     prepareOnly = false,
+    savedOnly = false,
   },
   deps = {}
 ) {
@@ -84,7 +85,7 @@ async function runLaunch(
       userId,
       generationId: sessionId,
     },
-    { ...deps, pool }
+    { ...deps, pool, savedOnly }
   );
 
   await pool.finish(sessionId, { status: "complete", readyCount: questions?.length || 0,
@@ -99,14 +100,22 @@ async function runLaunch(
   }
 
   if (prepareOnly) return { ok: true, prepared: questions.length, cacheHits, generationErrors };
-  if (format === "exam" && questions.length < questionCount) {
-    return { ok: false, error: `${questions.length}/${questionCount} questions are saved and ready. The timed exam has not started. Retry to fill the remaining slots. ${generationErrors[0]?.message || ""}` };
+  if (format === "exam" && questions.length < questionCount && !savedOnly) {
+    return {
+      ok: false,
+      readyCount: questions.length,
+      canStartSaved: questions.length > 0,
+      error: `${questions.length}/${questionCount} questions are saved and ready. The timed exam has not started. You can start with the saved questions now or retry later to fill the remaining slots. ${generationErrors[0]?.message || ""}`,
+    };
   }
 
   const lectureIds = [...new Set(questions.map((q) => q.lectureId))];
 
   const startedAt = format === "exam" ? Date.now() : null;
-  const deadline = format === "exam" ? startedAt + durationMinutes * 60_000 : null;
+  const scaledDurationMinutes = format === "exam" && questions.length < questionCount
+    ? durationMinutes * (questions.length / questionCount)
+    : durationMinutes;
+  const deadline = format === "exam" ? startedAt + scaledDurationMinutes * 60_000 : null;
 
   const session = createSessionShape({
     sessionId,

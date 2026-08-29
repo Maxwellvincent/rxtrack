@@ -40,6 +40,19 @@ const ELIGIBLE = [
 beforeEach(() => installDomStorage());
 
 describe("ExamLaunchModal", () => {
+  it("offers a saved-only start after a provider shortfall", () => {
+    const onStartSaved = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE} defaultQuestionCount={30}
+        onLaunch={vi.fn()} onCancel={vi.fn()} error="28/30 ready" partialLaunch={{ readyCount: 28 }} onStartSaved={onStartSaved} />
+    );
+    const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent.includes("Start 28-question exam"));
+    expect(button).toBeTruthy();
+    act(() => button.click());
+    expect(onStartSaved).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
   it("renders format, question count, and duration controls (duration shown by default: exam format)", () => {
     const { host, unmount } = render(
       <ExamLaunchModal

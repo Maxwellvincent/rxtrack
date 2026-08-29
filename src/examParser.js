@@ -1,6 +1,7 @@
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
 import { extractWithSmartFallback } from "./ingest/pdfText.js";
 import { imageForText, isUsableImage } from "./lectureImages.js";
+import { cleanLectureTitle } from "./lectureTitle.js";
 
 function detectLectureNumber(text) {
   const m =
@@ -184,7 +185,7 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
  */
 export function parseNumberedQuestionBankText(fullText, examTitle = "") {
   const source = String(fullText || "").replace(/\r/g, "");
-  const answerHeading = source.search(/\n\s*Answer Key\s*\n/i);
+  const answerHeading = source.search(/\n\s*Answers?(?:\s+Key)?\s*:?\s*\n/i);
   const questionText = answerHeading >= 0 ? source.slice(0, answerHeading) : source;
   const answerText = answerHeading >= 0 ? source.slice(answerHeading) : "";
   const answers = new Map();
@@ -192,16 +193,58 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
   for (const match of answerText.matchAll(answerRe)) {
     answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].trim() });
   }
+  const proseAnswerRe = /(?:^|\n)\s*(\d+)[.)]?\s+(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?\s*(?:Option\s+)?([A-H])\b[.:]?\s*([^\n]*)/gi;
+  for (const match of source.matchAll(proseAnswerRe)) {
+    if (!answers.has(Number(match[1]))) {
+      answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].trim() });
+    }
+  }
+  const listedAnswerRe = /(?:^|\n)\s*(\d+)[.)]\s*([A-H])\s*(?=\n|$)/gim;
+  for (const match of answerText.matchAll(listedAnswerRe)) {
+    if (!answers.has(Number(match[1]))) answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: "" });
+  }
+  const standaloneAnswers = [...source.matchAll(/(?:^|\n)\s*Answer(?:\s+Key)?\s*:\s*(?:Option\s+)?([A-H])\b[.:]?\s*([^\n]*)/gim)]
+    .map((match) => ({ correct: match[1].toUpperCase(), explanation: match[2].trim() }));
+  const markedCorrectAnswers = [...source.matchAll(/(?:^|\n)\s*(?:\(([A-H])\)|([A-H])[.)])\s*([^\n]*(?:yes|correct)[^\n]*)/gim)]
+    .filter((match) => !/\b(?:no|incorrect|not correct)\b/i.test(match[3]))
+    .map((match) => ({ correct: (match[1] || match[2]).toUpperCase(), explanation: match[3].trim() }));
 
   const blocks = [];
-  // Marker/LLM cleanup sometimes changes `Question 12` into `12.`. Accept
-  // both while still requiring a line-leading integer, so option letters can
-  // never start a false question block.
-  const questionRe = /(?:^|\n)\s*(?:Question\s*(?:#\s*:)?\s*)?(\d+)[.)]?\s*\n([\s\S]*?)(?=(?:\n\s*(?:Question\s*(?:#\s*:)?\s*)?\d+[.)]?\s*\n)|$)/gi;
-  for (const match of questionText.matchAll(questionRe)) blocks.push({ num: Number(match[1]), body: match[2] });
+  // Follow the first sequential 1, 2, 3... run. This prevents lab values,
+  // numbered rationale lists and page footers from becoming fake questions.
+  const headingRe = /(?:^|\n)\s*(?:Question\s*(?:#\s*:)?\s*)?(\d+)[.)]?\s+(?=\S)/gi;
+  const candidates = [...questionText.matchAll(headingRe)].map((match) => ({
+    num: Number(match[1]),
+    start: match.index || 0,
+    bodyStart: (match.index || 0) + match[0].length,
+  }));
+  const selected = [];
+  let cursor = -1;
+  for (let expected = 1; expected <= 200; expected++) {
+    const options = candidates.map((candidate, index) => ({ candidate, index }))
+      .filter(({ candidate, index }) => index > cursor && candidate.num === expected);
+    if (!options.length) break;
+    const chosen = options.find(({ candidate, index }) => {
+      const next = candidates.find((item, nextIndex) => nextIndex > index && item.num === expected + 1);
+      const body = questionText.slice(candidate.bodyStart, next?.start ?? questionText.length);
+      return (body.match(/^\s*(?:\([A-H]\)|[A-H][.)])\s+/gim) || []).length >= 2;
+    }) || options[0];
+    selected.push(chosen.candidate);
+    cursor = chosen.index;
+  }
+  for (let index = 0; index < selected.length; index++) {
+    const match = selected[index];
+    const before = questionText.slice(0, match.start);
+    const pageMarkers = [...before.matchAll(/\[PAGE_BREAK(?::(\d+))?\]/g)];
+    const sourcePage = pageMarkers.length
+      ? Number(pageMarkers.at(-1)?.[1] || pageMarkers.length + 1)
+      : 1;
+    const end = selected[index + 1]?.start ?? questionText.length;
+    blocks.push({ num: match.num, body: questionText.slice(match.bodyStart, end), sourcePage });
+  }
   if (blocks.length < 3) return [];
 
-  return blocks.map(({ num, body }) => {
+  return blocks.map(({ num, body, sourcePage }) => {
     const lines = body.split("\n");
     const stemLines = [];
     const choices = {};
@@ -211,7 +254,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
     let inRationale = false;
     for (const rawLine of lines) {
       const line = rawLine.trim();
-      if (!line || line === "[PAGE_BREAK]") continue;
+      if (!line || /^\[PAGE_BREAK(?::\d+)?\]$/.test(line)) continue;
       const rationale = line.match(/^Rationale\s*:\s*(.*)$/i);
       if (rationale) {
         inRationale = true;
@@ -219,22 +262,31 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
         if (rationale[1]) rationaleLines.push(rationale[1]);
         continue;
       }
+      const inlineAnswer = line.match(/^(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?\s*(?:Option\s+)?([A-H])\b[.:]?\s*(.*)$/i);
+      if (inlineAnswer) {
+        inlineCorrect = inlineAnswer[1].toUpperCase();
+        inRationale = true;
+        letter = null;
+        if (inlineAnswer[2]) rationaleLines.push(inlineAnswer[2]);
+        continue;
+      }
       if (inRationale) {
         if (!/^Attachment\s*:/i.test(line) && !/^_+$/.test(line)) rationaleLines.push(line);
         continue;
       }
-      const choice = line.match(/^([✓✔])?\s*([A-H])[.)]\s*(.*)$/);
+      const choice = line.match(/^([✓✔])?\s*(?:\(([A-H])\)|([A-H])[.)])\s*(.*)$/i);
       if (choice) {
-        letter = choice[2].toUpperCase();
-        choices[letter] = choice[3].trim();
+        letter = (choice[2] || choice[3]).toUpperCase();
+        choices[letter] = choice[4].trim();
         if (choice[1]) inlineCorrect = letter;
+        if (/\b(?:yes|correct)\b/i.test(choice[4]) && !/\b(?:not correct|incorrect|no)\b/i.test(choice[4])) inlineCorrect = letter;
       } else if (letter) {
         choices[letter] = `${choices[letter]} ${line}`.trim();
       } else {
         stemLines.push(line);
       }
     }
-    const answer = answers.get(num);
+    const answer = answers.get(num) || standaloneAnswers[num - 1] || markedCorrectAnswers[num - 1];
     const stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
     return {
       id: `q${num}`,
@@ -250,9 +302,11 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
       difficulty: "medium",
       choiceLayout: null,
       choiceColumns: null,
-      hasImage: /\b(?:figure|image|photomicrograph|graph|pathway)\b/i.test(stem),
+      hasImage: /\b(?:figure|image|micrograph|photomicrograph|graph|pathway)\b/i.test(stem),
+      sourcePage,
     };
-  }).filter((q) => q.stem.length > 20 && Object.keys(q.choices).length >= 2);
+  }).filter((q, index, all) => q.stem.length > 20 && Object.keys(q.choices).length >= 2
+    && all.findIndex((candidate) => candidate.num === q.num && candidate.stem.length > 20 && Object.keys(candidate.choices).length >= 2) === index);
 }
 
 export function expectedQuestionCountFromAnswerKey(fullText) {
@@ -261,6 +315,13 @@ export function expectedQuestionCountFromAnswerKey(fullText) {
     .filter(Number.isFinite);
   if (ids.length) return new Set(ids).size;
   const source = String(fullText || "");
+  const proseIds = [...source.matchAll(/(?:^|\n)\s*(\d+)[.)]?\s+(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?\s*(?:Option\s+)?[A-H]\b/gim)]
+    .map((match) => Number(match[1]));
+  const standalone = (source.match(/(?:^|\n)\s*Answer(?:\s+Key)?\s*:\s*(?:Option\s+)?[A-H]\b/gim) || []).length;
+  const marked = [...source.matchAll(/(?:^|\n)\s*(?:\([A-H]\)|[A-H][.)])\s*([^\n]*(?:yes|correct)[^\n]*)/gim)]
+    .filter((match) => !/\b(?:no|incorrect|not correct)\b/i.test(match[1])).length;
+  const explicitCount = Math.max(new Set(proseIds).size, standalone, marked);
+  if (explicitCount >= 3) return explicitCount;
   const inlineIds = [...source.matchAll(/(?:^|\n)\s*Question\s*#\s*:\s*(\d+)/gim)]
     .map((match) => Number(match[1]))
     .filter(Number.isFinite);
@@ -840,7 +901,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
       pages.push({ num: i, text, imgCount, pdfPage: page });
     }
 
-    fullText = pages.map((p) => p.text).join("\n\n[PAGE_BREAK]\n\n");
+    fullText = pages.map((p, index) => index === 0 ? p.text : `[PAGE_BREAK:${p.num}]\n${p.text}`).join("\n\n");
   }
 
   const format = _isText ? "standard" : detectFormat(pages, fullText);
@@ -854,7 +915,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
 
-  const examTitle = file.name.replace(/\.(pdf|md|markdown|txt)$/i, "");
+  const examTitle = cleanLectureTitle(file.name);
   let questions = [];
 
   if (format === "report") {
@@ -879,18 +940,37 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
 
   questions = attachImagesToExamQuestions(questions, slideImages);
 
+  if (pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
+    const pageData = new Map();
+    for (const question of questions) {
+      if (!question.hasImage || !question.sourcePage || question.sourceImageUrl) continue;
+      if (!pageData.has(question.sourcePage)) {
+        const page = await pdf.getPage(question.sourcePage);
+        const viewport = page.getViewport({ scale: 1.35 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        pageData.set(question.sourcePage, canvas.toDataURL("image/jpeg", 0.82));
+      }
+      question.sourceImageDataUrl = pageData.get(question.sourcePage);
+    }
+  }
+
   // A numbered answer key is a stronger completeness signal than an AI
   // parser's self-reported output. Never overwrite a good bank with a silent
   // partial import (the 30-question ExamSoft file previously landed as 17).
   const expectedFromKey = expectedQuestionCountFromAnswerKey(fullText);
-  if (expectedFromKey && questions.length < expectedFromKey) {
+  const keyedCount = questions.filter((question) => question.correct && question.choices?.[question.correct]).length;
+  if (expectedFromKey && (questions.length < expectedFromKey || keyedCount < expectedFromKey)) {
     const recovered = parseNumberedQuestionBankText(fullText, examTitle);
-    if (recovered.length >= expectedFromKey) {
+    const recoveredKeyed = recovered.filter((question) => question.correct && question.choices?.[question.correct]).length;
+    if (recovered.length >= expectedFromKey && recoveredKeyed >= expectedFromKey) {
       questions = attachImagesToExamQuestions(recovered, slideImages);
       onProgress?.(`✓ Recovered all ${expectedFromKey} questions from the answer key`);
     } else {
       throw new Error(
-        `Partial import blocked: the answer key contains ${expectedFromKey} questions, but only ${questions.length} were extracted. ` +
+        `Partial import blocked: the answer key contains ${expectedFromKey} questions, but only ${questions.length} questions and ${keyedCount} keyed answers were extracted. ` +
         "Turn off LLM cleanup for this text-based PDF and try again."
       );
     }

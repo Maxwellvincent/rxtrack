@@ -46,6 +46,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Loaded saved questions: ${lectureTitle}`);
     }
     while (obtained < requested && attempt < MAX_ATTEMPTS && !stopError) {
+      if (deps.savedOnly) break;
       attempt++;
       progress(`Generating: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""} · up to 2 lectures at once`);
       let result;

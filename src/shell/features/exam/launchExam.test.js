@@ -114,7 +114,23 @@ describe("launchExamSession", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("1/10 questions are saved");
+    expect(result).toMatchObject({ canStartSaved: true, readyCount: 1 });
     expect(createExamSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("starts a shorter timed exam from saved questions without requesting more AI output", async () => {
+    generateExamQuestionsMock.mockResolvedValue({
+      questions: [makeQuestion("q1", "lec-1"), makeQuestion("q2", "lec-1")],
+      errors: [],
+    });
+    createExamSessionMock.mockResolvedValue({ ok: true });
+
+    await launchExamSession({ ...BASE_ARGS, questionCount: 10, durationMinutes: 15, savedOnly: true });
+
+    expect(generateExamQuestionsMock.mock.calls[0][1]).toMatchObject({ savedOnly: true });
+    const [, session] = createExamSessionMock.mock.calls[0];
+    expect(session.questions).toHaveLength(2);
+    expect(session.deadline - session.startedAt).toBe(3 * 60_000);
   });
 
   it("propagates createExamSession failure instead of claiming success", async () => {

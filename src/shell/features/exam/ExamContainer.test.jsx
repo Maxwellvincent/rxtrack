@@ -136,6 +136,21 @@ beforeEach(() => {
 });
 
 describe("ExamContainer", () => {
+  it("starts directly from the prepared reserve without requesting new AI questions", async () => {
+    launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "saved-session" });
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    await flush();
+    const saved = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start saved exam");
+    expect(saved).toBeTruthy();
+    await act(async () => saved.click());
+    await flush();
+    expect(launchExamSessionMock.mock.calls[0][0]).toMatchObject({
+      format: "exam", questionCount: 12, durationMinutes: 18, savedOnly: true,
+    });
+    expect(host.textContent).toMatch(/saved-session/);
+    unmount();
+  });
+
   it("offers timed and practice runs for an uploaded school bank", async () => {
     const questions = Array.from({ length: 30 }, (_, index) => ({
       id: `q${index + 1}`,

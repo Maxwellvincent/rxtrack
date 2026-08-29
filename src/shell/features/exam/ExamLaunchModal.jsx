@@ -47,6 +47,8 @@ export function ExamLaunchModal({
   progress = null,
   error = null,
   onPrepare,
+  partialLaunch = null,
+  onStartSaved,
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -225,6 +227,12 @@ export function ExamLaunchModal({
           </div>
         )}
         {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
+
+        {!launching && partialLaunch?.readyCount > 0 && (
+          <button type="button" onClick={onStartSaved} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
+            Start {partialLaunch.readyCount}-question exam from saved reserve
+          </button>
+        )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
           <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(weekNumber === "all" ? {} : { weekNumber }) })}

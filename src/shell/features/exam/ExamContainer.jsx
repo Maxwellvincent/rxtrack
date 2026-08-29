@@ -27,6 +27,7 @@ import { examDurationMinutes } from "./examTiming.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { listExamSessions } from "../../../supabase.js";
+import { cleanLectureTitle } from "../../../lectureTitle.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -65,6 +66,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launchProgress, setLaunchProgress] = useState(null);
   const [bankLaunching, setBankLaunching] = useState(null);
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
+  const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
@@ -247,6 +249,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     if (launching) return;
     setLaunching(true);
     setLaunchError(null);
+    setPartialLaunch(null);
     setLaunchProgress({ message: "Checking exam storage access…", completed: 0 });
     try {
       const scopedLectures = config.weekNumber != null
@@ -272,6 +275,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         { callAIJSON, onProgress: setLaunchProgress }
       );
       if (result.ok) {
+        await refreshQuestionReserve();
         setShowLaunchModal(false);
         setActiveSessionId(result.sessionId);
         setLaunchWarning(
@@ -281,6 +285,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         );
       } else {
         setLaunchError(result.error || "Could not start the exam.");
+        if (result.canStartSaved && result.readyCount > 0) {
+          setPartialLaunch({ config, readyCount: result.readyCount });
+        }
       }
     } catch (err) {
       // Task 12 review fix #3 — neither this nor launchExamSession had a
@@ -378,6 +385,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           launching={launching}
           progress={launchProgress}
           error={launchError}
+          partialLaunch={partialLaunch}
+          onStartSaved={() => handleLaunch({ ...partialLaunch.config, savedOnly: true })}
           onPrepare={prepareQuestions}
         />
       )}
@@ -410,6 +419,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <div className="rounded-lg border border-border bg-panel px-4 py-3 text-center">
           <div className="text-2xl font-bold text-text-1">{questionReserve.loading ? "…" : questionReserve.ready}</div>
           <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">ready questions</div>
+          {!questionReserve.loading && questionReserve.ready > 0 && (
+            <Button className="mt-2" disabled={launching} onClick={() => handleLaunch({
+              format: "exam",
+              questionCount: Math.min(100, questionReserve.ready),
+              durationMinutes: examDurationMinutes(Math.min(100, questionReserve.ready)),
+              savedOnly: true,
+            })}>Start saved exam</Button>
+          )}
         </div>
       </section>
 
@@ -425,7 +442,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               return (
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium text-text-1">{bank.filename}</div>
+                    <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed</div>
                   </div>
                   <div className="flex gap-2">

@@ -64,6 +64,13 @@ Q3: A — High sodium is expected.`;
     expect(questions[2].explanation).toContain("High sodium");
   });
 
+  it("tracks the original PDF page for image-bearing questions", () => {
+    const paged = text.replace("Question 2", "[PAGE_BREAK:2]\nQuestion 2");
+    const questions = parseNumberedQuestionBankText(paged, "School Homework");
+    expect(questions[0].sourcePage).toBe(1);
+    expect(questions[1]).toMatchObject({ sourcePage: 2, hasImage: true });
+  });
+
   it("accepts cleanup output that changes Question N headings to plain N.", () => {
     const cleaned = text.replace(/Question (\d+)/g, "$1.");
     const questions = parseNumberedQuestionBankText(cleaned, "ExamSoft Practice");
@@ -74,6 +81,11 @@ Q3: A — High sodium is expected.`;
   it("uses the numbered answer key as an authoritative expected count", () => {
     expect(expectedQuestionCountFromAnswerKey(text)).toBe(3);
     expect(expectedQuestionCountFromAnswerKey("No key here")).toBeNull();
+  });
+
+  it("recognizes inline school rationales as an authoritative answer key", () => {
+    const inline = ["Answer: A. first", "Answer Key: Option B. second", "Answer: C. third"].join("\n");
+    expect(expectedQuestionCountFromAnswerKey(inline)).toBe(3);
   });
 
   it("parses ExamSoft Question #: headings, inline checkmarks, and rationales", () => {

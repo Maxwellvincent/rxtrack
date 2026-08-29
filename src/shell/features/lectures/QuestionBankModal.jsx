@@ -11,6 +11,8 @@ import { analyzeExamReportWeakConcepts, mergeExamReportConcepts } from "../../lo
 import { parseExamReportSummary } from "../../logic/examReportWeakConcepts.js";
 import * as schoolResultsStore from "../../../stores/schoolResults.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
+import { cleanLectureTitle } from "../../../lectureTitle.js";
+import { uploadQuestionBankPage } from "../../../supabase.js";
 
 export function QuestionBankModal({ blockId, blockName = "", lectures = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
@@ -35,12 +37,27 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
       try {
         for (const file of files) {
           try {
+            const bankTitle = cleanLectureTitle(file.name);
             setStatus(`${file.name} — reading…`);
             const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm });
-            const questions = tagBankQuestions(parsed?.questions, { blockId, filename: file.name, wrongOnly });
+            const pageUrls = new Map();
+            const withDurableImages = [];
+            for (const question of parsed?.questions || []) {
+              let sourceImageUrl = question.sourceImageUrl || null;
+              if (question.sourceImageDataUrl && question.sourcePage && userId) {
+                if (!pageUrls.has(question.sourcePage)) {
+                  setStatus(`${file.name} — saving figure on page ${question.sourcePage}…`);
+                  pageUrls.set(question.sourcePage, await uploadQuestionBankPage(userId, bankTitle, question.sourcePage, question.sourceImageDataUrl));
+                }
+                sourceImageUrl = pageUrls.get(question.sourcePage);
+              }
+              const { sourceImageDataUrl, ...storedQuestion } = question;
+              withDurableImages.push({ ...storedQuestion, ...(sourceImageUrl ? { sourceImageUrl } : {}) });
+            }
+            const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly });
             if (questions.length) {
-              questionBanksStore.saveBank(userId, file.name, questions);
-              questionBankMetaStore.recordUpload(userId, { filename: file.name, blockId });
+              questionBanksStore.saveBank(userId, bankTitle, questions);
+              questionBankMetaStore.recordUpload(userId, { filename: bankTitle, blockId });
             }
             const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });
             if (reportResult && userId) {
@@ -64,7 +81,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
                 weakCategories.push(...categories.filter((c) => entries.some((e) => e.concept === c.category)));
               }
             }
-            results.push({ filename: file.name, questions, report: !!reportResult });
+            results.push({ filename: bankTitle, questions, report: !!reportResult });
           } catch (e) {
             results.push({ filename: file.name, error: e?.message || String(e) });
           }

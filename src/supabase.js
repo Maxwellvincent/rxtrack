@@ -1061,6 +1061,16 @@ export async function uploadQuestionImage(userId, objectiveId, round, file) {
   }
 }
 
+/** Persist one original school-question page and return a durable display URL. */
+export async function uploadQuestionBankPage(userId, bankTitle, pageNumber, dataUrl) {
+  if (!userId || !bankTitle || !pageNumber || !dataUrl) return null;
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  const path = `question-images/${userId}/banks/${encodeDocId(bankTitle)}/page-${pageNumber}.jpg`;
+  await uploadBytes(storageRef(storage, path), blob, { contentType: blob.type || "image/jpeg" });
+  return getDownloadURL(storageRef(storage, path));
+}
+
 /**
  * Fetch all image metadata for a question, with download URLs for display.
  * Returns [{storagePath, filename, mimeType, url, addedAt}]
