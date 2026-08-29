@@ -8,13 +8,12 @@
 import { useState, useEffect, useCallback } from "react";
 import * as lecturesStore from "../../../stores/lectures.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
-import { overwriteObjectivesInCloud } from "../../../supabase.js";
+import { fetchLectureContent, overwriteObjectivesInCloud, saveLectureAtoms } from "../../../supabase.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { createObjectiveCommands, selectBlockObjectives } from "../../logic/objectives.js";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
-import { saveLectureAtoms } from "../../../supabase.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
 
 /** Normalise objective text for comparison: first 60 chars, lowercase, non-word stripped. */
@@ -26,6 +25,16 @@ function normKey(text) {
 function lecText(lec) {
   if (lec.fullText) return lec.fullText;
   return (lec.chunks || []).map((c) => c.markdown || c.text || "").join("\n\n");
+}
+
+export function mergeLectureContent(lecture, cloud) {
+  if (!cloud) return lecture;
+  return {
+    ...lecture,
+    ...(cloud.meta || {}),
+    chunks: cloud.chunks?.length ? cloud.chunks : (lecture.chunks || []),
+    atoms: cloud.atoms?.length ? cloud.atoms : (lecture.atoms || []),
+  };
 }
 
 function makeObjectiveCommands(userId) {
@@ -44,17 +53,17 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
   const [lines, setLines] = useState([]); // per-lecture progress strings
   const [done, setDone] = useState(false);
   const [totalObjectives, setTotalObjectives] = useState(0);
+  const [scannedLectures, setScannedLectures] = useState(0);
   const [error, setError] = useState("");
-  const objectiveLectures = lectures.filter((lecture) => lecText(lecture).trim());
 
   useEffect(() => {
     const all = lecturesStore.read(userId) || [];
-    const forBlock = all.filter((l) => l.blockId === blockId && (l.fullText || l.chunks?.length || l.atoms?.length));
+    const forBlock = all.filter((l) => l.blockId === blockId);
     setLectures(forBlock);
   }, [blockId, userId]);
 
   const run = useCallback(async () => {
-    if (!objectiveLectures.length || running) return;
+    if (!lectures.length || running) return;
     setRunning(true);
     setLines([]);
     setError("");
@@ -62,15 +71,32 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
 
     const commands = makeObjectiveCommands(userId);
     let grandTotal = 0;
+    let sourceCount = 0;
 
     try {
-      for (let i = 0; i < objectiveLectures.length; i++) {
-        const lec = objectiveLectures[i];
-        const label = `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? i + 1} — ${lec.lectureTitle || lec.filename || "Untitled"}`;
-        setLines((prev) => [...prev, `${label}: extracting…`]);
+      for (let i = 0; i < lectures.length; i++) {
+        const localLecture = lectures[i];
+        const label = `${localLecture.lectureType || "LEC"} ${localLecture.lectureNumber ?? i + 1} — ${localLecture.lectureTitle || localLecture.filename || "Untitled"}`;
+        setLines((prev) => [...prev, `${label}: loading source…`]);
 
         try {
+          const cloud = userId ? await fetchLectureContent(userId, localLecture.id) : null;
+          const lec = mergeLectureContent(localLecture, cloud);
           const text = lecText(lec);
+          if (!text.trim()) {
+            setLines((prev) => {
+              const next = [...prev];
+              next[next.length - 1] = `${label}: no stored source text`;
+              return next;
+            });
+            continue;
+          }
+          sourceCount++;
+          setLines((prev) => {
+            const next = [...prev];
+            next[next.length - 1] = `${label}: extracting…`;
+            return next;
+          });
           const found = await extractObjectivesFromLecture(text, lec, blockId);
 
           // Carry forward existing progress for objectives whose text survived.
@@ -119,32 +145,40 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
       if (userId) await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {});
 
       setTotalObjectives(grandTotal);
+      setScannedLectures(sourceCount);
       setDone(true);
     } catch (e) {
       setError("Re-extraction stopped: " + (e?.message || String(e)));
     } finally {
       setRunning(false);
     }
-  }, [objectiveLectures, running, blockId, userId]);
+  }, [lectures, running, blockId, userId]);
 
   const reconcileAtoms = useCallback(() => {
-    const withAtoms = lectures.filter(l => l.atoms?.length);
     startBackgroundJob({
       label: "Objective ↔ atom reconciliation",
-      detail: `Starting 0/${withAtoms.length} lectures`,
+      detail: `Checking 0/${lectures.length} lectures`,
       run: async (progress) => {
         const allObjectives = selectBlockObjectives(objectivesStore.read(userId) || {}, blockId);
         let linked = 0;
-        for (let i = 0; i < withAtoms.length; i++) {
-          const lec = withAtoms[i];
-          const objectives = allObjectives.filter(o => o.linkedLecId === lec.id);
-          progress(`${i + 1}/${withAtoms.length} · ${lec.lectureTitle || lec.fileName || "Lecture"}`);
-          if (!objectives.length) continue;
-          const result = await tagAtomsWithObjectives(lec.atoms, objectives, { callAIJSON });
-          await saveLectureAtoms(userId, lec.id, result.atoms || lec.atoms);
-          linked += (result.atoms || []).filter(a => a.objectiveIds?.length).length;
+        let atomLectures = 0;
+        for (let i = 0; i < lectures.length; i++) {
+          const localLecture = lectures[i];
+          progress(`${i + 1}/${lectures.length} · ${localLecture.lectureTitle || localLecture.fileName || "Lecture"}`);
+          try {
+            const cloud = userId ? await fetchLectureContent(userId, localLecture.id) : null;
+            const lec = mergeLectureContent(localLecture, cloud);
+            const objectives = allObjectives.filter(o => o.linkedLecId === lec.id);
+            if (!lec.atoms?.length || !objectives.length) continue;
+            atomLectures++;
+            const result = await tagAtomsWithObjectives(lec.atoms, objectives, { callAIJSON });
+            await saveLectureAtoms(userId, lec.id, result.atoms || lec.atoms);
+            linked += (result.atoms || []).filter(a => a.objectiveIds?.length).length;
+          } catch (e) {
+            progress(`${i + 1}/${lectures.length} · skipped ${localLecture.lectureTitle || "lecture"}: ${e?.message || e}`);
+          }
         }
-        return `${linked} atom links saved across ${withAtoms.length} lectures. Review candidate mappings in each lecture.`;
+        return `${linked} atom links saved across ${atomLectures} lectures with atoms and objectives. Review candidate mappings in each lecture.`;
       },
     });
     onClose();
@@ -159,33 +193,32 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
         className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-xl border border-border bg-bg p-5"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-1 text-lg font-bold text-text-1">Re-extract all objectives</div>
+        <div className="mb-1 text-lg font-bold text-text-1">Repair objective connections</div>
         <div className="mb-4 text-xs text-text-3">
-          Runs the objective extractor over every lecture in this block that has text.
-          Existing mastered / developing status is preserved when the same objective text comes back.
+          Checks every lecture in this block, loading its source text and atoms from cloud storage when they are not cached in this browser.
         </div>
 
         {error && (
           <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>
         )}
 
-        {!running && !done && objectiveLectures.length === 0 && (
+        {!running && !done && lectures.length === 0 && (
           <div className="mb-3 text-xs text-text-3">
-            No lectures with text found in this block. Upload lecture content first.
+            No lecture records found in this block.
           </div>
         )}
 
-        {!running && !done && objectiveLectures.length > 0 && (
+        {!running && !done && lectures.length > 0 && (
           <div className="mb-4 text-xs text-text-2">
-            {objectiveLectures.length} lecture{objectiveLectures.length === 1 ? "" : "s"} with extractable text found.
+            {lectures.length} lecture record{lectures.length === 1 ? "" : "s"} will be checked. Source text and atoms load on demand.
           </div>
         )}
 
-        {!running && !done && lectures.some(l => l.atoms?.length) && (
+        {!running && !done && lectures.length > 0 && (
           <div className="mb-4 rounded-lg border border-border p-3 text-xs text-text-2">
             <strong className="block text-text-1">Existing atom-objective repair</strong>
             Current lectures may have atoms extracted before objectives were linked. This continues in the background while the website stays open. It keeps atom and objective text unchanged and adds candidate links.
-            <Button variant="outline" className="mt-3" onClick={reconcileAtoms}>Reconcile existing atoms</Button>
+            <Button className="mt-3" onClick={reconcileAtoms}>Reconcile existing atoms</Button>
           </div>
         )}
 
@@ -199,16 +232,16 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
 
         {done && (
           <div className="mb-3 font-mono text-[13px] text-good">
-            Re-extracted {totalObjectives} objective{totalObjectives === 1 ? "" : "s"} across {objectiveLectures.length} lecture{objectiveLectures.length === 1 ? "" : "s"}.
+            Re-extracted {totalObjectives} objective{totalObjectives === 1 ? "" : "s"} from {scannedLectures} lecture{scannedLectures === 1 ? "" : "s"} with source text.
           </div>
         )}
 
         <div className="flex gap-2">
           {!done && (
-            <Button onClick={run} disabled={running || !objectiveLectures.length}>
+            <Button variant="outline" onClick={run} disabled={running || !lectures.length}>
               {running
                 ? "Extracting…"
-                : `Re-extract objectives from ${objectiveLectures.length} lecture${objectiveLectures.length === 1 ? "" : "s"}`}
+                : `Re-extract objectives from all ${lectures.length} lectures`}
             </Button>
           )}
           <Button
