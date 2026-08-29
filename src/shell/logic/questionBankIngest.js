@@ -40,8 +40,9 @@ export function summarizeBankUpload(results) {
   return {
     files: (results || []).length,
     saved: ok.length,
-    empty: (results || []).filter((r) => !r.error && !r.questions?.length).map((r) => r.filename),
+    empty: (results || []).filter((r) => !r.error && !r.report && !r.questions?.length).map((r) => r.filename),
     failed: (results || []).filter((r) => r.error).map((r) => `${r.filename}: ${r.error}`),
     questions: ok.reduce((n, r) => n + r.questions.length, 0),
+    reports: (results || []).filter((r) => r.report).length,
   };
 }

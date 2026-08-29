@@ -8,9 +8,13 @@ import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import { summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
 import { analyzeExamReportWeakConcepts, mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
+import { parseExamReportSummary } from "../../logic/examReportWeakConcepts.js";
+import * as schoolResultsStore from "../../../stores/schoolResults.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
 
 export function QuestionBankModal({ blockId, blockName = "", lectures = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
+  const schoolResultsRes = useStoreResource(schoolResultsStore, userId);
   const banks = banksRes.data;
   const [status, setStatus] = useState("");
   const [summary, setSummary] = useState(null);
@@ -19,13 +23,15 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   const [busy, setBusy] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [weakConceptsFound, setWeakConceptsFound] = useState(null);
+  const [schoolResultsSaved, setSchoolResultsSaved] = useState([]);
 
   const onFiles = useCallback(
     async (files) => {
       if (!files.length) return;
-      setBusy(true); setSummary(null); setStatus(""); setWeakConceptsFound(null);
+      setBusy(true); setSummary(null); setStatus(""); setWeakConceptsFound(null); setSchoolResultsSaved([]);
       const results = [];
       const weakCategories = [];
+      const savedResults = [];
       try {
         for (const file of files) {
           try {
@@ -36,7 +42,14 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
               questionBanksStore.saveBank(userId, file.name, questions);
               questionBankMetaStore.recordUpload(userId, { filename: file.name, blockId });
             }
-            results.push({ filename: file.name, questions });
+            const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });
+            if (reportResult && userId) {
+              if (schoolResultsRes.loading || schoolResultsRes.error) {
+                throw new Error("School-result history is not ready to merge safely. Close and reopen the uploader, then retry.");
+              }
+              await schoolResultsRes.mutate({ ...schoolResultsRes.data, [reportResult.id]: reportResult });
+              savedResults.push(reportResult);
+            }
 
             if (blockId && userId) {
               setStatus(`${file.name} — checking for a score report…`);
@@ -51,6 +64,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
                 weakCategories.push(...categories.filter((c) => entries.some((e) => e.concept === c.category)));
               }
             }
+            results.push({ filename: file.name, questions, report: !!reportResult });
           } catch (e) {
             results.push({ filename: file.name, error: e?.message || String(e) });
           }
@@ -58,12 +72,13 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
       } finally {
         setSummary(summarizeBankUpload(results));
         if (weakCategories.length) setWeakConceptsFound(weakCategories);
+        if (savedResults.length) setSchoolResultsSaved(savedResults);
         setStatus("");
         setBusy(false);
         onUploaded?.();
       }
     },
-    [blockId, blockName, lectures, userId, wrongOnly, useLlm, onUploaded]
+    [blockId, blockName, lectures, userId, wrongOnly, useLlm, onUploaded, schoolResultsRes]
   );
 
   const remove = useCallback(
@@ -101,14 +116,14 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
         </div>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{busy ? "Parsing…" : "Add exam PDFs"}</span>
+          <span className="text-text-2">{busy ? "Parsing…" : schoolResultsRes.loading ? "Syncing school-result history…" : "Add exam PDFs"}</span>
           <span className="font-mono text-[12px] text-text-3">pdf · md · txt</span>
           <input
             type="file"
             multiple
             accept=".pdf,.md,.txt"
             className="hidden"
-            disabled={busy}
+            disabled={busy || schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
           />
         </label>
@@ -116,7 +131,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
         {status && <div className="mb-3 font-mono text-[13px] text-text-2">{status}</div>}
         {summary && (
           <div className="mb-3 font-mono text-[13px]">
-            <div className="text-good">{summary.saved} of {summary.files} files · {summary.questions} questions added</div>
+            <div className="text-good">{summary.saved} question bank{summary.saved === 1 ? "" : "s"} · {summary.questions} questions added{summary.reports ? ` · ${summary.reports} score report${summary.reports === 1 ? "" : "s"} saved` : ""}</div>
             {summary.empty.map((f) => <div key={f} className="text-text-3">⚠ {f} — no questions detected</div>)}
             {summary.failed.map((f) => <div key={f} className="text-bad">✕ {f}</div>)}
           </div>
@@ -130,6 +145,14 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
               </div>
             ))}
             <div className="mt-1 text-text-3">See these under More → Weak concepts.</div>
+          </div>
+        )}
+        {schoolResultsSaved.length > 0 && (
+          <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-2 font-mono text-[12px] text-text-2">
+            {schoolResultsSaved.map((result) => (
+              <div key={result.id}>✓ Saved school result: {result.name} · {result.percent}% · {result.date}</div>
+            ))}
+            <div className="mt-1 text-text-3">Included under Today → School alignment & exam comparison.</div>
           </div>
         )}
 

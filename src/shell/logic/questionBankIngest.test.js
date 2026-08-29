@@ -48,6 +48,13 @@ describe("summarizeBankUpload", () => {
       empty: ["b.pdf"],
       failed: ["c.pdf: not a PDF"],
       questions: 2,
+      reports: 0,
+    });
+  });
+
+  it("counts a score report without mislabeling it as an empty question bank", () => {
+    expect(summarizeBankUpload([{ filename: "report.txt", questions: [], report: true }])).toMatchObject({
+      saved: 0, reports: 1, questions: 0, empty: [],
     });
   });
 

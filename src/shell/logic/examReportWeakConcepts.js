@@ -18,6 +18,20 @@ export function looksLikeExamReport(text) {
   return rows.length >= 3 && /average/i.test(t);
 }
 
+/** Deterministic overall result used by the practice-to-school comparison. */
+export function parseExamReportSummary(text, { blockId } = {}) {
+  const source = String(text || "");
+  if (!blockId || !/\bMy Score\b/i.test(source) || !/\bAverage Score\b/i.test(source)) return null;
+  const percent = Number(source.match(/(\d{1,3}(?:\.\d+)?)%\s+My Score/i)?.[1]);
+  const dateParts = source.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  const name = source.match(/Strengths and Improvement Opportunities\s*\n\s*([^\n]+)/i)?.[1]?.trim();
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100 || !dateParts || !name) return null;
+  const date = `${dateParts[3]}-${dateParts[1].padStart(2, "0")}-${dateParts[2].padStart(2, "0")}`;
+  const kind = /quiz/i.test(name) ? "quiz" : "exam";
+  const id = encodeURIComponent(`${blockId}:${kind}:${date}:${name.toLowerCase()}`);
+  return { id, blockId, name, date, kind, percent, source: "uploaded ExamSoft report" };
+}
+
 export function buildCategoryScorePrompt(text) {
   return (
     "This is a student's exam performance report. It lists categories/topics with the student's score, the class " +

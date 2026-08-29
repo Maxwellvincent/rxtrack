@@ -75,6 +75,15 @@ Q3: A — High sodium is expected.`;
     expect(expectedQuestionCountFromAnswerKey(text)).toBe(3);
     expect(expectedQuestionCountFromAnswerKey("No key here")).toBeNull();
   });
+
+  it("parses ExamSoft Question #: headings, inline checkmarks, and rationales", () => {
+    const annotated = [1, 2, 3].map((number) => `Question #: ${number}\n\nClinical stem ${number} with enough detail to be a valid question?\n\n A. Distractor\n ✓B. Correct answer\n C. Distractor\n D. Distractor\nRationale: Explanation ${number}.`).join("\n\n____\n\n");
+    const questions = parseNumberedQuestionBankText(annotated, "BPM2 Quiz");
+    expect(questions).toHaveLength(3);
+    expect(questions.map((question) => question.correct)).toEqual(["B", "B", "B"]);
+    expect(questions[1].explanation).toBe("Explanation 2.");
+    expect(expectedQuestionCountFromAnswerKey(annotated)).toBe(3);
+  });
 });
 
 describe("buildExamExtractionPrompt", () => {

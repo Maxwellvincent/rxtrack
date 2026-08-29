@@ -30,6 +30,14 @@ export async function loadPDFJS() {
 }
 
 export function detectFormat(pages, fullText) {
+  if (/\bMy Score\b/i.test(fullText || "") && /\bAverage Score\b/i.test(fullText || "")) {
+    return "report";
+  }
+  // ExamSoft answer exports use `Question #: 12` and mark the keyed option
+  // with a check. They are continuous documents, not grid slides.
+  if ((String(fullText || "").match(/(?:^|\n)\s*Question\s*#\s*:\s*\d+/gi) || []).length >= 3) {
+    return "standard";
+  }
   // School PowerPoint keys commonly repeat each numbered question on the next
   // slide, adding a highlighted answer and an objective code. Treat those as a
   // paired answer-key deck before the generic "grid" heuristic sees the many
@@ -189,7 +197,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
   // Marker/LLM cleanup sometimes changes `Question 12` into `12.`. Accept
   // both while still requiring a line-leading integer, so option letters can
   // never start a false question block.
-  const questionRe = /(?:^|\n)\s*(?:Question\s+)?(\d+)[.)]?\s*\n([\s\S]*?)(?=(?:\n\s*(?:Question\s+)?\d+[.)]?\s*\n)|$)/gi;
+  const questionRe = /(?:^|\n)\s*(?:Question\s*(?:#\s*:)?\s*)?(\d+)[.)]?\s*\n([\s\S]*?)(?=(?:\n\s*(?:Question\s*(?:#\s*:)?\s*)?\d+[.)]?\s*\n)|$)/gi;
   for (const match of questionText.matchAll(questionRe)) blocks.push({ num: Number(match[1]), body: match[2] });
   if (blocks.length < 3) return [];
 
@@ -198,13 +206,28 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
     const stemLines = [];
     const choices = {};
     let letter = null;
+    let inlineCorrect = null;
+    const rationaleLines = [];
+    let inRationale = false;
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line || line === "[PAGE_BREAK]") continue;
-      const choice = line.match(/^([A-H])[.)]\s*(.*)$/);
+      const rationale = line.match(/^Rationale\s*:\s*(.*)$/i);
+      if (rationale) {
+        inRationale = true;
+        letter = null;
+        if (rationale[1]) rationaleLines.push(rationale[1]);
+        continue;
+      }
+      if (inRationale) {
+        if (!/^Attachment\s*:/i.test(line) && !/^_+$/.test(line)) rationaleLines.push(line);
+        continue;
+      }
+      const choice = line.match(/^([✓✔])?\s*([A-H])[.)]\s*(.*)$/);
       if (choice) {
-        letter = choice[1].toUpperCase();
-        choices[letter] = choice[2].trim();
+        letter = choice[2].toUpperCase();
+        choices[letter] = choice[3].trim();
+        if (choice[1]) inlineCorrect = letter;
       } else if (letter) {
         choices[letter] = `${choices[letter]} ${line}`.trim();
       } else {
@@ -222,8 +245,8 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
       topic: examTitle || "Exam Review",
       stem,
       choices,
-      correct: answer?.correct || null,
-      explanation: answer?.explanation || null,
+      correct: answer?.correct || inlineCorrect || null,
+      explanation: answer?.explanation || rationaleLines.join(" ").replace(/\s+/g, " ").trim() || null,
       difficulty: "medium",
       choiceLayout: null,
       choiceColumns: null,
@@ -236,7 +259,15 @@ export function expectedQuestionCountFromAnswerKey(fullText) {
   const ids = [...String(fullText || "").matchAll(/(?:^|\n)\s*Q(\d+)\s*:\s*[A-H]\b/gim)]
     .map((m) => Number(m[1]))
     .filter(Number.isFinite);
-  return ids.length ? new Set(ids).size : null;
+  if (ids.length) return new Set(ids).size;
+  const source = String(fullText || "");
+  const inlineIds = [...source.matchAll(/(?:^|\n)\s*Question\s*#\s*:\s*(\d+)/gim)]
+    .map((match) => Number(match[1]))
+    .filter(Number.isFinite);
+  const checkedChoices = (source.match(/(?:^|\n)\s*[✓✔]\s*[A-H][.)]/gim) || []).length;
+  return inlineIds.length >= 3 && checkedChoices >= inlineIds.length
+    ? new Set(inlineIds).size
+    : null;
 }
 
 /**
@@ -819,13 +850,17 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     standard: "Standard question bank format",
     nbme: "NBME style format",
     pairedkey: "Paired school answer-key slides",
+    report: "Exam performance report",
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
 
   const examTitle = file.name.replace(/\.(pdf|md|markdown|txt)$/i, "");
   let questions = [];
 
-  if (format === "pairedkey") {
+  if (format === "report") {
+    onProgress?.("✓ Detected score report; saving grade and category evidence");
+    questions = [];
+  } else if (format === "pairedkey") {
     questions = await parsePairedKeyFormat(pages, onProgress, examTitle);
   } else if (format === "grid") {
     questions = await parseGridFormat(pages, onProgress);

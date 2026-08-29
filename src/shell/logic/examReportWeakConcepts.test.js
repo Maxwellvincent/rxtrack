@@ -8,6 +8,7 @@ import {
   buildWeakConceptEntriesFromReport,
   mergeExamReportConcepts,
   analyzeExamReportWeakConcepts,
+  parseExamReportSummary,
 } from "./examReportWeakConcepts.js";
 
 const REPORT_SNIPPET = `
@@ -38,6 +39,16 @@ describe("looksLikeExamReport", () => {
   });
   it("does not flag a plain question-and-answer exam key", () => {
     expect(looksLikeExamReport(PLAIN_EXAM_KEY)).toBe(false);
+  });
+});
+
+describe("parseExamReportSummary", () => {
+  it("extracts the real grade, date, name, and quiz type", () => {
+    const report = `Strengths and Improvement Opportunities\nBPM2_ESOFT QUIZ 1_F2026_GD\nCourse: BPM501 • 08/19/2026 • Questions: 30\n36.67%  My Score\n52.38% Average Score\nTopic\n0.00% 66.37% 0/2\nOther\n20.00% 46.04% 2/10`;
+    expect(parseExamReportSummary(report, { blockId: "bpm2" })).toMatchObject({
+      blockId: "bpm2", kind: "quiz", date: "2026-08-19", percent: 36.67,
+      name: "BPM2_ESOFT QUIZ 1_F2026_GD",
+    });
   });
 });
 
