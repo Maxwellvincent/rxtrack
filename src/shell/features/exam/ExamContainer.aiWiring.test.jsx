@@ -35,6 +35,7 @@ vi.mock("../../../questionPool.js", async importOriginal => ({
   ...await importOriginal(),
   questionPoolKey: async () => "test-bucket",
   createQuestionPool: userId => ({ begin: async () => {}, finish: async () => {},
+    summary: async () => ({ ready: 0, assigned: 0, total: 0 }),
     history: async () => [], ready: async () => [], save: async q => ({ ...q, poolId: q.questionId }),
     commit: session => createExamSessionMock(userId, session),
   }),

@@ -51,6 +51,8 @@ describe("createSessionShape", () => {
       },
       startedAt: null,
       deadline: null,
+      sourceType: "generated",
+      sourceFile: null,
       submittedAt: null,
       rev: 0,
     });

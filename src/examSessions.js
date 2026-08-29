@@ -66,6 +66,8 @@ export function createSessionShape({
   questions,
   startedAt = null,
   deadline = null,
+  sourceType = "generated",
+  sourceFile = null,
 }) {
   return {
     schemaVersion: 1,
@@ -82,6 +84,8 @@ export function createSessionShape({
     },
     startedAt,
     deadline,
+    sourceType,
+    sourceFile,
     submittedAt: null,
     rev: 0,
   };

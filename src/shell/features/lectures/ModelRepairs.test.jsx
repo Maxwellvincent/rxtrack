@@ -4,9 +4,11 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import * as progress from "../../../stores/atomProgress.js";
 import { repairEvidenceStore } from "../../../stores/modelRepairEvidence.js";
+const bridgeCompleteMock = vi.hoisted(() => vi.fn());
+vi.mock("../../../llmBridge.js", () => ({ bridgeComplete: (...args) => bridgeCompleteMock(...args) }));
 import { ModelRepairs, selectModelRepairs, modelRepairPrompt } from "./ModelRepairs.jsx";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-beforeEach(() => { installDomStorage(); });
+beforeEach(() => { installDomStorage(); bridgeCompleteMock.mockReset(); });
 const question = { topic: "Concept A", stem: "Which connection is missing?", choices: { A: "First", B: "Second" }, picked: "A", correct: "B", explanation: "The causal connection distinguishes them.", confidence: 5 };
 
 describe("Model repairs", () => {
@@ -47,5 +49,22 @@ describe("Model repairs", () => {
     expect(copy).toHaveBeenCalledWith(expect.stringContaining(question.stem));
     expect(host.textContent).toContain("Copied.");
     await act(async () => { root.unmount(); });
+  });
+  it("continues a repair session through the local LLM bridge", async () => {
+    progress.recordAtomAnswer(null, "lec", "a", false, question);
+    bridgeCompleteMock.mockResolvedValue("Where does this connection sit in your current model?");
+    const host = document.createElement("div"); document.body.append(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<ModelRepairs userId={null} lectureId="lec" title="Lecture" />); });
+    const localButton = [...host.querySelectorAll("button")].find(button => button.textContent === "Study with local AI");
+    await act(async () => { localButton.click(); });
+    expect(bridgeCompleteMock).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining(question.stem),
+      timeoutMs: 300_000,
+    }));
+    expect(host.textContent).toContain("Where does this connection sit in your current model?");
+    expect(host.querySelector('[aria-label="Reply to local AI"]')).not.toBeNull();
+    await act(async () => { root.unmount(); });
+    host.remove();
   });
 });

@@ -11,8 +11,17 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // wiring (launch modal -> active session -> dashboard), not any earlier
 // task's internals — those already have their own test files.
 const launchExamSessionMock = vi.fn();
+const launchQuestionBankSessionMock = vi.fn();
+const questionBanksReadMock = vi.fn(() => ({}));
+const questionBankMetaReadMock = vi.fn(() => ({}));
 vi.mock("./launchExam.js", () => ({
   launchExamSession: (...args) => launchExamSessionMock(...args),
+}));
+vi.mock("./launchQuestionBank.js", () => ({
+  launchQuestionBankSession: (...args) => launchQuestionBankSessionMock(...args),
+}));
+vi.mock("../../../questionPool.js", () => ({
+  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }) }),
 }));
 
 const readTutorModeEnabledMock = vi.fn(() => false);
@@ -50,12 +59,13 @@ vi.mock("../../../stores/weakConcepts.js", () => ({
 }));
 
 vi.mock("../../../stores/questionBanks.js", () => ({
-  read: () => ({}),
+  read: (...args) => questionBanksReadMock(...args),
   subscribe: () => () => {},
   isHydrated: () => true,
 }));
 
 vi.mock("../../../stores/questionBankMeta.js", () => ({
+  read: (...args) => questionBankMetaReadMock(...args),
   newestForBlock: () => null,
   subscribe: () => () => {},
   isHydrated: () => true,
@@ -114,12 +124,47 @@ async function flush() {
 beforeEach(() => {
   installDomStorage();
   launchExamSessionMock.mockReset();
+  launchQuestionBankSessionMock.mockReset();
+  questionBanksReadMock.mockReset();
+  questionBanksReadMock.mockReturnValue({});
+  questionBankMetaReadMock.mockReset();
+  questionBankMetaReadMock.mockReturnValue({});
   readTutorModeEnabledMock.mockReset();
   readTutorModeEnabledMock.mockReturnValue(false);
   writeTutorModeEnabledMock.mockReset();
 });
 
 describe("ExamContainer", () => {
+  it("offers timed and practice runs for an uploaded school bank", async () => {
+    const questions = Array.from({ length: 30 }, (_, index) => ({
+      id: `q${index + 1}`,
+      stem: `Stem ${index + 1}?`,
+      choices: { A: "a", B: "b" },
+      correct: "A",
+    }));
+    questionBanksReadMock.mockReturnValue({ "ESoft.pdf": questions });
+    questionBankMetaReadMock.mockReturnValue({ bank1: { filename: "ESoft.pdf", blockId: "b1" } });
+    launchQuestionBankSessionMock.mockResolvedValue({ ok: true, sessionId: "bank-session" });
+
+    const { host, unmount } = render(
+      <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
+    );
+
+    expect(host.textContent).toMatch(/Original school question banks/);
+    expect(host.textContent).toMatch(/30 questions · 45 min timed/);
+    const timed = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Timed quiz");
+    await act(async () => timed.click());
+    await flush();
+
+    expect(launchQuestionBankSessionMock).toHaveBeenCalledWith(expect.objectContaining({
+      filename: "ESoft.pdf",
+      format: "exam",
+      questions,
+    }));
+    expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toMatch(/bank-session/);
+    unmount();
+  });
+
   it("renders the launch button and the dashboard when there is no active session", () => {
     const { host, unmount } = render(
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />

@@ -29,6 +29,14 @@ export function isValidPoolQuestion(q) {
     && Object.hasOwn(q.choices, q.correct);
 }
 
+export function summarizePoolRows(rows = []) {
+  return {
+    ready: rows.filter(row => row.status === "ready").length,
+    assigned: rows.filter(row => row.status === "assigned").length,
+    total: rows.length,
+  };
+}
+
 export function createQuestionPool(userId, blockId, database = db) {
   const db = database;
   const records = collection(db, "users", userId, "questionPool");
@@ -45,6 +53,10 @@ export function createQuestionPool(userId, blockId, database = db) {
         getDocFromServer(doc(db, "users", userId, "kv", "rxt-calibration")),
       ]);
       return [...sessions.docs.flatMap(d => d.data().questions || []), ...(calibration.data()?.data?.[blockId] || [])];
+    },
+    async summary() {
+      const snap = await getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500)));
+      return summarizePoolRows(snap.docs.map(d => d.data()));
     },
     async ready(bucket) {
       // Assignment changes bucket, so one automatic single-field index suffices.

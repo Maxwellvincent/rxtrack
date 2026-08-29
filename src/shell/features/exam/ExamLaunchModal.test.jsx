@@ -178,6 +178,47 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("keeps an exact 90-second budget for odd question counts", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={15}
+        onLaunch={onLaunch}
+        onCancel={vi.fn()}
+      />
+    );
+    const durationInput = host.querySelectorAll('input[type="number"]')[1];
+    expect(durationInput.value).toBe("22.5");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start exam");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 22.5 });
+    unmount();
+  });
+
+  it("defaults a generated 100-question exam to 150 minutes", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        blockId="b1"
+        userId="u1"
+        eligibleLectures={ELIGIBLE}
+        defaultQuestionCount={100}
+        onLaunch={onLaunch}
+        onCancel={vi.fn()}
+      />
+    );
+    const inputs = host.querySelectorAll('input[type="number"]');
+    expect(inputs[0].value).toBe("100");
+    expect(inputs[1].value).toBe("150");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start exam");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 100, durationMinutes: 150 });
+    unmount();
+  });
+
   it("clearing a typed duration back to empty blocks launch (still exam format, still required)", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(

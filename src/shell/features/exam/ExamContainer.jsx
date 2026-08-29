@@ -7,7 +7,7 @@
  * lecture/objective/atom/weak-concept maps `launchExamSession` (Task 8)
  * threads through to allocation (Task 4) and generation (Task 5).
  */
-import { useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
@@ -22,7 +22,10 @@ import { ExamSessionRunner } from "./ExamSessionRunner.jsx";
 import { ExamDashboard } from "./ExamDashboard.jsx";
 import { launchExamSession } from "./launchExam.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
+import { launchQuestionBankSession } from "./launchQuestionBank.js";
+import { examDurationMinutes } from "./examTiming.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
+import { createQuestionPool } from "../../../questionPool.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -59,6 +62,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launchError, setLaunchError] = useState(null);
   const [launching, setLaunching] = useState(false);
   const [launchProgress, setLaunchProgress] = useState(null);
+  const [bankLaunching, setBankLaunching] = useState(null);
+  const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
@@ -151,6 +156,20 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     [userId, blockId, questionBanksHydrated, questionBankMetaHydrated]
   );
 
+  const blockQuestionBanks = useMemo(() => {
+    const banks = questionBanksStore.read(userId) || {};
+    const meta = questionBankMetaStore.read?.(userId) || {};
+    const scoped = new Set(
+      Object.values(meta)
+        .filter((entry) => entry?.blockId === blockId && banks[entry.filename])
+        .map((entry) => entry.filename)
+    );
+    const filenames = scoped.size ? [...scoped] : Object.keys(banks);
+    return filenames.sort().map((filename) => ({ filename, questions: banks[filename] || [] }));
+    // Hydration flags deliberately trigger a fresh synchronous store read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated]);
+
   // Task 12 review fix #1 — Tutor mode had no reachable on-switch anywhere
   // in the app (writeTutorModeEnabled was called from nowhere outside its
   // own test file). This is the last task in the build, so the toggle
@@ -158,6 +177,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   // every change, and the resulting boolean is what actually drives
   // ExamSessionRunner's tutorModeEnabled prop below.
   const [tutorModeEnabled, setTutorModeEnabledState] = useState(() => readTutorModeEnabled());
+
+  const refreshQuestionReserve = async () => {
+    if (!userId || !blockId) return;
+    try {
+      const summary = await createQuestionPool(userId, blockId).summary();
+      setQuestionReserve({ ...summary, loading: false });
+    } catch {
+      setQuestionReserve((current) => ({ ...current, loading: false }));
+    }
+  };
+
+  useEffect(() => {
+    setQuestionReserve({ ready: 0, loading: true });
+    refreshQuestionReserve();
+    // The reserve is refreshed after each preparation run below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, blockId]);
   const toggleTutorMode = () => {
     setTutorModeEnabledState((prev) => {
       const next = !prev;
@@ -175,6 +211,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           weakConceptAccuracyByLecture, weakConcepts },
           { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
         if (!result.ok) throw new Error(result.error);
+        await refreshQuestionReserve();
         return `${result.prepared}/${config.questionCount} questions saved in Firestore. Start an exam when ready.${result.generationErrors?.length ? " Some slots still need generation." : ""}`;
       },
     });
@@ -230,6 +267,27 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       setLaunchError(err?.message || "Something went wrong starting the exam.");
     } finally {
       setLaunching(false);
+    }
+  };
+
+  const handleBankLaunch = async (bank, format) => {
+    if (bankLaunching) return;
+    setBankLaunching(`${bank.filename}:${format}`);
+    setLaunchError(null);
+    try {
+      const result = await launchQuestionBankSession({
+        userId,
+        blockId,
+        filename: bank.filename,
+        questions: bank.questions,
+        format,
+      });
+      if (result.ok) setActiveSessionId(result.sessionId);
+      else setLaunchError(result.error || "Could not start this question bank.");
+    } catch (err) {
+      setLaunchError(err?.message || "Could not start this question bank.");
+    } finally {
+      setBankLaunching(null);
     }
   };
 
@@ -303,6 +361,45 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <div role="alert" className="mb-3 rounded-lg border border-bad/40 bg-bg-elevated px-3 py-2.5 font-mono text-[12px] text-bad">
           {launchError}
         </div>
+      )}
+
+      <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">
+        <div>
+          <div className="text-sm font-bold text-text-1">Prepared question reserve</div>
+          <p className="mt-1 text-sm text-text-2">
+            Generate while credits are available. Saved questions stay private in Firestore and can be used later without regenerating them.
+          </p>
+        </div>
+        <div className="rounded-lg border border-border bg-panel px-4 py-3 text-center">
+          <div className="text-2xl font-bold text-text-1">{questionReserve.loading ? "…" : questionReserve.ready}</div>
+          <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">ready questions</div>
+        </div>
+      </section>
+
+      {blockQuestionBanks.length > 0 && (
+        <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
+          <div className="mb-1 text-sm font-bold text-text-1">Original school question banks</div>
+          <div className="mb-3 font-mono text-[11px] text-text-3">
+            Authentic uploaded questions. Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer.
+          </div>
+          <div className="space-y-2">
+            {blockQuestionBanks.map((bank) => {
+              const minutes = examDurationMinutes(bank.questions.length);
+              return (
+                <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium text-text-1">{bank.filename}</div>
+                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
+                    <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
       )}
 
         <ExamDashboard

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { examDurationMinutes } from "./examTiming.js";
 
 // A full school-prep sitting can now reach 100 questions. Keeping the cap here
 // (rather than accepting an arbitrary number) still protects the generation
@@ -61,14 +62,14 @@ export function ExamLaunchModal({
   // exam pacing) until the user types into the duration field themselves —
   // then their value sticks and stops following count changes.
   const [duration, setDuration] = useState(() =>
-    String(Math.round((defaultQuestionCount || 20) * 1.5))
+    String(examDurationMinutes(defaultQuestionCount || 20))
   );
   const [durationTouched, setDurationTouched] = useState(false);
 
   const noLectures = !eligibleLectures || eligibleLectures.length === 0;
 
   const parsedCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(count, 10) || 1));
-  const parsedDuration = parseInt(duration, 10);
+  const parsedDuration = parseFloat(duration);
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
   const canLaunch = !noLectures && durationValid;
@@ -82,7 +83,7 @@ export function ExamLaunchModal({
     }
     const n = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(raw, 10) || 1));
     setCount(String(n));
-    if (!durationTouched) setDuration(String(Math.round(n * 1.5)));
+    if (!durationTouched) setDuration(String(examDurationMinutes(n)));
   };
 
   const handleDurationChange = (e) => {
@@ -158,6 +159,7 @@ export function ExamLaunchModal({
               <input
                 type="number"
                 min="1"
+                step="1"
                 max={MAX_QUESTION_COUNT}
                 value={count}
                 onChange={handleCountChange}
@@ -176,6 +178,7 @@ export function ExamLaunchModal({
               <input
                 type="number"
                 min="1"
+                step="0.5"
                 value={duration}
                 onChange={handleDurationChange}
                 placeholder="Required"

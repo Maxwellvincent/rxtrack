@@ -70,20 +70,25 @@ export async function finalizeExamSession(
     const wasCorrect = !!answer && answer.value === question?.correct;
 
     try {
-      await recordAnswerAwait(userId, question?.lectureId, wasCorrect);
-      await recordEvidenceAwait(userId, {
-        source: "integrated-exam",
-        blockId: session.blockId,
-        lectureId: question?.lectureId,
-        objectiveIds: question?.objectiveIds || [],
-        atomKey: question?.atomKey || null,
-        correct: wasCorrect,
-        difficulty: question?.difficulty || null,
-        misconception: wasCorrect ? null : "exam-error",
-        responseMs: answer?.responseMs,
-        answerChanges: answer?.answerChanges || 0,
-        taskType: classifyLeadIn(question?.stem),
-      });
+      // Authentic uploaded banks are not reliably linked to one RXtrack
+      // lecture. Keep their score/timing in the session without creating a
+      // fake "undefined" lecture statistic or weak-concept entry.
+      if (question?.sourceType !== "question-bank" && question?.lectureId) {
+        await recordAnswerAwait(userId, question.lectureId, wasCorrect);
+        await recordEvidenceAwait(userId, {
+          source: "integrated-exam",
+          blockId: session.blockId,
+          lectureId: question.lectureId,
+          objectiveIds: question?.objectiveIds || [],
+          atomKey: question?.atomKey || null,
+          correct: wasCorrect,
+          difficulty: question?.difficulty || null,
+          misconception: wasCorrect ? null : "exam-error",
+          responseMs: answer?.responseMs,
+          answerChanges: answer?.answerChanges || 0,
+          taskType: classifyLeadIn(question?.stem),
+        });
+      }
     } catch (e) {
       return { ok: false, error: e?.message || String(e), resumable: true };
     }
@@ -115,7 +120,7 @@ export async function finalizeExamSession(
   }
 
   if (!latest.sideEffectsCompleted.weakConceptsRecorded) {
-    const lectureIds = [...new Set(latest.questions.map((q) => q.lectureId))];
+    const lectureIds = [...new Set(latest.questions.map((q) => q.lectureId).filter(Boolean))];
     const allSubmitted = await listExamSessions(userId, latest.blockId, { status: "submitted" });
     const sessionsForCalc = [
       ...allSubmitted.filter((s) => s.sessionId !== latest.sessionId),
