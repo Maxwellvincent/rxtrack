@@ -16,6 +16,8 @@ import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
+import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
+import { matchByTerm } from "../../../engine/tagAtoms.js";
 
 /** Weakest first — fewest consecutive correct answers get quizzed first. */
 export function sortWeakestFirst(objectives) {
@@ -157,6 +159,7 @@ export function objectivesAsAtoms(objectives) {
       type: "objective",
       term: o?.code || o?.id || "objective",
       content: o?.objective || o?.text || "",
+      objectiveIds: o?.id ? [o.id] : [],
     }))
     .filter((a) => a.content);
 }
@@ -187,7 +190,11 @@ export async function startObjectiveQuiz(args, deps = {}) {
 
   if (atoms.length) {
     const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
-    const selected = selectAtomsForQuiz(atoms, progress, config.count);
+    const linked = atoms.map(a => ({ ...a, objectiveIds: canonicalObjectiveIds([...(a.objectiveIds || []), ...matchByTerm(a, config.objectives)], config.objectives) }));
+    const relevant = linked.filter(a => a.objectiveIds.length);
+    const selected = selectAtomsForQuiz(relevant, progress, Math.min(config.count, relevant.length));
+    const remaining = linked.filter(a => !selected.includes(a));
+    selected.push(...selectAtomsForQuiz(remaining, progress, Math.max(0, config.count - selected.length)));
     const result = await generateFromAtoms(
       { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems },
       deps
@@ -211,6 +218,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
     ...(await generateFromAtoms(
       {
         atoms: objectivesAsAtoms(config?.objectives || []),
+        objectives: config.objectives,
         difficulty: config?.difficulty,
         examples: config?.examples,
         avoidStems: config?.avoidStems,

@@ -2,9 +2,12 @@ import { useState, useCallback, useEffect } from "react";
 
 const KEY = "rxt-shell-theme";
 
-/** Theme state for the new shell. Dark default; persisted. */
+/** Respect saved preferences; new study desks start in paper/light mode. */
 export function useTheme() {
-  const [theme, setTheme] = useState(() => localStorage.getItem(KEY) || "dark");
+  const [theme, setTheme] = useState(() => {
+    try { return localStorage.getItem(KEY) === "dark" ? "dark" : "light"; }
+    catch { return "light"; }
+  });
   useEffect(() => {
     try { localStorage.setItem(KEY, theme); } catch {}
   }, [theme]);

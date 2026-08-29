@@ -11,6 +11,8 @@
  * matches nothing keeps an empty list rather than a wrong guess.
  */
 
+import { canonicalObjectiveIds } from "./objectiveLinks.js";
+
 const SYSTEM =
   "You map lecture facts onto learning objectives. Return ONLY valid JSON — no markdown, no prose.";
 
@@ -88,8 +90,8 @@ export async function tagAtomsWithObjectives(atoms, objectives, deps = {}) {
 
   // Pass 1 — free.
   const seeded = list.map((atom) => {
-    const ids = matchByTerm(atom, objs);
-    return ids.length ? { ...atom, objectiveIds: ids } : { ...atom, objectiveIds: atom.objectiveIds || [] };
+    const ids = canonicalObjectiveIds([...(atom.objectiveIds || []), ...matchByTerm(atom, objs)], objs);
+    return { ...atom, objectiveIds: ids };
   });
   const byTerm = seeded.filter((a) => a.objectiveIds.length).length;
 

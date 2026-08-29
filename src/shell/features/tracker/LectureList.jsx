@@ -7,6 +7,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
+import * as atomProgressStore from "../../../stores/atomProgress.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectures } from "../../hooks/useLectures.js";
@@ -21,7 +23,7 @@ const CONFIDENCE = [
   { key: "struggling", label: "Shaky" },
 ];
 
-const SORT_LABELS = { urgency: "priority", date: "date", type: "activity type", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
+const SORT_LABELS = { repairs: "most model repairs", urgency: "priority", date: "date", type: "activity type", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
 const SORT_STORAGE_KEY = "rxt-lecture-list-sort";
 
 function readStoredSort() {
@@ -85,7 +87,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
     <div
       ref={rowRef}
       className={
-        "flex flex-col gap-1.5 border-b border-border py-2 last:border-b-0 transition-colors" +
+        "desk-lecture-row flex flex-col gap-1.5 border-b border-border py-2 last:border-b-0 transition-colors" +
         (focused ? " -mx-2 rounded bg-accent/10 px-2" : "")
       }
     >
@@ -94,12 +96,12 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           <span className="font-mono text-[12px] text-text-3">
             <span className="rounded bg-panel px-1.5 py-0.5 font-bold text-text-2">{row.type} {row.number ?? ""}</span>
           </span>{" "}
-          <span
+          <button
             className="cursor-pointer text-sm text-text-1 hover:underline"
             onClick={() => onStudy(row.lectureId)}
           >
             {row.studyMode?.icon} {row.title}
-          </span>
+          </button>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
             {row.scheduledToday && <span className="rounded bg-accent/15 px-1.5 py-0.5 font-bold text-accent-text">scheduled today</span>}
             {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">completed today</span>}
@@ -130,6 +132,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
               ⚠ review: {row.topWeakConcepts.join(" · ")}
             </div>
           )}
+          {row.repairCount > 0 && <div className="mt-1 text-sm font-semibold text-status-purple">◈ {row.repairCount} atoms to repair · open lecture → Model repairs</div>}
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
           <div className="relative">
@@ -240,6 +243,7 @@ export function LectureList({
   const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
   const lecturesResource = useLectures(null, userId);
   const questionStats = useLectureQuestionStats(userId);
+  const repairProgress = useStoreResource(atomProgressStore, userId);
   const [filter, setFilter] = useState("active");
   const [activityType, setActivityType] = useState("all");
   const [search, setSearch] = useState("");
@@ -275,12 +279,12 @@ export function LectureList({
   const scores = useMemo(() => scoreLectures(context), [context]);
 
   const rows = useMemo(
-    () => buildLectureRows(scores, { completion: context.completion, blockId, filter, activityType, search, sort }),
-    [scores, context.completion, blockId, filter, activityType, search, sort]
+    () => buildLectureRows(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data, filter, activityType, search, sort }),
+    [scores, context.completion, blockId, repairProgress.data, filter, activityType, search, sort]
   );
   const counts = useMemo(
-    () => lectureCounts(scores, { completion: context.completion, blockId }),
-    [scores, context.completion, blockId]
+    () => lectureCounts(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data }),
+    [scores, context.completion, blockId, repairProgress.data]
   );
   const typeCounts = useMemo(() => {
     const all = buildLectureRows(scores, { completion: context.completion, blockId, filter: "all" });
@@ -362,13 +366,14 @@ export function LectureList({
         {FILTERS.map((f) => (
           <button
             key={f}
-            onClick={() => setFilter(f)}
+            onClick={() => { setFilter(f); if (f === "repairs") setSort("repairs"); }}
+            aria-pressed={filter === f}
             className={
               "rounded border px-2 py-0.5 font-mono text-[12px] " +
               (filter === f ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")
             }
           >
-            {f} {counts[f] != null ? `(${counts[f]})` : ""}
+            {f === "repairs" ? "Model repairs" : f} {counts[f] != null ? `(${counts[f]})` : ""}
           </button>
         ))}
       </div>

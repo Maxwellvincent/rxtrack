@@ -1,3 +1,5 @@
+import { CalendarDays, Library, Target, ClipboardCheck, BookOpen, LayoutGrid } from "lucide-react";
+const ICONS = { today: CalendarDays, lectures: Library, objectives: Target, exam: ClipboardCheck, guide: BookOpen, more: LayoutGrid };
 const TABS = [
   { id: "today", label: "Today" },
   { id: "lectures", label: "Lectures" },
@@ -9,21 +11,19 @@ const TABS = [
 
 export function TabBar({ active, onChange }) {
   return (
-    <nav className="shell-chrome flex flex-shrink-0 border-b border-border bg-bg px-2">
-      {TABS.map((t) => (
+    <nav aria-label="Study workspace" className="desk-tabs shell-chrome">
+      {TABS.map((t) => {
+        const Icon = ICONS[t.id];
+        return (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
-          className={[
-            "px-4 py-2.5 font-condensed text-xs font-semibold uppercase tracking-widest transition-colors",
-            active === t.id
-              ? "border-b-2 border-accent text-text-1"
-              : "border-b-2 border-transparent text-text-3 hover:text-text-2",
-          ].join(" ")}
+          aria-current={active === t.id ? "page" : undefined}
+          className="desk-tab"
         >
-          {t.label}
+          <Icon size={18} aria-hidden="true" /><span>{t.label}</span>
         </button>
-      ))}
+      ); })}
     </nav>
   );
 }

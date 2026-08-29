@@ -13,8 +13,18 @@ export function Header({
     function onOutside(e) {
       if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false);
     }
+    function onKey(e) {
+      if (e.key === "Escape") {
+        setMenuOpen(false);
+        menuRef.current?.querySelector("button")?.focus();
+      }
+    }
     document.addEventListener("mousedown", onOutside);
-    return () => document.removeEventListener("mousedown", onOutside);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onKey);
+    };
   }, [menuOpen]);
 
   const adminItems = [
@@ -31,7 +41,7 @@ export function Header({
   ].filter(Boolean);
 
   return (
-    <header className="shell-chrome flex h-12 flex-shrink-0 items-center justify-between border-b border-border bg-bg px-5">
+    <header className="desk-header shell-chrome flex h-12 flex-shrink-0 items-center justify-between border-b border-border bg-bg px-5">
       {/* Breadcrumb — condensed uppercase */}
       <span className="font-condensed text-sm font-semibold uppercase tracking-wider text-text-3">
         {termName ? (
@@ -65,6 +75,7 @@ export function Header({
               className="text-text-3 hover:text-text-1 transition-colors"
               title="More actions"
               aria-label="More actions"
+              aria-expanded={menuOpen}
             >
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M2 4.5H16M2 9H16M2 13.5H16" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />

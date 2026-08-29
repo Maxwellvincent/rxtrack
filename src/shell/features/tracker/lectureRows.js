@@ -19,7 +19,7 @@ import {
 } from "../../logic/schedule.js";
 import { isLandmine, rankConcepts } from "./weakConcepts.js";
 
-export const FILTERS = ["active", "today", "struggling", "untested", "unstarted", "done", "all"];
+export const FILTERS = ["active", "repairs", "today", "struggling", "untested", "unstarted", "done", "all"];
 export const ACTIVITY_TYPES = ["all", "LEC", "DLA", "SG", "TBL", "LAB", "IMCQ"];
 
 export function inferActivityType(lecture = {}) {
@@ -160,6 +160,8 @@ export function lectureRow(score, { completion = {}, blockId } = {}) {
 
 export function matchesFilter(row, filter) {
   switch (filter) {
+    case "repairs":
+      return row.repairCount > 0;
     case "active":
       return !row.done;
     case "today":
@@ -184,6 +186,7 @@ export function matchesSearch(row, search) {
 }
 
 export const SORTS = {
+  repairs: (a, b) => (b.repairCount || 0) - (a.repairCount || 0) || b.urgency - a.urgency,
   // Default: the same ranking Today uses, so the two surfaces agree.
   urgency: (a, b) => b.urgency - a.urgency,
   lecture: (a, b) => (a.number ?? Infinity) - (b.number ?? Infinity) || a.title.localeCompare(b.title),
@@ -193,22 +196,30 @@ export const SORTS = {
   type: (a, b) => a.type.localeCompare(b.type) || SORTS.lecture(a, b),
 };
 
-export function buildLectureRows(scores, { completion, blockId, filter = "active", activityType = "all", search = "", sort = "urgency" } = {}) {
+export function buildLectureRows(scores, { completion, blockId, atomProgress = {}, filter = "active", activityType = "all", search = "", sort = "urgency" } = {}) {
   const rows = (scores || [])
     .map((score) => lectureRow(score, { completion, blockId }))
+    .map((row) => ({ ...row, repairCount: Object.values(atomProgress[row.lectureId] || {}).filter((entry) => entry?.status === "needs-review").length }))
     .filter((row) => matchesFilter(row, filter) && (activityType === "all" || row.type === activityType) && matchesSearch(row, search));
 
   return [...rows].sort(SORTS[sort] || SORTS.urgency);
 }
 
 /** Counts for the filter chips — computed over everything, not the filtered view. */
-export function lectureCounts(scores, { completion, blockId } = {}) {
-  const rows = (scores || []).map((score) => lectureRow(score, { completion, blockId }));
+export function lectureCounts(scores, { completion, blockId, atomProgress = {} } = {}) {
+  const rows = (scores || [])
+    .map((score) => lectureRow(score, { completion, blockId }))
+    .map((row) => ({
+      ...row,
+      repairCount: Object.values(atomProgress[row.lectureId] || {})
+        .filter((entry) => entry?.status === "needs-review").length,
+    }));
   return {
     all: rows.length,
     active: rows.filter((r) => matchesFilter(r, "active")).length,
     today: rows.filter((r) => matchesFilter(r, "today")).length,
     struggling: rows.filter((r) => matchesFilter(r, "struggling")).length,
+    repairs: rows.filter((r) => matchesFilter(r, "repairs")).length,
     untested: rows.filter((r) => matchesFilter(r, "untested")).length,
     unstarted: rows.filter((r) => matchesFilter(r, "unstarted")).length,
     done: rows.filter((r) => matchesFilter(r, "done")).length,

@@ -173,7 +173,7 @@ describe("startObjectiveQuiz", () => {
 
   it("maps objectives to atoms and drops text-less ones", () => {
     expect(objectivesAsAtoms([{ id: "a", text: "One." }, { id: "b" }])).toEqual([
-      { type: "objective", term: "a", content: "One." },
+      { type: "objective", term: "a", content: "One.", objectiveIds: ["a"] },
     ]);
   });
 

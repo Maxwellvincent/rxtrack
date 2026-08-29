@@ -12,6 +12,10 @@ import { overwriteObjectivesInCloud } from "../../../supabase.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { createObjectiveCommands, selectBlockObjectives } from "../../logic/objectives.js";
 import { Button } from "../../../ui/Button.jsx";
+import { callAIJSON } from "../../../aiClient.js";
+import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
+import { saveLectureAtoms } from "../../../supabase.js";
+import { startBackgroundJob } from "../../backgroundJobs.js";
 
 /** Normalise objective text for comparison: first 60 chars, lowercase, non-word stripped. */
 function normKey(text) {
@@ -41,15 +45,16 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
   const [done, setDone] = useState(false);
   const [totalObjectives, setTotalObjectives] = useState(0);
   const [error, setError] = useState("");
+  const objectiveLectures = lectures.filter((lecture) => lecText(lecture).trim());
 
   useEffect(() => {
     const all = lecturesStore.read(userId) || [];
-    const forBlock = all.filter((l) => l.blockId === blockId && (l.fullText || l.chunks?.length));
+    const forBlock = all.filter((l) => l.blockId === blockId && (l.fullText || l.chunks?.length || l.atoms?.length));
     setLectures(forBlock);
   }, [blockId, userId]);
 
   const run = useCallback(async () => {
-    if (!lectures.length || running) return;
+    if (!objectiveLectures.length || running) return;
     setRunning(true);
     setLines([]);
     setError("");
@@ -59,8 +64,8 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
     let grandTotal = 0;
 
     try {
-      for (let i = 0; i < lectures.length; i++) {
-        const lec = lectures[i];
+      for (let i = 0; i < objectiveLectures.length; i++) {
+        const lec = objectiveLectures[i];
         const label = `${lec.lectureType || "LEC"} ${lec.lectureNumber ?? i + 1} — ${lec.lectureTitle || lec.filename || "Untitled"}`;
         setLines((prev) => [...prev, `${label}: extracting…`]);
 
@@ -120,7 +125,30 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
     } finally {
       setRunning(false);
     }
-  }, [lectures, running, blockId, userId]);
+  }, [objectiveLectures, running, blockId, userId]);
+
+  const reconcileAtoms = useCallback(() => {
+    const withAtoms = lectures.filter(l => l.atoms?.length);
+    startBackgroundJob({
+      label: "Objective ↔ atom reconciliation",
+      detail: `Starting 0/${withAtoms.length} lectures`,
+      run: async (progress) => {
+        const allObjectives = selectBlockObjectives(objectivesStore.read(userId) || {}, blockId);
+        let linked = 0;
+        for (let i = 0; i < withAtoms.length; i++) {
+          const lec = withAtoms[i];
+          const objectives = allObjectives.filter(o => o.linkedLecId === lec.id);
+          progress(`${i + 1}/${withAtoms.length} · ${lec.lectureTitle || lec.fileName || "Lecture"}`);
+          if (!objectives.length) continue;
+          const result = await tagAtomsWithObjectives(lec.atoms, objectives, { callAIJSON });
+          await saveLectureAtoms(userId, lec.id, result.atoms || lec.atoms);
+          linked += (result.atoms || []).filter(a => a.objectiveIds?.length).length;
+        }
+        return `${linked} atom links saved across ${withAtoms.length} lectures. Review candidate mappings in each lecture.`;
+      },
+    });
+    onClose();
+  }, [lectures, userId, blockId, onClose]);
 
   return (
     <div
@@ -141,15 +169,23 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
           <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>
         )}
 
-        {!running && !done && lectures.length === 0 && (
+        {!running && !done && objectiveLectures.length === 0 && (
           <div className="mb-3 text-xs text-text-3">
             No lectures with text found in this block. Upload lecture content first.
           </div>
         )}
 
-        {!running && !done && lectures.length > 0 && (
+        {!running && !done && objectiveLectures.length > 0 && (
           <div className="mb-4 text-xs text-text-2">
-            {lectures.length} lecture{lectures.length === 1 ? "" : "s"} with content found.
+            {objectiveLectures.length} lecture{objectiveLectures.length === 1 ? "" : "s"} with extractable text found.
+          </div>
+        )}
+
+        {!running && !done && lectures.some(l => l.atoms?.length) && (
+          <div className="mb-4 rounded-lg border border-border p-3 text-xs text-text-2">
+            <strong className="block text-text-1">Existing atom-objective repair</strong>
+            Current lectures may have atoms extracted before objectives were linked. This continues in the background while the website stays open. It keeps atom and objective text unchanged and adds candidate links.
+            <Button variant="outline" className="mt-3" onClick={reconcileAtoms}>Reconcile existing atoms</Button>
           </div>
         )}
 
@@ -163,16 +199,16 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
 
         {done && (
           <div className="mb-3 font-mono text-[13px] text-good">
-            Re-extracted {totalObjectives} objective{totalObjectives === 1 ? "" : "s"} across {lectures.length} lecture{lectures.length === 1 ? "" : "s"}.
+            Re-extracted {totalObjectives} objective{totalObjectives === 1 ? "" : "s"} across {objectiveLectures.length} lecture{objectiveLectures.length === 1 ? "" : "s"}.
           </div>
         )}
 
         <div className="flex gap-2">
           {!done && (
-            <Button onClick={run} disabled={running || !lectures.length}>
+            <Button onClick={run} disabled={running || !objectiveLectures.length}>
               {running
                 ? "Extracting…"
-                : `Re-extract objectives from ${lectures.length} lecture${lectures.length === 1 ? "" : "s"}`}
+                : `Re-extract objectives from ${objectiveLectures.length} lecture${objectiveLectures.length === 1 ? "" : "s"}`}
             </Button>
           )}
           <Button

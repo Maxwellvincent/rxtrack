@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { applyRangeHighlights } from "./highlightRanges.js";
 
 // Normal ranges — [low, high, unit, display name]
 // Sex-specific labs use male/female midpoints; flag as approximate where relevant.
@@ -226,27 +227,41 @@ function LabPopover({ lab, value, onClose }) {
   );
 }
 
-export function LabAnnotatedText({ text, className, highlights, onHighlight }) {
+export function LabAnnotatedText({ text, className, highlights, onHighlight, onRemoveHighlight, annotateLabs = true }) {
   const [openIdx, setOpenIdx] = useState(null);
   const containerRef = useRef(null);
-  const parts = applyHighlights(parseText(text || ""), highlights);
+  const selectionClick = useRef(false);
+  const parts = applyRangeHighlights(annotateLabs ? parseText(text || "") : [{ type: "text", content: text || "" }], highlights);
 
   const handleMouseUp = () => {
     if (!onHighlight) return;
     const sel = window.getSelection();
-    const phrase = sel?.toString().trim();
-    if (phrase && phrase.length >= 3 && containerRef.current?.contains(sel.anchorNode)) {
-      onHighlight(phrase);
+    const phrase = sel?.toString();
+    const root = containerRef.current;
+    if (phrase?.trim() && sel.rangeCount && root?.contains(sel.anchorNode) && root.contains(sel.focusNode)) {
+      const range = sel.getRangeAt(0);
+      const before = range.cloneRange(); before.selectNodeContents(root); before.setEnd(range.startContainer, range.startOffset);
+      const start = before.toString().length;
+      const end = start + phrase.length;
+      if (String(text).slice(start,end) !== phrase) return;
+      selectionClick.current = true;
+      onHighlight({ start, end });
       sel.removeAllRanges();
     }
   };
 
   return (
-    <span ref={containerRef} className={className} onMouseUp={handleMouseUp}>
+    <span ref={containerRef} className={className} onMouseDown={() => { selectionClick.current = false; }} onMouseUp={handleMouseUp}>
       {parts.map((p, i) => {
         if (p.type === "mark") {
           return (
-            <mark key={i} className="rounded-sm bg-warn/30 px-0.5 text-text-1">
+            <mark key={i} data-highlight="true" role={onRemoveHighlight ? "button" : undefined}
+              tabIndex={onRemoveHighlight ? 0 : undefined}
+              aria-label={onRemoveHighlight ? `Remove highlight: ${p.content}` : undefined}
+              title="Click to remove highlight"
+              onClick={() => { if (!selectionClick.current && !window.getSelection()?.toString()) onRemoveHighlight?.(p.range); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onRemoveHighlight?.(p.range); } }}
+              className="rounded-sm bg-warn/30 text-text-1 cursor-pointer">
               {p.content}
             </mark>
           );

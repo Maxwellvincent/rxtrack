@@ -1,6 +1,7 @@
 import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import "../theme/readability.css";
+import "../theme/study-desk.css";
 import { lazy, Suspense, useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useTheme } from "./useTheme";
 import * as lecturesStore from "../stores/lectures.js";
@@ -291,7 +292,8 @@ function ShellMain({ theme, toggle, userId }) {
   );
 
   return (
-    <div className={`theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
+    <div className={`study-desk theme-${theme} flex h-screen overflow-hidden bg-bg text-text-1 font-sans`}>
+      <a className="desk-skip" href="#study-content">Skip to study content</a>
       <Sidebar
         userId={userId}
         activeBlockId={activeBlockId}
@@ -328,7 +330,7 @@ function ShellMain({ theme, toggle, userId }) {
         {blocks.length > 0 && !sessionMode && !studyLecture && (
           <TabBar active={tab} onChange={switchTab} />
         )}
-        <main ref={mainRef} onScroll={onMainScroll} className="flex-1 overflow-y-auto">
+        <main id="study-content" tabIndex={-1} ref={mainRef} onScroll={onMainScroll} className="desk-content flex-1 overflow-y-auto">
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">
               No terms yet. Import a term schedule via ⋯ → Import schedule.

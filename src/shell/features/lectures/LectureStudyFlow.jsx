@@ -58,6 +58,7 @@ import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js"
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
+import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -495,23 +496,33 @@ export function LectureStudyFlow({
 
   const runExtract = useCallback(async (sourceText) => {
     setBusy("Reading the lecture…"); setError("");
+    let objectivesForTagging = lectureObjectives;
     try {
-      if (!lectureObjectives.length) await recoverObjectives(sourceText);
+      if (!lectureObjectives.length) objectivesForTagging = await recoverObjectives(sourceText);
     } catch (e) {
       setError(`Objective recovery: ${e?.message || String(e)}`);
     }
     const r = await extractAtoms(lecture, sourceText, {
       callAIJSON, saveAtoms: saveLectureAtoms, userId,
     });
-    setBusy("");
     if (r.error) { setError(r.error); return; }
+    let finalAtoms = r.atoms;
+    if (objectivesForTagging.length) {
+      setBusy("Matching atoms to lecture objectives…");
+      const tagged = await tagAtomsWithObjectives(r.atoms, objectivesForTagging, { callAIJSON });
+      finalAtoms = tagged.atoms || r.atoms;
+      try { await saveLectureAtoms(userId, lecture.id, finalAtoms); }
+      catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || e}`); }
+      if (tagged.error) setError(`Atoms extracted; some objective links still need review: ${tagged.error}`);
+    }
+    setBusy("");
     // A save failure is worth saying out loud — the atoms work this session but
     // will need re-extracting next time.
     if (r.saveError) setError(`Atoms ready, but saving them failed: ${r.saveError}`);
-    setAtoms(r.atoms);
+    setAtoms(finalAtoms);
     setStage("quiz");
     // Update cross-lecture atom index (non-blocking, non-critical)
-    try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, r.atoms); } catch { /* ok */ }
+    try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, finalAtoms); } catch { /* ok */ }
   }, [lecture, userId, blockId, recoverObjectives, lectureObjectives.length]);
 
   const onFile = useCallback(async (file) => {
@@ -667,6 +678,7 @@ export function LectureStudyFlow({
     const r = await quizFromAtoms({ ...lecture, images }, quizAtoms, {
       callAIJSON,
       exemplars: schoolExemplars,
+      objectives: [...objectiveById.values()],
       difficulty,
       avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
     });
@@ -741,7 +753,10 @@ export function LectureStudyFlow({
     if (result.error) {
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
-      const matching = priorQuestions.filter((q) => String(q?.difficulty || "").toLowerCase() === difficulty);
+      const matching = priorQuestions.filter((q) =>
+        String(q?.difficulty || "").toLowerCase() === difficulty &&
+        (!orderedObjectives.length || q.objectiveIds?.length)
+      );
       if (matching.length >= count) {
         startQuizSession([...matching].sort(() => Math.random() - 0.5).slice(0, count));
         setAdHocQuiz(true);
@@ -1051,6 +1066,7 @@ export function LectureStudyFlow({
       <h2 className="text-lg font-bold text-text-1">{renamedTitle || title}</h2>
       <RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} />
       <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} />
+      <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
       {onGoDeep && <details className="my-3 max-w-3xl text-sm">
         <summary className="min-h-11 cursor-pointer py-2 text-text-2">Optional study tools</summary>
         <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>

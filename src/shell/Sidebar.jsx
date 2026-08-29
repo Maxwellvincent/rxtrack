@@ -12,7 +12,12 @@ import {
 } from "./navPrefs.js";
 
 const RAIL_KEY = "rxt-sidebar-collapsed";
-function readRail() { return localStorage.getItem(RAIL_KEY) === "1"; }
+function readRail() {
+  try {
+    const saved = localStorage.getItem(RAIL_KEY);
+    return saved == null ? !!window.matchMedia?.("(max-width: 760px)").matches : saved === "1";
+  } catch { return false; }
+}
 function writeRail(v) { localStorage.setItem(RAIL_KEY, v ? "1" : "0"); }
 
 export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = null }) {
@@ -50,7 +55,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
   /* ── Collapsed rail — narrow icon strip ─────────────────────────────── */
   if (rail) {
     return (
-      <aside className="shell-chrome flex w-12 flex-col border-r border-border bg-bg">
+      <aside aria-label="Blocks" className="desk-sidebar-rail shell-chrome flex w-12 flex-col border-r border-border bg-bg">
         {/* Expand toggle */}
         <button
           onClick={toggleRail}
@@ -69,10 +74,12 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                 key={b.id}
                 onClick={() => onSelectBlock(b.id)}
                 title={b.name}
+                aria-label={b.name}
+                aria-current={active ? "true" : undefined}
                 className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-bg-elevated"
               >
-                <span
-                  className="h-2.5 w-2.5 rounded-full transition-colors"
+                <span aria-hidden="true"
+                  className={active ? "h-3 w-3 rounded-sm outline outline-2 outline-offset-2 outline-accent" : "h-2.5 w-2.5 rounded-full transition-colors"}
                   style={{
                     background: active ? "var(--accent)" : "var(--border-strong)",
                   }}
@@ -96,7 +103,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
 
   /* ── Full sidebar ────────────────────────────────────────────────────── */
   return (
-    <aside className="shell-chrome flex w-56 flex-col border-r border-border bg-bg text-text-2">
+    <aside aria-label="Blocks" className="desk-sidebar shell-chrome flex w-56 flex-col border-r border-border bg-bg text-text-2">
       {/* Logo + collapse toggle */}
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
         <div>
@@ -107,7 +114,7 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
             Rx<span style={{ color: "var(--accent)" }}>Track</span>
           </div>
           <div className="mt-0.5 font-mono text-[13px] uppercase tracking-widest text-text-3">
-            Study Dashboard
+            Your study desk
           </div>
         </div>
         <button

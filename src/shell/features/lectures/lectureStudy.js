@@ -123,6 +123,7 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
   const result = await generateFromAtoms(
     {
       atoms: marked,
+      objectives: deps.objectives || [],
       subject: lecture?.lectureTitle || lecture?.title || "this lecture",
       difficulty,
       examples: exemplars,

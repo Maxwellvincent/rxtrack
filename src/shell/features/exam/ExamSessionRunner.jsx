@@ -20,6 +20,8 @@
 import { useEffect, useState } from "react";
 import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
 import { Button } from "../../../ui/Button.jsx";
+import { advanceOnEnter } from "../../../ui/nextQuestion.js";
+import { QuestionStem } from "../../../ui/QuestionStem.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
 import { useTutorExplanation } from "./useTutorExplanation.js";
@@ -168,7 +170,7 @@ function ExamFormat({ controller, submitOpts }) {
   const answeredCount = (session.answers || []).length;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
       <div className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated px-3 py-2">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">
           Exam · {answeredCount}/{questions.length} answered
@@ -211,7 +213,7 @@ function ExamFormat({ controller, submitOpts }) {
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
           <QuestionMeta question={q} />
           <LeadInCue stem={q.stem} />
-          <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
+          <QuestionStem text={q.stem} />
           <SchoolQuestionFigure question={q} />
           <ChoiceList
             choices={q.choices}
@@ -266,7 +268,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
   const isCorrect = revealed && picked === q.correct;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), revealed && currentIndex < questions.length - 1 && !submitting)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Practice</span>
         <span className="text-text-3">
@@ -277,7 +279,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         <QuestionMeta question={q} />
         <LeadInCue stem={q.stem} />
-        <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
+        <QuestionStem text={q.stem} />
         <SchoolQuestionFigure question={q} />
         <ChoiceList
           choices={q.choices}

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
+import { advanceOnEnter } from "../ui/nextQuestion.js";
+import { highlightRanges, sameHighlight } from "../ui/highlightRanges.js";
 import { classify, summarize, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
@@ -127,14 +129,20 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const onHighlight = useCallback(
     (stem, phrase) => {
       setHighlights((prev) => {
-        const existing = prev[stem] || [];
-        if (existing.includes(phrase)) return prev;
+        const existing = highlightRanges(stem, prev[stem]);
+        if (existing.some(h => sameHighlight(h, phrase))) return prev;
         return { ...prev, [stem]: [...existing, phrase] };
       });
       if (lectureId) generatedQuestionsStore.addHighlight(userId, lectureId, stem, phrase);
     },
     [lectureId, userId]
   );
+
+  const removeHighlight = (stem, range) => {
+    const next = range ? highlightRanges(stem, highlights[stem]).filter(h => !sameHighlight(h, range)) : [];
+    setHighlights(prev => ({ ...prev, [stem]: next }));
+    if (lectureId) generatedQuestionsStore.setHighlights(userId, lectureId, stem, next);
+  };
 
   if (done) return <Summary records={records} onExit={onExit} onReviewAtom={onReviewAtom} />;
 
@@ -213,7 +221,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   };
 
   return (
-    <div className="mb-5 space-y-3">
+    <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Calibrated quiz — from your atoms</span><span className="text-text-3">{i + 1}/{questions.length}</span>
       </div>
@@ -250,7 +258,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
           className="mb-2 block text-sm text-text-1"
           highlights={highlights[q.stem]}
           onHighlight={(phrase) => onHighlight(q.stem, phrase)}
+          onRemoveHighlight={(range) => removeHighlight(q.stem, range)}
         />
+        {!!highlights[q.stem]?.length && <button className="mb-2 min-h-9 text-xs text-text-2 underline" onClick={() => removeHighlight(q.stem, null)}>Clear highlights</button>}
         <div className="flex flex-col gap-1.5">
           {Object.entries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
@@ -342,6 +352,12 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 choices={q.choices}
               />
             )}
+            <div className="rounded border border-border p-3 text-sm">
+              <strong>Objective tested</strong>
+              {q.objectiveTexts?.length ? q.objectiveTexts.map(o => <p key={o.id}>{o.code} {o.text}</p>)
+                : q.objectiveIds?.length ? <p>{q.objectiveIds.join(" · ")}</p>
+                : <p className="text-text-2">No objective link recorded for this question. Atom practice alone does not establish objective coverage.</p>}
+            </div>
             {!correct && (
               <div className="rounded-lg border border-border bg-panel p-2.5">
                 <div className="mb-2 font-mono text-[12px] font-bold text-text-2">What most caused this miss?</div>

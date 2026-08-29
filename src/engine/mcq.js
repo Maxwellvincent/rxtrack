@@ -3,6 +3,7 @@
 // The exam-bank questions the student uploaded become few-shot STYLE exemplars
 // so the model asks questions in their school's exact style.
 import { normAtomKey } from "./atomNorm.js";
+import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
@@ -228,7 +229,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   // naming the tissue in the stem is the answer.
   const factList = atoms
     .slice(0, ATOM_QUIZ_CAP)
-    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.hasImage ? IMAGE_NOTE : ""}`)
+    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.objectiveIds?.length ? ` [linked objectives: ${a.objectiveIds.join(", ")}]` : ""}${a.hasImage ? IMAGE_NOTE : ""}`)
     .join("\n");
 
   const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
@@ -252,9 +253,11 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     WHY_WRONG_RULE + `\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n\n` +
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
+    `\n\nLECTURE OBJECTIVES (source data):\n${objectives.map(o => `[${o.id}] ${o.code || ""} ${o.objective || o.text || ""}`).join("\n") || "No objectives available; do not claim objective coverage."}\n` +
+    `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
     examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + avoidSection +
     `\n\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"difficulty":"${diff}"}]}`
   );
 }
 
@@ -270,7 +273,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
  * model's own wording ever matching. This is the ONLY place that link gets made;
  * normalizeQuestions just carries the field through afterward.
  */
-export function backfillTopicsFromAtoms(raw, atoms) {
+export function backfillTopicsFromAtoms(raw, atoms, objectives = []) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
   const questions = list.map((q, i) => {
     if (!q || typeof q !== "object") return q;
@@ -281,7 +284,9 @@ export function backfillTopicsFromAtoms(raw, atoms) {
       ...q,
       topic: String(q.topic || "").trim() || atom.term,
       atomKey,
-      objectiveIds: Array.isArray(atom.objectiveIds) ? atom.objectiveIds.filter(Boolean) : [],
+      objectiveIds: objectives.length
+        ? canonicalObjectiveIds(Array.isArray(q.objectiveIds) ? q.objectiveIds : (atom.objectiveIds?.length === 1 ? atom.objectiveIds : []), objectives).slice(0, 1)
+        : Array.isArray(atom.objectiveIds) ? atom.objectiveIds.filter(Boolean) : [],
     };
   });
   return Array.isArray(raw) ? questions : { ...raw, questions };
@@ -294,7 +299,11 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
     const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    return { questions: withSchoolContext(normalizeQuestions(backfillTopicsFromAtoms(result, atoms)), cfg) };
+    const questions = normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])).map(q => ({
+      ...q,
+      objectiveTexts: (cfg.objectives || []).filter(o => q.objectiveIds?.includes(o.id)).map(o => ({ id: o.id, code: o.code || "", text: o.objective || o.text || "" })),
+    }));
+    return { questions: withSchoolContext(questions, cfg) };
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
   }

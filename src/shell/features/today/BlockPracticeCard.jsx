@@ -22,14 +22,14 @@ export function BlockPracticeCard({ blockId, userId }) {
   const result = blockPracticeSummary(blockId, lectures.data, stats.data, history.blockId === blockId ? history.sessions : []);
   const loading = stats.loading || history.loading || history.blockId !== blockId;
   const gap = result.accuracy == null ? null : (result.accuracy * 100 - 74);
-  return <section aria-label="Block question progress" className="rounded-lg border border-border bg-bg-elevated p-4">
+  return <section aria-label="Block question progress" className="desk-practice rounded-lg border border-border bg-bg-elevated p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="text-base font-semibold">This block · question progress</h3>
       <button disabled={loading} onClick={() => setRefresh((n) => n + 1)} className="min-h-11 px-2 text-sm text-text-2">{loading ? "Syncing…" : "Refresh"}</button>
     </div>
     {history.error && <p role="alert" className="text-sm text-text-2">Exam history could not load. Showing lecture totals only—refresh to retry.</p>}
     {stats.error && <p role="alert" className="text-sm text-text-2">Lecture statistics could not fully sync. These totals may be incomplete.</p>}
-    <div className="my-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+    <div className="desk-practice-metrics my-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
       <div><div className="text-2xl font-bold">{loading ? "—" : result.answered.toLocaleString()}</div><div className="text-sm text-text-2">Questions answered</div></div>
       <div><div className="text-2xl font-bold">{loading ? "—" : percent(result.accuracy)}</div><div className="text-sm text-text-2">Overall practice accuracy</div></div>
       <div><div className="text-2xl font-bold">74%</div><div className="text-sm text-text-2">Your benchmark</div></div>

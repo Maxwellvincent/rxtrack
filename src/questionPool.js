@@ -3,7 +3,7 @@ import { db } from "./firebase.js";
 import { getLecText } from "./lectureText.js";
 import { MAX_EXAM_SESSION_BYTES, sessionBytes } from "./examSessions.js";
 
-export const POOL_VERSION = 1;
+export const POOL_VERSION = 2;
 const clean = value => JSON.parse(JSON.stringify(value));
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;

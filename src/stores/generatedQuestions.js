@@ -63,6 +63,16 @@ export function addHighlight(userId, lectureId, stem, phrase) {
   return next;
 }
 
+export function setHighlights(userId, lectureId, stem, highlights) {
+  const current = read(userId);
+  const entry = current[lectureId];
+  if (!entry) return current;
+  const questions = entry.questions.map(q => q.stem === stem ? { ...q, highlights } : q);
+  const next = { ...current, [lectureId]: { ...entry, questions } };
+  writeCloud(userId, key, next);
+  return next;
+}
+
 export function questionsForLecture(userId, lectureId) {
   return read(userId)[lectureId]?.questions ?? [];
 }

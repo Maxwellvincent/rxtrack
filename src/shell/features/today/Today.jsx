@@ -397,7 +397,7 @@ function RoundDots({ done, total }) {
           ].join(" ")}
         />
       ))}
-      <span className="ml-1 font-mono text-[12px] text-text-3">today plan {done}/{total}</span>
+      <span className="ml-1 font-mono text-[12px] text-text-3">{done} of {total} planned sessions today</span>
     </div>
   );
 }
@@ -493,6 +493,7 @@ function RoutineSchedulePanel({ mode, wakeTime, lecConfig }) {
 }
 
 function fmtDaysAgo(n) {
+  if (n < 0) return "recorded date is in the future";
   if (n === 0) return "today";
   if (n === 1) return "yesterday";
   return `${n}d ago`;
@@ -507,7 +508,7 @@ function fmtDaysUntil(dateStr) {
   return `in ${diff}d`;
 }
 
-function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead, onCheck, onStudy, onQuiz, onLog, busy }) {
+export function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead, onCheck, onStudy, onQuiz, onLog, busy }) {
   const [logging, setLogging] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const title = task.lec?.lectureTitle || task.lec?.fileName || task.lec?.filename || "Lecture";
@@ -520,7 +521,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
   return (
     <div
       className={[
-        "rounded-sm border transition-all",
+        "desk-task rounded-sm border transition-all",
         checked
           ? "border-good/30 bg-good/5 opacity-60"
           : partiallyDone
@@ -529,13 +530,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
               ? "border-accent/70 bg-accent-soft"
               : "border-border bg-bg-elevated hover:border-border-strong hover:bg-panel",
       ].join(" ")}
-      style={{
-        boxShadow: checked
-          ? "none"
-          : isNext
-            ? "0 2px 12px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.12)"
-            : "0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06)",
-      }}
+      data-next={isNext && !checked}
     >
       <div className="flex items-start gap-3 px-4 py-3.5">
         {/* Checkbox */}
@@ -579,6 +574,7 @@ function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, preRead,
                   onClick={() => setExpanded((e) => !e)}
                   className="min-h-7 min-w-7 px-1 text-sm text-text-3 hover:text-text-2"
                   title={expanded ? "Hide details" : "Show details"}
+                  aria-expanded={expanded}
                 >
                   {expanded ? "▴" : "▾"}
                 </button>
@@ -992,14 +988,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <BlockPracticeCard blockId={blockId} userId={userId} />
+    <div className="desk-today flex flex-col gap-4">
       {/* Header */}
-      <div className="flex items-start justify-between gap-3">
+      <div className="desk-day-heading flex items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[13px] text-text-3">{dateStr}</div>
           <div className="flex items-center gap-2">
-            <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Daily Plan</h2>
+            <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Your study day</h2>
             <button
               onClick={() => {
                 const next = !taskListCollapsed;
@@ -1123,6 +1118,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
           onComplete={onPreReadDone}
         />
       )}
+
+      <BlockPracticeCard blockId={blockId} userId={userId} />
 
       {/* Reset */}
       {doneCount > 0 && (
