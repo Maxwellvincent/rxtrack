@@ -856,6 +856,34 @@ export async function extractLectureObjectives(pdfFile, onProgress) {
   }
 }
 
+export function pdfItemsToLayoutText(items = []) {
+  const positioned = items
+    .filter((item) => String(item?.str || "").trim())
+    .map((item, index) => ({
+      text: String(item.str).trim(),
+      x: Number(item?.transform?.[4]),
+      y: Number(item?.transform?.[5]),
+      index,
+    }));
+  if (positioned.length < 2 || positioned.filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y)).length < positioned.length * 0.8) {
+    return items.map((item) => item.str + (item.hasEOL ? "\n" : " ")).join("").trim();
+  }
+  const lines = [];
+  for (const item of positioned.sort((a, b) => b.y - a.y || a.x - b.x || a.index - b.index)) {
+    let line = lines.find((candidate) => Math.abs(candidate.y - item.y) <= 2.5);
+    if (!line) {
+      line = { y: item.y, items: [] };
+      lines.push(line);
+    }
+    line.items.push(item);
+  }
+  return lines
+    .sort((a, b) => b.y - a.y)
+    .map((line) => line.items.sort((a, b) => a.x - b.x || a.index - b.index).map((item) => item.text).join(" "))
+    .join("\n")
+    .trim();
+}
+
 export async function parseExamPDF(file, onProgress, opts = {}) {
   // Markdown/text upload (e.g. pre-verified marker OCR output) — skip pdfjs entirely.
   // No per-page images, so force the standard AI-parse path (grid/slidedeck need PDF pages).
@@ -904,6 +932,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
         .map((x) => x.str + (x.hasEOL ? "\n" : " "))
         .join("")
         .trim();
+      const layoutText = pdfItemsToLayoutText(content.items);
       let imgCount = 0;
       try {
         const ops = await page.getOperatorList();
@@ -916,10 +945,19 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
       } catch (e) {
         // ignore
       }
-      pages.push({ num: i, text, imgCount, pdfPage: page });
+      pages.push({ num: i, text, layoutText, imgCount, pdfPage: page });
     }
 
-    fullText = pages.map((p, index) => index === 0 ? p.text : `[PAGE_BREAK:${p.num}]\n${p.text}`).join("\n\n");
+    const sequentialText = pages.map((p, index) => index === 0 ? p.text : `[PAGE_BREAK:${p.num}]\n${p.text}`).join("\n\n");
+    const layoutText = pages.map((p, index) => index === 0 ? p.layoutText : `[PAGE_BREAK:${p.num}]\n${p.layoutText}`).join("\n\n");
+    const title = cleanLectureTitle(file.name);
+    const candidates = [sequentialText, layoutText].map((text) => ({ text, questions: parseNumberedQuestionBankText(text, title) }));
+    candidates.sort((a, b) => {
+      const keyedA = a.questions.filter((q) => q.correct).length;
+      const keyedB = b.questions.filter((q) => q.correct).length;
+      return keyedB - keyedA || b.questions.length - a.questions.length;
+    });
+    fullText = candidates[0].text;
   }
 
   const format = _isText ? "standard" : detectFormat(pages, fullText);

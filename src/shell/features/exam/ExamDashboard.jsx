@@ -166,7 +166,8 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
     };
   }, [userId, blockId]);
 
-  const lectureStats = useMemo(() => computeLectureStats(sessions), [sessions]);
+  const integratedSessions = useMemo(() => sessions.filter((session) => session?.sourceType !== "question-bank"), [sessions]);
+  const lectureStats = useMemo(() => computeLectureStats(integratedSessions), [integratedSessions]);
 
   const weakLectureIds = useMemo(() => {
     const forBlock = readWeakConcepts(userId)?.[blockId] || [];
@@ -185,8 +186,8 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.totalQuestions - a.totalQuestions || a.label.localeCompare(b.label)),
     [lectureStats, lecturesById, weakLectureIds]
   );
-  const readiness = useMemo(() => computeObjectiveReadiness(sessions, objectives), [sessions, objectives]);
-  const pacing = useMemo(() => computePacingMetrics(sessions), [sessions]);
+  const readiness = useMemo(() => computeObjectiveReadiness(integratedSessions, objectives), [integratedSessions, objectives]);
+  const pacing = useMemo(() => computePacingMetrics(integratedSessions), [integratedSessions]);
   const process = learnerProfile?.testTaking || {};
   const reasonRows = useMemo(() =>
     ERROR_REASONS
@@ -228,12 +229,13 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         Integrated Exam performance
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4" aria-label="Step 1 readiness summary">
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Step 1 readiness summary">
         {[
           ["Objective coverage", `${Math.round(readiness.coverage * 100)}%`],
           ["Exam accuracy", readiness.accuracy === null ? "—" : `${Math.round(readiness.accuracy * 100)}%`],
           ["Ready objectives", String(readiness.ready)],
           ["Weak objectives", String(readiness.weak)],
+          ["Average pace", pacing.secondsPerQuestion === null ? "—" : `${Math.round(pacing.secondsPerQuestion)} sec/q`],
         ].map(([label, value]) => (
           <div key={label} className="desk-metric-card rounded-xl border border-border bg-panel p-4">
             <div className="font-mono text-[12px] text-text-3">{label}</div>
@@ -241,31 +243,6 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           </div>
         ))}
       </div>
-
-      {pacing.totalQuestions > 0 && (
-        <details className="mb-4 rounded-lg border border-border p-3" aria-label="Exam pacing report">
-          <summary className="cursor-pointer font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Pacing details · {pacing.secondsPerQuestion === null ? "time unavailable" : `${Math.round(pacing.secondsPerQuestion)} sec/question`}</summary>
-          <div className="mt-3">
-          <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-            <div className="font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Pacing</div>
-            <div className="font-mono text-[12px] text-text-3">
-              {pacing.secondsPerQuestion === null ? "time unavailable" : `${Math.round(pacing.secondsPerQuestion)} sec/question`}
-              {" · "}{pacing.unanswered} unanswered
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-2">
-            {pacing.quarters.map((quarter, index) => (
-              <div key={index} className="rounded bg-panel p-2 text-center">
-                <div className="font-mono text-[11px] text-text-3">Q{index + 1}</div>
-                <div className={`text-sm font-bold ${accuracyClass(quarter.accuracy)}`}>
-                  {quarter.accuracy === null ? "—" : `${Math.round(quarter.accuracy * 100)}%`}
-                </div>
-              </div>
-            ))}
-          </div>
-          </div>
-        </details>
-      )}
 
       {(process.timedAnswers > 0 || reasonRows.length > 0) && (
         <details className="mb-4 rounded-lg border border-border p-3" aria-label="Test-taking diagnostics">
@@ -349,7 +326,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         </details>
       )}
 
-      {sessions.length > 0 && <details className="mt-4 rounded-lg border border-border px-3"><summary className="cursor-pointer py-3 font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Saved exam history · {sessions.length}</summary><div className="space-y-2 pb-3">{[...sessions].sort((a,b) => (b.submittedAt || 0) - (a.submittedAt || 0)).map(session => {
+      {integratedSessions.length > 0 && <details className="mt-4 rounded-lg border border-border px-3"><summary className="cursor-pointer py-3 font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Saved exam history · {integratedSessions.length}</summary><div className="space-y-2 pb-3">{[...integratedSessions].sort((a,b) => (b.submittedAt || 0) - (a.submittedAt || 0)).map(session => {
         const answered = (session.answers || []).length;
         const correct = (session.questions || []).filter(q => (session.answers || []).find(a => a.questionId === q.questionId)?.value === q.correct).length;
         const score = answered ? Math.round(correct / answered * 100) : 0;

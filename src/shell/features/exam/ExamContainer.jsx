@@ -68,6 +68,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
   const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
+  const [bankAttempts, setBankAttempts] = useState([]);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
@@ -170,7 +171,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         .map((entry) => entry.filename)
     );
     const filenames = [...scoped];
-    return filenames.sort().map((filename) => ({ filename, questions: banks[filename] || [] }));
+    return filenames.sort().map((filename) => {
+      const entry = Object.values(meta).find((item) => item?.filename === filename);
+      return { filename, questions: banks[filename] || [], aliases: entry?.aliases || [] };
+    });
     // Hydration flags deliberately trigger a fresh synchronous store read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated]);
@@ -214,6 +218,69 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     refreshResumableSessions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId]);
+
+  const refreshBankAttempts = async () => {
+    if (!userId || !blockId) return;
+    try {
+      const submitted = await listExamSessions(userId, blockId, { status: "submitted" });
+      setBankAttempts((submitted || []).filter((session) => session?.sourceType === "question-bank"));
+    } catch {
+      setBankAttempts([]);
+    }
+  };
+
+  useEffect(() => {
+    refreshBankAttempts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, blockId, activeSessionId]);
+
+  const renameBank = (bank) => {
+    const requested = window.prompt("Rename this practice set", cleanLectureTitle(bank.filename));
+    const title = String(requested || "").trim().replace(/\s+/g, " ");
+    if (!title) return;
+    const extension = /\.pdf$/i.test(bank.filename) ? ".pdf" : "";
+    const nextFilename = `${title.replace(/\.pdf$/i, "")}${extension}`;
+    if (nextFilename === bank.filename) return;
+    const banks = questionBanksStore.read(userId) || {};
+    if (banks[nextFilename]) {
+      setLaunchError("A practice set already uses that name.");
+      return;
+    }
+    const nextBanks = { ...banks, [nextFilename]: banks[bank.filename] };
+    delete nextBanks[bank.filename];
+    questionBanksStore.write(userId, nextBanks);
+    const meta = questionBankMetaStore.read(userId) || {};
+    const nextMeta = Object.fromEntries(Object.entries(meta).map(([id, entry]) => [id,
+      entry?.filename === bank.filename
+        ? { ...entry, filename: nextFilename, aliases: [...new Set([...(entry.aliases || []), bank.filename])] }
+        : entry
+    ]));
+    questionBankMetaStore.write(userId, nextMeta);
+  };
+
+  const bankGroups = useMemo(() => {
+    const groups = {};
+    for (const bank of blockQuestionBanks) {
+      const match = cleanLectureTitle(bank.filename).match(/\bweek\s*(\d+)\b/i);
+      const label = match ? `Week ${match[1]}` : "School exams & mixed practice";
+      (groups[label] ||= []).push(bank);
+    }
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [blockQuestionBanks]);
+
+  const statsForBank = (bank) => {
+    const names = new Set([bank.filename, ...(bank.aliases || [])]);
+    const attempts = bankAttempts.filter((session) => names.has(session.sourceFile)).sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
+    const scored = attempts.map((session) => {
+      const answers = new Map((session.answers || []).map((answer) => [answer.questionId, answer]));
+      const answered = (session.questions || []).filter((question) => answers.has(question.questionId));
+      const correct = answered.filter((question) => answers.get(question.questionId)?.value === question.correct).length;
+      const missed = answered.filter((question) => answers.get(question.questionId)?.value !== question.correct);
+      return { session, answered: answered.length, correct, score: answered.length ? Math.round(correct / answered.length * 100) : null, missed };
+    }).filter((item) => item.score !== null);
+    const latest = scored.at(-1);
+    return { attempts: scored.length, latest, improvement: scored.length > 1 ? latest.score - scored[0].score : null };
+  };
   const toggleTutorMode = () => {
     setTutorModeEnabledState((prev) => {
       const next = !prev;
@@ -345,6 +412,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             setActiveSessionId(null);
             setLaunchWarning(null);
             refreshResumableSessions();
+            refreshBankAttempts();
           }}
         />
       </div>
@@ -437,24 +505,30 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             Authentic uploaded questions. Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer.
           </div>
           <div className="space-y-2">
-            {blockQuestionBanks.map((bank) => {
+            {bankGroups.map(([group, banks], groupIndex) => <details key={group} open={groupIndex === 0} className="rounded-lg border border-border px-2">
+              <summary className="cursor-pointer py-2 font-mono text-[12px] font-bold text-text-2">{group} · {banks.length} set{banks.length === 1 ? "" : "s"}</summary>
+              <div className="space-y-2 pb-2">{banks.map((bank) => {
               const minutes = examDurationMinutes(bank.questions.length);
               const expectedCount = /examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null;
               const incomplete = expectedCount && bank.questions.length < expectedCount;
+              const stats = statsForBank(bank);
               return (
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
-                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed</div>
+                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
                   </div>
                   <div className="flex gap-2">
+                    <Button variant="ghost" disabled={!!bankLaunching} onClick={() => renameBank(bank)}>Rename</Button>
+                    {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
                     <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
                     <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>
                   </div>
                 </div>
               );
-            })}
+            })}</div></details>)}
           </div>
         </section>
       )}
