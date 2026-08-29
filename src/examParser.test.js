@@ -83,6 +83,31 @@ Q3: A — High sodium is expected.`;
     expect(expectedQuestionCountFromAnswerKey("No key here")).toBeNull();
   });
 
+  it("parses compact comma-separated school keys without AI", () => {
+    const source = [1, 2, 3].map(n => `${n}. Clinical question ${n} with enough detail to be valid?\nA. First\nB. Second\nC. Third\nD. Fourth`).join("\n\n") + "\n\nAnswer key:\n1 B, 2 C, 3 A.";
+    const questions = parseNumberedQuestionBankText(source, "School practice");
+    expect(questions.map(question => question.correct)).toEqual(["B", "C", "A"]);
+    expect(expectedQuestionCountFromAnswerKey(source)).toBe(3);
+  });
+
+  it("ignores form-feed page numbers and recognizes expanded answer headings", () => {
+    const source = [
+      "1. First clinical question with enough detail to parse?\nA. One\nB. Two\nC. Three\nD. Four",
+      "2. Second clinical question with enough detail to parse?\nA. One\nB. Two\nC. Three\nD. Four",
+      "3. Third clinical question with enough detail to parse?\nA. One\nB. Two\nC. Three\nD. Four",
+      "\f1\n4. Fourth clinical question with enough detail to parse?\nA. One\nB. Two\nC. Three\nD. Four",
+      "ANSWER KEY AND EXPLANATION",
+      "1. First repeated question?\nA. One\nB. Two\nC. Three\nD. Four\nAnswer Key: A.",
+      "2. Second repeated question?\nA. One\nB. Two\nC. Three\nD. Four\nAnswer Key: B.",
+      "3. Third repeated question?\nA. One\nB. Two\nC. Three\nD. Four\nAnswer Key: C.",
+      "\f2\n4. Fourth repeated question?\nA. One\nB. Two\nC. Three\nD. Four\nAnswer Key: D.",
+    ].join("\n\n");
+    const questions = parseNumberedQuestionBankText(source, "Physiology");
+    expect(questions).toHaveLength(4);
+    expect(questions.map(question => question.correct)).toEqual(["A", "B", "C", "D"]);
+    expect(expectedQuestionCountFromAnswerKey(source)).toBe(4);
+  });
+
   it("recognizes inline school rationales as an authoritative answer key", () => {
     const inline = ["Answer: A. first", "Answer Key: Option B. second", "Answer: C. third"].join("\n");
     expect(expectedQuestionCountFromAnswerKey(inline)).toBe(3);

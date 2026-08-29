@@ -17,6 +17,11 @@ function readUserApiKey() {
   catch { return null; }
 }
 
+function localOnlyRouting() {
+  try { return localStorage.getItem("rxt-ai-routing") === "local-only"; }
+  catch { return false; }
+}
+
 /**
  * Direct Gemini REST call from the browser (supports CORS).
  * Returns parsed JSON content string, or throws on failure.
@@ -264,6 +269,7 @@ export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explici
   // Free path first: the local bridge runs on your own subscriptions.
   const bridged = await bridgeComplete({ system: systemPrompt, prompt: userPrompt });
   if (bridged !== null) return bridged;
+  if (localOnlyRouting()) throw new Error("Local LLM bridge is unavailable. Cloud fallback is disabled in AI settings.");
 
   // User-provided key: direct REST call, bypasses shared Cloud Function quota.
   try {
@@ -325,6 +331,10 @@ export async function callAIJSON(
     options.signal?.throwIfAborted();
     console.warn("bridge JSON parse failed, using cloud:", err.message);
   }
+  if (localOnlyRouting()) {
+    if (options.throwOnError) throw new Error("Local LLM bridge is unavailable or returned invalid JSON. Cloud fallback is disabled in AI settings.");
+    return safeFallback;
+  }
 
   // User-provided key: direct REST call before Cloud Function.
   options.signal?.throwIfAborted();
@@ -372,6 +382,7 @@ export async function callAIWithImages(systemPrompt, userPrompt, images, maxToke
   if (bridged !== null) {
     return bridged.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
   }
+  if (localOnlyRouting()) throw new Error("Local LLM bridge cannot process this image request. Cloud fallback is disabled in AI settings.");
 
   const res = await withRetry(() =>
     aiCompleteCall({
@@ -409,6 +420,7 @@ export async function callAIWithImage(
   if (bridged !== null) {
     return bridged.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
   }
+  if (localOnlyRouting()) throw new Error("Local LLM bridge cannot process this image request. Cloud fallback is disabled in AI settings.");
 
   const res = await withRetry(() =>
     aiCompleteCall({

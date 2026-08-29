@@ -243,7 +243,9 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
       </div>
 
       {pacing.totalQuestions > 0 && (
-        <div className="mb-4 rounded-lg border border-border p-3" aria-label="Exam pacing report">
+        <details className="mb-4 rounded-lg border border-border p-3" aria-label="Exam pacing report">
+          <summary className="cursor-pointer font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Pacing details · {pacing.secondsPerQuestion === null ? "time unavailable" : `${Math.round(pacing.secondsPerQuestion)} sec/question`}</summary>
+          <div className="mt-3">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <div className="font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Pacing</div>
             <div className="font-mono text-[12px] text-text-3">
@@ -261,12 +263,16 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
               </div>
             ))}
           </div>
-        </div>
+          </div>
+        </details>
       )}
 
       {(process.timedAnswers > 0 || reasonRows.length > 0) && (
-        <div className="mb-4 rounded-lg border border-border p-3" aria-label="Test-taking diagnostics">
+        <details className="mb-4 rounded-lg border border-border p-3" aria-label="Test-taking diagnostics">
+          <summary className="cursor-pointer font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Test-taking diagnostics</summary>
+          <div className="mt-3">
           <div className="font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Test-taking diagnostics</div>
+          {reasonRows.length > 0 && <div className="mt-1 text-xs text-text-3">These are the reasons you selected after missed questions. “Knowledge gap” means you marked that the tested fact or mechanism was not yet secure—not that RXtrack inferred it automatically.</div>}
           <div className="mt-2 flex flex-wrap gap-2 font-mono text-[12px] text-text-3">
             {process.timedAnswers > 0 && (
               <span className="rounded bg-panel px-2 py-1">
@@ -302,7 +308,8 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
               ))}
             </div>
           )}
-        </div>
+          </div>
+        </details>
       )}
 
       {rows.length === 0 ? (

@@ -169,7 +169,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         .filter((entry) => entry?.blockId === blockId && banks[entry.filename])
         .map((entry) => entry.filename)
     );
-    const filenames = scoped.size ? [...scoped] : Object.keys(banks);
+    const filenames = [...scoped];
     return filenames.sort().map((filename) => ({ filename, questions: banks[filename] || [] }));
     // Hydration flags deliberately trigger a fresh synchronous store read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
