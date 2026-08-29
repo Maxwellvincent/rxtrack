@@ -30,6 +30,7 @@ const createExamSessionMock = vi.fn();
 vi.mock("../../../supabase.js", () => ({
   createExamSession: (...args) => createExamSessionMock(...args),
   checkExamAccess: async () => {},
+  listExamSessions: async () => [],
 }));
 vi.mock("../../../questionPool.js", async importOriginal => ({
   ...await importOriginal(),

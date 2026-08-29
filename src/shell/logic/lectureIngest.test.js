@@ -36,7 +36,7 @@ describe("parseLectureFilename", () => {
     // whose digits used to win over the real lecture number.
     expect(
       parseLectureFilename("ER+DLA+2a-Developmental+Genetics-Terminology+%26+Sonic+Hedgehog.pdf")
-    ).toMatchObject({ type: "DLA", number: 2, suffix: "a" });
+    ).toMatchObject({ type: "DLA", number: 2, suffix: "a", title: "ER DLA 2a-Developmental Genetics-Terminology & Sonic Hedgehog" });
   });
 
   it("defaults to LEC and copes with no number", () => {

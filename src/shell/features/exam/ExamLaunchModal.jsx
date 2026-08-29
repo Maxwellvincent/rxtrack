@@ -65,15 +65,22 @@ export function ExamLaunchModal({
     String(examDurationMinutes(defaultQuestionCount || 20))
   );
   const [durationTouched, setDurationTouched] = useState(false);
+  const [weekNumber, setWeekNumber] = useState("all");
 
-  const noLectures = !eligibleLectures || eligibleLectures.length === 0;
+  const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
+    .sort((a, b) => Number(a) - Number(b));
+  const scopedLectures = weekNumber === "all"
+    ? eligibleLectures
+    : eligibleLectures.filter((lecture) => String(lecture.weekNumber) === weekNumber);
+
+  const noLectures = !scopedLectures || scopedLectures.length === 0;
 
   const parsedCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(count, 10) || 1));
   const parsedDuration = parseFloat(duration);
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
   const canLaunch = !noLectures && durationValid;
-  const blueprint = examBlueprint(eligibleLectures, parsedCount);
+  const blueprint = examBlueprint(scopedLectures, parsedCount);
 
   const handleCountChange = (e) => {
     const raw = e.target.value;
@@ -97,6 +104,7 @@ export function ExamLaunchModal({
       format,
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
+      ...(weekNumber === "all" ? {} : { weekNumber }),
     });
   };
 
@@ -149,6 +157,14 @@ export function ExamLaunchModal({
               </div>
             )}
           </div>
+
+          {availableWeeks.length > 0 && <div>
+            <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Content scope</label>
+            <select value={weekNumber} onChange={(event) => setWeekNumber(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
+              <option value="all">Entire block</option>
+              {availableWeeks.map((week) => <option key={week} value={String(week)}>Week {week}</option>)}
+            </select>
+          </div>}
 
           {/* Question count */}
           <div>
@@ -211,7 +227,7 @@ export function ExamLaunchModal({
         {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null })}
+          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(weekNumber === "all" ? {} : { weekNumber }) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
         </div>}

@@ -52,7 +52,13 @@ export function createQuestionPool(userId, blockId, database = db) {
         getDocsFromServer(query(collection(db, "users", userId, "examSessions"), where("blockId", "==", blockId))),
         getDocFromServer(doc(db, "users", userId, "kv", "rxt-calibration")),
       ]);
-      return [...sessions.docs.flatMap(d => d.data().questions || []), ...(calibration.data()?.data?.[blockId] || [])];
+      const usedSessionQuestions = sessions.docs.flatMap(d => {
+        const session = d.data();
+        if (session.status === "submitted" || session.status === "finalizing") return session.questions || [];
+        const answered = new Set((session.answers || []).map(answer => answer.questionId));
+        return (session.questions || []).filter(question => answered.has(question.questionId));
+      });
+      return [...usedSessionQuestions, ...(calibration.data()?.data?.[blockId] || [])];
     },
     async summary() {
       const snap = await getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500)));
@@ -93,4 +99,23 @@ export function createQuestionPool(userId, blockId, database = db) {
       });
     },
   };
+}
+
+export async function releaseUnansweredQuestions(userId, session, database = db) {
+  if (!userId || !session) return { released: 0 };
+  const answered = new Set((session.answers || []).map(answer => answer.questionId));
+  const releasable = (session.questions || []).filter(question => question.poolId && !answered.has(question.questionId));
+  if (!releasable.length) return { released: 0 };
+  const refs = releasable.map(question => doc(database, "users", userId, "questionPool", question.poolId));
+  let released = 0;
+  await runTransaction(database, async tx => {
+    const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+    snapshots.forEach((snapshot, index) => {
+      const question = releasable[index];
+      if (!snapshot.exists() || snapshot.data().sessionId !== session.sessionId) return;
+      tx.update(refs[index], { status: "ready", bucket: question.poolBucket, sessionId: null, assignedAt: null });
+      released += 1;
+    });
+  });
+  return { released };
 }

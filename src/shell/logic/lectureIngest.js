@@ -9,11 +9,11 @@
  * Pure — the caller owns the store writes and the extraction call.
  */
 
+import { cleanLectureTitle } from "../../lectureTitle.js";
+
 /** "MSK Lecture 27 - Histology of the Skin.md" → type LEC, number 27, title. */
 export function parseLectureFilename(filename) {
-  const base = String(filename || "")
-    .replace(/\.[a-z0-9]+$/i, "")
-    .trim();
+  const base = cleanLectureTitle(filename);
 
   const typeMatch = base.match(/\b(DLA|CLIN|LEC|SG|LAB|US|IMCQ)\b/i);
   const type = typeMatch ? typeMatch[1].toUpperCase() : "LEC";

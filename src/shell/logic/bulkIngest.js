@@ -11,6 +11,7 @@
  * Pure. The caller owns extraction, the store writes and the AI passes.
  */
 import { findFillTarget, parseLectureFilename, upsertLecture } from "./lectureIngest.js";
+import { cleanLectureTitle } from "../../lectureTitle.js";
 
 
 /** Path depth, so a file sitting at the top of the chosen folder wins. */
@@ -19,7 +20,7 @@ function depthOf(file) {
   return rel ? rel.split("/").length : 1;
 }
 
-const baseName = (name) => String(name || "").replace(/\.[a-z0-9]+$/i, "").trim().toLowerCase();
+const baseName = (name) => cleanLectureTitle(name).toLowerCase();
 const isMarkdown = (name) => /\.(md|markdown|txt)$/i.test(name || "");
 
 /**

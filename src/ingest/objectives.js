@@ -40,6 +40,31 @@ export function parseObjectiveActivityTag(text) {
   };
 }
 
+export const MAX_OBJECTIVE_CHARS = 320;
+
+/** Keep one curriculum objective; never let the rest of a slide or deck become its text. */
+export function sanitizeObjectiveText(value) {
+  let text = String(value || "")
+    .replace(/^\s*SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}\s*/i, "")
+    .split(/\s+\|\s*(?:#{1,6}\s+|recommended reading|images?:|other resources?:|the big picture|copyright\b)/i)[0]
+    .replace(/\|\s*\|[-:|\s]{3,}[\s\S]*$/i, "")
+    .split(/\n\s*(?:#{1,6}\s+|\*\*|recommended reading|images?:|other resources?:|the big picture|copyright\b|!\[)/i)[0]
+    .replace(/\s*\|\s*$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (text.length > MAX_OBJECTIVE_CHARS) {
+    const sentence = text.slice(0, MAX_OBJECTIVE_CHARS + 1).match(/^(.{20,320}?[.!?])(?:\s|$)/)?.[1];
+    if (sentence) text = sentence;
+    else {
+      const clipped = text.slice(0, MAX_OBJECTIVE_CHARS);
+      const boundary = Math.max(clipped.lastIndexOf(";"), clipped.lastIndexOf(","), clipped.lastIndexOf(" "));
+      text = clipped.slice(0, boundary >= 40 ? boundary : MAX_OBJECTIVE_CHARS).trim();
+    }
+  }
+  return text;
+}
+
 export function chunkText(text, maxCharsPerChunk = 3000) {
   const chunks = [];
   let remaining = (text || "").trim();
@@ -147,6 +172,7 @@ export function isValidObjective(text) {
   if (!text || typeof text !== "string") return false;
   const t = text.trim();
   if (t.length < 10) return false;
+  if (t.length > MAX_OBJECTIVE_CHARS) return false;
   if (t.startsWith("SOM.")) return false;
   if (t.includes("—") && t.length < 30) return false;
   const lower = t.toLowerCase();
@@ -256,7 +282,7 @@ export function buildObjEntry(code, objText, lec, blockId) {
     6: ["design", "create", "construct", "develop", "synthesize"],
   };
 
-  const rawText = (objText || "").toString().trim();
+  const rawText = sanitizeObjectiveText(objText);
   const { text: cleanText, activity: parsedActivity } = parseObjectiveActivityTag(rawText);
   const text = cleanText;
   const firstWord = (text.split(/\s+/)[0] || "").toLowerCase();
@@ -325,11 +351,11 @@ export function extractCodeDelimited(text, lec, blockId) {
     const code = matches[i][0].replace(/\s/g, "");
     const start = matches[i].index + matches[i][0].length;
     const end = i + 1 < matches.length ? matches[i + 1].index : Math.min(src.length, start + 600);
-    const body = src
+    const body = sanitizeObjectiveText(src
       .slice(start, end)
       .replace(/\s+/g, " ")
       .replace(/^[\s:.\-–—|]+/, "")
-      .trim();
+      .trim());
 
     if (seen.has(code) || body.length < 10) continue;
     seen.add(code);

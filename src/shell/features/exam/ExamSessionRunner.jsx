@@ -128,11 +128,14 @@ function SyncIndicator({ status }) {
   );
 }
 
-function ChoiceList({ choices, picked, revealed, correct, onPick }) {
+function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) {
+  const [crossed, setCrossed] = useState(new Set());
+  useEffect(() => setCrossed(new Set()), [questionId]);
   return (
     <div className="flex flex-col gap-1.5">
       {Object.entries(choices || {}).map(([letter, text]) => {
         const isPicked = picked === letter;
+        const isCrossed = !revealed && crossed.has(letter);
         const borderCls = !revealed
           ? isPicked
             ? "border-accent"
@@ -143,19 +146,28 @@ function ChoiceList({ choices, picked, revealed, correct, onPick }) {
               ? "border-bad"
               : "border-border opacity-60";
         return (
+          <div key={letter} className="flex items-stretch gap-2">
           <button
-            key={letter}
             type="button"
-            disabled={revealed}
+            disabled={revealed || isCrossed}
             onClick={() => onPick(letter)}
             className={
-              "flex items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " +
+              "flex min-h-11 flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " +
+              (isCrossed ? "line-through opacity-40 " : "") +
               borderCls
             }
           >
             <span className="font-mono text-text-3">{letter}</span>
             <span>{text}</span>
           </button>
+          {!revealed && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
+            setCrossed(current => {
+              const next = new Set(current);
+              if (next.has(letter)) next.delete(letter); else next.add(letter);
+              return next;
+            });
+          }} className="min-h-11 w-11 rounded-lg border border-border text-text-3 hover:text-text-1">{isCrossed ? "↩" : "×"}</button>}
+          </div>
         );
       })}
     </div>
@@ -216,6 +228,7 @@ function ExamFormat({ controller, submitOpts }) {
           <QuestionStem text={q.stem} />
           <SchoolQuestionFigure question={q} />
           <ChoiceList
+            questionId={q.questionId}
             choices={q.choices}
             picked={pickedFor(session, q.questionId)}
             revealed={false}
@@ -282,6 +295,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
         <QuestionStem text={q.stem} />
         <SchoolQuestionFigure question={q} />
         <ChoiceList
+          questionId={q.questionId}
           choices={q.choices}
           picked={picked}
           revealed={revealed}
@@ -346,7 +360,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
             <LeadInCue stem={q.stem} />
             <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
             <SchoolQuestionFigure question={q} />
-            <ChoiceList choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
+            <ChoiceList questionId={q.questionId} choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             {q.explanation && (
               <div className="mt-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
                 {q.explanation}
@@ -458,15 +472,14 @@ export function ExamSessionRunner({
       )}
       <div className="flex items-center justify-between">
         <SyncIndicator status={syncStatus} />
-        <Button
-          variant="ghost"
-          onClick={async () => {
+        <div className="flex gap-2">
+          {onExit && <Button variant="outline" onClick={onExit}>Save &amp; exit</Button>}
+          <Button variant="ghost" onClick={async () => {
+            if (typeof window !== "undefined" && !window.confirm("Abandon this session? Unanswered questions will return to your reserve.")) return;
             await abandon();
             onExit?.();
-          }}
-        >
-          Abandon session
-        </Button>
+          }}>Abandon session</Button>
+        </div>
       </div>
     </div>
   );

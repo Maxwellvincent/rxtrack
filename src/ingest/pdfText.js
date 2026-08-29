@@ -7,6 +7,7 @@
  */
 import { loadPDFJS, parseExamPDF } from "../examParser";
 import { extractTextSmart } from "../ocrExtract";
+import { cleanLectureTitle } from "../lectureTitle.js";
 
 /** Judge extracted text before spending an AI call on it. */
 export function assessTextQuality(text) {
@@ -90,7 +91,7 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
       const md = chunks.map((c) => c.markdown || c.text || "").join("\n\n---\n\n").trim();
       if (chunks?.length && md) {
         const extractionMethod = ocrExtract.method || "marker-ocr";
-        const baseName = file.name.replace(/\.pdf$/i, "");
+        const baseName = cleanLectureTitle(file.name);
         return {
           contentResult: {
             fullText: md,

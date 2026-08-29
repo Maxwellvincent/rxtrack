@@ -268,6 +268,27 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("can scope an exam to one week of lecture content", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(
+      <ExamLaunchModal
+        eligibleLectures={[
+          { lectureId: "l1", objectiveCount: 5, weekNumber: 1 },
+          { lectureId: "l2", objectiveCount: 7, weekNumber: 2 },
+        ]}
+        defaultQuestionCount={10}
+        onLaunch={onLaunch}
+      />
+    );
+    const scope = host.querySelector("select");
+    act(() => setInputValue(scope, "2"));
+    expect(host.textContent).toContain("7 objectives across 1 lectures");
+    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start exam");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 10, durationMinutes: 15, weekNumber: "2" });
+    unmount();
+  });
+
   it("launching=true disables both buttons and relabels Start (Task 12 review fix #2, double-launch race)", () => {
     const onLaunch = vi.fn();
     const onCancel = vi.fn();

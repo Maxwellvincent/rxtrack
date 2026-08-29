@@ -14,6 +14,7 @@ import {
   parseObjectiveActivityTag,
   extractObjectivesFromLecture,
   extractScopedLectureObjectives,
+  sanitizeObjectiveText,
 } from "./objectives.js";
 import { execFileSync } from "node:child_process";
 
@@ -28,6 +29,13 @@ vi.mock("../aiClient.js", () => ({
 }));
 
 const lec = { id: "lec1", lectureType: "LEC", lectureNumber: 3, lectureTitle: "The Back" };
+
+it("stops a malformed one-code objective before lecture resources and markdown tables", () => {
+  const raw = "SOM.MKII.BPM2.1.ER.1.ANAT.1083 Describe the development of the male reproductive ducts and associated glands. | ## Recommended reading and resources The Developing Human | |---|---|";
+  expect(sanitizeObjectiveText(raw)).toBe("Describe the development of the male reproductive ducts and associated glands.");
+  const [objective] = extractCodeDelimited(raw, lec, "er");
+  expect(objective.objective).toBe("Describe the development of the male reproductive ducts and associated glands.");
+});
 
 describe("separate lecture and DLA objective slides", () => {
   const mixed = "DLA: Developmental Genetics Objectives\nSOM.MK.ER.GNET.1001 Describe developmental signaling.\fLecture Objectives Genetic Screening\nSOM.MK.ER.GNET.1012 Differentiate screening strategies.\nSOM.MK.ER.GNET.1013 Discuss predictive testing.\fOther slide\nSOM.MK.ER.GNET.1014 Incidental footer content.";

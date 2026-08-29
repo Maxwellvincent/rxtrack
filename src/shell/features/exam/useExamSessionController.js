@@ -21,6 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getExamSession, updateExamSessionTransaction } from "../../../supabase.js";
 import { mergeAnswer } from "../../../examSessions.js";
 import { finalizeExamSession } from "./finalize.js";
+import { releaseUnansweredQuestions } from "../../../questionPool.js";
 
 function newWriterId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -257,6 +258,7 @@ export function useExamSessionController(sessionId, userId) {
       if (!current || current.status !== "in_progress") return null;
       return { ...current, status: "abandoned" };
     });
+    if (result?.status === "abandoned") await releaseUnansweredQuestions(userId, result);
     if (mountedRef.current && result) setSession(result);
     return result;
   }, [userId, sessionId]);

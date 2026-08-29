@@ -23,6 +23,7 @@ vi.mock("./launchQuestionBank.js", () => ({
 vi.mock("../../../questionPool.js", () => ({
   createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }) }),
 }));
+vi.mock("../../../supabase.js", () => ({ listExamSessions: async () => [] }));
 
 const readTutorModeEnabledMock = vi.fn(() => false);
 const writeTutorModeEnabledMock = vi.fn();

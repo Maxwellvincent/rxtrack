@@ -100,6 +100,30 @@ describe("ExamSessionRunner", () => {
     unmount();
   });
 
+  it("crosses out and restores choices without selecting them", () => {
+    const controller = baseController();
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    const cross = host.querySelector('[aria-label="Cross out choice B"]');
+    act(() => cross.click());
+    expect(host.querySelector('[aria-label="Restore choice B"]')).toBeTruthy();
+    expect(controller.answerQuestion).not.toHaveBeenCalled();
+    act(() => host.querySelector('[aria-label="Restore choice B"]').click());
+    expect(host.querySelector('[aria-label="Cross out choice B"]')).toBeTruthy();
+    unmount();
+  });
+
+  it("saves and exits an unfinished session without abandoning it", () => {
+    const controller = baseController();
+    const onExit = vi.fn();
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" onExit={onExit} />);
+    act(() => [...host.querySelectorAll("button")].find(button => button.textContent === "Save & exit").click());
+    expect(onExit).toHaveBeenCalledOnce();
+    expect(controller.abandon).not.toHaveBeenCalled();
+    unmount();
+  });
+
   it("format practice: renders one question and reveals + explains after answering", () => {
     const controller = baseController({
       session: {

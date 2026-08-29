@@ -10,6 +10,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const getExamSessionMock = vi.fn();
 const updateExamSessionTransactionMock = vi.fn();
 const finalizeExamSessionMock = vi.fn();
+const releaseUnansweredQuestionsMock = vi.fn();
 
 // This hook's tests should not need the Firestore emulator — mock the
 // Firestore-touching functions directly, the same DI approach
@@ -23,6 +24,9 @@ vi.mock("../../../supabase.js", () => ({
 
 vi.mock("./finalize.js", () => ({
   finalizeExamSession: (...args) => finalizeExamSessionMock(...args),
+}));
+vi.mock("../../../questionPool.js", () => ({
+  releaseUnansweredQuestions: (...args) => releaseUnansweredQuestionsMock(...args),
 }));
 
 const { useExamSessionController } = await import("./useExamSessionController.js");
@@ -103,6 +107,8 @@ beforeEach(() => {
   getExamSessionMock.mockReset();
   updateExamSessionTransactionMock.mockReset();
   finalizeExamSessionMock.mockReset();
+  releaseUnansweredQuestionsMock.mockReset();
+  releaseUnansweredQuestionsMock.mockResolvedValue({ released: 0 });
 });
 
 afterEach(() => {

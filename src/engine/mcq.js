@@ -86,6 +86,37 @@ function hasChoiceValue(v) {
   return false;
 }
 
+export function normalizeChoiceLetter(value) {
+  const text = String(value || "").trim().toUpperCase();
+  if (/^[A-H]$/.test(text)) return text;
+  return text.match(/(?:^|[^A-Z])([A-H])(?:[^A-Z]|$)/)?.[1] || null;
+}
+
+function normalizedChoiceEntries(choices) {
+  const out = new Map();
+  for (const [rawLetter, value] of Object.entries(choices || {})) {
+    const letter = normalizeChoiceLetter(rawLetter);
+    if (!letter || out.has(letter) || !hasChoiceValue(value)) continue;
+    out.set(letter, value);
+  }
+  return [...out.entries()].sort((a, b) => LETTERS.indexOf(a[0]) - LETTERS.indexOf(b[0]));
+}
+
+export function resolveCorrectLetter(question, keys) {
+  const available = new Set(keys || []);
+  const rawCorrect = normalizeChoiceLetter(question?.correct);
+  const explicitlyCorrect = Object.entries(question?.whyWrong || {})
+    .filter(([, value]) => {
+      const text = String(value || "").trim();
+      return /^(?:correct\b|✓)/i.test(text) || /(?:—|-)\s*correct\b/i.test(text) || /\bthis is the correct\b/i.test(text);
+    })
+    .map(([letter]) => normalizeChoiceLetter(letter))
+    .filter((letter) => letter && available.has(letter));
+  const uniqueExplicit = [...new Set(explicitlyCorrect)];
+  if (uniqueExplicit.length === 1) return uniqueExplicit[0];
+  return rawCorrect && available.has(rawCorrect) ? rawCorrect : null;
+}
+
 /** Validate + normalize model output into a clean MCQ list. */
 export function normalizeQuestions(raw) {
   const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
@@ -95,14 +126,15 @@ export function normalizeQuestions(raw) {
     const stem = String(q.stem || "").trim();
     const choices = q.choices && typeof q.choices === "object" ? q.choices : null;
     if (!stem || !choices) continue;
-    const keys = LETTERS.filter((l) => hasChoiceValue(choices[l]));
+    const entries = normalizedChoiceEntries(choices);
+    const keys = entries.map(([letter]) => letter);
     if (keys.length < 2) continue;
-    const correct = String(q.correct || "").trim().toUpperCase();
-    if (!keys.includes(correct)) continue;
+    const correct = resolveCorrectLetter(q, keys);
+    if (!correct) continue;
     const validated = {
       stem,
       // A table-row choice (object) is kept as-is for a future table renderer; a plain string is trimmed.
-      choices: Object.fromEntries(keys.map((l) => [l, typeof choices[l] === "string" ? choices[l].trim() : choices[l]])),
+      choices: Object.fromEntries(entries.map(([letter, value]) => [letter, typeof value === "string" ? value.trim() : value])),
       correct,
       explanation: String(q.explanation || "").trim(),
       whyWrong: normalizeWhyWrong(q.whyWrong, keys),

@@ -26,6 +26,7 @@ import { launchQuestionBankSession } from "./launchQuestionBank.js";
 import { examDurationMinutes } from "./examTiming.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
+import { listExamSessions } from "../../../supabase.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -64,6 +65,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launchProgress, setLaunchProgress] = useState(null);
   const [bankLaunching, setBankLaunching] = useState(null);
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
+  const [resumableSessions, setResumableSessions] = useState([]);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
@@ -143,6 +145,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           lectureId: lec.id,
           lectureLabel: lec.lectureTitle || lec.fileName || lec.id,
           objectiveCount: objectivesByLecture[lec.id].length,
+          ...(lec.weekNumber != null ? { weekNumber: lec.weekNumber } : {}),
         })),
     [lectures, objectivesByLecture]
   );
@@ -194,6 +197,21 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     // The reserve is refreshed after each preparation run below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId]);
+
+  const refreshResumableSessions = async () => {
+    if (!userId || !blockId) return;
+    try {
+      const sessions = await listExamSessions(userId, blockId, { status: "in_progress" });
+      setResumableSessions(sessions.sort((a, b) => (b.updatedAt?.toMillis?.() || b.startedAt || 0) - (a.updatedAt?.toMillis?.() || a.startedAt || 0)));
+    } catch {
+      setResumableSessions([]);
+    }
+  };
+
+  useEffect(() => {
+    refreshResumableSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, blockId]);
   const toggleTutorMode = () => {
     setTutorModeEnabledState((prev) => {
       const next = !prev;
@@ -203,11 +221,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const prepareQuestions = (config) => {
+    const scopedLectures = config.weekNumber != null
+      ? eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(config.weekNumber))
+      : eligibleLectures;
     setShowLaunchModal(false);
     startBackgroundJob({ label: "Preparing exam questions", detail: "Checking saved questions…",
       run: async report => {
         const result = await launchExamSession({ userId, blockId, ...config, prepareOnly: true,
-          eligibleLectures, objectivesByLecture, atomsByLecture, lecturesById, lectures,
+          eligibleLectures: scopedLectures, objectivesByLecture, atomsByLecture, lecturesById, lectures,
           weakConceptAccuracyByLecture, weakConcepts },
           { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
         if (!result.ok) throw new Error(result.error);
@@ -228,12 +249,15 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     setLaunchError(null);
     setLaunchProgress({ message: "Checking exam storage access…", completed: 0 });
     try {
+      const scopedLectures = config.weekNumber != null
+        ? eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(config.weekNumber))
+        : eligibleLectures;
       const result = await launchExamSession(
         {
           userId,
           blockId,
           ...config,
-          eligibleLectures,
+          eligibleLectures: scopedLectures,
           objectivesByLecture,
           atomsByLecture,
           lecturesById,
@@ -313,6 +337,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           onExit={() => {
             setActiveSessionId(null);
             setLaunchWarning(null);
+            refreshResumableSessions();
           }}
         />
       </div>
@@ -362,6 +387,18 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           {launchError}
         </div>
       )}
+
+      {resumableSessions.length > 0 && <section className="mb-4 rounded-xl border border-accent bg-bg-elevated p-4">
+        <div className="text-sm font-bold text-text-1">Continue an unfinished session</div>
+        <p className="mt-1 text-sm text-text-2">Answers are saved after every selection. Timed-exam clocks continue while you are away.</p>
+        <div className="mt-3 space-y-2">{resumableSessions.map(session => <div key={session.sessionId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
+          <div>
+            <div className="font-semibold text-text-1">{session.format === "exam" ? "Timed exam" : "Practice session"}</div>
+            <div className="text-sm text-text-3">{session.answers?.length || 0}/{session.questions?.length || 0} answered</div>
+          </div>
+          <Button onClick={() => setActiveSessionId(session.sessionId)}>Resume</Button>
+        </div>)}</div>
+      </section>}
 
       <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>

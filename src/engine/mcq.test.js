@@ -31,6 +31,15 @@ describe("normalizeQuestions", () => {
     expect(normalizeQuestions(null)).toEqual([]);
     expect(normalizeQuestions([1, null, "x"])).toEqual([]);
   });
+  it("repairs decorated letters and trusts one explicit correct-option rationale over a conflicting key", () => {
+    const [question] = normalizeQuestions([{
+      ...good,
+      choices: { "* A": "Insulin", "✓ B": "Glucagon", C: "Cortisol", D: "TSH" },
+      correct: "A and B",
+      whyWrong: { A: "Tempting, but not correct here.", B: "Correct — this is the keyed mechanism." },
+    }]);
+    expect(question.choices[question.correct]).toBe("Glucagon");
+  });
 });
 
 describe("buildMcqPrompt", () => {
