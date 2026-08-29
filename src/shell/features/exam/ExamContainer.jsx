@@ -70,6 +70,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
   const [bankCategory, setBankCategory] = useState(null);
+  const [bankStoreRevision, setBankStoreRevision] = useState(0);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
@@ -156,6 +157,12 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   const questionBanksHydrated = useStoreHydrated(questionBanksStore, userId);
   const questionBankMetaHydrated = useStoreHydrated(questionBankMetaStore, userId);
+  useEffect(() => {
+    const refresh = () => setBankStoreRevision((value) => value + 1);
+    const unsubBanks = questionBanksStore.subscribe(refresh);
+    const unsubMeta = questionBankMetaStore.subscribe(refresh);
+    return () => { unsubBanks?.(); unsubMeta?.(); };
+  }, []);
   const defaultQuestionCount = useMemo(
     () => resolveDefaultQuestionCount(userId, blockId),
     // Same deliberate recompute-trigger pattern as above.
@@ -172,13 +179,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         .map((entry) => entry.filename)
     );
     const filenames = [...scoped];
-    return filenames.sort().map((filename) => {
+    return filenames.sort((a, b) => cleanLectureTitle(a).localeCompare(cleanLectureTitle(b), undefined, { numeric: true })).map((filename) => {
       const entry = Object.values(meta).find((item) => item?.filename === filename);
-      return { filename, questions: banks[filename] || [], aliases: entry?.aliases || [] };
+      return { filename, questions: banks[filename] || [], aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null };
     });
     // Hydration flags deliberately trigger a fresh synchronous store read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated]);
+  }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision]);
 
   // Task 12 review fix #1 — Tutor mode had no reachable on-switch anywhere
   // in the app (writeTutorModeEnabled was called from nowhere outside its
@@ -257,6 +264,47 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         : entry
     ]));
     questionBankMetaStore.write(userId, nextMeta);
+    setBankStoreRevision((value) => value + 1);
+  };
+
+  const scheduleBank = (bank) => {
+    const requested = window.prompt("Assign a date (YYYY-MM-DD)", bank.assignedDate || "");
+    if (requested == null) return;
+    const assignedDate = requested.trim();
+    if (assignedDate && !/^\d{4}-\d{2}-\d{2}$/.test(assignedDate)) {
+      setLaunchError("Use a date in YYYY-MM-DD format.");
+      return;
+    }
+    let weekNumber = null;
+    if (assignedDate) {
+      const target = new Date(`${assignedDate}T12:00:00`);
+      const datedLectures = lectures.filter((lecture) => lecture?.weekNumber != null && (lecture.lectureDate || lecture.date));
+      const startOfWeek = (date) => {
+        const copy = new Date(date);
+        const day = copy.getDay() || 7;
+        copy.setDate(copy.getDate() - day + 1);
+        return copy.toISOString().slice(0, 10);
+      };
+      const sameWeek = datedLectures.find((lecture) => {
+        const date = new Date(`${lecture.lectureDate || lecture.date}T12:00:00`);
+        return startOfWeek(target) === startOfWeek(date);
+      });
+      if (sameWeek) weekNumber = sameWeek.weekNumber;
+      else if (datedLectures.length) {
+        const nearest = [...datedLectures].sort((a, b) => {
+          const distance = (lecture) => Math.abs(target - new Date(`${lecture.lectureDate || lecture.date}T12:00:00`));
+          return distance(a) - distance(b);
+        })[0];
+        const anchor = new Date(`${nearest.lectureDate || nearest.date}T12:00:00`);
+        weekNumber = Math.max(1, Number(nearest.weekNumber) + Math.round((target - anchor) / (7 * 86400000)));
+      }
+    }
+    const meta = questionBankMetaStore.read(userId) || {};
+    const next = Object.fromEntries(Object.entries(meta).map(([id, entry]) => [id,
+      entry?.filename === bank.filename ? { ...entry, assignedDate: assignedDate || null, weekNumber } : entry
+    ]));
+    questionBankMetaStore.write(userId, next);
+    setBankStoreRevision((value) => value + 1);
   };
 
   const bankGroups = useMemo(() => {
@@ -264,8 +312,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     for (const bank of blockQuestionBanks) {
       const title = cleanLectureTitle(bank.filename);
       const match = title.match(/\bweek\s*(\d+)\b/i);
-      const label = match
-        ? `Week ${match[1]}`
+      const label = bank.weekNumber != null
+        ? `Week ${bank.weekNumber}`
+        : match
+          ? `Week ${match[1]}`
         : /\b(?:examsoft|esoft|imcq|exam)\b/i.test(title)
           ? "Exams"
           : /\b(?:homework|practice questions?|worksheet)\b/i.test(title)
@@ -273,7 +323,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             : "Other";
       (groups[label] ||= []).push(bank);
     }
-    return Object.entries(groups).sort(([a], [b]) => {
+    return Object.entries(groups).map(([label, banks]) => [label, banks.sort((a, b) => cleanLectureTitle(a.filename).localeCompare(cleanLectureTitle(b.filename), undefined, { numeric: true }))]).sort(([a], [b]) => {
       const rank = (label) => label.startsWith("Week ") ? Number(label.slice(5)) : label === "Homework" ? 100 : label === "Exams" ? 101 : 102;
       return rank(a) - rank(b);
     });
@@ -517,7 +567,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
             Authentic uploaded questions. Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer.
           </div>
           <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="School question bank categories">
-            {bankGroups.map(([group, banks]) => <button key={group} type="button" role="tab" aria-selected={activeBankCategory === group} onClick={() => setBankCategory(group)} className={`shrink-0 border-b-2 px-3 py-2 text-sm font-bold ${activeBankCategory === group ? "border-accent text-accent-text" : "border-transparent text-text-3 hover:text-text-1"}`}>{group}<span className="ml-1.5 font-mono text-[11px]">{banks.length}</span></button>)}
+            {bankGroups.map(([group]) => <button key={group} type="button" role="tab" aria-selected={activeBankCategory === group} onClick={() => setBankCategory(group)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeBankCategory === group ? "border-accent text-accent-text" : "border-transparent text-text-3 hover:text-text-1"}`}>{group}</button>)}
           </div>
           <div className="space-y-2">
             {(bankGroups.find(([group]) => group === activeBankCategory)?.[1] || []).map((bank) => {
@@ -529,12 +579,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
-                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
                   </div>
                   <div className="flex gap-2">
                     <Button variant="ghost" disabled={!!bankLaunching} onClick={() => renameBank(bank)}>Rename</Button>
+                    <Button variant="ghost" disabled={!!bankLaunching} onClick={() => scheduleBank(bank)}>{bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
                     <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
                     <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>

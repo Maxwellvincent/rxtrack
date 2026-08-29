@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { parseExamPDF } from "../../../examParser.js";
 import { callAIJSON } from "../../../aiClient.js";
@@ -27,6 +27,9 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   const [showAllBanks, setShowAllBanks] = useState(false);
   const [weakConceptsFound, setWeakConceptsFound] = useState(null);
   const [schoolResultsSaved, setSchoolResultsSaved] = useState([]);
+  const [, setMetaRevision] = useState(0);
+
+  useEffect(() => questionBankMetaStore.subscribe(() => setMetaRevision((value) => value + 1)), []);
 
   const onFiles = useCallback(
     async (files) => {

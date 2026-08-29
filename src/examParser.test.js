@@ -78,6 +78,13 @@ Q3: A — High sodium is expected.`;
     expect(questions.map((q) => q.correct)).toEqual(["B", "E", "A"]);
   });
 
+  it("parses multiple independently numbered homework sets in one PDF", () => {
+    const makeSet = (label, keys) => `${keys.map((key, index) => `${index + 1}. ${label} patient ${index + 1} has a sufficiently detailed clinical presentation. Which finding is expected?\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta`).join("\n\n")}\n\nAnswer key: ${keys.map((key, index) => `${index + 1} ${key}`).join(", ")}\n\nExplanations:\n${keys.map((_, index) => `${index + 1}. ${label} explanation for this clinical question.`).join("\n")}`;
+    const questions = parseNumberedQuestionBankText(`${makeSet("Nutrition", ["B", "A", "D"])}\n\n${makeSet("Hormones", ["D", "C", "A"])}`, "Week 1 homework");
+    expect(questions).toHaveLength(6);
+    expect(questions.map((question) => question.correct)).toEqual(["B", "A", "D", "D", "C", "A"]);
+  });
+
   it("uses the numbered answer key as an authoritative expected count", () => {
     expect(expectedQuestionCountFromAnswerKey(text)).toBe(3);
     expect(expectedQuestionCountFromAnswerKey("No key here")).toBeNull();

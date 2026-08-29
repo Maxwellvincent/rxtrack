@@ -183,9 +183,25 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
  * `QN: A - explanation`. The parser intentionally requires several blocks before claiming the
  * document so unrelated prose containing one "Question 1" falls through to the AI parser.
  */
-export function parseNumberedQuestionBankText(fullText, examTitle = "") {
+export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
   const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n");
-  const answerHeading = source.search(/\n\s*Answers?(?:\s+Key)?(?:\s+AND\s+EXPLANATIONS?)?\s*:?\s*\n/i);
+  const answerHeadingPattern = /(?:^|\n)[ \t]*Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
+  const answerHeadings = [...source.matchAll(answerHeadingPattern)];
+  if (!options.singleSet && answerHeadings.length > 1) {
+    const recovered = [];
+    for (let index = 0; index < answerHeadings.length; index++) {
+      const heading = answerHeadings[index];
+      const before = source.slice(0, heading.index);
+      const starts = [...before.matchAll(/(?:^|\n)[ \t]*1[.)][ \t]+(?=\S)/g)];
+      const start = starts.at(-1)?.index;
+      if (start == null) continue;
+      const end = answerHeadings[index + 1]?.index ?? source.length;
+      const set = parseNumberedQuestionBankText(source.slice(start, end), examTitle, { singleSet: true });
+      for (const question of set) recovered.push({ ...question, id: `q${recovered.length + 1}`, num: recovered.length + 1 });
+    }
+    if (recovered.length >= 3) return recovered;
+  }
+  const answerHeading = source.search(/(?:^|\n)[ \t]*Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/i);
   const questionText = answerHeading >= 0 ? source.slice(0, answerHeading) : source;
   const answerText = answerHeading >= 0 ? source.slice(answerHeading) : "";
   const answers = new Map();
@@ -254,7 +270,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
   }
   if (blocks.length < 3) return [];
 
-  return blocks.map(({ num, body, sourcePage }) => {
+  const parsed = blocks.map(({ num, body, sourcePage }) => {
     const lines = body.split("\n");
     const stemLines = [];
     const choices = {};
@@ -317,6 +333,19 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "") {
     };
   }).filter((q, index, all) => q.stem.length > 20 && Object.keys(q.choices).length >= 2
     && all.findIndex((candidate) => candidate.num === q.num && candidate.stem.length > 20 && Object.keys(candidate.choices).length >= 2) === index);
+
+  if (!options.singleSet && answerHeading >= 0) {
+    const answerBody = answerText.replace(/^\s*Answers?(?:\s+Key)?(?:\s+AND\s+EXPLANATIONS?)?\s*:?\s*/i, "");
+    const repeated = parseNumberedQuestionBankText(answerBody, examTitle, { singleSet: true });
+    const merged = new Map(parsed.map((question) => [question.num, question]));
+    for (const question of repeated) {
+      const prior = merged.get(question.num);
+      const quality = (item) => (item?.correct ? 100 : 0) + Object.keys(item?.choices || {}).length * 10 + Math.min(item?.stem?.length || 0, 500) / 500;
+      if (!prior || quality(question) > quality(prior)) merged.set(question.num, question);
+    }
+    return [...merged.values()].sort((a, b) => a.num - b.num);
+  }
+  return parsed;
 }
 
 export function expectedQuestionCountFromAnswerKey(fullText) {
