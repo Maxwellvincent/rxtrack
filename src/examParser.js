@@ -899,6 +899,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   let pdf = null;
   let fullText = "";
   let slideImages = [];
+  let deterministicFromPdf = null;
 
   if (_isText) {
     onProgress?.("📄 Reading markdown/text…");
@@ -952,6 +953,15 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     const layoutText = pages.map((p, index) => index === 0 ? p.layoutText : `[PAGE_BREAK:${p.num}]\n${p.layoutText}`).join("\n\n");
     const title = cleanLectureTitle(file.name);
     const candidates = [sequentialText, layoutText].map((text) => ({ text, questions: parseNumberedQuestionBankText(text, title) }));
+    const merged = new Map();
+    for (const { questions } of candidates) {
+      for (const question of questions) {
+        const prior = merged.get(question.num);
+        const quality = (item) => (item?.correct ? 100 : 0) + Object.keys(item?.choices || {}).length * 10 + Math.min(item?.stem?.length || 0, 500) / 500;
+        if (!prior || quality(question) > quality(prior)) merged.set(question.num, question);
+      }
+    }
+    deterministicFromPdf = [...merged.values()].sort((a, b) => a.num - b.num);
     candidates.sort((a, b) => {
       const keyedA = a.questions.filter((q) => q.correct).length;
       const keyedB = b.questions.filter((q) => q.correct).length;
@@ -974,7 +984,9 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   const examTitle = cleanLectureTitle(file.name);
   let questions = [];
 
-  const deterministic = parseNumberedQuestionBankText(fullText, examTitle);
+  const deterministic = deterministicFromPdf?.length
+    ? deterministicFromPdf
+    : parseNumberedQuestionBankText(fullText, examTitle);
   if (format === "report") {
     onProgress?.("✓ Detected score report; saving grade and category evidence");
     questions = [];

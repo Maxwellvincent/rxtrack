@@ -69,6 +69,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
+  const [bankCategory, setBankCategory] = useState(null);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
   // read; surfaced here as a brief, dismissable warning once the user is in
@@ -261,12 +262,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const bankGroups = useMemo(() => {
     const groups = {};
     for (const bank of blockQuestionBanks) {
-      const match = cleanLectureTitle(bank.filename).match(/\bweek\s*(\d+)\b/i);
-      const label = match ? `Week ${match[1]}` : "School exams & mixed practice";
+      const title = cleanLectureTitle(bank.filename);
+      const match = title.match(/\bweek\s*(\d+)\b/i);
+      const label = match
+        ? `Week ${match[1]}`
+        : /\b(?:examsoft|esoft|imcq|exam)\b/i.test(title)
+          ? "Exams"
+          : /\b(?:homework|practice questions?|worksheet)\b/i.test(title)
+            ? "Homework"
+            : "Other";
       (groups[label] ||= []).push(bank);
     }
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
+    return Object.entries(groups).sort(([a], [b]) => {
+      const rank = (label) => label.startsWith("Week ") ? Number(label.slice(5)) : label === "Homework" ? 100 : label === "Exams" ? 101 : 102;
+      return rank(a) - rank(b);
+    });
   }, [blockQuestionBanks]);
+  const activeBankCategory = bankGroups.some(([label]) => label === bankCategory) ? bankCategory : bankGroups[0]?.[0];
 
   const statsForBank = (bank) => {
     const names = new Set([bank.filename, ...(bank.aliases || [])]);
@@ -504,10 +516,11 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <div className="mb-3 font-mono text-[11px] text-text-3">
             Authentic uploaded questions. Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer.
           </div>
+          <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="School question bank categories">
+            {bankGroups.map(([group, banks]) => <button key={group} type="button" role="tab" aria-selected={activeBankCategory === group} onClick={() => setBankCategory(group)} className={`shrink-0 border-b-2 px-3 py-2 text-sm font-bold ${activeBankCategory === group ? "border-accent text-accent-text" : "border-transparent text-text-3 hover:text-text-1"}`}>{group}<span className="ml-1.5 font-mono text-[11px]">{banks.length}</span></button>)}
+          </div>
           <div className="space-y-2">
-            {bankGroups.map(([group, banks], groupIndex) => <details key={group} open={groupIndex === 0} className="rounded-lg border border-border px-2">
-              <summary className="cursor-pointer py-2 font-mono text-[12px] font-bold text-text-2">{group} · {banks.length} set{banks.length === 1 ? "" : "s"}</summary>
-              <div className="space-y-2 pb-2">{banks.map((bank) => {
+            {(bankGroups.find(([group]) => group === activeBankCategory)?.[1] || []).map((bank) => {
               const minutes = examDurationMinutes(bank.questions.length);
               const expectedCount = /examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null;
               const incomplete = expectedCount && bank.questions.length < expectedCount;
@@ -528,7 +541,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                   </div>
                 </div>
               );
-            })}</div></details>)}
+            })}
           </div>
         </section>
       )}

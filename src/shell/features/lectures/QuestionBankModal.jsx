@@ -24,6 +24,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   const [useLlm, setUseLlm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showManage, setShowManage] = useState(false);
+  const [showAllBanks, setShowAllBanks] = useState(false);
   const [weakConceptsFound, setWeakConceptsFound] = useState(null);
   const [schoolResultsSaved, setSchoolResultsSaved] = useState([]);
 
@@ -103,12 +104,20 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   );
 
   const remove = useCallback(
-    (filename) => { questionBanksStore.removeBank(userId, filename); onUploaded?.(); },
+    (filename) => {
+      questionBanksStore.removeBank(userId, filename);
+      const meta = questionBankMetaStore.read(userId) || {};
+      questionBankMetaStore.write(userId, Object.fromEntries(Object.entries(meta).filter(([, entry]) => entry?.filename !== filename)));
+      onUploaded?.();
+    },
     [userId, onUploaded]
   );
 
-  const names = Object.keys(banks).sort();
-  const totalQuestions = Object.values(banks).reduce((n, qs) => n + (qs?.length || 0), 0);
+  const meta = questionBankMetaStore.read(userId) || {};
+  const blockNames = new Set(Object.values(meta).filter((entry) => entry?.blockId === blockId).map((entry) => entry.filename));
+  const allNames = Object.keys(banks).sort();
+  const names = (showAllBanks ? allNames : allNames.filter((name) => blockNames.has(name)));
+  const totalQuestions = names.reduce((n, name) => n + (banks[name]?.length || 0), 0);
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={busy ? undefined : onClose}>
@@ -123,6 +132,11 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
           A score report (with a category-by-category breakdown) also flags your weak categories automatically.
           Re-uploading the same filename replaces its existing bank.
           {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
+        </div>
+
+        <div className="mb-4 flex gap-1 border-b border-border" aria-label="Question bank scope">
+          <button type="button" onClick={() => setShowAllBanks(false)} className={`border-b-2 px-3 py-2 text-sm font-bold ${!showAllBanks ? "border-accent text-accent-text" : "border-transparent text-text-3"}`}>This block</button>
+          <button type="button" onClick={() => setShowAllBanks(true)} className={`border-b-2 px-3 py-2 text-sm font-bold ${showAllBanks ? "border-accent text-accent-text" : "border-transparent text-text-3"}`}>All banks · {allNames.length}</button>
         </div>
 
         <div className="mb-3 flex flex-col gap-2">
