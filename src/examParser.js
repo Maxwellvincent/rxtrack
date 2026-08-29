@@ -268,7 +268,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     const end = selected[index + 1]?.start ?? questionText.length;
     blocks.push({ num: match.num, body: questionText.slice(match.bodyStart, end), sourcePage });
   }
-  if (blocks.length < 3) return [];
+  if (blocks.length < (options.allowSingle ? 1 : 3)) return [];
 
   const parsed = blocks.map(({ num, body, sourcePage }) => {
     const lines = body.split("\n");
@@ -350,6 +350,26 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     };
   }).filter((q, index, all) => q.stem.length > 20 && Object.keys(q.choices).length >= 2
     && all.findIndex((candidate) => candidate.num === q.num && candidate.stem.length > 20 && Object.keys(candidate.choices).length >= 2) === index);
+
+  const expectedNumbers = options.allowSingle
+    ? []
+    : [...new Set([...answers.keys(), ...standaloneAnswers.map((_, index) => index + 1)])];
+  const present = new Set(parsed.map((question) => question.num));
+  for (const missingNum of expectedNumbers.filter((num) => !present.has(num))) {
+    const optionsForNumber = candidates.map((candidate, index) => ({ candidate, index })).filter(({ candidate }) => candidate.num === missingNum);
+    for (const { candidate, index } of optionsForNumber) {
+      const next = candidates.slice(index + 1).find((item) => item.num === missingNum + 1);
+      const body = questionText.slice(candidate.bodyStart, next?.start ?? questionText.length);
+      const answer = answers.get(missingNum) || standaloneAnswers[missingNum - 1];
+      if (!answer?.correct) continue;
+      const recovered = parseNumberedQuestionBankText(`1. ${body}\nAnswer Key: 1 ${answer.correct}`, examTitle, { singleSet: true, allowSingle: true })[0];
+      if (!recovered) continue;
+      parsed.push({ ...recovered, id: `q${missingNum}`, num: missingNum });
+      present.add(missingNum);
+      break;
+    }
+  }
+  parsed.sort((a, b) => a.num - b.num);
 
   if (!options.singleSet && answerHeading >= 0) {
     const answerBody = answerText.replace(/^\s*Answers?(?:\s+Key)?(?:\s+AND\s+EXPLANATIONS?)?\s*:?\s*/i, "");
