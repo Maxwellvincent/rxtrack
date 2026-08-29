@@ -56,7 +56,11 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
             }
             const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly });
             if (questions.length) {
-              questionBanksStore.saveBank(userId, bankTitle, questions);
+              const currentBanks = questionBanksStore.read(userId) || {};
+              const nextBanks = Object.fromEntries(Object.entries(currentBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
+              questionBanksStore.write(userId, { ...nextBanks, [bankTitle]: questions });
+              const currentMeta = questionBankMetaStore.read(userId) || {};
+              questionBankMetaStore.write(userId, Object.fromEntries(Object.entries(currentMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle)));
               questionBankMetaStore.recordUpload(userId, { filename: bankTitle, blockId });
             }
             const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });

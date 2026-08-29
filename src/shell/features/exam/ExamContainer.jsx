@@ -439,11 +439,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <div className="space-y-2">
             {blockQuestionBanks.map((bank) => {
               const minutes = examDurationMinutes(bank.questions.length);
+              const expectedCount = /examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null;
+              const incomplete = expectedCount && bank.questions.length < expectedCount;
               return (
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed</div>
+                    {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
                   </div>
                   <div className="flex gap-2">
                     <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
@@ -462,6 +465,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           lecturesById={lecturesById}
           objectives={objectives}
           onNavigateToLecture={onNavigateToLecture}
+          onReviewSession={setActiveSessionId}
         />
     </div>
   );

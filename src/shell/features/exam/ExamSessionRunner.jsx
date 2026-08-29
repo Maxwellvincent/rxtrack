@@ -92,8 +92,8 @@ function MissReflection({ userId }) {
             if (selected === value) return;
             recordReflection(userId, value, selected);
             setSelected(value);
-          }} aria-pressed={selected === value} className={`rounded border px-2 py-1 text-[12px] ${selected === value ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-1"}`}>
-            {label}
+          }} aria-pressed={selected === value} className={`rounded border-2 px-2.5 py-1.5 text-[12px] font-medium ${selected === value ? "border-accent bg-accent/15 text-text-1 ring-2 ring-accent/40" : "border-border text-text-3 hover:border-border-strong hover:text-text-1"}`}>
+            {selected === value ? "✓ " : ""}{label}
           </button>
         ))}
       </div>
@@ -138,7 +138,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) 
         const isCrossed = !revealed && crossed.has(letter);
         const borderCls = !revealed
           ? isPicked
-            ? "border-accent"
+            ? "border-accent bg-accent/15 ring-2 ring-accent/40"
             : "border-border hover:border-border-strong cursor-pointer"
           : letter === correct
             ? "border-good"
@@ -151,6 +151,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) 
             type="button"
             disabled={revealed || isCrossed}
             onClick={() => onPick(letter)}
+            aria-pressed={isPicked}
             className={
               "flex min-h-11 flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " +
               (isCrossed ? "line-through opacity-40 " : "") +
@@ -158,7 +159,8 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) 
             }
           >
             <span className="font-mono text-text-3">{letter}</span>
-            <span>{text}</span>
+            <span className="flex-1">{text}</span>
+            {isPicked && !revealed && <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold text-white">SELECTED</span>}
           </button>
           {!revealed && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
             setCrossed(current => {
@@ -254,9 +256,12 @@ function ExamFormat({ controller, submitOpts }) {
             Next →
           </Button>
         </div>
-        <Button onClick={() => submit(submitOpts)} disabled={submitting}>
-          {submitting ? "Submitting…" : "Submit exam"}
-        </Button>
+      </div>
+      <div className="flex flex-col gap-2 rounded-lg border-2 border-border-strong bg-panel p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div><div className="text-xs font-bold text-text-1">Finished reviewing?</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} return to reserve</div></div>
+        <Button variant="outline" onClick={() => {
+          if (window.confirm(`Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
+        }} disabled={submitting}>{submitting ? "Grading answered questions…" : "Submit exam · finish & grade"}</Button>
       </div>
     </div>
   );
@@ -343,19 +348,38 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
 // it, which is the actual preference-gated piece.
 function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
   const questions = session.questions || [];
-  const correctCount = questions.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
+  const [filter, setFilter] = useState("incorrect");
+  const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
+  const correctCount = answered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
+  const incorrectCount = answered.length - correctCount;
+  const percent = answered.length ? Math.round(correctCount / answered.length * 100) : 0;
+  const visible = questions.filter((q) => {
+    const picked = pickedFor(session, q.questionId);
+    if (filter === "correct") return picked === q.correct;
+    if (filter === "incorrect") return picked != null && picked !== q.correct;
+    if (filter === "unused") return picked == null;
+    return true;
+  });
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">Review</div>
         <div data-testid="exam-score" className="font-mono text-sm font-bold text-text-1">
-          {correctCount} of {questions.length} correct
+          {correctCount}/{answered.length} correct · {percent}%
         </div>
       </div>
-      {questions.map((q) => {
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[["Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], ["Unused", questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {[["incorrect", `Needs repair (${incorrectCount})`], ["correct", `Correct (${correctCount})`], ["unused", `Unused (${questions.length - answered.length})`], ["all", `All (${questions.length})`]].map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg border-2 px-3 py-2 text-xs font-bold ${filter === value ? "border-accent bg-accent/15 ring-2 ring-accent/30" : "border-border"}`}>{filter === value ? "✓ " : ""}{label}</button>)}
+      </div>
+      {visible.map((q, index) => {
         const picked = pickedFor(session, q.questionId);
         return (
-          <div key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3">
+          <details key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3" open={filter === "incorrect" && index === 0}>
+            <summary className="cursor-pointer text-sm font-bold text-text-1">{picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Needs repair"} · {extractLeadIn(q.stem)}</summary>
+            <div className="mt-3">
             <QuestionMeta question={q} />
             <LeadInCue stem={q.stem} />
             <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
@@ -368,7 +392,8 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
             )}
             {picked !== q.correct && <MissReflection userId={userId} />}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
-          </div>
+            </div>
+          </details>
         );
       })}
     </div>
@@ -440,8 +465,7 @@ export function ExamSessionRunner({
   if (session.status === "submitted") {
     return (
       <div className="space-y-3">
-        <div className="text-sm font-bold text-text-1">Submitted.</div>
-        {onExit && <Button onClick={onExit}>Done</Button>}
+        <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. Exam saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
         {session.format === "exam" && (
           <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} />
         )}

@@ -400,7 +400,8 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection +
     atomsSection +
     contentSection +
-    `\n\nRULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
+    `\n\nQUALITY REVIEW BEFORE RETURNING: silently review every item twice. Reject and rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples.\n` +
+    `RULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"difficulty":"${diff}"}]}`
   );

@@ -337,8 +337,7 @@ describe("ExamSessionRunner", () => {
       const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" tutorModeEnabled />);
 
       expect(host.textContent).toMatch(/Submitted\./);
-      const panels = host.querySelectorAll('[data-testid="tutor-panel"]');
-      expect(panels.length).toBe(2);
+      expect(host.textContent).toMatch(/Correct \(1\)/);
 
       unmount();
     });
@@ -434,7 +433,7 @@ describe("ExamSessionRunner", () => {
       expect(host.textContent).toMatch(/Submitted\./);
       const score = host.querySelector('[data-testid="exam-score"]');
       expect(score).toBeTruthy();
-      expect(score.textContent).toMatch(/1 of 2 correct/);
+      expect(score.textContent).toMatch(/1\/2 correct · 50%/);
       // Tutor panel itself stays gated behind tutorModeEnabled.
       expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
 
@@ -459,6 +458,11 @@ describe("ExamSessionRunner", () => {
       const submitButton = Array.from(host.querySelectorAll("button")).find((b) =>
         b.textContent.includes("Submit exam")
       );
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+      await act(async () => {
+        const firstChoice = host.querySelector('button[aria-pressed="false"]');
+        firstChoice?.click();
+      });
       await act(async () => {
         submitButton.click();
       });
@@ -467,6 +471,7 @@ describe("ExamSessionRunner", () => {
         blockName: "Cardiology",
         lectureLabelsByLectureId: { "lec-1": "Heart Failure" },
       });
+      confirmSpy.mockRestore();
 
       unmount();
     });

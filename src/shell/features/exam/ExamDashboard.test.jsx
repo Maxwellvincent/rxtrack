@@ -7,12 +7,16 @@ import { installDomStorage } from "../../../stores/testEnv.js";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const listExamSessionsMock = vi.fn();
+const deleteExamSessionMock = vi.fn();
 const readWeakConceptsMock = vi.fn();
 const readLearnerEvidenceMock = vi.fn();
 
 vi.mock("../../../supabase.js", () => ({
   listExamSessions: (...args) => listExamSessionsMock(...args),
+  deleteExamSession: (...args) => deleteExamSessionMock(...args),
 }));
+
+vi.mock("../../../questionPool.js", () => ({ releaseSessionQuestions: vi.fn() }));
 
 vi.mock("../../../stores/weakConcepts.js", () => ({
   read: (...args) => readWeakConceptsMock(...args),
@@ -50,7 +54,7 @@ describe("computePacingMetrics", () => {
     const questions = Array.from({ length: 8 }, (_, i) => ({ questionId: `q${i}`, correct: "A" }));
     const answers = questions.slice(0, 7).map((q, i) => ({ questionId: q.questionId, value: i < 4 ? "A" : "B" }));
     const out = computePacingMetrics([{ questions, answers, startedAt: 1000, submittedAt: 121000 }]);
-    expect(out.secondsPerQuestion).toBe(15);
+    expect(out.secondsPerQuestion).toBeCloseTo(120 / 7);
     expect(out.unanswered).toBe(1);
     expect(out.quarters[0].accuracy).toBe(1);
     expect(out.quarters[3].accuracy).toBe(0);
@@ -146,11 +150,11 @@ describe("ExamDashboard", () => {
     unmount();
   });
 
-  it("computes per-lecture accuracy by summing evaluateSessionForLecture across sessions (unanswered counts as miss)", async () => {
+  it("computes per-lecture accuracy using answered questions only", async () => {
     const sessionA = makeSession({
       id: "s1",
       questions: [q("q1", "lec-1"), q("q2", "lec-1"), q("q3", "lec-1")],
-      // q1 correct, q2 wrong, q3 unanswered (counts as miss)
+      // q1 correct, q2 wrong, q3 unanswered (not graded)
       answers: [a("q1", "A"), a("q2", "B")],
     });
     const sessionB = makeSession({
@@ -165,14 +169,14 @@ describe("ExamDashboard", () => {
     );
     await flush();
 
-    // 4 total questions, 2 misses (q2 wrong, q3 unanswered) -> 50% accuracy
+    // 3 answered questions, 1 miss -> 67% accuracy
     expect(host.textContent).toMatch(/Lecture One/);
-    expect(host.textContent).toMatch(/4 questions/);
-    expect(host.textContent).toMatch(/50%/);
+    expect(host.textContent).toMatch(/3 questions/);
+    expect(host.textContent).toMatch(/67%/);
     unmount();
   });
 
-  it("shows the weak-lecture link only for a lecture with a struggling weak-concept entry, not by a raw accuracy threshold", async () => {
+  it("offers model repair for stored weak lectures and objectively low exam accuracy", async () => {
     const strugglingSession = makeSession({
       id: "s1",
       questions: [q("q1", "lec-1")],
@@ -206,7 +210,7 @@ describe("ExamDashboard", () => {
       (el) => el.textContent.startsWith("Lecture Two")
     );
     expect(lecOneRow.querySelector("button")).toBeTruthy();
-    expect(lecTwoRow.querySelector("button")).toBeFalsy();
+    expect(lecTwoRow.querySelector("button")).toBeTruthy();
     unmount();
   });
 

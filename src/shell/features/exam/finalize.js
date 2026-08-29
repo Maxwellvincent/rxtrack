@@ -23,6 +23,7 @@ import { withRecordedStats } from "../../../examSessions.js";
 import { pendingStatsQuestionIds, computeWeakConceptEntry } from "./finalizeLogic.js";
 import { recordEvidenceAwait } from "../../../stores/learnerEvidence.js";
 import { classifyLeadIn } from "./questionReading.js";
+import { releaseUnansweredQuestions } from "../../../questionPool.js";
 
 export async function finalizeExamSession(
   userId,
@@ -187,6 +188,12 @@ export async function finalizeExamSession(
   // reported as success.
   if (!finalDoc || finalDoc.status !== "submitted") {
     return { ok: false, error: "failed to flip session to submitted", resumable: true };
+  }
+
+  try {
+    await releaseUnansweredQuestions(userId, finalDoc);
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e), resumable: true };
   }
 
   return { ok: true };

@@ -26,15 +26,18 @@ export function pendingStatsQuestionIds(session) {
 }
 
 /**
- * `{ questionCount, misses }` for one session + one lecture. Unanswered
- * counts as a miss, same as a wrong answer — matches the plan's scoring
- * rule that no signal either way still counts against the lecture.
+ * `{ questionCount, misses }` for one session + one lecture. Only answered
+ * questions are evidence. Unanswered questions return to the reserve and
+ * must never lower the learner's score or objective readiness.
  */
 export function evaluateSessionForLecture(session, lectureId) {
-  const questions = (session?.questions || []).filter((q) => q.lectureId === lectureId);
+  const answers = session?.answers || [];
+  const answeredIds = new Set(answers.map((answer) => answer.questionId));
+  const questions = (session?.questions || []).filter(
+    (q) => q.lectureId === lectureId && answeredIds.has(q.questionId)
+  );
   if (questions.length === 0) return { questionCount: 0, misses: 0 };
 
-  const answers = session?.answers || [];
   let misses = 0;
   for (const q of questions) {
     const answer = answers.find((a) => a.questionId === q.questionId);

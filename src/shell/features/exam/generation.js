@@ -1,5 +1,5 @@
 import { readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
-import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity } from "./questionQuality.js";
+import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 
@@ -40,7 +40,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Checking saved questions: ${lectureTitle}`);
       for (const q of await deps.pool.ready(bucket)) {
         if (obtained >= requested) break;
-        if (alreadyUsed(q, [...history, ...accepted])) continue;
+        if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length) continue;
         accepted.push(q); questions.push(q); obtained++; cacheHits++;
       }
       progress(`Loaded saved questions: ${lectureTitle}`);
@@ -68,7 +68,8 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       }
       for (const q of result?.questions || []) {
         if (obtained >= requested) break;
-        if (!isValidPoolQuestion(q) || alreadyUsed(q, [...history, ...accepted])) continue;
+        const qualityIssues = questionQualityIssues(q, objectives);
+        if (!isValidPoolQuestion(q) || qualityIssues.length || alreadyUsed(q, [...history, ...accepted])) continue;
         const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           objectiveIds: q.objectiveIds?.length ? q.objectiveIds : objectiveIds,
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),

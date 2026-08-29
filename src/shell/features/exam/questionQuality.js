@@ -52,3 +52,25 @@ export function schoolStyleSimilarity(question, exemplars = []) {
   });
   return Math.round(Math.max(...scores) * 100);
 }
+
+const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+/** Free deterministic review passes before a generated item can enter Firestore. */
+export function questionQualityIssues(question, objectives = []) {
+  const issues = [];
+  const choices = Object.values(question?.choices || {}).map(normalize).filter(Boolean);
+  if (new Set(choices).size !== choices.length) issues.push("duplicate answer choices");
+
+  const stem = String(question?.stem || "");
+  const sentences = stem.split(/(?<=[.!?])\s+/).map(normalize).filter(s => s.split(" ").length >= 6);
+  if (new Set(sentences).size !== sentences.length) issues.push("repeated sentence in stem");
+
+  const correctText = normalize(question?.choices?.[question?.correct]);
+  if (correctText.split(" ").length >= 3 && normalize(stem).includes(correctText)) issues.push("answer revealed in stem");
+
+  // Objective fidelity and explanation depth are prompted and surfaced, but
+  // lexical overlap is not a safe rejection rule because valid mechanisms
+  // often use synonyms absent from the short objective sentence.
+  void objectives;
+  return issues;
+}

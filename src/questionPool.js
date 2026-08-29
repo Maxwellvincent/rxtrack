@@ -119,3 +119,21 @@ export async function releaseUnansweredQuestions(userId, session, database = db)
   });
   return { released };
 }
+
+export async function releaseSessionQuestions(userId, session, database = db) {
+  if (!userId || !session) return { released: 0 };
+  const releasable = (session.questions || []).filter(question => question.poolId);
+  if (!releasable.length) return { released: 0 };
+  const refs = releasable.map(question => doc(database, "users", userId, "questionPool", question.poolId));
+  let released = 0;
+  await runTransaction(database, async tx => {
+    const snapshots = await Promise.all(refs.map(ref => tx.get(ref)));
+    snapshots.forEach((snapshot, index) => {
+      const question = releasable[index];
+      if (!snapshot.exists() || snapshot.data().sessionId !== session.sessionId) return;
+      tx.update(refs[index], { status: "ready", bucket: question.poolBucket, sessionId: null, assignedAt: null });
+      released += 1;
+    });
+  });
+  return { released };
+}

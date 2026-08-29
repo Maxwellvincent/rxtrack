@@ -8,7 +8,8 @@
  * component deliberately does not copy.
  */
 import { useEffect, useMemo, useState } from "react";
-import { listExamSessions } from "../../../supabase.js";
+import { deleteExamSession, listExamSessions } from "../../../supabase.js";
+import { releaseSessionQuestions } from "../../../questionPool.js";
 import { read as readWeakConcepts } from "../../../stores/weakConcepts.js";
 import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
@@ -76,6 +77,7 @@ export function computeObjectiveReadiness(sessions, objectives = []) {
   for (const session of sessions || []) {
     for (const question of session?.questions || []) {
       const answer = (session.answers || []).find((a) => a.questionId === question.questionId);
+      if (!answer) continue;
       const correct = !!answer && answer.value === question.correct;
       for (const objectiveId of question.objectiveIds || []) {
         if (knownIds.size && !knownIds.has(objectiveId)) continue;
@@ -108,8 +110,8 @@ export function computePacingMetrics(sessions = []) {
   const quarters = Array.from({ length: 4 }, () => ({ questions: 0, correct: 0 }));
   for (const session of sessions || []) {
     const questions = session?.questions || [];
-    totalQuestions += questions.length;
     const answers = new Map((session?.answers || []).map((a) => [a.questionId, a]));
+    totalQuestions += answers.size;
     unanswered += questions.filter((q) => !answers.has(q.questionId)).length;
     if (Number.isFinite(session?.startedAt) && Number.isFinite(session?.submittedAt)) {
       elapsedMs += Math.max(0, session.submittedAt - session.startedAt);
@@ -117,6 +119,7 @@ export function computePacingMetrics(sessions = []) {
     questions.forEach((q, index) => {
       const quarter = Math.min(3, Math.floor((index * 4) / Math.max(questions.length, 1)));
       const answer = answers.get(q.questionId);
+      if (!answer) return;
       quarters[quarter].questions++;
       if (answer?.value === q.correct) quarters[quarter].correct++;
     });
@@ -129,12 +132,13 @@ export function computePacingMetrics(sessions = []) {
   };
 }
 
-export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], onNavigateToLecture }) {
+export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], onNavigateToLecture, onReviewSession }) {
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
   // I7 fix — `listExamSessions(...).then(...)` had no rejection handler: a
   // fetch failure left "Loading…" up forever (plus an unhandled rejection).
   const [error, setError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [learnerProfile, setLearnerProfile] = useState(() => learnerEvidenceStore.read(userId));
 
   useEffect(() => {
@@ -178,7 +182,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           ...stat,
           weak: weakLectureIds.has(lectureId),
         }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
+        .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.totalQuestions - a.totalQuestions || a.label.localeCompare(b.label)),
     [lectureStats, lecturesById, weakLectureIds]
   );
   const readiness = useMemo(() => computeObjectiveReadiness(sessions, objectives), [sessions, objectives]);
@@ -306,7 +310,8 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           No Integrated Exam attempts yet for this block.
         </div>
       ) : (
-        <div className="rounded-lg border border-border px-3">
+        <details className="rounded-lg border border-border px-3" open>
+          <summary className="cursor-pointer py-3 font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Weakest lectures first · mental-model repair</summary>
           {rows.map((row) => (
             <div
               key={row.lectureId}
@@ -314,14 +319,14 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
             >
               <span className="text-sm text-text-1">
                 {row.label}
-                {row.weak && (
+                {(row.weak || (row.accuracy !== null && row.accuracy < 0.6)) && (
                   <button
                     type="button"
                     onClick={() => onNavigateToLecture(row.lectureId)}
                     className="ml-2 font-mono text-[12px] text-bad underline"
                     title="flagged struggling from Integrated Exam performance"
                   >
-                    ⚠ weak
+                    ⚠ Repair model
                   </button>
                 )}
               </span>
@@ -334,8 +339,15 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
               </span>
             </div>
           ))}
-        </div>
+        </details>
       )}
+
+      {sessions.length > 0 && <details className="mt-4 rounded-lg border border-border px-3"><summary className="cursor-pointer py-3 font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Saved exam history · {sessions.length}</summary><div className="space-y-2 pb-3">{[...sessions].sort((a,b) => (b.submittedAt || 0) - (a.submittedAt || 0)).map(session => {
+        const answered = (session.answers || []).length;
+        const correct = (session.questions || []).filter(q => (session.answers || []).find(a => a.questionId === q.questionId)?.value === q.correct).length;
+        const score = answered ? Math.round(correct / answered * 100) : 0;
+        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div><div className="text-sm font-bold text-text-1">{score}% · {correct}/{answered} answered correctly</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()} · {(session.questions || []).length - answered} unused</div></div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>Review</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
+      })}</div></details>}
     </div>
   );
 }

@@ -40,12 +40,12 @@ describe("pendingStatsQuestionIds", () => {
 });
 
 describe("evaluateSessionForLecture", () => {
-  it("unanswered question counts as a miss", () => {
+  it("unanswered question is not graded", () => {
     const session = {
       questions: [q("q1", "lec-1")],
       answers: [],
     };
-    expect(evaluateSessionForLecture(session, "lec-1")).toEqual({ questionCount: 1, misses: 1 });
+    expect(evaluateSessionForLecture(session, "lec-1")).toEqual({ questionCount: 0, misses: 0 });
   });
 
   it("wrong answer counts as a miss", () => {
@@ -77,7 +77,7 @@ describe("evaluateSessionForLecture", () => {
       questions: [q("q1", "lec-1", "A"), q("q2", "lec-1", "A"), q("q3", "lec-1", "A")],
       answers: [ans("q1", "A"), ans("q2", "B")], // q3 unanswered
     };
-    expect(evaluateSessionForLecture(session, "lec-1")).toEqual({ questionCount: 3, misses: 2 });
+    expect(evaluateSessionForLecture(session, "lec-1")).toEqual({ questionCount: 2, misses: 1 });
   });
 });
 

@@ -927,6 +927,12 @@ export async function listExamSessions(userId, blockId, { status } = {}) {
   return snap.docs.map((d) => d.data());
 }
 
+export async function deleteExamSession(userId, sessionId) {
+  if (!userId || !sessionId) return { ok: false, error: "missing session" };
+  await deleteDoc(examSessionRef(userId, sessionId));
+  return { ok: true };
+}
+
 /**
  * Generic CAS transactional primitive: read the current session (or null),
  * hand it to the caller-supplied `updateFn`, and write back whatever it
