@@ -26,6 +26,10 @@ vi.mock("../../../stores/learnerEvidence.js", () => ({
   read: (...args) => readLearnerEvidenceMock(...args),
   subscribe: () => () => {},
 }));
+vi.mock("../../../stores/calibrationByBlock.js", () => ({
+  readBlock: () => [{ts:1,concept:'Study question',correct:true}],
+  subscribe: () => () => {},
+}));
 
 const { ExamDashboard, computeObjectiveReadiness, computePacingMetrics } = await import("./ExamDashboard.jsx");
 
@@ -118,6 +122,22 @@ afterEach(() => {
 });
 
 describe("ExamDashboard", () => {
+  it("shows school homework in the 1000-question goal without mixing exam analytics", async () => {
+    listExamSessionsMock.mockResolvedValue([{
+      sessionId:'school', status:'submitted', sourceType:'question-bank',
+      questions:[{questionId:'q1',correct:'A',choices:{A:'First',B:'Second'}}],
+      answers:[{questionId:'q1',value:'B'}],
+    }]);
+    const {host, unmount} = render(<ExamDashboard blockId={BLOCK} userId={USER} lecturesById={LECTURES} />);
+    await flush();
+    const card=host.querySelector('[aria-label="Overall block question progress"]');
+    expect(card.textContent).toContain('2 / 1,000 questions');
+    expect(card.textContent).toContain('998 to goal');
+    expect(card.textContent).toContain('Overall accuracy: 50%');
+    expect(card.textContent).toContain('1 school homework / exam answers');
+    expect(card.querySelector('progress').getAttribute('value')).toBe('2');
+    unmount();
+  });
   it("shows loading state before the fetch resolves, not an empty state", async () => {
     let resolveFetch;
     listExamSessionsMock.mockReturnValue(

@@ -14,6 +14,8 @@ import { read as readWeakConcepts } from "../../../stores/weakConcepts.js";
 import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { ERROR_REASONS } from "./questionReading.js";
+import * as calibrationStore from "../../../stores/calibrationByBlock.js";
+import { questionProgress } from "./questionProgress.js";
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -140,6 +142,12 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
   const [error, setError] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [learnerProfile, setLearnerProfile] = useState(() => learnerEvidenceStore.read(userId));
+  const [studyAnswers, setStudyAnswers] = useState(() => calibrationStore.readBlock(userId, blockId));
+  useEffect(() => {
+    setStudyAnswers(calibrationStore.readBlock(userId, blockId));
+    return calibrationStore.subscribe(() => setStudyAnswers(calibrationStore.readBlock(userId, blockId)));
+  }, [userId, blockId]);
+  const progress = useMemo(() => questionProgress(studyAnswers, sessions), [studyAnswers, sessions]);
 
   useEffect(() => {
     setLearnerProfile(learnerEvidenceStore.read(userId));
@@ -225,6 +233,19 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
 
   return (
     <div className="desk-exam-dashboard p-1 sm:p-2">
+      <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="Overall block question progress">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-base font-semibold text-text-1">Overall block practice</h2>
+          <span className="text-2xl font-bold text-text-1">{progress.answered.toLocaleString()} / 1,000 questions</span>
+        </div>
+        <progress className="mt-3 h-3 w-full accent-accent" max={1000} value={Math.min(1000, progress.answered)} aria-label="Progress toward 1000 answered questions" />
+        <div className="mt-2 flex flex-wrap justify-between gap-2 text-sm text-text-2">
+          <span>{Math.max(0, 1000 - progress.answered).toLocaleString()} to goal · {Math.round(progress.answered / 10)}% of goal</span>
+          <span>Overall accuracy: {progress.accuracy == null ? '—' : `${Math.round(progress.accuracy * 100)}%`} · {progress.correct.toLocaleString()} correct</span>
+        </div>
+        <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers</p>
+        <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
+      </section>
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
         Integrated Exam performance
       </div>
