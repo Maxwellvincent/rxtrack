@@ -6,6 +6,16 @@ export function settingsFor(settings = {}) {
     cap: Math.max(1, Math.min(4, Number(settings.cap) || 4)) };
 }
 export function dayKey(at) { const d = new Date(at); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
+/** Explicit learner confirmation, not automatic enrollment of an AI-generated reference. */
+export function enrollLectureModel(data, input, now) {
+  if (!input.lectureId || !input.blockId) throw new Error('A saved lecture and block are required.');
+  const existing=Object.values(data.models || {}).find(m=>m.lectureId===input.lectureId && m.blockId===input.blockId);
+  if (existing) return data; // Preserve history and scheduling on repeated clicks/devices.
+  const id=`lecture:${input.blockId}:${input.lectureId}`;
+  const model=createRetrievalModel({...input,id,lecture:input.title,
+    prompt:input.prompt || `Reconstruct your mental model for ${input.title} from memory. Explain the major parts, their causal connections, and what changes when one part fails.`},now,data.settings);
+  return {...data,models:{...data.models,[id]:{...model,lectureId:input.lectureId,confirmedCreatedAt:now}}};
+}
 export function createRetrievalModel(input, now, settings = {}) {
   const title = String(input.title || '').trim().slice(0,200);
   const prompt = String(input.prompt || '').trim().slice(0,1500);

@@ -58,6 +58,7 @@ import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js"
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
+import { LectureRetrievalEnrollment } from "./LectureRetrievalEnrollment.jsx";
 import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
 
 const TYPE_META = {
@@ -1065,6 +1066,7 @@ export function LectureStudyFlow({
       </div>
       <h2 className="text-lg font-bold text-text-1">{renamedTitle || title}</h2>
       <RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} />
+      <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
       <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} />
       <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
       {onGoDeep && <details className="my-3 max-w-3xl text-sm">

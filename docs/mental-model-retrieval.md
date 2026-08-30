@@ -7,7 +7,13 @@ Anki schedules atoms. RXtrack schedules models. Questions test integration.
 Today → Today's Retrieval → Model library → Add mental model.
 Give the model a title and a reconstruction prompt, optionally linking a lecture/topic,
 subject, tags and reference notes. References can be pasted or include an external notes link.
-This is manual creation; existing lecture models are not automatically duplicated.
+Alternatively, open a lecture and choose **I created my mental model**. This explicitly
+confirms your own model and enrolls that lecture in retrieval, even if you built it
+in chat or on paper. Optional pasted notes take precedence over the lecture's saved
+big-picture reference. Repeated confirmation never duplicates the model or resets
+its review history. AI reference generation alone does not imply you created a model.
+Two new lecture models per weekday are supported without raising the daily budget;
+new models and repeat retrievals share the same capped queue.
 
 Start retrieval, reconstruct on paper/aloud/in the optional scratchpad, acknowledge
 the attempt, then reveal/check. Grade Broken, Shaky or Solid. Saving advances to
