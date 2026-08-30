@@ -1,0 +1,19 @@
+import React,{act} from 'react';
+import {createRoot} from 'react-dom/client';
+import {beforeEach,it,expect,vi} from 'vitest';
+import {installDomStorage} from '../../../stores/testEnv.js';
+import {createRetrievalModel,gradeModel} from '../../../engine/modelRetrieval.js';
+const state=vi.hoisted(()=>({data:null,fail:false,writes:0}));
+vi.mock('../../hooks/useStoreResource.js',()=>({useStoreResource:()=>({data:state.data,loading:false,error:null})}));
+vi.mock('../../../stores/modelRetrieval.js',()=>({retrievalStore:{read:()=>state.data,update:async(_,transform)=>{if(state.fail)throw new Error('Save failed');state.data=transform(state.data);state.writes++;return state.data;}}}));
+import {ModelRetrievalCard} from './ModelRetrievalCard.jsx';
+globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+beforeEach(()=>{installDomStorage();state.fail=false;state.writes=0;state.data={settings:{},models:{m:createRetrievalModel({id:'m',title:'Test model',prompt:'Reconstruct the pathway',reference:'SECRET REFERENCE',blockId:'b'},Date.now()-1000)}};});
+function mount(){const host=document.createElement('div');document.body.append(host);const root=createRoot(host);act(()=>root.render(<ModelRetrievalCard userId="u" blockId="b"/>));return {host,close:()=>act(()=>root.unmount())};}
+const button=(host,text)=>[...host.querySelectorAll('button')].find(b=>b.textContent.includes(text));
+async function click(b){await act(async()=>{b.click();await Promise.resolve();});}
+it('requires recall before reveal and saves a separate model grade',async()=>{const {host,close}=mount();await click(button(host,'Start retrieval'));expect(host.textContent).not.toContain('SECRET REFERENCE');expect(button(host,'Reveal').disabled).toBe(true);await click(host.querySelector('input[type="checkbox"]'));await click(button(host,'Reveal'));expect(host.textContent).toContain('SECRET REFERENCE');await click(button(host,'Solid'));expect(state.data.models.m.history).toHaveLength(1);expect(state.data.models.m.status).toBe('Learning');expect(host.textContent).toContain('Done for today');expect(state.data.models.m.atomProgress).toBeUndefined();close();});
+it('keeps the review open after a failed save',async()=>{const {host,close}=mount();await click(button(host,'Start retrieval'));await click(host.querySelector('input[type="checkbox"]'));await click(button(host,'Reveal'));state.fail=true;await click(button(host,'Broken'));expect(host.textContent).toContain('Save failed');expect(state.data.models.m.history).toHaveLength(0);expect(button(host,'Broken')).toBeTruthy();close();});
+it('moves to the next model after grading',async()=>{state.data.models.n=createRetrievalModel({id:'n',title:'Second model',prompt:'Reconstruct another framework',blockId:'b'},Date.now());const {host,close}=mount();await click(button(host,'Start retrieval'));await click(host.querySelector('input[type="checkbox"]'));await click(button(host,'Reveal'));await click(button(host,'Shaky'));expect(host.textContent).toContain('Here is the next model');expect(host.querySelector('h3').textContent).toBe('Second model');expect(button(host,'Reveal').disabled).toBe(true);close();});
+it('closes without recording a grade',async()=>{const {host,close}=mount();await click(button(host,'Start retrieval'));await click(button(host,'Close without grading'));expect(state.writes).toBe(0);close();});
+it('disables starting more reviews when today’s budget is exhausted',()=>{state.data.settings={minutes:5};state.data.models.m.minutes=5;state.data.models.m=gradeModel(state.data.models.m,'solid',Date.now(),'done');state.data.models.n=createRetrievalModel({id:'n',title:'Next',prompt:'Reconstruct it',blockId:'b'},Date.now());const {host,close}=mount();expect(button(host,'Start retrieval').disabled).toBe(true);expect(button(host,'Review now').disabled).toBe(true);close();});
