@@ -184,7 +184,8 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
  * document so unrelated prose containing one "Question 1" falls through to the AI parser.
  */
 export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
-  const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n");
+  const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n")
+    .replace(/^[ \t]*\d*[ \t]*Click here to enter text\.?[ \t]*$/gim, "");
   const answerHeadingPattern = /(?:^|\n)[ \t]*Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
   const answerHeadings = [...source.matchAll(answerHeadingPattern)];
   if (!options.singleSet && answerHeadings.length > 1) {
@@ -926,9 +927,11 @@ export function pdfItemsToLayoutText(items = []) {
   const positioned = items
     .filter((item) => String(item?.str || "").trim())
     .map((item, index) => ({
-      text: String(item.str).trim(),
+      text: String(item.str).trim().replace(/[\uf061\uf062\uf067\uf064\uf06d]/g, ch => ({ '\uf061': 'α', '\uf062': 'β', '\uf067': 'γ', '\uf064': 'δ', '\uf06d': 'μ' }[ch])),
       x: Number(item?.transform?.[4]),
       y: Number(item?.transform?.[5]),
+      width: Number(item.width),
+      size: Math.abs(Number(item?.transform?.[0])) || 12,
       index,
     }));
   if (positioned.length < 2 || positioned.filter((item) => Number.isFinite(item.x) && Number.isFinite(item.y)).length < positioned.length * 0.8) {
@@ -936,7 +939,7 @@ export function pdfItemsToLayoutText(items = []) {
   }
   const lines = [];
   for (const item of positioned.sort((a, b) => b.y - a.y || a.x - b.x || a.index - b.index)) {
-    let line = lines.find((candidate) => Math.abs(candidate.y - item.y) <= 2.5);
+    let line = lines.find((candidate) => Math.abs(candidate.y - item.y) <= Math.max(item.size, ...candidate.items.map(run => run.size)) * 0.55);
     if (!line) {
       line = { y: item.y, items: [] };
       lines.push(line);
@@ -945,7 +948,20 @@ export function pdfItemsToLayoutText(items = []) {
   }
   return lines
     .sort((a, b) => b.y - a.y)
-    .map((line) => line.items.sort((a, b) => a.x - b.x || a.index - b.index).map((item) => item.text).join(" "))
+    .map((line) => {
+      const baseline = line.items.reduce((largest, item) => item.size > largest.size ? item : largest);
+      return line.items.sort((a, b) => a.x - b.x || a.index - b.index).reduce((text, item, index, all) => {
+      const previous = all[index - 1];
+      // PDF text runs split inside words (bold, kerning, and font changes).
+      // Only insert a space when the actual glyph positions leave a word gap.
+      const gap = previous ? item.x - previous.x - previous.width : 0;
+      const space = previous && (!Number.isFinite(gap) || gap > Math.min(previous.size, item.size) * 0.15);
+      const raised = item.size < baseline.size * 0.85 && item.y > baseline.y + 1;
+      const lowered = item.size < baseline.size * 0.85 && item.y < baseline.y - 1;
+      const symbols = raised ? '⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻' : '₀₁₂₃₄₅₆₇₈₉₊₋';
+      const value = raised || lowered ? item.text.replace(/[0-9+-]/g, ch => symbols['0123456789+-'.indexOf(ch)]) : item.text;
+      return text + (space ? " " : "") + value;
+    }, ""); })
     .join("\n")
     .trim();
 }
@@ -1019,20 +1035,14 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     const layoutText = pages.map((p, index) => index === 0 ? p.layoutText : `[PAGE_BREAK:${p.num}]\n${p.layoutText}`).join("\n\n");
     const title = cleanLectureTitle(file.name);
     const candidates = [sequentialText, layoutText].map((text) => ({ text, questions: parseNumberedQuestionBankText(text, title) }));
-    const merged = new Map();
-    for (const { questions } of candidates) {
-      for (const question of questions) {
-        const prior = merged.get(question.num);
-        const quality = (item) => (item?.correct ? 100 : 0) + Object.keys(item?.choices || {}).length * 10 + Math.min(item?.stem?.length || 0, 500) / 500;
-        if (!prior || quality(question) > quality(prior)) merged.set(question.num, question);
-      }
-    }
-    deterministicFromPdf = [...merged.values()].sort((a, b) => a.num - b.num);
+    // Never splice by ordinal across extraction strategies: a missing question
+    // in one numbered section shifts every later ordinal and creates duplicates.
     candidates.sort((a, b) => {
       const keyedA = a.questions.filter((q) => q.correct).length;
       const keyedB = b.questions.filter((q) => q.correct).length;
-      return keyedB - keyedA || b.questions.length - a.questions.length;
+      return keyedB - keyedA || b.questions.length - a.questions.length || (b.text === layoutText ? 1 : -1);
     });
+    deterministicFromPdf = candidates[0].questions;
     fullText = candidates[0].text;
   }
 

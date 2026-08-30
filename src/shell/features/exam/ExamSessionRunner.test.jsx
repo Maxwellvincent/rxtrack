@@ -86,6 +86,27 @@ beforeEach(() => {
 });
 
 describe("ExamSessionRunner", () => {
+  it("shows the homework name and homework submission label", () => {
+    const controller = baseController();
+    controller.session.sourceType = 'question-bank';
+    controller.session.sourceFile = 'ER+Week+1+Biochemistry.pdf';
+    controllerMock.mockReturnValue(controller);
+    const {host, unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.textContent).toContain('ER Week 1 Biochemistry');
+    expect(host.textContent).toContain('Submit homework');
+    expect(host.textContent).not.toContain('return to reserve');
+    unmount();
+  });
+
+  it("reopens submitted homework practice with the full answer review", () => {
+    const controller = baseController();
+    Object.assign(controller.session, {sourceType:'question-bank', sourceFile:'Week 1 Homework.pdf', format:'practice', status:'submitted', answers:[{questionId:'q1',value:'B'}]});
+    controllerMock.mockReturnValue(controller);
+    const {host, unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.textContent).toContain('Homework saved and graded');
+    expect(host.textContent).toContain('Needs repair');
+    unmount();
+  });
   it("format exam: renders a countdown timer, a submit button, and no per-question reveal", () => {
     controllerMock.mockReturnValue(baseController());
 

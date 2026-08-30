@@ -1,0 +1,23 @@
+import React, { act } from 'react';
+import { createRoot } from 'react-dom/client';
+import { expect, it, vi } from 'vitest';
+import { installDomStorage } from '../stores/testEnv.js';
+const current = vi.hoisted(() => ({ props: null }));
+vi.mock('./LabValue.jsx', () => ({ LabAnnotatedText: props => { current.props = props; return null; } }));
+import { QuestionStem } from './QuestionStem.jsx';
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+it('isolates annotations even for identical stems, and restores them only on returning to that question', () => {
+  installDomStorage();
+  const root = createRoot(document.createElement('div'));
+  const show = id => act(() => root.render(<QuestionStem text="Repeated source stem" questionId={id} />));
+  show('q1');
+  act(() => current.props.onHighlight({start:0,end:8}));
+  expect(current.props.highlights).toHaveLength(1);
+  show('q2');
+  expect(current.props.highlights).toHaveLength(0);
+  show('q1');
+  expect(current.props.highlights).toHaveLength(1);
+  act(() => current.props.onRemoveHighlight({start:0,end:8}));
+  expect(current.props.highlights).toHaveLength(0);
+  act(() => root.unmount());
+});

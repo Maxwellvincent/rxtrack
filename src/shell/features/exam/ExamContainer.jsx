@@ -341,7 +341,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       return { session, answered: answered.length, correct, score: answered.length ? Math.round(correct / answered.length * 100) : null, missed };
     }).filter((item) => item.score !== null);
     const latest = scored.at(-1);
-    return { attempts: scored.length, latest, improvement: scored.length > 1 ? latest.score - scored[0].score : null };
+    return { attempts: scored.length, history: scored, latest, improvement: scored.length > 1 ? latest.score - scored[0].score : null };
   };
   const toggleTutorMode = () => {
     setTutorModeEnabledState((prev) => {
@@ -581,6 +581,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
+                    {stats.attempts > 0 && <details className="mt-2 text-xs text-text-2">
+                      <summary className="cursor-pointer font-semibold">Attempt history · {stats.attempts}</summary>
+                      <div className="mt-2 flex flex-wrap gap-2">{stats.history.map((attempt, index) => <Button key={attempt.session.sessionId || attempt.session.id} variant="outline" onClick={() => setActiveSessionId(attempt.session.sessionId || attempt.session.id)}>Review attempt {index + 1} · {attempt.score}%</Button>)}</div>
+                    </details>}
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
                   </div>
                   <div className="flex gap-2">

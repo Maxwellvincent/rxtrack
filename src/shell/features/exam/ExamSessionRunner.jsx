@@ -28,6 +28,16 @@ import { useTutorExplanation } from "./useTutorExplanation.js";
 import { ERROR_REASONS, extractLeadIn } from "./questionReading.js";
 import { recordReflection } from "../../../stores/learnerEvidence.js";
 
+function sessionLabel(session) {
+  if (session.sourceType !== "question-bank") return "Exam";
+  return /examsoft|esoft|imcq/i.test(session.sourceFile || "") ? "School quiz" : "Homework";
+}
+
+function SessionTitle({ session }) {
+  if (session.sourceType !== "question-bank") return null;
+  return <h2 className="text-lg font-semibold text-text-1">{String(session.sourceFile || "School homework").replace(/\.(pdf|md|txt)$/i, "").replace(/[+_]+/g, " ")}</h2>;
+}
+
 // Task 12, Part B1 — additive tutor-mode mount. Each instance owns its own
 // `useTutorExplanation` call (the hook's cache is module-level and keyed by
 // questionId, so mounting one per question is cheap and safe).
@@ -187,7 +197,7 @@ function ExamFormat({ controller, submitOpts }) {
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
       <div className="flex items-center justify-between rounded-lg border border-border bg-bg-elevated px-3 py-2">
         <div className="font-mono text-[12px] uppercase tracking-wider text-accent-text">
-          Exam · {answeredCount}/{questions.length} answered
+          {sessionLabel(session)} · {answeredCount}/{questions.length} answered
         </div>
         <div
           data-testid="exam-timer"
@@ -227,7 +237,7 @@ function ExamFormat({ controller, submitOpts }) {
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
           <QuestionMeta question={q} />
           <LeadInCue stem={q.stem} />
-          <QuestionStem text={q.stem} />
+          <QuestionStem text={q.stem} questionId={q.questionId} />
           <SchoolQuestionFigure question={q} />
           <ChoiceList
             questionId={q.questionId}
@@ -258,10 +268,10 @@ function ExamFormat({ controller, submitOpts }) {
         </div>
       </div>
       <div className="flex flex-col gap-2 rounded-lg border-2 border-border-strong bg-panel p-3 sm:flex-row sm:items-center sm:justify-between">
-        <div><div className="text-xs font-bold text-text-1">Finished reviewing?</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} return to reserve</div></div>
+        <div><div className="text-xs font-bold text-text-1">Finished reviewing?</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
         <Button variant="outline" onClick={() => {
           if (window.confirm(`Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
-        }} disabled={submitting}>{submitting ? "Grading answered questions…" : "Submit exam · finish & grade"}</Button>
+        }} disabled={submitting}>{submitting ? "Grading answered questions…" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
       </div>
     </div>
   );
@@ -297,7 +307,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         <QuestionMeta question={q} />
         <LeadInCue stem={q.stem} />
-        <QuestionStem text={q.stem} />
+        <QuestionStem text={q.stem} questionId={q.questionId} />
         <SchoolQuestionFigure question={q} />
         <ChoiceList
           questionId={q.questionId}
@@ -465,8 +475,9 @@ export function ExamSessionRunner({
   if (session.status === "submitted") {
     return (
       <div className="space-y-3">
-        <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. Exam saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
-        {session.format === "exam" && (
+        <SessionTitle session={session} />
+        <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. {sessionLabel(session)} saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
+        {(session.format === "exam" || session.sourceType === "question-bank") && (
           <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} />
         )}
       </div>
@@ -484,6 +495,7 @@ export function ExamSessionRunner({
 
   return (
     <div className="mb-5 space-y-3">
+      <SessionTitle session={session} />
       {session.format === "exam" ? (
         <ExamFormat controller={controller} submitOpts={submitOpts} />
       ) : (

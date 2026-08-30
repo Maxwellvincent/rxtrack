@@ -1,5 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
+
+describe("PDF glyph fidelity", () => {
+  it("does not turn a numbered Word footer into a question", () => {
+    const source = '1Click here to enter text.\n' + [1,2,3].map(n => `${n}. A patient has a distinct finding ${n}. Which mechanism explains it?\nA. First mechanism\nB. Second mechanism`).join('\n') + '\nAnswer Key: 1 A, 2 B, 3 A';
+    const questions = parseNumberedQuestionBankText(source);
+    expect(questions).toHaveLength(3);
+    expect(questions[0].stem.startsWith('A patient')).toBe(true);
+  });
+  const run = (str, x, y, width, size = 12) => ({str, width, transform:[size,0,0,size,x,y]});
+  it("joins kerning fragments but preserves real spaces and lines", () => {
+    expect(pdfItemsToLayoutText([run('Wh',0,100,15),run('ich',15,100,15),run('word?',34,100,30),run('Next',0,80,25)])).toBe('Which word?\nNext');
+  });
+  it("decodes known Symbol glyphs and keeps superscripts with their formula", () => {
+    expect(pdfItemsToLayoutText([run('Fe',0,100,12),run('3+',12,104,8,8),run('and',24,100,18),run('11\uf062-hydroxylase',46,100,90)])).toBe('Fe³⁺ and 11β-hydroxylase');
+  });
+  it("keeps lowered numerals on the same line", () => {
+    expect(pdfItemsToLayoutText([run('T',0,100,7),run('4',7,97,5,8)])).toBe('T₄');
+  });
+});
 
 describe("paired school answer-key slides", () => {
   const q = `1. A patient has a finding. Which mechanism is most likely?\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta`;
