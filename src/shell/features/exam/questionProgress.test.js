@@ -4,6 +4,7 @@ const session = (id, sourceType='question-bank') => ({sessionId:id, status:'subm
   questions:[{questionId:'a',correct:'A',choices:{A:'Yes',B:'No'},lectureId:'lec1'}, {questionId:'b',correct:'A',choices:{A:'Yes',B:'No'}}],
   answers:[{questionId:'a',value:'A'}]});
 describe('overall practice counter', () => {
+  it('filters personal goals by date without changing lifetime totals',()=>{const ts=new Date(2026,7,30,12).getTime();const answers=[{ts,concept:'Lecture objective',correct:true},{ts:ts-8*86400000,concept:'Earlier',correct:true}];const s={...session('school'),submittedAt:ts};expect(questionProgress(answers,[s],{start:'2026-08-24',end:'2026-08-31'}).answered).toBe(2);expect(questionProgress(answers,[s]).answered).toBe(3);expect(questionProgress(answers,[s],{start:'2026-09-01',end:'2026-09-07'}).answered).toBe(0);});
   it('adds study, homework and exams once without counting unused slots', () => {
     const s = session('school');
     expect(questionProgress([{ts:1,concept:'Model',correct:false}], [s, s, session('exam','generated')])).toEqual({answered:3,correct:2,lectureAnswered:1,schoolAnswered:1,examAnswered:1,accuracy:2/3});

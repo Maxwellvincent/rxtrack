@@ -10,6 +10,10 @@ const listExamSessionsMock = vi.fn();
 const deleteExamSessionMock = vi.fn();
 const readWeakConceptsMock = vi.fn();
 const readLearnerEvidenceMock = vi.fn();
+const activityMock = vi.hoisted(()=>({data:{}}));
+vi.mock('../../../stores/mentalModelImpact.js',()=>({read:()=>activityMock.data,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}));
+vi.mock('../../../stores/atomProgress.js',()=>({read:()=>({}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}));
+vi.mock('../../../stores/practiceGoal.js',()=>({practiceGoalStore:{read:()=>({}),subscribe:()=>()=>{},write:vi.fn()}}));
 
 vi.mock("../../../supabase.js", () => ({
   listExamSessions: (...args) => listExamSessionsMock(...args),
@@ -122,6 +126,16 @@ afterEach(() => {
 });
 
 describe("ExamDashboard", () => {
+  it('moves a lecture practiced today below untouched exam weaknesses',async()=>{
+    activityMock.data={'lec-1':{attempts:[{at:Date.now(),correct:true}]}};
+    listExamSessionsMock.mockResolvedValue([{...makeSession({id:'s',questions:[q('a','lec-1'),q('b','lec-2')],answers:[a('a','B'),a('b','B')]}),submittedAt:Date.now()-86400000}]);
+    const {host,unmount}=render(<ExamDashboard blockId={BLOCK} userId={USER} lecturesById={LECTURES}/>);await flush();
+    const section=[...host.querySelectorAll('details')].find(d=>d.textContent.includes('Weakest lectures first'));
+    expect(section.textContent.indexOf('Lecture Two')).toBeLessThan(section.textContent.indexOf('Lecture One'));
+    expect(section.textContent).toContain('✓ Worked today');
+    expect(section.textContent).toContain('0%');
+    unmount();activityMock.data={};
+  });
   it("shows school homework in the 1000-question goal without mixing exam analytics", async () => {
     listExamSessionsMock.mockResolvedValue([{
       sessionId:'school', status:'submitted', sourceType:'question-bank',
@@ -131,11 +145,11 @@ describe("ExamDashboard", () => {
     const {host, unmount} = render(<ExamDashboard blockId={BLOCK} userId={USER} lecturesById={LECTURES} />);
     await flush();
     const card=host.querySelector('[aria-label="Overall block question progress"]');
-    expect(card.textContent).toContain('2 / 1,000 questions');
-    expect(card.textContent).toContain('998 to goal');
+    expect(card.textContent).toContain('2 questions answered');
+    expect(card.textContent).toContain('Set an optional personal goal');
     expect(card.textContent).toContain('Overall accuracy: 50%');
     expect(card.textContent).toContain('1 school homework / exam answers');
-    expect(card.querySelector('progress').getAttribute('value')).toBe('2');
+    expect(card.querySelector('progress')).toBeNull();
     unmount();
   });
   it("shows loading state before the fetch resolves, not an empty state", async () => {
@@ -251,7 +265,7 @@ describe("ExamDashboard", () => {
     );
     await flush();
 
-    const button = host.querySelector("button");
+    const button = [...host.querySelectorAll("button")].find(b=>b.textContent.includes('Repair model'));
     act(() => button.click());
 
     expect(onNavigateToLecture).toHaveBeenCalledWith("lec-1");

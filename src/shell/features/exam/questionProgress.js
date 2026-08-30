@@ -1,12 +1,14 @@
 /** Use the study-answer log plus saved sessions, never the mixed lecture
  * counters that already include integrated exams (and older deleted attempts).
  */
-export function questionProgress(studyAnswers = [], sessions = []) {
+export function questionProgress(studyAnswers = [], sessions = [], range = {}) {
+  const inRange = ts => (!range.start || ts >= new Date(`${range.start}T00:00:00`).getTime()) && (!range.end || ts <= new Date(`${range.end}T23:59:59.999`).getTime());
   let lectureAnswered = 0;
   let correct = 0;
   const studySeen = new Set();
   for (const answer of studyAnswers) {
     if (!answer || typeof answer.correct !== 'boolean' || !Number.isFinite(answer.ts) || !answer.concept) continue;
+    if (!inRange(answer.ts)) continue;
     const key = JSON.stringify([answer.ts, answer.concept]);
     if (studySeen.has(key)) continue;
     studySeen.add(key);
@@ -18,6 +20,7 @@ export function questionProgress(studyAnswers = [], sessions = []) {
   const seen = new Set();
   for (const session of sessions) {
     if (session.status && session.status !== 'submitted') continue;
+    if (!inRange(session.submittedAt)) continue;
     const id = session.sessionId || session.id;
     if (id && seen.has(id)) continue;
     if (id) seen.add(id);

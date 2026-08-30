@@ -16,6 +16,11 @@ import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { ERROR_REASONS } from "./questionReading.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import { questionProgress } from "./questionProgress.js";
+import { PracticeGoal } from './PracticeGoal.jsx';
+import { repairActivity } from './repairQueue.js';
+import { useStoreResource } from '../../hooks/useStoreResource.js';
+import * as modelImpactStore from '../../../stores/mentalModelImpact.js';
+import * as atomProgressStore from '../../../stores/atomProgress.js';
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -135,6 +140,8 @@ export function computePacingMetrics(sessions = []) {
 }
 
 export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], onNavigateToLecture, onReviewSession }) {
+  const [queueNow,setQueueNow]=useState(Date.now);
+  useEffect(()=>{const timer=setInterval(()=>setQueueNow(Date.now()),60000);return ()=>clearInterval(timer);},[]);
   const [loading, setLoading] = useState(true);
   const [sessions, setSessions] = useState([]);
   // I7 fix — `listExamSessions(...).then(...)` had no rejection handler: a
@@ -148,6 +155,8 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
     return calibrationStore.subscribe(() => setStudyAnswers(calibrationStore.readBlock(userId, blockId)));
   }, [userId, blockId]);
   const progress = useMemo(() => questionProgress(studyAnswers, sessions), [studyAnswers, sessions]);
+  const modelActivity=useStoreResource(modelImpactStore,userId);
+  const atomActivity=useStoreResource(atomProgressStore,userId);
 
   useEffect(() => {
     setLearnerProfile(learnerEvidenceStore.read(userId));
@@ -190,9 +199,10 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           label: lecturesById?.[lectureId]?.lectureTitle || lectureId,
           ...stat,
           weak: weakLectureIds.has(lectureId),
+          ...repairActivity(lectureId,integratedSessions,modelActivity.data,atomActivity.data,queueNow),
         }))
-        .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.totalQuestions - a.totalQuestions || a.label.localeCompare(b.label)),
-    [lectureStats, lecturesById, weakLectureIds]
+        .sort((a, b) => Number(a.workedToday)-Number(b.workedToday) || (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.totalQuestions - a.totalQuestions || a.label.localeCompare(b.label)),
+    [lectureStats, lecturesById, weakLectureIds, integratedSessions, modelActivity.data, atomActivity.data,queueNow]
   );
   const readiness = useMemo(() => computeObjectiveReadiness(integratedSessions, objectives), [integratedSessions, objectives]);
   const pacing = useMemo(() => computePacingMetrics(integratedSessions), [integratedSessions]);
@@ -236,14 +246,13 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
       <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="Overall block question progress">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-base font-semibold text-text-1">Overall block practice</h2>
-          <span className="text-2xl font-bold text-text-1">{progress.answered.toLocaleString()} / 1,000 questions</span>
+          <span className="text-2xl font-bold text-text-1">{progress.answered.toLocaleString()} questions answered</span>
         </div>
-        <progress className="mt-3 h-3 w-full accent-accent" max={1000} value={Math.min(1000, progress.answered)} aria-label="Progress toward 1000 answered questions" />
         <div className="mt-2 flex flex-wrap justify-between gap-2 text-sm text-text-2">
-          <span>{Math.max(0, 1000 - progress.answered).toLocaleString()} to goal · {Math.round(progress.answered / 10)}% of goal</span>
           <span>Overall accuracy: {progress.accuracy == null ? '—' : `${Math.round(progress.accuracy * 100)}%`} · {progress.correct.toLocaleString()} correct</span>
         </div>
-        <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers</p>
+        <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture / objective quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers</p>
+        <PracticeGoal key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
@@ -317,6 +326,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
       ) : (
         <details className="rounded-lg border border-border px-3" open>
           <summary className="cursor-pointer py-3 font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Weakest lectures first · mental-model repair</summary>
+          <p className="mb-3 text-sm text-text-2">Today’s follow-up practice moves a lecture below topics not yet worked on. Exam percentages remain historical; worked today does not mean mastered.</p>
           {rows.map((row) => (
             <div
               key={row.lectureId}
@@ -324,6 +334,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
             >
               <span className="text-sm text-text-1">
                 {row.label}
+                {row.workedToday && <span className="ml-2 font-semibold">✓ Worked today{row.followupQuestions?` · ${row.followupQuestions} follow-up questions`:''}</span>}
                 {(row.weak || (row.accuracy !== null && row.accuracy < 0.6)) && (
                   <button
                     type="button"
@@ -331,12 +342,12 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
                     className="ml-2 font-mono text-[12px] text-bad underline"
                     title="flagged struggling from Integrated Exam performance"
                   >
-                    ⚠ Repair model
+                    {row.workedToday ? (row.remainingRepairs ? `Review ${row.remainingRepairs} remaining atom gaps` : 'Review lecture') : '⚠ Repair model'}
                   </button>
                 )}
               </span>
               <span className="font-mono text-[12px] text-text-3">
-                {row.totalQuestions} question{row.totalQuestions === 1 ? "" : "s"}
+                Exam: {row.totalQuestions} question{row.totalQuestions === 1 ? "" : "s"}
                 {" · "}
                 <span className={accuracyClass(row.accuracy)}>
                   {row.accuracy === null ? "—" : `${Math.round(row.accuracy * 100)}%`}
