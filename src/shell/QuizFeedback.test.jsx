@@ -36,12 +36,12 @@ describe("quiz feedback", () => {
     expect(recordReflection).toHaveBeenCalledTimes(2);
     close();
   });
-  it("puts overall accuracy first and collapses confidence details", () => {
+  it("puts overall accuracy first and moves confidence analysis out of each quiz", () => {
     const records = Array.from({ length: 10 }, (_, i) => ({ correct: i < 6, confidence: 3, atomKey: `a${i}`, concept: `Concept ${i}` }));
     const { host, close } = render(<Summary records={records} />);
     expect(host.textContent).toContain("60%");
     expect(host.textContent).toContain("6 / 10 correct");
-    expect(host.querySelector("details").open).toBe(false);
+    expect(host.textContent).not.toContain('Accuracy by confidence');
     close();
   });
   it("shows real generation counts, elapsed time, and locks settings while busy", () => {

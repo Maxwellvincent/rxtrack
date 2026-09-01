@@ -21,17 +21,25 @@ export function modelRepairPrompt(title, repairs) {
   }).join("\n\n");
 }
 
+export function ankiWeakPointBrief(title, repairs) {
+  return `# Pre-Anki weak-point brief — ${title}\n\nDo not create cards yet. For each gap: repair its place in the mental model, search the existing Anki deck for the same recall target, then unsuspend or edit an existing card when possible. Create one new atomic card only when the target is genuinely absent. Preserve the exact distinction the question tested.\n\n` + repairs.map((r,i)=>{
+    const q=r.repair;
+    return `## ${i+1}. ${r.atom?.term||q?.concept||r.key}\n- Missing connection: [write this yourself]\n- Why I missed it: [knowledge / clue / distractor / overthinking / time]\n- Existing card searched: [deck/tag/search]\n- Decision: [unsuspend / edit / create one / no card needed]\n- Minimal recall target: [one question the card must make me answer]\n- Lecture anchor: ${r.atom?.content||'Add the relevant lecture relationship'}${q?`\n- Question clue: ${q.stem}`:''}`;
+  }).join('\n\n');
+}
+
 export function ModelRepairs({ userId, lectureId, title, atoms = [] }) {
   const resource = useStoreResource(atomProgress, userId);
   const evidenceStore = useMemo(() => repairEvidenceStore(lectureId), [lectureId]);
   const evidence = useStoreResource(evidenceStore, userId);
   const repairs = selectModelRepairs(resource.data?.[lectureId], atoms, evidence.data);
   const [notice, setNotice] = useState("");
-  const [manualCopy, setManualCopy] = useState(false);
+  const [manualCopy, setManualCopy] = useState("");
   const [localMessages, setLocalMessages] = useState([]);
   const [localInput, setLocalInput] = useState("");
   const [localLoading, setLocalLoading] = useState(false);
   const prompt = modelRepairPrompt(title, repairs);
+  const ankiBrief=ankiWeakPointBrief(title,repairs);
 
   const askLocalAI = async (studentMessage = "") => {
     if (localLoading) return;
@@ -73,15 +81,20 @@ export function ModelRepairs({ userId, lectureId, title, atoms = [] }) {
     <p className="mb-3 text-sm text-text-2">Find the missing connection in your mental model, then retest. A correct answer clears the atom’s review flag; a later miss reopens it.</p>
     {repairs.length > 0 ? <>
       <div className="mb-3 flex flex-wrap gap-2"><button className="min-h-11 rounded border border-border px-3 text-sm font-semibold" onClick={async () => {
-        try { await navigator.clipboard.writeText(prompt); setNotice("Copied. Paste into your chat with your mental model."); setManualCopy(false); }
-        catch { setManualCopy(true); setNotice("Copy the text below manually."); }
+        try { await navigator.clipboard.writeText(prompt); setNotice("Copied. Paste into your chat with your mental model."); setManualCopy(""); }
+        catch { setManualCopy(prompt); setNotice("Copy the text below manually."); }
       }}>Copy for any AI</button>
       <button className="min-h-11 rounded border border-border px-3 text-sm font-semibold" onClick={downloadHandoff}>Download handoff</button>
       <button className="min-h-11 rounded bg-accent px-3 text-sm font-semibold text-bg disabled:opacity-50" disabled={localLoading} onClick={() => askLocalAI()}>
         {localLoading ? "Local AI thinking…" : localMessages.length ? "Ask next question" : "Study with local AI"}
       </button></div>
+      <section className="mb-4 rounded-lg border-2 border-border-strong bg-panel p-3">
+        <h3 className="font-semibold">Before Anki · repair and select weak points</h3>
+        <ol className="my-2 list-decimal space-y-1 pl-5 text-sm text-text-2"><li>Repair where the missed concept belongs in your model.</li><li>Search your existing deck for that exact recall target.</li><li>Unsuspend or edit first; create one atomic card only if the target is absent.</li></ol>
+        <button type="button" className="min-h-11 rounded border border-border px-3 text-sm font-semibold" onClick={async()=>{try{await navigator.clipboard.writeText(ankiBrief);setNotice('Pre-Anki weak-point brief copied. Fill it in before creating cards.');setManualCopy("");}catch{setManualCopy(ankiBrief);setNotice('Copy the pre-Anki brief below manually.');}}}>Copy pre-Anki weak-point brief</button>
+      </section>
       {notice && <p role="status" className="mb-2 text-sm">{notice}</p>}
-      {manualCopy && <textarea aria-label="Model repair chat prompt" readOnly value={prompt} className="mb-3 h-52 w-full rounded border border-border bg-panel p-3 text-sm" onFocus={(e) => e.target.select()} />}
+      {manualCopy && <textarea aria-label="Manual copy text" readOnly value={manualCopy} className="mb-3 h-52 w-full rounded border border-border bg-panel p-3 text-sm" onFocus={(e) => e.target.select()} />}
       {localMessages.length > 0 && <section aria-label="Local AI model repair" className="mb-4 space-y-3 rounded border border-border bg-panel p-3">
         {localMessages.map((message, index) => <div key={`${message.role}-${index}`} className="text-sm">
           <strong>{message.role === "student" ? "You" : "Local tutor"}</strong>

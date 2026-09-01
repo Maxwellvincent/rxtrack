@@ -6,7 +6,7 @@ import * as progress from "../../../stores/atomProgress.js";
 import { repairEvidenceStore } from "../../../stores/modelRepairEvidence.js";
 const bridgeCompleteMock = vi.hoisted(() => vi.fn());
 vi.mock("../../../llmBridge.js", () => ({ bridgeComplete: (...args) => bridgeCompleteMock(...args) }));
-import { ModelRepairs, selectModelRepairs, modelRepairPrompt } from "./ModelRepairs.jsx";
+import { ModelRepairs, selectModelRepairs, modelRepairPrompt, ankiWeakPointBrief } from "./ModelRepairs.jsx";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 beforeEach(() => { installDomStorage(); bridgeCompleteMock.mockReset(); });
 const question = { topic: "Concept A", stem: "Which connection is missing?", choices: { A: "First", B: "Second" }, picked: "A", correct: "B", explanation: "The causal connection distinguishes them.", confidence: 5 };
@@ -36,6 +36,7 @@ describe("Model repairs", () => {
     expect(prompt).toContain(question.explanation);
     expect(prompt).toContain("Ask me to share my current model first");
   });
+  it('builds a pre-Anki brief from only the weak points and requires an existing-card search',()=>{const brief=ankiWeakPointBrief('Lecture',[{key:'a',atom:{term:'Target',content:'A causes B'},repair:question}]);expect(brief).toContain('Target');expect(brief).toContain('A causes B');expect(brief).toContain('Existing card searched');expect(brief).toContain('Do not create cards yet');});
   it("starts collapsed and copies from the saved records", async () => {
     progress.recordAtomAnswer(null, "lec", "a", false, question);
     const copy = vi.fn(async () => {});

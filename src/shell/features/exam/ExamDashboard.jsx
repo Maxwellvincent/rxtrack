@@ -21,6 +21,7 @@ import { repairActivity } from './repairQueue.js';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
 import * as modelImpactStore from '../../../stores/mentalModelImpact.js';
 import * as atomProgressStore from '../../../stores/atomProgress.js';
+import {ConfidenceCalibration} from './ConfidenceCalibration.jsx';
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -255,6 +256,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         <PracticeGoal key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
+      <ConfidenceCalibration records={studyAnswers}/>
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
         Integrated Exam performance
       </div>

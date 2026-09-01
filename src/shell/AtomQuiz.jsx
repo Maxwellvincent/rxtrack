@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { advanceOnEnter } from "../ui/nextQuestion.js";
 import { highlightRanges, sameHighlight } from "../ui/highlightRanges.js";
-import { classify, summarize, atomsToReview } from "../engine/calibration.js";
+import { classify, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
@@ -389,7 +389,6 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
 }
 
 export function Summary({ records, onExit, onReviewAtom }) {
-  const s = summarize(records);
   const toReview = atomsToReview(records);
   const pct = (a) => (a == null ? "—" : Math.round(a * 100) + "%");
   return (
@@ -398,18 +397,6 @@ export function Summary({ records, onExit, onReviewAtom }) {
         <div className="text-3xl font-bold text-text-1">{pct(records.length ? records.filter((r) => r.correct).length / records.length : null)}</div>
         <div className="text-sm text-text-2">{records.filter((r) => r.correct).length} / {records.length} correct · Quiz complete</div>
       </div>
-      <details className="rounded-lg border border-border bg-bg-elevated p-3">
-        <summary className="cursor-pointer font-mono text-[12px] text-text-2">Accuracy by confidence</summary>
-        {[...s.curve].reverse().map((r) => (
-          <div key={r.level} className="flex items-center gap-2 text-xs">
-            <span className="w-16 text-text-2">{CONF[r.level - 1].label}</span>
-            <div className="h-2 flex-1 overflow-hidden rounded bg-panel">
-              <div className="h-full bg-accent" style={{ width: r.accuracy == null ? 0 : r.accuracy * 100 + "%" }} />
-            </div>
-            <span className="w-16 text-right font-mono text-text-3">{pct(r.accuracy)}{r.count ? ` (${r.count})` : ""}</span>
-          </div>
-        ))}
-      </details>
       {/* Every atom left needs-review this session, not just the landmines (sure-but-wrong) —
           those are still sorted first, but a plain miss deserves a way back too instead of
           silently not appearing anywhere. */}
