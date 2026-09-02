@@ -1,7 +1,7 @@
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
-import { BlockPracticeCard } from "./BlockPracticeCard.jsx";
+import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
@@ -1036,6 +1036,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
       {/* Day mode picker */}
       {modePickerOpen && <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />}
 
+      <BlockReadinessDashboard blockId={blockId} userId={userId} onStudyLecture={onStudy} />
+
       {/* Progress */}
       {filteredTasks.length > 0 && (
         <ProgressBar done={doneCount} total={filteredTasks.length} />
@@ -1123,8 +1125,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
           onComplete={onPreReadDone}
         />
       )}
-
-      <BlockPracticeCard blockId={blockId} userId={userId} />
 
       {/* Reset */}
       {doneCount > 0 && (
