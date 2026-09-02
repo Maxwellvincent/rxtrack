@@ -927,7 +927,11 @@ export function normalizeSectionActivity(label) {
 export function parseObjectiveDocSections(text) {
   const src = String(text || "");
   const headers = [];
-  const headerRe = /^\|?[^\S\n]*((?:Lecture|DLA|TBL|Small group|Lab)[^|\n]*?)[^\S\n]*\|[^\S\n]*([^|\n]+?)[^\S\n]*\|?[^\S\n]*$/gim;
+  // Markdown converters produce pipe-delimited tables, while PDF.js and
+  // pdftotext preserve the original Excel columns as runs of whitespace.
+  // Accept both: the official curriculum PDF should not require AI cleanup
+  // simply because its table is an Excel export.
+  const headerRe = /^\|?[^\S\n]*((?:Lecture|DLA|TBL|Small group|Lab)\b[^|\n]*?)(?:[^\S\n]*\|[^\S\n]*|\s{2,})([^|\n]+?)[^\S\n]*\|?[^\S\n]*$/gim;
   for (const m of src.matchAll(headerRe)) {
     if (/^SOM\./i.test(m[1].trim())) continue;
     headers.push({

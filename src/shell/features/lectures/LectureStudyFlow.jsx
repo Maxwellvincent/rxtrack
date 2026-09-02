@@ -1197,8 +1197,9 @@ export function LectureStudyFlow({
                 {busyLabel || "▸ Quiz this lecture"}
               </Button>
               <span className="text-[12px] text-text-3">
-                {atoms.length} atoms · {lectureObjectives.length} objectives
-                {atomMastery.totalCount > 0 ? ` · ${atomMastery.masteredCount}/${atomMastery.totalCount} atoms mastered` : ""}
+                {lectureObjectives.length} school objectives
+                {lectureObjectives.length > 0 ? ` · ${objMastered} mastered · ${objDeveloping} developing · ${objUntested} untested` : ""}
+                {atoms.length > 0 ? ` · ${atoms.length} supporting facts` : ""}
                 {qStats.answered > 0 ? ` · ${qStats.answered} questions answered` : ""}
                 {schoolExamplesLoading
                   ? " · loading school examples…"

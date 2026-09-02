@@ -223,7 +223,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   return (
     <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span>Calibrated quiz — from your atoms</span><span className="text-text-3">{i + 1}/{questions.length}</span>
+        <span>Objective quiz — recognition &amp; application</span><span className="text-text-3">{i + 1}/{questions.length}</span>
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-panel"

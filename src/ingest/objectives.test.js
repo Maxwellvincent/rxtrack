@@ -412,4 +412,20 @@ describe("extractObjectivesFromStandaloneDoc — matching a section to a lecture
     expect(objs.find((o) => o.code.endsWith("1010")).linkedLecId).toBe("lec23");
     expect(objs.find((o) => o.code.endsWith("1011")).linkedLecId).toBe("lec23");
   });
+
+  it("matches fixed-width Excel PDF section headers without LLM cleanup", async () => {
+    const fixedWidth = [
+      "Lecture BCHM                             Nutritional Aspects of Pregnancy, Lactation and Infant Nutrition",
+      "SOM.MK.III.BPM2.2.ER.3.BCHM.1010        Explain the role of docosahexaenoic acid in brain growth and neurodevelopment.",
+      "SOM.MK.III.BPM2.2.ER.3.BCHM.1011        Compare the macronutrients in human breast milk and cow's milk.",
+      "DLA BCHM                                 Nutrition & Aging",
+      "SOM.MK.III.BPM2.2.ER.3.BCHM.1008        Review protein-energy malnutrition in older adults and describe its management.",
+    ].join("\n");
+
+    const objs = await extractObjectivesFromStandaloneDoc(fixedWidth, lectures, "b1");
+
+    expect(objs.find((o) => o.code.endsWith("1010")).linkedLecId).toBe("lec23");
+    expect(objs.find((o) => o.code.endsWith("1008")).linkedLecId).toBe("dla1");
+    expect(objs.find((o) => o.code.endsWith("1008")).activity).toBe("DLA");
+  });
 });

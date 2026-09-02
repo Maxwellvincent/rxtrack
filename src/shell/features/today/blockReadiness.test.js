@@ -35,4 +35,18 @@ describe("block readiness", () => {
   it("does not invent a trend from a tiny sample", () => {
     expect(readinessTrend([{ correct: true }]).label).toBe("Building baseline");
   });
+
+  it("does not inflate readiness with duplicate objective records", () => {
+    const result = blockReadinessSummary({
+      blockId: "dm",
+      lectures: [{ id: "a", blockId: "dm", lectureTitle: "Carbohydrates" }],
+      objectives: [
+        { id: "old", code: "SOM.DM.0001", objective: "Describe glycolysis.", linkedLecId: "a", status: "untested" },
+        { id: "new", objectiveCode: "SOM.DM.0001", text: "Describe glycolysis.", linkedLecId: "a", status: "untested" },
+      ],
+    });
+
+    expect(result.objectives.total).toBe(1);
+    expect(result.targets[0].untested).toBe(1);
+  });
 });

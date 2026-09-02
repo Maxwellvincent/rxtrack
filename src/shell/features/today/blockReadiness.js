@@ -13,6 +13,21 @@ const accuracyOf = (row) => {
   return answered ? Math.min(1, correct / answered) : null;
 };
 
+function uniqueObjectives(objectives = []) {
+  const seen = new Set();
+  return objectives.filter((objective) => {
+    const code = String(objective?.code || objective?.objectiveCode || "").replace(/\s/g, "").toLowerCase();
+    const text = String(objective?.objective || objective?.text || "")
+      .slice(0, 80)
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    const key = code ? `code:${code}` : text ? `text:${text}` : objective?.id ? `id:${objective.id}` : "";
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function readinessTrend(records = []) {
   const valid = records.filter((row) => typeof row?.correct === "boolean");
   const recent = valid.slice(-20);
@@ -36,6 +51,7 @@ export function blockReadinessSummary({
   weakConcepts = [],
   now = Date.now(),
 }) {
+  objectives = uniqueObjectives(objectives);
   const blockLectures = lectures.filter((lecture) => lecture?.blockId === blockId);
   const lecturesById = Object.fromEntries(blockLectures.map((lecture) => [lecture.id, lecture]));
   const practice = blockPracticeSummary(blockId, blockLectures, questionStats, sessions);
