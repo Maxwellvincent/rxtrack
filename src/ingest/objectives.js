@@ -42,9 +42,19 @@ export function parseObjectiveActivityTag(text) {
 
 export const MAX_OBJECTIVE_CHARS = 320;
 
+const OBJECTIVE_START_RE = /(?:^|\s)(summarize|outline|discuss|describe|identify|explain|list|compare|contrast|define|classify|distinguish|differentiate|evaluate|analyze|apply|demonstrate|calculate|interpret|relate|state|give|name|recognize|predict|determine|illustrate|formulate|recall|review|assess|examine|draw|characterize|diagnose|select|solve|use|construct|develop|derive|match|label|locate|perform|understand|appraise|highlight|indicate|justify)\b/i;
+
+/** Remove curriculum-export furniture without rewriting the school's objective. */
+export function stripObjectiveDocumentBoilerplate(value) {
+  return String(value || "")
+    .replace(/^\s*(?:learning objectives?\s+for\s+module\b|school of medicine\b|university\b|campus\b|address\b|term\s+(?:spring|summer|fall|winter|august|january)\b|page\s+\d+\s*(?:of\s+\d+)?\b|confidential\b|copyright\b).*$/gim, "")
+    .replace(/^\s*(?:Lecture|DLA|TBL|Small group|Lab)\s+[A-Z][A-Z0-9;&/ -]*\s{2,}.*$/gm, "")
+    .replace(/^\s*\|?\s*-{3,}(?:\s*\|\s*-{3,})+\s*\|?\s*$/gm, "");
+}
+
 /** Keep one curriculum objective; never let the rest of a slide or deck become its text. */
 export function sanitizeObjectiveText(value) {
-  let text = String(value || "")
+  let text = stripObjectiveDocumentBoilerplate(value)
     .replace(/^\s*SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}\s*/i, "")
     .split(/\s+\|\s*(?:#{1,6}\s+|recommended reading|images?:|other resources?:|the big picture|copyright\b)/i)[0]
     .replace(/\|\s*\|[-:|\s]{3,}[\s\S]*$/i, "")
@@ -52,6 +62,14 @@ export function sanitizeObjectiveText(value) {
     .replace(/\s*\|\s*$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+
+  // A malformed table row can put a school heading or metadata before the
+  // actual objective. Keep the authoritative verb-led sentence, not the
+  // document furniture. Do not alter already-clean objectives.
+  if (text && !OBJECTIVE_START_RE.test(text.slice(0, 24))) {
+    const firstObjective = text.search(OBJECTIVE_START_RE);
+    if (firstObjective >= 0 && firstObjective <= 180) text = text.slice(firstObjective).trim();
+  }
 
   if (text.length > MAX_OBJECTIVE_CHARS) {
     const sentence = text.slice(0, MAX_OBJECTIVE_CHARS + 1).match(/^(.{20,320}?[.!?])(?:\s|$)/)?.[1];
@@ -345,15 +363,30 @@ export function extractCodeDelimited(text, lec, blockId) {
 
   const results = [];
   const seen = new Set();
+  let pendingPrefix = "";
   for (let i = 0; i < matches.length; i++) {
     // The match may still carry a space the normaliser could not reach; the
     // stored code never should.
     const code = matches[i][0].replace(/\s/g, "");
     const start = matches[i].index + matches[i][0].length;
     const end = i + 1 < matches.length ? matches[i + 1].index : Math.min(src.length, start + 600);
-    const body = sanitizeObjectiveText(src
-      .slice(start, end)
-      .replace(/\s+/g, " ")
+    let segment = src.slice(start, end);
+    const prefixForCurrent = pendingPrefix;
+    pendingPrefix = "";
+
+    // In Excel-exported curriculum PDFs a long objective can wrap above the
+    // SOM code in its row. pdftotext then places that verb-led prefix at the
+    // end of the previous code's segment. Move only that final, indented block
+    // forward to the code it belongs to.
+    if (i + 1 < matches.length) {
+      const hanging = segment.match(/\n([ \t]{12,}(?:Summarize|Outline|Discuss|Describe|Identify|Explain|List|Compare|Contrast|Define|Classify|Distinguish|Differentiate|Evaluate|Analyze|Apply|Demonstrate|Calculate|Interpret|Relate|State|Recognize|Predict|Determine|Review|Assess|Examine|Characterize|Select|Use|Appraise|Highlight|Indicate|Justify)\b[^\n]*(?:\n[ \t]{12,}[^\n]*)*)\s*$/i);
+      if (hanging) {
+        pendingPrefix = hanging[1].replace(/\s+/g, " ").trim();
+        segment = segment.slice(0, hanging.index);
+      }
+    }
+
+    const body = sanitizeObjectiveText(`${prefixForCurrent} ${segment}`
       .replace(/^[\s:.\-–—|]+/, "")
       .trim());
 

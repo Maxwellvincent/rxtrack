@@ -15,6 +15,8 @@ import {
   extractObjectivesFromLecture,
   extractScopedLectureObjectives,
   sanitizeObjectiveText,
+  stripObjectiveDocumentBoilerplate,
+  extractCodedObjectivesFromDoc,
 } from "./objectives.js";
 import { execFileSync } from "node:child_process";
 
@@ -35,6 +37,31 @@ it("stops a malformed one-code objective before lecture resources and markdown t
   expect(sanitizeObjectiveText(raw)).toBe("Describe the development of the male reproductive ducts and associated glands.");
   const [objective] = extractCodeDelimited(raw, lec, "er");
   expect(objective.objective).toBe("Describe the development of the male reproductive ducts and associated glands.");
+});
+
+it("removes school document furniture while keeping the objective itself", () => {
+  const raw = `School of Medicine\nUniversity Administration\nAddress 1 University Way\nLearning objectives for module DM in term August 2026\nDescribe the regulation of glycolysis.`;
+  expect(stripObjectiveDocumentBoilerplate(raw)).not.toMatch(/school|university|address|module DM/i);
+  expect(sanitizeObjectiveText(raw)).toBe("Describe the regulation of glycolysis.");
+});
+
+it("moves an Excel-wrapped objective prefix forward to its own SOM code", () => {
+  const raw = `SOM.MK.DM.BCHM.1100 Differentiate reducing and non-reducing sugars.\n` +
+    `                                         Compare the types of glycosidic bonds and nutritional significance in carbohydrates, including\n` +
+    `                                         monosaccharides and disaccharides\n` +
+    `SOM.MK.DM.BCHM.1102 polysaccharides and their clinical relevance.`;
+  const rows = extractCodeDelimited(raw, lec, "dm");
+  expect(rows).toHaveLength(2);
+  expect(rows[0].objective).toBe("Differentiate reducing and non-reducing sugars.");
+  expect(rows[1].objective).toBe("Compare the types of glycosidic bonds and nutritional significance in carbohydrates, including monosaccharides and disaccharides polysaccharides and their clinical relevance.");
+});
+
+it.skipIf(!process.env.RXTRACK_VERIFY_DM_OBJECTIVES)("keeps the official DM objectives free of document furniture", () => {
+  const text = execFileSync("pdftotext", ["-layout", process.env.RXTRACK_VERIFY_DM_OBJECTIVES, "-"], { encoding: "utf8" });
+  const rows = extractCodedObjectivesFromDoc(text, [], "dm");
+  expect(rows.length).toBeGreaterThan(300);
+  expect(rows.every((row) => row.objective.length <= 320)).toBe(true);
+  expect(rows.some((row) => /school of medicine|university|address|learning objectives for module|copyright|page \d/i.test(row.objective))).toBe(false);
 });
 
 describe("separate lecture and DLA objective slides", () => {
