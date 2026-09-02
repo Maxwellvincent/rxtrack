@@ -590,6 +590,8 @@ export function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, p
                   ? "on schedule"
                   : task.matchReason === "spaced-rep-due"
                     ? "spaced rep due"
+                    : task.matchReason === "catch-up"
+                      ? `catch-up · missed ${task.catchUpDays === 1 ? "yesterday" : `${task.catchUpDays}d ago`}`
                     : "highest urgency"}
                 {preRead && (
                   <span className="text-good">
@@ -963,7 +965,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     if (mode === "lecture") {
       const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day");
       const due = todayTasks.filter((t) => t.matchReason === "spaced-rep-due").slice(0, 2);
-      return [...scheduled, ...due];
+      const catchUp = todayTasks.filter((t) => t.matchReason === "catch-up").slice(0, 1);
+      return [...scheduled, ...due, ...catchUp];
     }
     if (mode === "review") {
       return todayTasks

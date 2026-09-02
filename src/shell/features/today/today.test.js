@@ -3,7 +3,7 @@ import { installDomStorage } from "../../../stores/testEnv.js";
 import { detectStudyMode, hasUploadedContent } from "../../logic/studyMode.js";
 import { appendActivity, computeReviewDates, getNextSaturday, localDateString } from "../../logic/completionLog.js";
 import { buildScheduleContext, resolveBlockMeta, lecturePerformanceFor } from "./scheduleContext.js";
-import { todayTasks } from "./fallback.js";
+import { catchUpTasks, todayTasks } from "./fallback.js";
 import { generateDailySchedule, buildStudySchedule } from "../../logic/schedule.js";
 
 describe("detectStudyMode", () => {
@@ -166,6 +166,35 @@ describe("today's task list", () => {
     const result = todayTasks(daily);
     expect(result.reason).toBe("scheduled");
     expect(result.tasks.map((t) => t.lec.id)).toEqual(["a"]);
+  });
+
+  it("adds only a small recent catch-up queue after today's scheduled work", () => {
+    const daily = {
+      schedule: [{ daysFromNow: 0, tasks: [score("today", 50, { matchReason: "scheduled-day" })] }],
+      lecScores: [
+        score("today", 50, { availableDate: new Date("2026-07-27T00:00:00"), sessions: 0 }),
+        score("yesterday", 90, { availableDate: new Date("2026-07-26T00:00:00"), sessions: 0 }),
+        score("three-days", 99, { availableDate: new Date("2026-07-24T00:00:00"), sessions: 0 }),
+        score("older", 100, { availableDate: new Date("2026-07-10T00:00:00"), sessions: 0 }),
+        score("started", 100, { availableDate: new Date("2026-07-25T00:00:00"), sessions: 1 }),
+      ],
+    };
+
+    const result = todayTasks(daily, { todayStr: "2026-07-27" });
+    expect(result.reason).toBe("scheduled-with-catch-up");
+    expect(result.tasks.map((t) => t.lec.id)).toEqual(["today", "yesterday", "three-days"]);
+    expect(result.tasks[1]).toMatchObject({ matchReason: "catch-up", catchUpDays: 1 });
+  });
+
+  it("does not pile up old or already-started lectures as catch-up work", () => {
+    const daily = {
+      lecScores: [
+        score("recent", 50, { availableDate: new Date("2026-07-25T00:00:00"), sessions: 0 }),
+        score("old", 99, { availableDate: new Date("2026-07-01T00:00:00"), sessions: 0 }),
+        score("started", 100, { availableDate: new Date("2026-07-26T00:00:00"), sessions: 2 }),
+      ],
+    };
+    expect(catchUpTasks(daily, { today: new Date("2026-07-27") }).map((t) => t.lec.id)).toEqual(["recent"]);
   });
 
   it("ignores a plan whose first day is not today", () => {
