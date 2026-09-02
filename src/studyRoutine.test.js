@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Mock supabase before any module imports it.
 vi.mock("./supabase", () => ({
   supabase: { auth: { getUser: () => Promise.resolve({ data: { user: null } }) } },
+  getCurrentUser: () => Promise.resolve(null),
   scheduleDebouncedCloudPush: () => {},
 }));
 
@@ -229,7 +230,7 @@ describe("getSuggestions — rule firing", () => {
     for (let i = 0; i < 12; i++) {
       log.push({
         date: isoDaysAgo(i),
-        predicted: 90,
+        confidence: 90,
         correct: i < 6,
       });
     }
@@ -242,7 +243,7 @@ describe("getSuggestions — rule firing", () => {
     const m = await freshImport();
     const log = Array.from({ length: 5 }, (_, i) => ({
       date: isoDaysAgo(i),
-      predicted: 90,
+      confidence: 90,
       correct: false,
     }));
     localStorage.setItem("rxt-calibration-log", JSON.stringify(log));
@@ -342,6 +343,8 @@ describe("dismiss / accept suggestion", () => {
   });
 
   it("dismissSuggestion with snoozeDays re-shows after the snooze elapses", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(TODAY));
     const m = await freshImport();
     const concepts = Array.from({ length: 25 }, (_, i) => ({ id: "c" + i, objectiveIds: [] }));
     localStorage.setItem("rxt-weak-concepts", JSON.stringify({ bA: concepts, lifetime: [] }));
@@ -357,6 +360,7 @@ describe("dismiss / accept suggestion", () => {
         .getSuggestions({ todayISO: later.toISOString() })
         .some((s) => s.id === "backfill-objective-links")
     ).toBe(true);
+    vi.useRealTimers();
   });
 
   it("acceptSuggestion(target-edit) updates the step target and dismisses", async () => {

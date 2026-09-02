@@ -157,9 +157,11 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     // Typing in search recomputes `rows` (a dependency of the scroll
     // effect) without focusLectureId itself changing — this must not
     // re-trigger the scroll.
-    const searchInput = host.querySelector('input[placeholder="search…"]');
-    const propsKey = Object.keys(searchInput).find((k) => k.startsWith("__reactProps$"));
-    act(() => searchInput[propsKey].onChange({ target: { value: "One" } }));
+    const searchInput = host.querySelector('input[aria-label="Search lectures"]');
+    act(() => {
+      searchInput.value = "One";
+      searchInput.dispatchEvent(new window.Event("input", { bubbles: true }));
+    });
 
     expect(scrollIntoViewSpy).toHaveBeenCalledTimes(1);
 

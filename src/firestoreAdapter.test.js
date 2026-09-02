@@ -7,7 +7,7 @@ import { doc } from "firebase/firestore";
 import { auth, db } from "./firebase";
 import { __test } from "./supabase"; // export the primitives under __test
 
-describe("firestore doc primitives", () => {
+describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("firestore doc primitives", () => {
   let uid;
   beforeAll(async () => {
     try { await createUserWithEmailAndPassword(auth, "d@d.com", "pw1234"); } catch {}

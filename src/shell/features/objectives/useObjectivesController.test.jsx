@@ -1,18 +1,41 @@
 import React, { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { act } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import { setStoreHookUserId } from "../../hooks/currentUser.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
 import * as lecturesStore from "../../../stores/lectures.js";
 import * as performanceStore from "../../../stores/performance.js";
+import {
+  __setCloudBackendForTests,
+  resetCloudStores,
+} from "../../../stores/cloudBase.js";
+import {
+  __setObjectivesBackendForTests,
+} from "../../../stores/blockObjectivesCloud.js";
 import { useObjectivesController } from "./useObjectivesController.js";
 
 // Tells React that act() is legitimate here; without it every act warns.
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 const USER = "u1";
+
+const cloudBackend = {
+  doc: (_db, ...segments) => segments.join("/"),
+  onSnapshot: () => () => {},
+  setDoc: () => Promise.resolve(),
+  serverTimestamp: () => "TEST_TS",
+};
+
+const objectivesBackend = {
+  collection: (_db, ...segments) => segments.join("/"),
+  doc: (_db, ...segments) => segments.join("/"),
+  onSnapshot: () => () => {},
+  setDoc: () => Promise.resolve(),
+  deleteDoc: () => Promise.resolve(),
+  serverTimestamp: () => "TEST_TS",
+};
 
 /** Render the hook once and hand the caller its latest value. */
 async function mount(blockId, run) {
@@ -42,8 +65,20 @@ const stored = () => objectivesStore.read(USER);
 
 describe("useObjectivesController", () => {
   beforeEach(() => {
+    // Controller behavior is deterministic here; Firestore transport behavior
+    // belongs to the dedicated store integration tests. Inert backends also
+    // prevent delayed network snapshots leaking one fixture into the next.
+    __setCloudBackendForTests(cloudBackend);
+    __setObjectivesBackendForTests(objectivesBackend);
     installDomStorage();
     setStoreHookUserId(null);
+  });
+
+  afterEach(() => {
+    objectivesStore.resetObjectivesStore();
+    resetCloudStores();
+    __setObjectivesBackendForTests(null);
+    __setCloudBackendForTests(null);
   });
 
   it("exposes the block's objectives, deduped by text, plus its lectures", async () => {

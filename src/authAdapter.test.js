@@ -3,7 +3,7 @@ import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from "fire
 import { auth } from "./firebase";
 import { getCurrentUser } from "./supabase";
 
-describe("auth adapter", () => {
+describe.skipIf(!globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("auth adapter", () => {
   beforeAll(async () => {
     try { await createUserWithEmailAndPassword(auth, "t@t.com", "pw1234"); } catch {}
     await signInWithEmailAndPassword(auth, "t@t.com", "pw1234");

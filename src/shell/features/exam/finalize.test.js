@@ -19,7 +19,7 @@ function makeQuestion(questionId, lectureId, correct = "A") {
   return { questionId, blockId: "block-1", lectureId, objectiveIds: [], stem: "?", choices: { A: "a", B: "b" }, correct, explanation: "" };
 }
 
-describe("finalizeExamSession", () => {
+describe.skipIf(!globalThis.process?.env?.FIRESTORE_EMULATOR_HOST || !globalThis.process?.env?.FIREBASE_AUTH_EMULATOR_HOST)("finalizeExamSession", () => {
   let uid;
   beforeAll(async () => {
     try { await createUserWithEmailAndPassword(auth, "exam-finalize@d.com", "pw1234"); } catch {}
