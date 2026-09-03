@@ -4,6 +4,7 @@ import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js"
 import { listExamSessions } from "../../../supabase.js";
 import { blockPracticeSummary } from "./blockPractice.js";
 import { SchoolAlignmentPanel } from "./SchoolAlignmentPanel.jsx";
+import { SCHOOL_EXAM_TARGET_PERCENT } from "../../logic/performanceTargets.js";
 
 const percent = (n) => n == null ? "—" : `${(n * 100).toFixed(1)}%`;
 export function BlockPracticeCard({ blockId, userId }) {
@@ -21,7 +22,7 @@ export function BlockPracticeCard({ blockId, userId }) {
   }, [blockId, userId, refresh]);
   const result = blockPracticeSummary(blockId, lectures.data, stats.data, history.blockId === blockId ? history.sessions : []);
   const loading = stats.loading || history.loading || history.blockId !== blockId;
-  const gap = result.accuracy == null ? null : (result.accuracy * 100 - 74);
+  const gap = result.accuracy == null ? null : (result.accuracy * 100 - SCHOOL_EXAM_TARGET_PERCENT);
   return <section aria-label="Block question progress" className="desk-practice rounded-lg border border-border bg-bg-elevated p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="text-base font-semibold">This block · question progress</h3>
@@ -32,14 +33,14 @@ export function BlockPracticeCard({ blockId, userId }) {
     <div className="desk-practice-metrics my-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
       <div><div className="text-2xl font-bold">{loading ? "—" : result.answered.toLocaleString()}</div><div className="text-sm text-text-2">Questions answered</div></div>
       <div><div className="text-2xl font-bold">{loading ? "—" : percent(result.accuracy)}</div><div className="text-sm text-text-2">Overall practice accuracy</div></div>
-      <div><div className="text-2xl font-bold">74%</div><div className="text-sm text-text-2">Your benchmark</div></div>
+      <div><div className="text-2xl font-bold">{SCHOOL_EXAM_TARGET_PERCENT}%</div><div className="text-sm text-text-2">School-exam target</div></div>
     </div>
     {!loading && result.answered > 0 && <p className="text-sm">{result.correct} correct of {result.answered} answered · {Math.abs(gap).toFixed(1)} percentage points {gap >= 0 ? "above" : "below"} your benchmark.</p>}
     <details className="mt-3 text-sm">
       <summary className="min-h-11 cursor-pointer py-2 text-text-2">What these numbers mean</summary>
       <p>Counts saved lecture-quiz attempts and exam-session answers, including repeats. Overlapping exam records are not added twice. Deleted or untracked lecture history may be missing.</p>
       <p className="mt-2">Recent timed practice: {percent(result.timedAccuracy)} across {result.timedCount} submitted sessions ({result.timedQuestions} questions; latest five). Skipped questions count as incorrect in this timed score.</p>
-      <p className="mt-2">Practice accuracy is not a predicted school-exam grade. Repeats, difficulty and topic coverage affect it. More questions alone do not establish improvement; compare fresh timed practice and actual school results. Your 74% benchmark does not calculate semester grading requirements.</p>
+      <p className="mt-2">Practice accuracy is not a predicted school-exam grade. Repeats, difficulty and topic coverage affect it. More questions alone do not establish improvement; compare fresh timed practice and actual school results. The {SCHOOL_EXAM_TARGET_PERCENT}% value is your operating target, not a guarantee.</p>
     </details>
     <SchoolAlignmentPanel blockId={blockId} userId={userId} sessions={history.blockId === blockId ? history.sessions : []} historyReady={!history.loading && !history.error && history.blockId === blockId} />
   </section>;

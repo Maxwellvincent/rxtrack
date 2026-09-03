@@ -137,6 +137,7 @@ describe("buildWeakConceptEntriesFromReport", () => {
     expect(entries[0].linkedLecIds).toEqual(["lec1"]);
     expect(entries[0].masteryLevel).toBe("struggling");
     expect(entries[0].tags).toContain("exam-report");
+    expect(entries[0]).toMatchObject({ reportScore: 0, reportClassAverage: 39.49, reportSampleSize: 2, reportGap: 39.49 });
   });
 
   it("has a stable id derived from blockId + category, not random", () => {

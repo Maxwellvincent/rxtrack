@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { allocateQuestions, makeSeededRandom } from "./allocation.js";
+import { allocateQuestions, makeSeededRandom, repairSeverityForLecture } from "./allocation.js";
 
 const BLOCK_ID = "block-1";
 
@@ -27,6 +27,14 @@ describe("makeSeededRandom", () => {
 });
 
 describe("allocateQuestions", () => {
+  it("weights broad exam-report misses more strongly than a tiny category", () => {
+    const concepts = { [BLOCK_ID]: [
+      { concept: "Endocrine", blockId: BLOCK_ID, linkedLecIds: ["broad"], tags: ["exam-report"], missCount: 17, totalAttempts: 45, reportSampleSize: 45, reportGap: 16 },
+      { concept: "Single item", blockId: BLOCK_ID, linkedLecIds: ["tiny"], tags: ["exam-report"], missCount: 1, totalAttempts: 1, reportSampleSize: 1, reportGap: 78 },
+    ] };
+    expect(repairSeverityForLecture(concepts, BLOCK_ID, "broad"))
+      .toBeGreaterThan(repairSeverityForLecture(concepts, BLOCK_ID, "tiny"));
+  });
   it("returns {} for empty eligibleLectures", () => {
     expect(
       allocateQuestions({
@@ -103,7 +111,7 @@ describe("allocateQuestions", () => {
     expect(sumCounts(counts)).toBe(100);
     expect(counts["lec-hi"]).toBeGreaterThan(counts["lec-lo"]);
     // Exact values for this fixed seed — locks in determinism, not just direction.
-    expect(counts).toEqual({ "lec-hi": 83, "lec-lo": 17 });
+    expect(counts).toEqual({ "lec-hi": 79, "lec-lo": 21 });
   });
 
   it("below-minimum-coverage: selects exactly requestedCount distinct lectures, none repeated", () => {

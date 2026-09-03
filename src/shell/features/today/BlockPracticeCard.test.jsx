@@ -17,11 +17,12 @@ async function mount() {
   return { host, root };
 }
 describe("Block practice card", () => {
-  it("shows the recorded total, weighted accuracy and a separate 74% benchmark", async () => {
+  it("shows the recorded total, weighted accuracy and a separate 78% target", async () => {
     const { host, root } = await mount();
     expect(host.textContent).toContain("72.0%");
     expect(host.textContent).toContain("72 correct of 100 answered");
-    expect(host.textContent).toContain("2.0 percentage points below");
+    expect(host.textContent).toContain("6.0 percentage points below");
+    expect(host.textContent).toContain("78%");
     expect(host.textContent).toContain("not a predicted school-exam grade");
     expect(host.querySelector("details").open).toBe(false);
     await act(async () => { root.unmount(); });

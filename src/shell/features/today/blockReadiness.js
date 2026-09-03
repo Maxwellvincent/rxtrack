@@ -1,5 +1,6 @@
 import { confidenceAnalytics } from "../exam/confidenceAnalytics.js";
 import { blockPracticeSummary } from "./blockPractice.js";
+import { SCHOOL_EXAM_TARGET_PERCENT, SCHOOL_EXAM_TARGET_RATE } from "../../logic/performanceTargets.js";
 
 const objectiveStatus = (objective) => {
   const status = String(objective?.status || "untested").toLowerCase();
@@ -73,11 +74,11 @@ export function blockReadinessSummary({
     const modelOverdue = overdueModels.some((model) => model.lectureId === lecture.id);
     const weakFlag = weakLectureIds.has(lecture.id);
     const score = counts.struggling * 6 + counts.inprogress * 2 + Math.min(4, counts.untested * 0.25)
-      + (accuracy != null && accuracy < 0.74 ? (0.74 - accuracy) * 12 : 0)
+      + (accuracy != null && accuracy < SCHOOL_EXAM_TARGET_RATE ? (SCHOOL_EXAM_TARGET_RATE - accuracy) * 12 : 0)
       + (weakFlag ? 4 : 0) + (modelOverdue ? 2 : 0);
     const reasons = [];
     if (counts.struggling) reasons.push(`${counts.struggling} struggling objective${counts.struggling === 1 ? "" : "s"}`);
-    if (accuracy != null && accuracy < 0.74) reasons.push(`${Math.round(accuracy * 100)}% practice accuracy`);
+    if (accuracy != null && accuracy < SCHOOL_EXAM_TARGET_RATE) reasons.push(`${Math.round(accuracy * 100)}% practice accuracy · below ${SCHOOL_EXAM_TARGET_PERCENT}% target`);
     if (weakFlag) reasons.push("flagged by exam review");
     if (modelOverdue) reasons.push("model retrieval due");
     if (!reasons.length && counts.untested) reasons.push(`${counts.untested} untested objective${counts.untested === 1 ? "" : "s"}`);
@@ -91,7 +92,7 @@ export function blockReadinessSummary({
   const trend = readinessTrend(confidenceRecords);
   let state = "Building coverage";
   if (statuses.struggling > 0 || (practice.accuracy != null && practice.accuracy < 0.6)) state = "Repair first";
-  else if (coverage != null && coverage >= 0.7 && practice.accuracy != null && practice.accuracy >= 0.74) state = "Progressing well";
+  else if (coverage != null && coverage >= 0.7 && practice.accuracy != null && practice.accuracy >= SCHOOL_EXAM_TARGET_RATE) state = "At or above target";
 
   return {
     state,

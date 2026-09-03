@@ -64,6 +64,27 @@ function weightedPickIndex(pool, totalWeight, rand) {
 }
 
 /**
+ * Converts linked repair evidence into a bounded severity score. Exam-report
+ * categories carry their real missed-question volume, while ordinary quiz
+ * repair flags retain a useful baseline weight. A one-question category can
+ * no longer outweigh a broad, repeatedly missed system.
+ */
+export function repairSeverityForLecture(weakConcepts, blockId, lectureId) {
+  const linked = weakConceptsForLecture(weakConcepts, blockId, lectureId);
+  const evidence = linked.reduce((sum, concept) => {
+    if (concept?.tags?.includes?.("exam-report")) {
+      const sample = Math.max(1, Number(concept.reportSampleSize || concept.totalAttempts) || 1);
+      const misses = Math.max(1, Number(concept.missCount) || 1);
+      const reliability = Math.min(1, Math.sqrt(sample / 10));
+      const gapBoost = 1 + Math.min(0.5, Math.max(0, Number(concept.reportGap) || 0) / 50);
+      return sum + Math.min(8, misses) * reliability * gapBoost;
+    }
+    return sum + Math.min(3, Math.max(1, Number(concept?.missCount) || 1));
+  }, 0);
+  return Math.min(1, evidence / 8);
+}
+
+/**
  * Allocates `requestedCount` questions across `eligibleLectures` by
  * weak-concept severity and objective count, deterministically seeded by
  * `sessionId`. See task brief for the full algorithm.
@@ -88,8 +109,7 @@ export function allocateQuestions({ eligibleLectures, requestedCount, weakConcep
   );
 
   const weighted = ordered.map((lec) => {
-    const weakCount = weakConceptsForLecture(weakConcepts, blockId, lec.lectureId).length;
-    const severity = Math.min(weakCount, 5) / 5;
+    const severity = repairSeverityForLecture(weakConcepts, blockId, lec.lectureId);
     const objectiveCountNorm =
       maxEligibleObjectiveCount > 0 ? (lec.objectiveCount || 0) / maxEligibleObjectiveCount : 0;
     const evidence = learnerEvidence?.lectures?.[lec.lectureId];

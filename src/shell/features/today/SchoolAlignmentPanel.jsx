@@ -7,6 +7,7 @@ import { selectBlockObjectives } from '../../logic/objectives.js';
 import { alignSchoolQuestions } from '../../../engine/schoolAlignment.js';
 import { compareSchoolResults, validateSchoolResult } from '../../../engine/examComparison.js';
 import * as schoolResults from '../../../stores/schoolResults.js';
+import { SCHOOL_EXAM_TARGET_PERCENT } from '../../logic/performanceTargets.js';
 
 export function SchoolAlignmentPanel({ blockId, userId, sessions = [], historyReady = true }) {
   const banks=useQuestionBanks(userId),meta=useQuestionBankMeta(userId),objectiveData=useObjectives(null,userId);
@@ -46,7 +47,7 @@ export function SchoolAlignmentPanel({ blockId, userId, sessions = [], historyRe
     {!historyReady ? <p>Waiting for complete exam-session history before comparing.</p> : comparison.pairs.map(r=><p key={r.id} className="my-2 rounded border border-border p-2">
       {r.date} · {r.name} ({r.kind}): {r.percent}% school result · {r.practiceAccuracy==null?'No comparable timed practice recorded':`${(r.practiceAccuracy*100).toFixed(1)}% prior practice (${r.practiceCount} questions); school minus practice: ${r.gap.toFixed(1)} percentage points`}.
     </p>)}
-    <p className="my-2 text-text-2">One pair cannot establish prediction. Difficulty, objective coverage, exam format and prior exposure still differ. Your 74% target is a benchmark, not a pass guarantee.</p>
+    <p className="my-2 text-text-2">One pair cannot establish prediction. Difficulty, objective coverage, exam format and prior exposure still differ. Your {SCHOOL_EXAM_TARGET_PERCENT}% target is a benchmark, not a pass guarantee.</p>
     <form onSubmit={save} className="grid gap-2 sm:grid-cols-2">
       <label>School result name<input required name="name" maxLength={100} className="block w-full rounded border border-border bg-bg p-2" placeholder="ER block exam" /></label>
       <label>Exam or quiz date<input required type="date" name="date" className="block w-full rounded border border-border bg-bg p-2" /></label>
