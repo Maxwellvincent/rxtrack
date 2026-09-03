@@ -1067,7 +1067,7 @@ export function LectureStudyFlow({
       <h2 className="text-lg font-bold text-text-1">{renamedTitle || title}</h2>
       <RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} />
       <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
-      <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} />
+      <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
       <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
       {onGoDeep && <details className="my-3 max-w-3xl text-sm">
         <summary className="min-h-11 cursor-pointer py-2 text-text-2">Optional study tools</summary>
