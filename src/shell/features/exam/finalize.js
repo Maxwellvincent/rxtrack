@@ -87,7 +87,7 @@ export async function finalizeExamSession(
           misconception: wasCorrect ? null : "exam-error",
           responseMs: answer?.responseMs,
           answerChanges: answer?.answerChanges || 0,
-          taskType: classifyLeadIn(question?.stem),
+          taskType: question?.taskType || classifyLeadIn(question?.stem),
         });
       }
     } catch (e) {

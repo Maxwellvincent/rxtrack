@@ -68,6 +68,7 @@ export function createSessionShape({
   deadline = null,
   sourceType = "generated",
   sourceFile = null,
+  studyMode = "balanced",
 }) {
   return {
     schemaVersion: 1,
@@ -86,6 +87,7 @@ export function createSessionShape({
     deadline,
     sourceType,
     sourceFile,
+    studyMode,
     submittedAt: null,
     rev: 0,
   };

@@ -26,4 +26,12 @@ describe("learner evidence", () => {
     expect(reflected.testTaking).toMatchObject({ timedAnswers: 1, totalResponseMs: 90000, answerChanges: 1 });
     expect(reflected.testTaking.reasons["misread-lead-in"]).toBe(1);
   });
+
+  it("keeps a bounded recent-answer window for repair decisions", () => {
+    let model = null;
+    for (let index = 0; index < 10; index += 1) {
+      model = applyEvidence(model, { objectiveIds: ["o1"], correct: index >= 2, at: index + 1 });
+    }
+    expect(model.objectives.o1.recent).toEqual([true, true, true, true, true, true, true, true]);
+  });
 });

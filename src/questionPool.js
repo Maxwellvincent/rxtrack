@@ -3,7 +3,7 @@ import { db } from "./firebase.js";
 import { getLecText } from "./lectureText.js";
 import { MAX_EXAM_SESSION_BYTES, sessionBytes } from "./examSessions.js";
 
-export const POOL_VERSION = 2;
+export const POOL_VERSION = 3;
 const clean = value => JSON.parse(JSON.stringify(value));
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
@@ -14,8 +14,8 @@ export async function contentHash(value) {
 
 // Learning status changes do not invalidate content; difficulty and the actual
 // source text/objectives/atoms/exemplars do. Bump POOL_VERSION for prompt changes.
-export function questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars }) {
-  return contentHash({ version: POOL_VERSION, blockId, lectureId, difficulty,
+export function questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode = "balanced" }) {
+  return contentHash({ version: POOL_VERSION, blockId, lectureId, difficulty, studyMode,
     text: getLecText(lecture), title: lecture?.lectureTitle || lecture?.fileName || "",
     objectives: (objectives || []).map(o => ({ id: o.id, code: o.code, text: o.objective || o.text })),
     atoms: atoms || [], exemplars: (exemplars || []).map(q => ({ stem: q.stem, choices: q.choices, correct: q.correct })),

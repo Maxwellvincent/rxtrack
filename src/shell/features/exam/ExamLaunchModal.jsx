@@ -59,6 +59,7 @@ export function ExamLaunchModal({
     return () => clearInterval(timer);
   }, [launching]);
   const [format, setFormat] = useState("exam");
+  const [studyMode, setStudyMode] = useState("balanced");
   const [count, setCount] = useState(String(defaultQuestionCount || 20));
   // Auto-calculated from question count (1.5 min/question, matching real
   // exam pacing) until the user types into the duration field themselves —
@@ -104,6 +105,7 @@ export function ExamLaunchModal({
     if (!canLaunch) return;
     onLaunch({
       format,
+      ...(studyMode === "repair" ? { studyMode } : {}),
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
       ...(weekNumber === "all" ? {} : { weekNumber }),
@@ -125,6 +127,15 @@ export function ExamLaunchModal({
         </div>
 
         <fieldset disabled={launching} className="flex flex-col gap-4">
+          <div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Question focus</div>
+            <div className="grid grid-cols-2 gap-2">
+              {[{ value: "balanced", label: "Balanced exam", note: "Broad block coverage" }, { value: "repair", label: "Focused repair", note: "Weak objectives first" }].map((option) => <button type="button" key={option.value} onClick={() => setStudyMode(option.value)} className={`rounded-lg border p-2 text-left ${studyMode === option.value ? "border-accent bg-panel" : "border-border"}`}>
+                <span className="block text-sm font-semibold text-text-1">{option.label}</span><span className="block text-xs text-text-3">{option.note}</span>
+              </button>)}
+            </div>
+            {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">Cycles recognition → mechanism → clinical application → fresh retest. An objective leaves this queue after at least 5 recent answers reach 78%.</p>}
+          </div>
           {/* Format */}
           <div>
             <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Format</div>
@@ -235,7 +246,7 @@ export function ExamLaunchModal({
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(weekNumber === "all" ? {} : { weekNumber }) })}
+          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(weekNumber === "all" ? {} : { weekNumber }) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
         </div>}
@@ -252,7 +263,7 @@ export function ExamLaunchModal({
             disabled={!canLaunch || launching}
             className="rounded bg-accent px-3 py-1.5 font-mono text-xs font-bold text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {launching ? "Starting…" : "Start exam"}
+            {launching ? "Starting…" : studyMode === "repair" ? "Start focused repair" : "Start exam"}
           </button>
         </div>
       </div>

@@ -164,6 +164,19 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("launches a distinct focused-repair mode when selected", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
+      defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
+    const repair = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Focused repair"));
+    act(() => repair.click());
+    expect(host.textContent).toContain("fresh retest");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", studyMode: "repair", questionCount: 10, durationMinutes: 15 });
+    unmount();
+  });
+
   it("duration auto-recalculates as question count changes, until the user edits it directly", () => {
     const { host, unmount } = render(
       <ExamLaunchModal

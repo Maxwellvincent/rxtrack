@@ -53,6 +53,7 @@ describe("createSessionShape", () => {
       deadline: null,
       sourceType: "generated",
       sourceFile: null,
+      studyMode: "balanced",
       submittedAt: null,
       rev: 0,
     });

@@ -28,6 +28,8 @@ import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { listExamSessions } from "../../../supabase.js";
 import { cleanLectureTitle } from "../../../lectureTitle.js";
+import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
+import { buildFocusedRepairScope } from "./focusedRepair.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -352,14 +354,20 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const prepareQuestions = (config) => {
-    const scopedLectures = config.weekNumber != null
+    let scopedLectures = config.weekNumber != null
       ? eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(config.weekNumber))
       : eligibleLectures;
+    let scopedObjectives = objectivesByLecture;
+    if (config.studyMode === "repair") {
+      const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
+      scopedLectures = focus.eligibleLectures;
+      scopedObjectives = focus.objectivesByLecture;
+    }
     setShowLaunchModal(false);
     startBackgroundJob({ label: "Preparing exam questions", detail: "Checking saved questions…",
       run: async report => {
         const result = await launchExamSession({ userId, blockId, ...config, prepareOnly: true,
-          eligibleLectures: scopedLectures, objectivesByLecture, atomsByLecture, lecturesById, lectures,
+          eligibleLectures: scopedLectures, objectivesByLecture: scopedObjectives, atomsByLecture, lecturesById, lectures,
           weakConceptAccuracyByLecture, weakConcepts },
           { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
         if (!result.ok) throw new Error(result.error);
@@ -381,16 +389,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     setPartialLaunch(null);
     setLaunchProgress({ message: "Checking exam storage access…", completed: 0 });
     try {
-      const scopedLectures = config.weekNumber != null
+      let scopedLectures = config.weekNumber != null
         ? eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(config.weekNumber))
         : eligibleLectures;
+      let scopedObjectives = objectivesByLecture;
+      if (config.studyMode === "repair") {
+        const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
+        scopedLectures = focus.eligibleLectures;
+        scopedObjectives = focus.objectivesByLecture;
+        if (!scopedLectures.length) throw new Error("No weak objectives need focused repair right now. Use a balanced exam to build more evidence.");
+      }
       const result = await launchExamSession(
         {
           userId,
           blockId,
           ...config,
           eligibleLectures: scopedLectures,
-          objectivesByLecture,
+          objectivesByLecture: scopedObjectives,
           atomsByLecture,
           lecturesById,
           lectures,

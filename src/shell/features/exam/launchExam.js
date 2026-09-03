@@ -53,6 +53,7 @@ async function runLaunch(
     learnerEvidence,
     prepareOnly = false,
     savedOnly = false,
+    studyMode = "balanced",
   },
   deps = {}
 ) {
@@ -84,6 +85,7 @@ async function runLaunch(
       weakConceptAccuracyByLecture,
       userId,
       generationId: sessionId,
+      studyMode,
     },
     { ...deps, pool, savedOnly }
   );
@@ -125,6 +127,7 @@ async function runLaunch(
     questions,
     startedAt,
     deadline,
+    studyMode,
   });
 
   deps.onProgress?.({ message: `Saving ${questions.length} questions…`, completed: questions.length, total: questions.length });

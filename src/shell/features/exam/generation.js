@@ -2,6 +2,7 @@ import { readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } f
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline } from "../../../asyncDeadline.js";
+import { repairTaskForIndex } from "./focusedRepair.js";
 
 const MAX_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 180_000;
@@ -33,8 +34,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
     const difficulty = resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
+    const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
     const objectiveIds = objectives.map(o => o?.id).filter(Boolean);
-    const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars }) : null;
+    const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode }) : null;
     let obtained = 0, attempt = 0, errorMessage = null;
     if (deps.pool) {
       progress(`Checking saved questions: ${lectureTitle}`);
@@ -52,6 +54,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       let result;
       try {
         result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, blockId, lectures, exemplars, atoms,
+          studyMode,
           difficulty, userId, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
           ...deps,
           maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),
@@ -71,6 +74,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const qualityIssues = questionQualityIssues(q, objectives);
         if (!isValidPoolQuestion(q) || qualityIssues.length || alreadyUsed(q, [...history, ...accepted])) continue;
         const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
+          taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds: q.objectiveIds?.length ? q.objectiveIds : objectiveIds,
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
           source: exemplars.length ? "school-style generated" : "lecture generated" };

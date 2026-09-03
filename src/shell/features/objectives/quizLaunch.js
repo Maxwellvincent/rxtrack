@@ -121,6 +121,7 @@ export function buildQuizConfig({
   avoidStems = [],
   difficulty = "medium",
   questionCount,
+  studyMode = "balanced",
 }) {
   const pool = sortWeakestFirst(objectives);
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
@@ -144,6 +145,7 @@ export function buildQuizConfig({
       avoidStems,
       difficulty,
       count,
+      studyMode,
     },
     lectureId: lecture?.id ?? selected.map((o) => o?.linkedLecId).find(Boolean) ?? null,
   };

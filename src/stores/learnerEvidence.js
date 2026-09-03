@@ -19,6 +19,7 @@ function bump(bucket, id, event) {
       landmines: (prev.landmines || 0) + (event.misconception === "landmine" ? 1 : 0),
       lastSeen: event.at,
       lastDifficulty: event.difficulty || prev.lastDifficulty || null,
+      recent: [...(prev.recent || []), !!event.correct].slice(-8),
     },
   };
 }
