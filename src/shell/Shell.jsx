@@ -81,18 +81,20 @@ export default function Shell() {
       return () => { alive = false; };
     }
 
-    let booted = false;
+    let bootGeneration = 0;
     let shellUnsub = null;
     async function boot(uid) {
-      if (booted) return; // run once; sign-out reloads the page
-      booted = true;
+      // Auth can legitimately move signed-out -> signed-in without a page
+      // reload (Google popup). A one-shot gate here used to discard that second
+      // event and leave the successful user staring at the sign-in screen.
+      const generation = ++bootGeneration;
       if (!uid) { if (alive) { setUserId(null); setPhase("signedout"); } return; }
       if (alive) { setUserId(uid); setPhase("loading"); }
       // Never hang on a slow/stuck cloud query — proceed after 8s with whatever loaded.
       const timeout = new Promise((res) => setTimeout(res, 8000));
       try { await Promise.race([pullAllDataFromSupabase(uid), timeout]); }
       catch (e) { console.warn("cloud pull failed", e?.message); }
-      if (alive) setPhase("ready");
+      if (alive && generation === bootGeneration) setPhase("ready");
     }
     // Resolve a pending Google redirect sign-in before the auth gate settles.
     completeRedirectSignIn().catch((error) => {

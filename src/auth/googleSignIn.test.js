@@ -5,7 +5,7 @@ describe("startGoogleSignIn", () => {
   it("uses the popup when it completes", async () => {
     const popup = vi.fn().mockResolvedValue({});
     const redirect = vi.fn();
-    await startGoogleSignIn({ auth: {}, provider: {}, popup, redirect, timeoutMs: 10 });
+    await startGoogleSignIn({ auth: {}, provider: {}, popup, redirect });
     expect(popup).toHaveBeenCalledOnce();
     expect(redirect).not.toHaveBeenCalled();
   });
@@ -20,15 +20,13 @@ describe("startGoogleSignIn", () => {
     expect(popup).not.toHaveBeenCalled();
   });
 
-  it("falls back to redirect when the popup never opens", async () => {
-    vi.useFakeTimers();
-    const popup = vi.fn(() => new Promise(() => {}));
+  it("falls back to redirect when the popup is blocked", async () => {
+    const popup = vi.fn().mockRejectedValue(
+      Object.assign(new Error("blocked"), { code: "auth/popup-blocked" }),
+    );
     const redirect = vi.fn().mockResolvedValue(undefined);
-    const attempt = startGoogleSignIn({ auth: {}, provider: {}, popup, redirect, timeoutMs: 50 });
-    await vi.advanceTimersByTimeAsync(50);
-    await attempt;
+    await startGoogleSignIn({ auth: {}, provider: {}, popup, redirect });
     expect(redirect).toHaveBeenCalledOnce();
-    vi.useRealTimers();
   });
 
   it("surfaces configuration errors instead of hiding them", async () => {
