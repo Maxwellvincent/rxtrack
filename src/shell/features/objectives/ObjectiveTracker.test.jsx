@@ -2,11 +2,26 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
-import ObjectiveTracker from "./ObjectiveTracker.jsx";
+import ObjectiveTracker, { buildUnlinkedSourceGroups } from "./ObjectiveTracker.jsx";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 beforeEach(() => installDomStorage());
+
+it("groups unlinked DLA objectives and distinguishes missing activities from title mismatches", () => {
+  const groups = buildUnlinkedSourceGroups(
+    [
+      { id: "a", activity: "DLA", lectureHint: "Glycolysis (Reading assignment)" },
+      { id: "b", activity: "DLA", lectureHint: "Glycolysis (Reading assignment)" },
+      { id: "c", activity: "DLA", lectureHint: "Overview metabolism fed fasting" },
+    ],
+    [{ id: "dla-2", lectureType: "DLA", lectureTitle: "Overview metabolism fed and fasting state" }]
+  );
+
+  expect(groups).toHaveLength(2);
+  expect(groups.find((group) => group.hint.startsWith("Glycolysis"))).toMatchObject({ possibleMatch: false });
+  expect(groups.find((group) => group.hint.startsWith("Overview"))).toMatchObject({ possibleMatch: true });
+});
 
 function mount(ui) {
   const host = document.createElement("div");

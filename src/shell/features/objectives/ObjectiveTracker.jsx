@@ -15,6 +15,57 @@ const BLOOM_SHORT = {
 
 const DOW_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+const SOURCE_TITLE_STOP_WORDS = new Set([
+  "a", "an", "and", "assignment", "for", "in", "of", "on", "overview", "reading", "system", "the", "to",
+]);
+
+function normalizedSourceActivity(value) {
+  const raw = String(value || "LEC").trim().toUpperCase();
+  if (raw.includes("DLA")) return "DLA";
+  if (raw.includes("LAB")) return "LAB";
+  if (raw.includes("SG")) return "SG";
+  return raw || "LEC";
+}
+
+function sourceTitleTokens(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !SOURCE_TITLE_STOP_WORDS.has(token));
+}
+
+function isPossibleSourceMatch(activity, hint, lecture) {
+  if (normalizedSourceActivity(lecture?.lectureType) !== activity) return false;
+  const hintTokens = new Set(sourceTitleTokens(hint));
+  const lectureTokens = new Set(sourceTitleTokens(lecture?.lectureTitle || lecture?.title));
+  if (!hintTokens.size || !lectureTokens.size) return false;
+  const shared = [...hintTokens].filter((token) => lectureTokens.has(token)).length;
+  return shared >= 2 || shared / Math.min(hintTokens.size, lectureTokens.size) >= 0.5;
+}
+
+export function buildUnlinkedSourceGroups(objectives = [], lectures = []) {
+  const groups = new Map();
+  for (const objective of objectives) {
+    const activity = normalizedSourceActivity(objective.activity || objective.lectureType);
+    const hint = String(objective.lectureHint || objective.sourceTitle || "Unknown source").trim();
+    const key = `${activity}::${hint.toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, { key, activity, hint, objectives: [] });
+    groups.get(key).objectives.push(objective);
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      possibleMatch: lectures.some((lecture) => isPossibleSourceMatch(group.activity, group.hint, lecture)),
+    }))
+    .sort((a, b) =>
+      Number(a.possibleMatch) - Number(b.possibleMatch) ||
+      b.objectives.length - a.objectives.length ||
+      a.hint.localeCompare(b.hint, undefined, { numeric: true })
+    );
+}
+
 function sortLecturesForObjectives(a, b) {
   const wa = Number(a.weekNumber) || 9999;
   const wb = Number(b.weekNumber) || 9999;
@@ -828,6 +879,7 @@ export default function ObjectiveTracker({
   const [hoverObjId, setHoverObjId] = useState(null);
   const [unlinkedFilter, setUnlinkedFilter] = useState("all");
   const [unlinkedSearch, setUnlinkedSearch] = useState("");
+  const [unlinkedSourceKey, setUnlinkedSourceKey] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [bulkAssignLecId, setBulkAssignLecId] = useState("");
   const [selectedObjIds, setSelectedObjIds] = useState(() => new Set());
@@ -851,7 +903,7 @@ export default function ObjectiveTracker({
   useEffect(() => {
     setSelectedObjIds(new Set());
     setBulkMultiAssign("");
-  }, [unlinkedFilter, unlinkedSearch]);
+  }, [unlinkedFilter, unlinkedSearch, unlinkedSourceKey]);
 
   useEffect(() => {
     if (selectedObjIds.size === 0) setBulkMultiAssign("");
@@ -865,6 +917,7 @@ export default function ObjectiveTracker({
     setDeleteConfirm(false);
     setUnlinkedSearch("");
     setUnlinkedFilter("all");
+    setUnlinkedSourceKey("");
     setBulkAssignLecId("");
     const str = linkedObjectives.filter((o) => o.status === "struggling").length;
     const ip = linkedObjectives.filter((o) => o.status === "inprogress" || o.status === "developing").length;
@@ -898,6 +951,13 @@ export default function ObjectiveTracker({
 
   const visibleUnlinked = useMemo(() => {
     let list = unlinkedObjectives;
+    if (unlinkedSourceKey) {
+      list = list.filter((objective) => {
+        const activity = normalizedSourceActivity(objective.activity || objective.lectureType);
+        const hint = String(objective.lectureHint || objective.sourceTitle || "Unknown source").trim();
+        return `${activity}::${hint.toLowerCase()}` === unlinkedSourceKey;
+      });
+    }
     if (unlinkedFilter === "unmatched") {
       list = list.filter(
         (o) => !o.linkedLecId || o.linkedLecId === "imported" || o.linkedLecId === "unknown"
@@ -910,7 +970,12 @@ export default function ObjectiveTracker({
       list = list.filter((o) => (o.objective || o.text || "").toLowerCase().includes(q));
     }
     return list;
-  }, [unlinkedObjectives, unlinkedFilter, unlinkedSearch]);
+  }, [unlinkedObjectives, unlinkedFilter, unlinkedSearch, unlinkedSourceKey]);
+
+  const unlinkedSourceGroups = useMemo(
+    () => buildUnlinkedSourceGroups(unlinkedObjectives, blockLectures),
+    [unlinkedObjectives, blockLectures]
+  );
 
   const statusGroups = useMemo(() => {
     const m = new Map();
@@ -1132,6 +1197,42 @@ export default function ObjectiveTracker({
             </div>
           </div>
 
+          {unlinkedSourceGroups.length > 0 && (
+            <details open style={{ border: "0.5px solid " + T.border2, borderRadius: 10, background: T.inputBg }}>
+              <summary
+                style={{ padding: "11px 12px", cursor: "pointer", fontFamily: MONO, fontSize: 13, fontWeight: 700, color: T.text1 }}
+              >
+                Missing activities · {unlinkedSourceGroups.length} source {unlinkedSourceGroups.length === 1 ? "group" : "groups"}
+              </summary>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 8, padding: "0 10px 10px" }}>
+                {unlinkedSourceGroups.map((group) => {
+                  const selected = unlinkedSourceKey === group.key;
+                  return (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => setUnlinkedSourceKey(selected ? "" : group.key)}
+                      aria-pressed={selected}
+                      style={{
+                        textAlign: "left", padding: "10px 11px", borderRadius: 8, cursor: "pointer",
+                        border: `1px solid ${selected ? "#167D78" : T.border1}`,
+                        background: selected ? "#E1F0EE" : T.cardBg, color: T.text1, fontFamily: MONO,
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                        <strong style={{ fontSize: 12 }}>{group.activity} · {group.hint}</strong>
+                        <span style={{ fontSize: 11, color: T.text3, whiteSpace: "nowrap" }}>{group.objectives.length} obj</span>
+                      </div>
+                      <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.35, color: group.possibleMatch ? "#854F0B" : "#A32D2D" }}>
+                        {group.possibleMatch ? "Possible title mismatch" : `Missing ${group.activity} upload or differently named`}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </details>
+          )}
+
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
             {[
               { k: "all", label: "Show all" },
@@ -1175,6 +1276,11 @@ export default function ObjectiveTracker({
                 fontFamily: MONO,
               }}
             />
+            {unlinkedSourceKey && (
+              <button type="button" onClick={() => setUnlinkedSourceKey("")} style={{ fontFamily: MONO, fontSize: 11, padding: "6px 10px", borderRadius: 8, border: "1px solid " + T.border1, background: T.cardBg, color: T.text2, cursor: "pointer" }}>
+                Clear activity filter
+              </button>
+            )}
           </div>
 
           <div
@@ -1474,6 +1580,11 @@ export default function ObjectiveTracker({
                     }}
                   >
                     <div>{text}</div>
+                    {(obj.activity || obj.lectureType || obj.lectureHint || obj.sourceTitle) && (
+                      <div style={{ color: "#167D78", fontSize: 11, marginTop: 4, fontWeight: 600 }}>
+                        {normalizedSourceActivity(obj.activity || obj.lectureType)} · {obj.lectureHint || obj.sourceTitle || "Unknown source"}
+                      </div>
+                    )}
                     {obj.code ? (
                       <div
                         style={{
