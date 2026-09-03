@@ -1,0 +1,36 @@
+import { describe, expect, it } from "vitest";
+import { canonicalObjectiveCode, reconcileOfficialObjectives } from "./objectiveImport.js";
+
+const incoming = (id, code, objective, linkedLecId = "lec1") => ({
+  id, code, objectiveCode: code, objective, text: objective, linkedLecId,
+  extractionMethod: "standalone-doc", status: "untested",
+});
+
+describe("official objective reconciliation", () => {
+  it("repairs malformed rows while preserving learning evidence and ids", () => {
+    const old = {
+      ...incoming("old-id", "SOM.DM.1001SOM.DM.1002", "Describe metabolism. 669241 Objectives : Lectures 1 & 2", "wrong"),
+      status: "mastered", attempts: 4, correctCount: 3,
+    };
+    const clean = incoming("new-id", "SOM.DM.1001", "Describe metabolism.");
+    const result = reconcileOfficialObjectives([old], [clean]);
+    expect(result).toMatchObject({ added: 0, updated: 1, removed: 0 });
+    expect(result.objectives[0]).toMatchObject({
+      id: "old-id", code: "SOM.DM.1001", objective: "Describe metabolism.",
+      linkedLecId: "lec1", status: "mastered", attempts: 4, correctCount: 3,
+    });
+  });
+
+  it("removes stale standalone rows but keeps lecture-extracted objectives", () => {
+    const stale = incoming("stale", "SOM.DM.9999", "Old malformed objective.");
+    const lecture = { ...incoming("lecture", "SOM.DM.8888", "Lecture objective."), extractionMethod: "table" };
+    const clean = incoming("clean", "SOM.DM.1001", "Describe metabolism.");
+    const result = reconcileOfficialObjectives([stale, lecture], [clean]);
+    expect(result).toMatchObject({ added: 1, updated: 0, removed: 1 });
+    expect(result.objectives.map((row) => row.id)).toEqual(["lecture", "clean"]);
+  });
+
+  it("extracts only the first valid code from previously joined codes", () => {
+    expect(canonicalObjectiveCode({ code: "SOM.DM.1001SOM.DM.1002" })).toBe("SOM.DM.1001");
+  });
+});

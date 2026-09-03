@@ -7,6 +7,7 @@ import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { overwriteObjectivesInCloud } from "../../../supabase.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
+import { canonicalObjectiveCode, reconcileOfficialObjectives } from "./objectiveImport.js";
 
 const ACTIVITY_COLORS = {
   LEC: "text-accent",
@@ -33,6 +34,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
   const [groups, setGroups] = useState([]);
   const [totalFound, setTotalFound] = useState(0);
   const [dupCount, setDupCount] = useState(0);
+  const [reconcileSummary, setReconcileSummary] = useState(null);
 
   const onFile = useCallback(
     async (file) => {
@@ -59,20 +61,22 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
         const extracted = await extractObjectivesFromStandaloneDoc(text, blockLectures || [], blockId);
         setTotalFound(extracted.length);
 
-        // Deduplicate against existing objectives
+        // Compare against existing objectives by authoritative SOM code first.
         const existing = Array.isArray(existingObjectivesEntry)
           ? existingObjectivesEntry
           : Object.values(existingObjectivesEntry || {}).flat();
         const existingKeys = new Set(existing.map((o) => normKey(o.objective || o.text)));
+        const existingCodes = new Set(existing.map(canonicalObjectiveCode).filter(Boolean));
 
         let dups = 0;
         const annotated = extracted.map((obj) => {
           const key = normKey(obj.objective || obj.text);
-          const isDup = existingKeys.has(key);
+          const isDup = (canonicalObjectiveCode(obj) && existingCodes.has(canonicalObjectiveCode(obj))) || existingKeys.has(key);
           if (isDup) dups++;
           return { ...obj, _duplicate: isDup };
         });
         setDupCount(dups);
+        setReconcileSummary(reconcileOfficialObjectives(existing, extracted));
 
         // Group by matched lecture
         const byLec = new Map(); // lecId → { lecTitle, objectives[] }
@@ -101,26 +105,24 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
   );
 
   const newObjectives = groups.flatMap((g) => g.objectives.filter((o) => !o._duplicate));
+  const changeCount = (reconcileSummary?.added || 0) + (reconcileSummary?.updated || 0) + (reconcileSummary?.removed || 0);
 
   const onConfirm = useCallback(async () => {
-    if (!newObjectives.length) return;
-    // Read store once, flatten existing entries, append non-duplicates, fold back
-    // into the original shape (imported/extracted buckets preserved by toEntry).
+    if (!reconcileSummary || !changeCount) return;
+    // Read once more at confirmation time so evidence recorded during the PDF
+    // preview cannot be overwritten by stale React state.
     const store = objectivesStore.read(userId) || {};
     const existing = flattenEntry(readEntry(store, blockId));
-    const existingKeys = new Set(existing.map((o) => normKey(o.objective || o.text)));
-    const toAdd = newObjectives
-      .map(({ _duplicate, ...clean }) => clean)
-      .filter((o) => !existingKeys.has(normKey(o.objective || o.text)));
-    if (!toAdd.length) { onImported?.(0); return; }
+    const incoming = groups.flatMap((g) => g.objectives.map(({ _duplicate, ...clean }) => clean));
+    const reconciled = reconcileOfficialObjectives(existing, incoming);
     const storeKey = storageKeyFor(store, blockId);
-    const nextEntry = toEntry(store[storeKey], [...existing, ...toAdd]);
+    const nextEntry = toEntry(store[storeKey], reconciled.objectives);
     objectivesStore.write(userId, { ...store, [storeKey]: nextEntry });
     if (userId) {
       try { await overwriteObjectivesInCloud(userId, objectivesStore.read(userId) || {}); } catch { /* non-critical */ }
     }
-    onImported?.(toAdd.length);
-  }, [newObjectives, blockId, userId, onImported]);
+    onImported?.(reconciled.added + reconciled.updated + reconciled.removed);
+  }, [reconcileSummary, changeCount, groups, blockId, userId, onImported]);
 
   return (
     <div
@@ -178,9 +180,14 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
                 {" · "}
                 <span className="text-good">{newObjectives.length} new</span>
                 {dupCount > 0 && (
-                  <> · <span className="text-text-3">{dupCount} duplicate{dupCount === 1 ? "" : "s"} skipped</span></>
+                  <> · <span className="text-text-3">{dupCount} existing code{dupCount === 1 ? "" : "s"}</span></>
                 )}
               </div>
+              {reconcileSummary && (
+                <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-2">
+                  Official reconciliation: {reconcileSummary.updated} repaired · {reconcileSummary.added} added · {reconcileSummary.removed} stale import{reconcileSummary.removed === 1 ? "" : "s"} removed. Learning history is preserved by SOM code.
+                </div>
+              )}
 
               <div className="flex flex-col gap-3">
                 {groups.map((group) => {
@@ -223,8 +230,8 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
         {/* Footer */}
         <div className="flex gap-2 border-t border-border px-5 py-3">
           {step === "preview" && (
-            <Button onClick={onConfirm} disabled={newObjectives.length === 0}>
-              Import {newObjectives.length} objective{newObjectives.length === 1 ? "" : "s"}
+            <Button onClick={onConfirm} disabled={changeCount === 0}>
+              {changeCount ? `Apply ${changeCount} change${changeCount === 1 ? "" : "s"}` : "Already up to date"}
             </Button>
           )}
           <Button variant="outline" onClick={onClose}>
