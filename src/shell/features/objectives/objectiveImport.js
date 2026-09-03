@@ -27,50 +27,51 @@ export function canonicalObjectiveCode(objective) {
  * extracted from lecture files remain untouched.
  */
 export function reconcileOfficialObjectives(existing = [], incoming = []) {
+  const evidenceScore = (row) => {
+    const status = { mastered: 300, developing: 200, struggling: 100, untested: 0 }[row?.status] || 0;
+    return status + Number(row?.attempts || row?.attemptCount || 0) * 10 + Number(row?.correctCount || 0);
+  };
+  const oldByCode = new Map();
+  const uncoded = [];
+  for (const row of existing) {
+    const code = canonicalObjectiveCode(row);
+    if (!code) { uncoded.push(row); continue; }
+    const rows = oldByCode.get(code) || [];
+    rows.push(row);
+    oldByCode.set(code, rows);
+  }
+
   const incomingByCode = new Map();
-  const incomingByText = new Map();
   for (const row of incoming) {
     const code = canonicalObjectiveCode(row);
-    if (code) incomingByCode.set(code, row);
-    const key = textKey(row);
-    if (key) incomingByText.set(key, row);
+    if (code && !incomingByCode.has(code)) incomingByCode.set(code, row);
   }
 
-  const matchedIncoming = new Set();
-  const next = [];
+  const next = [...uncoded];
+  let added = 0;
   let updated = 0;
-  let removed = 0;
-
-  for (const old of existing) {
-    const match = incomingByCode.get(canonicalObjectiveCode(old)) || incomingByText.get(textKey(old));
-    if (match) {
-      matchedIncoming.add(match);
-      const merged = {
-        ...old,
-        ...match,
-        id: old.id || match.id,
-        status: old.status || match.status || "untested",
-        ...(old.personalNotes ? { personalNotes: old.personalNotes } : {}),
-      };
-      const changed = String(old.objective || old.text || "") !== String(match.objective || match.text || "")
-        || canonicalObjectiveCode(old) !== canonicalObjectiveCode(match)
-        || old.linkedLecId !== match.linkedLecId;
-      if (changed) updated++;
-      next.push(merged);
+  let removed = existing.length - uncoded.length;
+  for (const [code, fresh] of incomingByCode) {
+    const candidates = oldByCode.get(code) || [];
+    const old = candidates.sort((a, b) => evidenceScore(b) - evidenceScore(a))[0];
+    if (!old) {
+      added++;
+      next.push(fresh);
       continue;
     }
-    // A coded curriculum PDF is authoritative for the block. Early imports did
-    // not persist extractionMethod, so malformed coded rows otherwise survive
-    // forever beside their repaired replacements. Preserve uncoded/manual and
-    // lecture-only objectives; replace the official SOM-coded set completely.
-    if (old?.extractionMethod === "standalone-doc" || canonicalObjectiveCode(old)) {
-      removed++;
-      continue;
-    }
-    next.push(old);
+    removed--;
+    const merged = {
+      ...old,
+      ...fresh,
+      id: old.id || fresh.id,
+      status: old.status || fresh.status || "untested",
+      ...(old.personalNotes ? { personalNotes: old.personalNotes } : {}),
+    };
+    const changed = String(old.objective || old.text || "") !== String(fresh.objective || fresh.text || "")
+      || canonicalObjectiveCode(old) !== code
+      || old.linkedLecId !== fresh.linkedLecId;
+    if (changed) updated++;
+    next.push(merged);
   }
-
-  const additions = incoming.filter((row) => !matchedIncoming.has(row));
-  next.push(...additions);
-  return { objectives: next, added: additions.length, updated, removed };
+  return { objectives: next, added, updated, removed };
 }

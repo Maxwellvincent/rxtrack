@@ -40,4 +40,14 @@ describe("official objective reconciliation", () => {
   it("extracts only the first valid code from previously joined codes", () => {
     expect(canonicalObjectiveCode({ code: "SOM.DM.1001SOM.DM.1002" })).toBe("SOM.DM.1001");
   });
+
+  it("collapses duplicate legacy rows and keeps the strongest learning evidence", () => {
+    const weak = { ...incoming("weak", "SOM.DM.1001", "Old wording."), status: "untested" };
+    const learned = { ...incoming("learned", "SOM.DM.1001", "Old wording."), status: "mastered", attempts: 5 };
+    const clean = incoming("clean", "SOM.DM.1001", "Describe metabolism.");
+    const result = reconcileOfficialObjectives([weak, learned], [clean]);
+    expect(result).toMatchObject({ added: 0, updated: 1, removed: 1 });
+    expect(result.objectives).toHaveLength(1);
+    expect(result.objectives[0]).toMatchObject({ id: "learned", status: "mastered", attempts: 5, objective: "Describe metabolism." });
+  });
 });
