@@ -91,19 +91,20 @@ export function toEntry(existingEntry, nextFlat) {
 }
 
 /**
- * The de-dupe the UI list uses (App's `getBlockObjectives` /
- * `readBlockObjectivesDedupedFromStorage`): same first-60-chars of text after
- * lowercasing and stripping non-word chars = same objective. Text-less rows are
- * dropped, exactly as App dropped them.
+ * Coded school objectives are distinct by SOM code, even when the school
+ * intentionally repeats the same wording in two sessions. Uncoded legacy rows
+ * still fall back to normalized text.
  */
 export function dedupeByText(objectives) {
   const seen = new Set();
   return (objectives || []).filter((obj) => {
-    const key = (obj?.objective || obj?.text || "")
+    const code = String(obj?.code || obj?.objectiveCode || "").replace(/\s/g, "").toLowerCase();
+    const text = (obj?.objective || obj?.text || "")
       .slice(0, 60)
       .toLowerCase()
       .replace(/\W/g, "");
-    if (!key || seen.has(key)) return false;
+    const key = code ? `code:${code}` : `text:${text}`;
+    if ((!code && !text) || seen.has(key)) return false;
     seen.add(key);
     return true;
   });

@@ -83,6 +83,13 @@ describe("storage shape", () => {
     ).toEqual(["a", "c"]);
   });
 
+  it("keeps identical official wording when the SOM codes differ", () => {
+    expect(dedupeByText([
+      { id: "a", code: "SOM.DM.1001", objective: "Describe metabolism." },
+      { id: "b", code: "SOM.DM.1002", objective: "Describe metabolism." },
+    ])).toHaveLength(2);
+  });
+
   it("selects a block's flat list off a store map", () => {
     expect(selectBlockObjectives({ b1: { imported: [{ id: "o1" }], extracted: [] } }, "b1"))
       .toEqual([{ id: "o1" }]);
