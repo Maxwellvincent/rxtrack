@@ -162,8 +162,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       confidence: level,
       correct: isCorrect,
       atomKey: q.atomKey || null,
+      objectiveIds: q.objectiveIds || [],
       responseMs,
-      taskType: classifyLeadIn(q.stem),
+      taskType: q.taskType || classifyLeadIn(q.stem),
       difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
@@ -390,12 +391,20 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
 
 export function Summary({ records, onExit, onReviewAtom }) {
   const toReview = atomsToReview(records);
+  const objectivesTested = new Set(records.flatMap((record) => record.objectiveIds || [])).size;
+  const supportingAtomsTested = new Set(records.map((record) => record.atomKey).filter(Boolean)).size;
   const pct = (a) => (a == null ? "—" : Math.round(a * 100) + "%");
   return (
     <div className="mb-5 space-y-3">
       <div className="rounded-lg border border-border bg-bg-elevated p-4">
         <div className="text-3xl font-bold text-text-1">{pct(records.length ? records.filter((r) => r.correct).length / records.length : null)}</div>
         <div className="text-sm text-text-2">{records.filter((r) => r.correct).length} / {records.length} correct · Quiz complete</div>
+        {(objectivesTested > 0 || supportingAtomsTested > 0) && (
+          <div className="mt-1 text-xs text-text-3">
+            {objectivesTested} objective{objectivesTested === 1 ? "" : "s"} tested
+            {supportingAtomsTested > 0 ? ` · ${supportingAtomsTested} supporting atom${supportingAtomsTested === 1 ? "" : "s"}` : ""}
+          </div>
+        )}
       </div>
       {/* Every atom left needs-review this session, not just the landmines (sure-but-wrong) —
           those are still sorted first, but a plain miss deserves a way back too instead of

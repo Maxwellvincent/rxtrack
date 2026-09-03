@@ -10,6 +10,8 @@ import {
   objectivesAsAtoms,
   startObjectiveQuiz,
   resolveDefaultDifficulty,
+  selectAtomsByObjectiveCoverage,
+  selectExemplarsForBlock,
 } from "./quizLaunch.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 
@@ -248,6 +250,33 @@ describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
       { callAIJSON }
     );
     expect(callAIJSON.mock.calls[0][1]).not.toMatch(/one question per fact/i);
+  });
+});
+
+describe("objective-first atom coverage", () => {
+  it("distributes a 10-question lecture quiz evenly across two objectives", () => {
+    const objectives = [{ id: "o1" }, { id: "o2" }];
+    const atoms = Array.from({ length: 10 }, (_, index) => ({
+      term: `fact-${index}`,
+      content: `Fact ${index}`,
+      objectiveIds: [index < 5 ? "o1" : "o2"],
+    }));
+    const selected = selectAtomsByObjectiveCoverage(atoms, objectives, {}, 10);
+    expect(selected).toHaveLength(10);
+    expect(selected.filter((atom) => atom.objectiveIds.includes("o1"))).toHaveLength(5);
+    expect(selected.filter((atom) => atom.objectiveIds.includes("o2"))).toHaveLength(5);
+  });
+
+  it("excludes supplemental student material from school-style exemplars", () => {
+    const banks = {
+      official: [{ stem: "Official?", choices: { A: "Yes" }, sourceKind: "school" }],
+      natalie: [{ stem: "Student note?", choices: { A: "Yes" }, sourceKind: "supplemental" }],
+    };
+    const meta = {
+      a: { filename: "official", blockId: "dm", sourceKind: "school" },
+      b: { filename: "natalie", blockId: "dm", sourceKind: "supplemental" },
+    };
+    expect(selectExemplarsForBlock(banks, meta, "dm").map((q) => q.stem)).toEqual(["Official?"]);
   });
 });
 

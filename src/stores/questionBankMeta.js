@@ -46,7 +46,7 @@ export function write(userId, value) {
  * Record a new upload, replacing any existing entry (any bankId) that
  * currently claims this filename — single-owner-per-filename.
  */
-export function recordUpload(userId, { filename, blockId }) {
+export function recordUpload(userId, { filename, blockId, sourceKind = "school" }) {
   if (!filename) return read(userId);
   const current = read(userId) || {};
   const next = {};
@@ -55,7 +55,7 @@ export function recordUpload(userId, { filename, blockId }) {
     next[id] = entry;
   }
   const bankId = generateBankId();
-  next[bankId] = { filename, blockId, uploadedAt: Date.now() };
+  next[bankId] = { filename, blockId, sourceKind, uploadedAt: Date.now() };
   return write(userId, next);
 }
 

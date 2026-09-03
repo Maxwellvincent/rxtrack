@@ -77,15 +77,55 @@ export function readExemplars(userId = null) {
 
 /** Pure block selection used by both synchronous readers and hydrated React consumers. */
 export function selectExemplarsForBlock(banks = {}, meta = {}, blockId = null) {
-  const all = Object.values(banks || {}).flat().filter((q) => q && q.stem && q.choices);
+  const eligible = (q) => q && q.stem && q.choices && q.sourceKind !== "supplemental";
+  const all = Object.values(banks || {}).flat().filter(eligible);
   const filenames = Object.values(meta || {})
-    .filter((entry) => entry && entry.blockId === blockId)
+    .filter((entry) => entry && entry.blockId === blockId && entry.sourceKind !== "supplemental")
     .map((entry) => entry.filename);
   const scoped = filenames
     .flatMap((filename) => banks?.[filename] || [])
-    .filter((q) => q && q.stem && q.choices);
+    .filter(eligible);
   if (!blockId) return all;
   return scoped.length ? scoped : all.filter(q => q.blockId === blockId);
+}
+
+/**
+ * Spread a lecture quiz across its objectives before filling spare slots.
+ * Atoms are evidence for an objective, not the quiz's organizing principle.
+ */
+export function selectAtomsByObjectiveCoverage(atoms = [], objectives = [], progress = {}, count = 10) {
+  const limit = Math.max(0, Number(count) || 0);
+  if (!limit) return [];
+  const orderedIds = (objectives || []).map((o) => o?.id).filter(Boolean);
+  if (!orderedIds.length) return selectAtomsForQuiz(atoms, progress, limit);
+
+  const used = new Set();
+  const groups = orderedIds.map((objectiveId) => ({
+    objectiveId,
+    atoms: selectAtomsForQuiz(
+      atoms.filter((atom) => atom?.objectiveIds?.includes(objectiveId)),
+      progress,
+      atoms.length
+    ),
+  }));
+  const selected = [];
+  let advanced = true;
+  while (selected.length < limit && advanced) {
+    advanced = false;
+    for (const group of groups) {
+      const next = group.atoms.find((atom) => !used.has(atom));
+      if (!next) continue;
+      used.add(next);
+      selected.push(next);
+      advanced = true;
+      if (selected.length >= limit) break;
+    }
+  }
+  if (selected.length < limit) {
+    const remainder = selectAtomsForQuiz(atoms.filter((atom) => !used.has(atom)), progress, limit - selected.length);
+    selected.push(...remainder);
+  }
+  return selected;
 }
 
 /**
@@ -193,12 +233,9 @@ export async function startObjectiveQuiz(args, deps = {}) {
   if (atoms.length) {
     const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
     const linked = atoms.map(a => ({ ...a, objectiveIds: canonicalObjectiveIds([...(a.objectiveIds || []), ...matchByTerm(a, config.objectives)], config.objectives) }));
-    const relevant = linked.filter(a => a.objectiveIds.length);
-    const selected = selectAtomsForQuiz(relevant, progress, Math.min(config.count, relevant.length));
-    const remaining = linked.filter(a => !selected.includes(a));
-    selected.push(...selectAtomsForQuiz(remaining, progress, Math.max(0, config.count - selected.length)));
+    const selected = selectAtomsByObjectiveCoverage(linked, config.objectives, progress, config.count);
     const result = await generateFromAtoms(
-      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems },
+      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode },
       deps
     );
     return { ...result, lectureId };

@@ -21,7 +21,7 @@ const newId = (idgen) =>
  * `wrongOnly` marks a bank of questions the student got wrong, which generation
  * weights differently from a neutral past paper.
  */
-export function tagBankQuestions(questions, { blockId, filename, wrongOnly = false, idgen, now = () => new Date().toISOString() }) {
+export function tagBankQuestions(questions, { blockId, filename, wrongOnly = false, sourceKind = "school", idgen, now = () => new Date().toISOString() }) {
   return (questions || [])
     .filter((q) => q && (q.stem || q.question))
     .map((q) => ({
@@ -31,6 +31,7 @@ export function tagBankQuestions(questions, { blockId, filename, wrongOnly = fal
       sourceFile: filename,
       importedAt: now(),
       bankType: wrongOnly ? "wrong" : "neutral",
+      sourceKind: q.sourceKind || sourceKind,
     }));
 }
 

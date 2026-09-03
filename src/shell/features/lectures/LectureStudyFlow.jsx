@@ -1276,7 +1276,9 @@ export function LectureStudyFlow({
                   cancel
                 </button>
                 <span className="font-mono text-[12px] text-text-3">
-                  school style{lectureObjectives.length > 0 ? " + objectives" : ""} + USMLE · grounded in {atoms.length} key facts
+                  {lectureObjectives.length > 0
+                    ? `${quizPicker.count} questions distributed across ${lectureObjectives.length} objective${lectureObjectives.length === 1 ? "" : "s"} · atoms supply the supporting facts`
+                    : `Grounded in ${atoms.length} key facts`}
                 </span>
               </div>
             </div>

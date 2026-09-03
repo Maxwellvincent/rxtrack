@@ -13,7 +13,13 @@ describe("tagBankQuestions", () => {
       sourceFile: "2024-final.pdf",
       importedAt: "2026-07-29T00:00:00.000Z",
       bankType: "neutral",
+      sourceKind: "school",
     });
+  });
+
+  it("marks student-created material as supplemental", () => {
+    const [q] = tagBankQuestions([{ stem: "Study prompt?" }], { ...opts, sourceKind: "supplemental" });
+    expect(q.sourceKind).toBe("supplemental");
   });
 
   it("marks a wrong-answers upload, which generation weights differently", () => {

@@ -40,8 +40,13 @@ describe("questionBankMeta store", () => {
     expect(entries).toHaveLength(1);
     const [bankId, entry] = entries[0];
     expect(bankId).toBeTruthy();
-    expect(entry).toMatchObject({ filename: "exam1.pdf", blockId: "b1" });
+    expect(entry).toMatchObject({ filename: "exam1.pdf", blockId: "b1", sourceKind: "school" });
     expect(typeof entry.uploadedAt).toBe("number");
+  });
+
+  it("stores supplemental provenance separately from school evidence", () => {
+    questionBankMeta.recordUpload("u1", { filename: "student.pdf", blockId: "b1", sourceKind: "supplemental" });
+    expect(Object.values(questionBankMeta.read("u1"))[0]).toMatchObject({ sourceKind: "supplemental" });
   });
 
   it("recordUpload replaces an existing entry for the same filename (single-owner-per-filename)", () => {

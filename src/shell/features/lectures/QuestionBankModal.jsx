@@ -21,6 +21,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   const [status, setStatus] = useState("");
   const [summary, setSummary] = useState(null);
   const [wrongOnly, setWrongOnly] = useState(false);
+  const [sourceKind, setSourceKind] = useState("school");
   const [useLlm, setUseLlm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showManage, setShowManage] = useState(false);
@@ -58,14 +59,14 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
               const { sourceImageDataUrl, ...storedQuestion } = question;
               withDurableImages.push({ ...storedQuestion, ...(sourceImageUrl ? { sourceImageUrl } : {}) });
             }
-            const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly });
+            const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind });
             if (questions.length) {
               const currentBanks = questionBanksStore.read(userId) || {};
               const nextBanks = Object.fromEntries(Object.entries(currentBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
               questionBanksStore.write(userId, { ...nextBanks, [bankTitle]: questions });
               const currentMeta = questionBankMetaStore.read(userId) || {};
               questionBankMetaStore.write(userId, Object.fromEntries(Object.entries(currentMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle)));
-              questionBankMetaStore.recordUpload(userId, { filename: bankTitle, blockId });
+              questionBankMetaStore.recordUpload(userId, { filename: bankTitle, blockId, sourceKind });
             }
             const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });
             if (reportResult && userId) {
@@ -103,7 +104,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
         onUploaded?.();
       }
     },
-    [blockId, blockName, lectures, userId, wrongOnly, useLlm, onUploaded, schoolResultsRes]
+    [blockId, blockName, lectures, userId, wrongOnly, sourceKind, useLlm, onUploaded, schoolResultsRes]
   );
 
   const remove = useCallback(
@@ -143,6 +144,16 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
         </div>
 
         <div className="mb-3 flex flex-col gap-2">
+          <div className="grid grid-cols-2 gap-2" aria-label="Question source type">
+            <button type="button" disabled={busy} onClick={() => setSourceKind("school")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "school" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
+              <span className="block font-bold">Official school questions</span>
+              <span>Guides school-style generation</span>
+            </button>
+            <button type="button" disabled={busy} onClick={() => setSourceKind("supplemental")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "supplemental" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
+              <span className="block font-bold">Supplemental study source</span>
+              <span>Practice only; does not define school style</span>
+            </button>
+          </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
             <input type="checkbox" checked={wrongOnly} disabled={busy} onChange={(e) => setWrongOnly(e.target.checked)} />
             These are questions I got wrong
