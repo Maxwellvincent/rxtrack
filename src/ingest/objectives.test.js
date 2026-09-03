@@ -39,6 +39,10 @@ it("stops a malformed one-code objective before lecture resources and markdown t
   expect(objective.objective).toBe("Describe the development of the male reproductive ducts and associated glands.");
 });
 
+it("removes a trailing single-cell markdown separator from an objective", () => {
+  expect(sanitizeObjectiveText("Describe lipid digestion and absorption. | ---")).toBe("Describe lipid digestion and absorption.");
+});
+
 it("removes school document furniture while keeping the objective itself", () => {
   const raw = `School of Medicine\nUniversity Administration\nAddress 1 University Way\nLearning objectives for module DM in term August 2026\nDescribe the regulation of glycolysis.`;
   expect(stripObjectiveDocumentBoilerplate(raw)).not.toMatch(/school|university|address|module DM/i);

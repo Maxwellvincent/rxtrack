@@ -58,6 +58,7 @@ export function sanitizeObjectiveText(value) {
     .replace(/^\s*SOM(?:\.\s?[A-Za-z0-9]+)+\.\s?\d{4}\s*/i, "")
     .split(/\s+\|\s*(?:#{1,6}\s+|recommended reading|images?:|other resources?:|the big picture|copyright\b)/i)[0]
     .replace(/\|\s*\|[-:|\s]{3,}[\s\S]*$/i, "")
+    .replace(/\s*\|\s*-{3,}[\s\S]*$/i, "")
     .split(/\n\s*(?:#{1,6}\s+|\*\*|recommended reading|images?:|other resources?:|the big picture|copyright\b|!\[)/i)[0]
     .replace(/\s*\|\s*$/g, "")
     .replace(/\s+/g, " ")
