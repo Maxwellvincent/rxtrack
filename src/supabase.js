@@ -50,6 +50,10 @@ export async function signInWithGoogle() {
     provider,
     popup: signInWithPopup,
     redirect: signInWithRedirect,
+    // RXTrack is deployed with cross-origin isolation headers that can prevent
+    // Firebase from closing a Google popup reliably. Redirect auth completes
+    // through completeRedirectSignIn() during the next shell boot.
+    preferRedirect: true,
   });
 }
 

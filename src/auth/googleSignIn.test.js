@@ -10,6 +10,16 @@ describe("startGoogleSignIn", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 
+  it("uses redirect directly when requested", async () => {
+    const popup = vi.fn();
+    const redirect = vi.fn().mockResolvedValue(undefined);
+    await startGoogleSignIn({
+      auth: {}, provider: {}, popup, redirect, preferRedirect: true,
+    });
+    expect(redirect).toHaveBeenCalledOnce();
+    expect(popup).not.toHaveBeenCalled();
+  });
+
   it("falls back to redirect when the popup never opens", async () => {
     vi.useFakeTimers();
     const popup = vi.fn(() => new Promise(() => {}));
@@ -28,4 +38,3 @@ describe("startGoogleSignIn", () => {
     expect(redirect).not.toHaveBeenCalled();
   });
 });
-

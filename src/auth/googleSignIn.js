@@ -15,8 +15,18 @@ export async function startGoogleSignIn({
   provider,
   popup,
   redirect,
+  preferRedirect = false,
   timeoutMs = GOOGLE_POPUP_TIMEOUT_MS,
 }) {
+  // A full-page redirect avoids popup cleanup races caused by COOP. In
+  // particular, Firebase may have authenticated successfully while its popup
+  // promise is still waiting to close; racing that promise with our timeout
+  // used to start a second auth attempt and strand the shell signed out.
+  if (preferRedirect) {
+    await redirect(auth, provider);
+    return;
+  }
+
   let timer;
   try {
     const timeout = new Promise((_, reject) => {
@@ -34,4 +44,3 @@ export async function startGoogleSignIn({
     clearTimeout(timer);
   }
 }
-
