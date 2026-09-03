@@ -7,6 +7,7 @@ import {
   GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
   signOut as fbSignOut, onAuthStateChanged,
 } from "firebase/auth";
+import { startGoogleSignIn } from "./auth/googleSignIn.js";
 import {
   doc, getDoc, getDocFromServer, deleteDoc, collection, getDocs, query, where, orderBy, limit,
   setDoc, runTransaction, writeBatch, serverTimestamp,
@@ -44,22 +45,12 @@ const normalize = (u) => (u ? {
 
 export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider();
-  try {
-    await signInWithPopup(auth, provider);
-  } catch (e) {
-    // Redirect fallback covers: popup blocked, third-party cookie restrictions
-    // (auth/web-storage-unavailable), and unsupported environments
-    const redirectCodes = [
-      "auth/popup-blocked",
-      "auth/popup-closed-by-user",
-      "auth/cancelled-popup-request",
-      "auth/web-storage-unavailable",
-      "auth/operation-not-supported-in-this-environment",
-    ];
-    if (redirectCodes.includes(e?.code)) {
-      await signInWithRedirect(auth, provider);
-    } else throw e;
-  }
+  return startGoogleSignIn({
+    auth,
+    provider,
+    popup: signInWithPopup,
+    redirect: signInWithRedirect,
+  });
 }
 
 export async function signOut() {
@@ -78,8 +69,8 @@ export function onAuthChange(cb) {
 
 // Complete a pending redirect sign-in on boot (findings 3,4).
 export async function completeRedirectSignIn() {
-  try { const res = await getRedirectResult(auth); return normalize(res?.user ?? null); }
-  catch { return null; }
+  const res = await getRedirectResult(auth);
+  return normalize(res?.user ?? null);
 }
 
 /** True if cloud has a terms doc or any objectives doc (matches pull “has data” semantics). */

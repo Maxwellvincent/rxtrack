@@ -68,6 +68,7 @@ export default function Shell() {
   const { theme, toggle } = useTheme();
   const [phase, setPhase] = useState("checking"); // checking | signedout | loading | ready
   const [userId, setUserId] = useState(null);
+  const [authError, setAuthError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -94,7 +95,10 @@ export default function Shell() {
       if (alive) setPhase("ready");
     }
     // Resolve a pending Google redirect sign-in before the auth gate settles.
-    completeRedirectSignIn().finally(() => {
+    completeRedirectSignIn().catch((error) => {
+      console.error("Google redirect sign-in failed", error);
+      if (alive) setAuthError(error?.message || "Google sign-in could not be completed.");
+    }).finally(() => {
       // Defer the boot call to avoid running synchronously inside the auth callback.
       const unsub = onAuthChange((user) => {
         setTimeout(() => boot(user?.id ?? null), 0);
@@ -121,7 +125,8 @@ export default function Shell() {
       <div className="flex flex-col items-center gap-4">
         <div className="font-display text-2xl">RXTrack</div>
         <div className="text-sm text-text-3">Sign in to load your terms, blocks, and bank.</div>
-        <Button onClick={() => signInWithGoogle().catch((e) => alert(e?.message || "Sign-in failed"))}>
+        {authError && <div role="alert" className="max-w-md rounded-lg border border-bad px-4 py-3 text-sm text-bad">{authError}</div>}
+        <Button onClick={() => { setAuthError(""); signInWithGoogle().catch((e) => setAuthError(e?.message || "Sign-in failed")); }}>
           Sign in with Google
         </Button>
       </div>
