@@ -59,7 +59,11 @@ export function reconcileOfficialObjectives(existing = [], incoming = []) {
       next.push(merged);
       continue;
     }
-    if (old?.extractionMethod === "standalone-doc") {
+    // A coded curriculum PDF is authoritative for the block. Early imports did
+    // not persist extractionMethod, so malformed coded rows otherwise survive
+    // forever beside their repaired replacements. Preserve uncoded/manual and
+    // lecture-only objectives; replace the official SOM-coded set completely.
+    if (old?.extractionMethod === "standalone-doc" || canonicalObjectiveCode(old)) {
       removed++;
       continue;
     }

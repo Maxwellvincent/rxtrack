@@ -21,12 +21,19 @@ describe("official objective reconciliation", () => {
     });
   });
 
-  it("removes stale standalone rows but keeps lecture-extracted objectives", () => {
+  it("removes stale coded rows even when an early import omitted provenance", () => {
     const stale = incoming("stale", "SOM.DM.9999", "Old malformed objective.");
     const lecture = { ...incoming("lecture", "SOM.DM.8888", "Lecture objective."), extractionMethod: "table" };
     const clean = incoming("clean", "SOM.DM.1001", "Describe metabolism.");
     const result = reconcileOfficialObjectives([stale, lecture], [clean]);
-    expect(result).toMatchObject({ added: 1, updated: 0, removed: 1 });
+    expect(result).toMatchObject({ added: 1, updated: 0, removed: 2 });
+    expect(result.objectives.map((row) => row.id)).toEqual(["clean"]);
+  });
+
+  it("keeps uncoded lecture and manual objectives outside the authoritative coded set", () => {
+    const lecture = { id: "lecture", objective: "Describe a lecture-only detail.", text: "Describe a lecture-only detail.", extractionMethod: "table" };
+    const clean = incoming("clean", "SOM.DM.1001", "Describe metabolism.");
+    const result = reconcileOfficialObjectives([lecture], [clean]);
     expect(result.objectives.map((row) => row.id)).toEqual(["lecture", "clean"]);
   });
 

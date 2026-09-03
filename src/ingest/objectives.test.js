@@ -60,8 +60,12 @@ it.skipIf(!process.env.RXTRACK_VERIFY_DM_OBJECTIVES)("keeps the official DM obje
   const text = execFileSync("pdftotext", ["-layout", process.env.RXTRACK_VERIFY_DM_OBJECTIVES, "-"], { encoding: "utf8" });
   const rows = extractCodedObjectivesFromDoc(text, [], "dm");
   expect(rows.length).toBeGreaterThan(300);
+  expect(rows).toHaveLength(599);
+  expect(new Set(rows.map((row) => row.code)).size).toBe(599);
   expect(rows.every((row) => row.objective.length <= 320)).toBe(true);
+  expect(rows.filter((row) => !isValidObjective(row.objective)).map((row) => `${row.code}: ${row.objective}`)).toEqual([]);
   expect(rows.some((row) => /school of medicine|university|address|learning objectives for module|copyright|page \d/i.test(row.objective))).toBe(false);
+  expect(rows.filter((row) => /\|\s*-{3,}|\d{6}\s+Objectives|SOM\..*SOM\./i.test(`${row.objective} ${row.code}`)).map((row) => `${row.code}: ${row.objective}`)).toEqual([]);
 });
 
 describe("separate lecture and DLA objective slides", () => {

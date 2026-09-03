@@ -42,7 +42,7 @@ export function parseObjectiveActivityTag(text) {
 
 export const MAX_OBJECTIVE_CHARS = 320;
 
-const OBJECTIVE_START_RE = /(?:^|\s)(summarize|outline|discuss|describe|identify|explain|list|compare|contrast|define|classify|distinguish|differentiate|evaluate|analyze|apply|demonstrate|calculate|interpret|relate|state|give|name|recognize|predict|determine|illustrate|formulate|recall|review|assess|examine|draw|characterize|diagnose|select|solve|use|construct|develop|derive|match|label|locate|perform|understand|appraise|highlight|indicate|justify)\b/i;
+const OBJECTIVE_START_RE = /(?:^|\s)(summarize|outline|discuss|describe|descibe|identify|explain|list|compare|contrast|define|classify|distinguish|differentiate|diffrentiate|evaluate|analyze|analyse|apply|demonstrate|calculate|interpret|relate|state|give|name|recognize|predict|determine|illustrate|formulate|recall|recap|recapitulate|review|assess|examine|draw|characterize|diagnose|select|solve|use|construct|develop|derive|match|label|locate|perform|understand|appraise|highlight|indicate|justify|correlate|integrate|present|create|generate|generating|microscopically describe|to develop)\b/i;
 
 /** Remove curriculum-export furniture without rewriting the school's objective. */
 export function stripObjectiveDocumentBoilerplate(value) {
@@ -61,6 +61,7 @@ export function sanitizeObjectiveText(value) {
     .split(/\n\s*(?:#{1,6}\s+|\*\*|recommended reading|images?:|other resources?:|the big picture|copyright\b|!\[)/i)[0]
     .replace(/\s*\|\s*$/g, "")
     .replace(/\s+/g, " ")
+    .replace(/^\d+\s+(?=[A-Za-z])/, "")
     .trim();
 
   // A malformed table row can put a school heading or metadata before the
@@ -184,6 +185,23 @@ const OBJECTIVE_VERBS = [
   "locate",
   "perform",
   "understand",
+  "appraise",
+  "highlight",
+  "indicate",
+  "justify",
+  "recap",
+  "recapitulate",
+  "correlate",
+  "integrate",
+  "present",
+  "create",
+  "generate",
+  "generating",
+  "microscopically",
+  "to develop",
+  "analyse",
+  "descibe",
+  "diffrentiate",
 ];
 
 export function isValidObjective(text) {
@@ -242,15 +260,13 @@ export function normalizeSomCodesInText(text) {
   // it most needed to repair — 31 of 46 codes in one lecture kept a stray space
   // before their four-digit tail and were therefore never matched downstream.
   out = out.replace(/\[(SOM\.[A-Za-z0-9.]+)\]\(https?:\/\/[^)]+\)/gi, "$1");
-  // Collapse whitespace anywhere inside a code: OCR and pdf text layers break
-  // them after any dot, not only before the suffix.
-  for (let i = 0; i < 4; i++) {
-    const next = out
-      .replace(/(SOM\.[A-Za-z0-9.]*)\s+([A-Za-z0-9]+\.)/g, "$1$2")
-      .replace(/(SOM\.[A-Za-z0-9.]+\.)\s+(\d{4})\b/g, "$1$2");
-    if (next === out) break;
-    out = next;
-  }
+  // Collapse whitespace only inside a complete code ending in four digits.
+  // A formerly broad iterative replacement could cross a row boundary and
+  // join the last word of one objective to the next SOM code.
+  out = out.replace(
+    /SOM\.\s*[A-Za-z0-9]+(?:\.\s*[A-Za-z0-9]+)+\.\s*\d{4}/gi,
+    (code) => code.replace(/\s/g, "")
+  );
   // Convert "; NNNN" or ", NNNN" continuations directly after a SOM code into
   // the "//NNNN" syntax that existing expansion logic understands.
   out = out.replace(
@@ -360,6 +376,62 @@ export function extractCodeDelimited(text, lec, blockId) {
   const src = normalizeSomCodesInText(text.toString());
   const matches = [...src.matchAll(SOM_CODE)];
   if (!matches.length) return [];
+
+  // The official objectives workbook is exported to PDF as two visual columns.
+  // A wrapped row can put the beginning of an objective in the text column on
+  // the line *above* its SOM code, then put the final words beside the code.
+  // Rebuild those rows before falling back to the more permissive slice parser
+  // used by ordinary lecture decks.
+  const lines = src.split(/\r?\n/);
+  const fixedWidthRows = [];
+  let current = null;
+  let prefixForNext = [];
+  const flush = () => {
+    if (!current) return;
+    const body = sanitizeObjectiveText(current.parts.join(" "));
+    if (body.length >= 10) fixedWidthRows.push(buildObjEntry(current.code, body, lec, blockId));
+    current = null;
+  };
+
+  for (const line of lines) {
+    const codeMatch = line.match(SOM_CODE);
+    if (codeMatch) {
+      flush();
+      const code = codeMatch[0].replace(/\s/g, "");
+      const tail = line.slice((codeMatch.index || 0) + codeMatch[0].length)
+        .replace(/^[\s:.\-–—|]+/, "")
+        .trim();
+      current = { code, parts: [...prefixForNext, tail].filter(Boolean) };
+      prefixForNext = [];
+      continue;
+    }
+
+    if (!current || !/^\s{10,}\S/.test(line)) continue;
+    const cell = line.trim().replace(/^\|+\s*/, "").trim();
+    if (!cell || /^\|?[-:|\s]{3,}\|?$/.test(cell)) continue;
+
+    // A new verb-led indented cell is the beginning of the next spreadsheet
+    // row. Lines after it remain part of that pending prefix until its code.
+    if (OBJECTIVE_START_RE.test(cell)) {
+      prefixForNext = [cell];
+    } else if (prefixForNext.length) {
+      prefixForNext.push(cell);
+    } else {
+      current.parts.push(cell);
+    }
+  }
+  flush();
+
+  const fixedWidthSeen = new Set();
+  const cleanFixedWidthRows = fixedWidthRows.filter((row) => {
+    const code = row.code;
+    if (!code || fixedWidthSeen.has(code)) return false;
+    fixedWidthSeen.add(code);
+    return true;
+  });
+  const fixedWidthEvidence = lines.some((line) => /^\s{10,}\S/.test(line))
+    && lines.some((line) => line.match(SOM_CODE) && /\s{2,}\S/.test(line.slice((line.match(SOM_CODE)?.index || 0) + (line.match(SOM_CODE)?.[0]?.length || 0))));
+  if (fixedWidthEvidence && cleanFixedWidthRows.length) return cleanFixedWidthRows;
 
   const results = [];
   const seen = new Set();
@@ -1037,8 +1109,27 @@ export function extractCodedObjectivesFromDoc(text, blockLectures, blockId) {
       lectureType: section.activity || matched?.lectureType || "LEC",
       lectureNumber: matched?.lectureNumber ?? null,
     };
+    const normalizedBody = normalizeSomCodesInText(section.body);
+    const sectionLines = normalizedBody.split(/\r?\n/);
     for (const entry of extractCodeDelimited(section.body, sectionLec, blockId)) {
-      out.push({ ...entry, lectureHint: section.title || undefined, extractionMethod: "standalone-doc" });
+      let repaired = entry;
+      if (!isValidObjective(entry.objective)) {
+        const codeLine = sectionLines.findIndex((line) => line.includes(entry.code));
+        const preceding = [];
+        for (let i = codeLine - 1; i >= 0; i--) {
+          const line = sectionLines[i];
+          if (line.match(SOM_CODE) || /^\s*(?:Lecture|DLA|TBL|Small group|Lab)\b/i.test(line)) break;
+          if (!line.trim()) continue;
+          if (!/^\s{10,}\S/.test(line)) break;
+          preceding.unshift(line.trim());
+        }
+        const start = preceding.findIndex((line) => OBJECTIVE_START_RE.test(line));
+        if (start >= 0) {
+          const objective = sanitizeObjectiveText(`${preceding.slice(start).join(" ")} ${entry.objective}`);
+          repaired = { ...entry, objective, text: objective };
+        }
+      }
+      out.push({ ...repaired, lectureHint: section.title || undefined, extractionMethod: "standalone-doc" });
     }
   }
 
