@@ -332,11 +332,20 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     }
     const answer = answers.get(num) || standaloneAnswers[num - 1] || markedCorrectAnswers[num - 1];
     const stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
+    const visualOnly = Object.keys(choices).length < 2 && answer?.correct
+      && /\b(?:graph|figure|image|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
+    if (visualOnly) {
+      const finalLetter = Math.max(4, "ABCDEFGH".indexOf(answer.correct));
+      for (let optionIndex = 0; optionIndex <= finalLetter; optionIndex++) {
+        const optionLetter = "ABCDEFGH"[optionIndex];
+        choices[optionLetter] = `Visual option ${optionLetter}`;
+      }
+    }
     return {
       id: `q${num}`,
       num,
       type: "clinicalVignette",
-      imageQuestion: false,
+      imageQuestion: visualOnly,
       subject: "Uploaded",
       topic: examTitle || "Exam Review",
       stem,
@@ -346,7 +355,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       difficulty: "medium",
       choiceLayout: null,
       choiceColumns: null,
-      hasImage: /\b(?:figure|image|micrograph|photomicrograph|graph|pathway)\b/i.test(stem),
+      hasImage: visualOnly || /\b(?:figure|image|micrograph|photomicrograph|graph|pathway)\b/i.test(stem),
       sourcePage,
     };
   }).filter((q, index, all) => q.stem.length > 20 && Object.keys(q.choices).length >= 2

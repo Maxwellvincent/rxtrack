@@ -2,6 +2,34 @@ import { describe, it, expect } from "vitest";
 import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
 describe("PDF glyph fidelity", () => {
+  it("retains graph questions whose answer choices exist only in the PDF image", () => {
+    const source = `1. Which graph best represents the normal pancreatic response shown below?
+2. Which diagnosis is most likely?
+A. One
+B. Two
+C. Three
+D. Four
+E. Five
+3. Which mechanism is responsible?
+A. Alpha
+B. Beta
+C. Gamma
+D. Delta
+E. Epsilon
+Answer Key and Explanation
+1. Which graph best represents the normal pancreatic response shown below?
+Answer Key: A
+Rationale: Bicarbonate rises with flow.
+2. Which diagnosis is most likely?
+Answer Key: B
+3. Which mechanism is responsible?
+Answer Key: C`;
+    const questions = parseNumberedQuestionBankText(source, "Physiology");
+    expect(questions).toHaveLength(3);
+    expect(questions[0]).toMatchObject({ correct: "A", imageQuestion: true, hasImage: true });
+    expect(questions[0].choices).toEqual({ A: "Visual option A", B: "Visual option B", C: "Visual option C", D: "Visual option D", E: "Visual option E" });
+  });
+
   it("does not turn a numbered Word footer into a question", () => {
     const source = '1Click here to enter text.\n' + [1,2,3].map(n => `${n}. A patient has a distinct finding ${n}. Which mechanism explains it?\nA. First mechanism\nB. Second mechanism`).join('\n') + '\nAnswer Key: 1 A, 2 B, 3 A';
     const questions = parseNumberedQuestionBankText(source);
