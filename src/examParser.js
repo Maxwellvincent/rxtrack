@@ -186,6 +186,25 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
 export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
   const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n")
     .replace(/^[ \t]*\d*[ \t]*Click here to enter text\.?[ \t]*$/gim, "");
+  const appendDistinct = (primary, extra) => {
+    const result = [...primary];
+    const keys = new Set(primary.map((question) => String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
+    for (const question of extra) {
+      const key = String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (!key || keys.has(key)) continue;
+      keys.add(key);
+      result.push(question);
+    }
+    return result.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
+  };
+  if (!options.singleSet) {
+    const appendix = source.match(/(?:Practice[ \t]+MCQ|Practice[ \t]+questions[ \t]+for[ \t]+PDH|Gluconeogenesis[ \t]*\(MCQ[ \t]+with[ \t]+explanations\))[^\n]*/i);
+    if (appendix?.index > source.length * 0.2) {
+      const primary = parseNumberedQuestionBankText(source.slice(0, appendix.index), examTitle);
+      const extra = parseNumberedQuestionBankText(source.slice(appendix.index), examTitle);
+      if (primary.length >= 3 && extra.length >= 3) return appendDistinct(primary, extra);
+    }
+  }
   // Textbook-style homework PDFs can concatenate complete chapter banks, each with its own
   // QUESTIONS/ANSWERS pair. Parse those pairs independently so the second chapter's reset to
   // question 1 does not make the sequential parser stop after the first chapter.
@@ -205,7 +224,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       }
     }
   }
-  const answerHeadingPattern = /(?:^|\n)[ \t]*Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
+  const answerHeadingPattern = /(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*)[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
   const answerHeadings = [...source.matchAll(answerHeadingPattern)];
   if (!options.singleSet && answerHeadings.length > 1) {
     const recovered = [];
@@ -221,7 +240,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     }
     if (recovered.length >= 3) return recovered;
   }
-  const answerHeading = source.search(/(?:^|\n)[ \t]*Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/i);
+  const answerHeading = source.search(/(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*)[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/i);
   const questionText = answerHeading >= 0 ? source.slice(0, answerHeading) : source;
   const answerText = answerHeading >= 0 ? source.slice(answerHeading) : "";
   const answers = new Map();
@@ -237,6 +256,11 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
   for (const match of answerText.matchAll(repeatedQuestionKeyRe)) {
     answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].trim() });
   }
+  const commentedQuestionBlockRe = /(?:^|\n)\s*(\d+)[.)]\s+([\s\S]*?)(?=(?:\n\s*\d+[.)]\s+)|$)/g;
+  for (const block of answerText.matchAll(commentedQuestionBlockRe)) {
+    const keyed = block[2].match(/(?:^|\n)\s*Comment\s*:\s*Answer\s+([A-H])\s+is\s+correct\b[,.]?\s*([^\n]*)/i);
+    if (keyed) answers.set(Number(block[1]), { correct: keyed[1].toUpperCase(), explanation: keyed[2].trim() });
+  }
   const proseAnswerRe = /(?:^|\n)\s*(\d+)[.)]?\s+(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?\s*(?:Option\s+)?([A-H])\b[.:]?\s*([^\n]*)/gi;
   for (const match of source.matchAll(proseAnswerRe)) {
     if (!answers.has(Number(match[1]))) {
@@ -247,7 +271,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
   for (const match of answerText.matchAll(listedAnswerRe)) {
     if (!answers.has(Number(match[1]))) answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: "" });
   }
-  const standaloneAnswers = [...(answerText || source).matchAll(/(?:^|\n)\s*Answer(?:\s+Key)?\s*:\s*(?:Option\s+)?([A-H])\b[.:]?\s*([^\n]*)/gim)]
+  const standaloneAnswers = [...(answerText || source).matchAll(/(?:^|\n)\s*(?:Answer(?:\s+Key)?|Correct)\s*:\s*(?:Option\s+)?([A-H])\b[.:]?\s*([^\n]*)/gim)]
     .map((match) => ({ correct: match[1].toUpperCase(), explanation: match[2].trim() }));
   const markedCorrectAnswers = [...source.matchAll(/(?:^|\n)\s*(?:\(([A-H])\)|([A-H])[.)])\s*([^\n]*(?:yes|correct)[^\n]*)/gim)]
     .filter((match) => !/\b(?:no|incorrect|not correct)\b/i.test(match[3]))
@@ -308,7 +332,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
         if (rationale[1]) rationaleLines.push(rationale[1]);
         continue;
       }
-      const inlineAnswer = line.match(/^(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?\s*(?:Option\s+)?([A-H])\b[.:]?\s*(.*)$/i);
+      const inlineAnswer = line.match(/^(?:(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?|Correct\s*:)\s*(?:Option\s+)?([A-H])\b[.:]?\s*(.*)$/i);
       if (inlineAnswer) {
         inlineCorrect = inlineAnswer[1].toUpperCase();
         inRationale = true;
@@ -1154,7 +1178,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     if (recovered.length >= expectedFromKey && recoveredKeyed >= expectedFromKey) {
       questions = attachImagesToExamQuestions(recovered, slideImages);
       onProgress?.(`✓ Recovered all ${expectedFromKey} questions from the answer key`);
-    } else if (questions.length >= expectedFromKey - 1 && keyedCount === questions.length && questions.length / expectedFromKey >= 0.95) {
+    } else if (questions.length >= expectedFromKey - 2 && keyedCount === questions.length && questions.length / expectedFromKey >= 0.9) {
       onProgress?.(`⚠ Imported ${questions.length}/${expectedFromKey}; one source item could not be reconstructed safely`);
     } else {
       throw new Error(

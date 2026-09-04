@@ -2,6 +2,21 @@ import { describe, it, expect } from "vitest";
 import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
 describe("PDF glyph fidelity", () => {
+  it("keeps a self-keyed Practice MCQ appendix after conventional keyed sections", () => {
+    const conventional = `1. Main clinical question one asks which finding?\nA. Alpha\nB. Beta\n2. Main clinical question two asks which finding?\nA. Alpha\nB. Beta\n3. Main clinical question three asks which finding?\nA. Alpha\nB. Beta\nAnswer Key:\n1. A\n2. B\n3. A`;
+    const appendix = `Practice MCQ for Digestion, explanations\n1. Appendix clinical question one asks which finding?\nA. Alpha\nB. Beta CORRECT ANSWER\n2. Appendix clinical question two asks which finding?\nA. Alpha CORRECT ANSWER\nB. Beta\n3. Appendix clinical question three asks which finding?\nA. Alpha\nB. Beta CORRECT ANSWER`;
+    const questions = parseNumberedQuestionBankText(`${conventional}\n${appendix}`, "Biochemistry");
+    expect(questions).toHaveLength(6);
+    expect(questions.map((question) => question.correct)).toEqual(["A", "B", "A", "B", "A", "B"]);
+  });
+
+  it("recognizes prose answer-key headings used by homework appendices", () => {
+    const source = `1. First patient question asks which finding?\nA. Alpha\nB. Beta\n2. Second patient question asks which finding?\nA. Alpha\nB. Beta\n3. Third patient question asks which finding?\nA. Alpha\nB. Beta\nAnswer key for the practice questions with short explanations.\n1. First patient question asks which finding?\nComment: Answer B is correct.\n2. Second patient question asks which finding?\nComment: Answer A is correct.\n3. Third patient question asks which finding?\nComment: Answer B is correct.`;
+    const questions = parseNumberedQuestionBankText(source, "Biochemistry");
+    expect(questions).toHaveLength(3);
+    expect(questions.map((question) => question.correct)).toEqual(["B", "A", "B"]);
+  });
+
   it("counts and parses concatenated chapter question/answer sections independently", () => {
     const bank = (label, count) => `QUESTIONS\n${Array.from({ length: count }, (_, index) => `${index + 1}. ${label} patient ${index + 1}. Which finding is expected?\nA. Alpha\nB. Beta\nC. Gamma`).join("\n")}\nANSWERS\n${Array.from({ length: count }, (_, index) => `${index + 1}. The answer is ${index % 2 ? "B" : "A"}: explanation`).join("\n")}`;
     const source = `${bank("Oral", 3)}\n${bank("GI", 4)}`;
