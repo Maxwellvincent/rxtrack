@@ -186,6 +186,25 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
 export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
   const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n")
     .replace(/^[ \t]*\d*[ \t]*Click here to enter text\.?[ \t]*$/gim, "");
+  // Textbook-style homework PDFs can concatenate complete chapter banks, each with its own
+  // QUESTIONS/ANSWERS pair. Parse those pairs independently so the second chapter's reset to
+  // question 1 does not make the sequential parser stop after the first chapter.
+  if (!options.singleSet) {
+    const questionSections = [...source.matchAll(/(?:^|\n)[ \t]*QUESTIONS[ \t]*(?=\n)/g)];
+    const answerSections = [...source.matchAll(/(?:^|\n)[ \t]*ANSWERS[ \t]*(?=\n)/g)];
+    if (questionSections.length > 1 && answerSections.length > 1) {
+      const recovered = [];
+      for (let index = 0; index < questionSections.length; index++) {
+        const start = questionSections[index].index || 0;
+        const end = questionSections[index + 1]?.index ?? source.length;
+        const segment = source.slice(start, end);
+        recovered.push(...parseNumberedQuestionBankText(segment, examTitle, { singleSet: true }));
+      }
+      if (recovered.length >= 3) {
+        return recovered.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
+      }
+    }
+  }
   const answerHeadingPattern = /(?:^|\n)[ \t]*Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
   const answerHeadings = [...source.matchAll(answerHeadingPattern)];
   if (!options.singleSet && answerHeadings.length > 1) {
@@ -397,6 +416,17 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
 
 export function expectedQuestionCountFromAnswerKey(fullText) {
   const normalizedText = String(fullText || "").replace(/\f/g, "\n");
+  const chapterAnswers = [...normalizedText.matchAll(/(?:^|\n)[ \t]*ANSWERS[ \t]*(?=\n)/g)];
+  if (chapterAnswers.length > 1) {
+    const maxima = chapterAnswers.map((heading, index) => {
+      const end = chapterAnswers[index + 1]?.index ?? normalizedText.length;
+      const section = normalizedText.slice(heading.index, end);
+      const numbers = [...section.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?:The[ \t]+)?answer[ \t]+is[ \t]+[A-H]\b/gim)]
+        .map((match) => Number(match[1])).filter(Number.isFinite);
+      return numbers.length ? Math.max(...numbers) : 0;
+    }).filter(Boolean);
+    if (maxima.length > 1) return maxima.reduce((sum, count) => sum + count, 0);
+  }
   const ids = [...normalizedText.matchAll(/(?:^|\n)\s*Q(\d+)\s*:\s*[A-H]\b/gim)]
     .map((m) => Number(m[1]))
     .filter(Number.isFinite);

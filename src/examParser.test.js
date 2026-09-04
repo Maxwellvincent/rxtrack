@@ -2,6 +2,15 @@ import { describe, it, expect } from "vitest";
 import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
 describe("PDF glyph fidelity", () => {
+  it("counts and parses concatenated chapter question/answer sections independently", () => {
+    const bank = (label, count) => `QUESTIONS\n${Array.from({ length: count }, (_, index) => `${index + 1}. ${label} patient ${index + 1}. Which finding is expected?\nA. Alpha\nB. Beta\nC. Gamma`).join("\n")}\nANSWERS\n${Array.from({ length: count }, (_, index) => `${index + 1}. The answer is ${index % 2 ? "B" : "A"}: explanation`).join("\n")}`;
+    const source = `${bank("Oral", 3)}\n${bank("GI", 4)}`;
+    const questions = parseNumberedQuestionBankText(source, "Histology");
+    expect(questions).toHaveLength(7);
+    expect(questions.every((question) => question.correct)).toBe(true);
+    expect(expectedQuestionCountFromAnswerKey(source)).toBe(7);
+  });
+
   it("retains graph questions whose answer choices exist only in the PDF image", () => {
     const source = `1. Which graph best represents the normal pancreatic response shown below?
 2. Which diagnosis is most likely?
