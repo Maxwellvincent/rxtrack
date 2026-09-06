@@ -26,6 +26,26 @@ describe("PDF glyph fidelity", () => {
     expect(expectedQuestionCountFromAnswerKey(source)).toBe(7);
   });
 
+  it("adds a final textbook chapter whose answers are interleaved", () => {
+    const bank = (label) => `QUESTIONS\n1. ${label} first clinical question asks which finding?\nA. One\nB. Two\nC. Three\n2. ${label} second clinical question asks which finding?\nA. One\nB. Two\nC. Three\n3. ${label} third clinical question asks which finding?\nA. One\nB. Two\nC. Three\nANSWERS\n1. The answer is A: reason\n2. The answer is B: reason\n3. The answer is C: reason`;
+    const interleaved = `1 Interleaved first clinical question asks which finding?\n(A) One\n(B) Two\n(C) Three\n1 The answer is B: reason\n2 Interleaved second clinical question asks which finding?\n(A) One\n(B) Two\n(C) Three\n2 The answer is C: reason\n3 Interleaved third clinical question asks which finding?\n(A) One\n(B) Two\n(C) Three\n3 The answer is A: reason`;
+    const source = `${bank("Oral")}\n${bank("GI")}\n${interleaved}`;
+    const questions = parseNumberedQuestionBankText(source, "Histology");
+    expect(questions).toHaveLength(9);
+    expect(questions.map((question) => question.correct)).toEqual(["A", "B", "C", "A", "B", "C", "B", "C", "A"]);
+    expect(expectedQuestionCountFromAnswerKey(source)).toBe(9);
+  });
+
+  it("parses sparse textbook excerpts only where an explicit key exists", () => {
+    const oral = `QUESTIONS\n1 First keyed question asks which finding? (A) Alpha\n(B) Beta\n(C) Gamma\n7 Seventh keyed question asks which finding?\n(A) Alpha\n(B) Beta (C) Gamma\n9 This unkeyed question must not be positionally assigned?\n(A) Alpha\n(B) Beta\n(C) Gamma\nANSWERS\n1 The answer is A: reason\n7 The answer is C: reason`;
+    const gi = `QUESTIONS\n1 Second chapter first question asks which finding?\n(A) Alpha\n(B) Beta\n(C) Gamma\n3 Second chapter third question asks which finding?\n(A) Alpha\n(B) Beta\n(C) Gamma\nANSWERS\n1 The answer is B: reason\n3 The answer is A: reason`;
+    const questions = parseNumberedQuestionBankText(`${oral}\n${gi}`, "Histology");
+    expect(questions).toHaveLength(4);
+    expect(questions.map((question) => question.correct)).toEqual(["A", "C", "B", "A"]);
+    expect(questions[1].choices.C).toBe("Gamma");
+    expect(expectedQuestionCountFromAnswerKey(`${oral}\n${gi}`)).toBe(4);
+  });
+
   it("retains graph questions whose answer choices exist only in the PDF image", () => {
     const source = `1. Which graph best represents the normal pancreatic response shown below?
 2. Which diagnosis is most likely?

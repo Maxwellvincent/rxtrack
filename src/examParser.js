@@ -197,6 +197,57 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     }
     return result.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
   };
+  const parseInterleavedPairs = () => {
+    const headings = [...source.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?=\S)/g)].map((match) => ({
+      num: Number(match[1]), start: match.index || 0, bodyStart: (match.index || 0) + match[0].length,
+    }));
+    const keyed = [...source.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?:The[ \t]+)?answer[ \t]+is[ \t]+([A-H])\s*:/gim)];
+    const resetIndex = keyed.findIndex((answer, index) => index > 0 && Number(answer[1]) <= Number(keyed[index - 1][1]));
+    if (resetIndex < 0) return [];
+    const priorAnswerStart = keyed[resetIndex - 1].index || 0;
+    const firstAnswerStart = keyed[resetIndex].index || 0;
+    const scopeStart = headings.filter((heading) => heading.num === Number(keyed[resetIndex][1])
+      && heading.start > priorAnswerStart && heading.start < firstAnswerStart).at(-1)?.start;
+    if (scopeStart == null) return [];
+    const result = [];
+    let previousAnswerEnd = scopeStart;
+    for (const answer of keyed.slice(resetIndex)) {
+      const num = Number(answer[1]);
+      const candidate = headings.filter((heading) => heading.num === num && heading.start >= Math.max(previousAnswerEnd, scopeStart) && heading.start < (answer.index || 0)).at(-1);
+      previousAnswerEnd = (answer.index || 0) + answer[0].length;
+      if (!candidate) continue;
+      const body = source.slice(candidate.bodyStart, answer.index);
+      const choiceCount = (body.match(/(?:^|\n)[ \t]*(?:\([A-H]\)|[A-H][.)])[ \t]+/gim) || []).length;
+      if (choiceCount < 2 || choiceCount > 8) continue;
+      const parsed = parseNumberedQuestionBankText(`1. ${body}\nAnswer Key: 1 ${answer[2].toUpperCase()}`, examTitle, { singleSet: true, allowSingle: true })[0];
+      if (parsed) result.push({ ...parsed, id: `q${result.length + 1}`, num: result.length + 1 });
+    }
+    return result;
+  };
+  const parseSparseKeyedSection = (segment) => {
+    const answerStart = segment.search(/(?:^|\n)[ \t]*ANSWERS[ \t]*(?=\n)/i);
+    if (answerStart < 0) return [];
+    const questionPart = segment.slice(0, answerStart);
+    const answerPart = segment.slice(answerStart);
+    const headings = [...questionPart.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?=\S)/g)].map((match) => ({
+      num: Number(match[1]), start: match.index || 0, bodyStart: (match.index || 0) + match[0].length,
+    }));
+    const keys = [...answerPart.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?:The[ \t]+)?answer[ \t]+is[ \t]+([A-H])\s*:/gim)];
+    const result = [];
+    let previousKey = 0;
+    for (const key of keys) {
+      const num = Number(key[1]);
+      if (num <= previousKey) break;
+      previousKey = num;
+      const index = headings.findIndex((heading) => heading.num === num);
+      if (index < 0) continue;
+      const heading = headings[index];
+      const body = questionPart.slice(heading.bodyStart, headings[index + 1]?.start ?? questionPart.length);
+      const parsed = parseNumberedQuestionBankText(`1. ${body}\nAnswer Key: 1 ${key[2].toUpperCase()}`, examTitle, { singleSet: true, allowSingle: true })[0];
+      if (parsed) result.push(parsed);
+    }
+    return result;
+  };
   if (!options.singleSet) {
     const appendix = source.match(/(?:Practice[ \t]+MCQ|Practice[ \t]+questions[ \t]+for[ \t]+PDH|Gluconeogenesis[ \t]*\(MCQ[ \t]+with[ \t]+explanations\))[^\n]*/i);
     if (appendix?.index > source.length * 0.2) {
@@ -217,10 +268,13 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
         const start = questionSections[index].index || 0;
         const end = questionSections[index + 1]?.index ?? source.length;
         const segment = source.slice(start, end);
-        recovered.push(...parseNumberedQuestionBankText(segment, examTitle, { singleSet: true }));
+        // Textbook excerpts often omit arbitrary question numbers. Build these chapters only
+        // from explicit number-to-answer pairs; positional fallback can otherwise mis-key an
+        // unkeyed question after the first numbering gap.
+        recovered.push(...parseSparseKeyedSection(segment));
       }
       if (recovered.length >= 3) {
-        return recovered.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
+        return appendDistinct(recovered, parseInterleavedPairs());
       }
     }
   }
@@ -374,7 +428,18 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       }
     }
     const answer = answers.get(num) || standaloneAnswers[num - 1] || markedCorrectAnswers[num - 1];
-    const stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
+    let stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
+    const inlineFirstChoice = stem.match(/\s\(([A-H])\)\s+(.+)$/i);
+    if (inlineFirstChoice && !choices[inlineFirstChoice[1].toUpperCase()]) {
+      choices[inlineFirstChoice[1].toUpperCase()] = inlineFirstChoice[2].trim();
+      stem = stem.slice(0, inlineFirstChoice.index).trim();
+    }
+    for (const [choiceLetter, choiceValue] of Object.entries({ ...choices })) {
+      const embedded = String(choiceValue).match(/\s\(([A-H])\)\s+(.+)$/i);
+      if (!embedded || choices[embedded[1].toUpperCase()]) continue;
+      choices[choiceLetter] = choiceValue.slice(0, embedded.index).trim();
+      choices[embedded[1].toUpperCase()] = embedded[2].trim();
+    }
     const visualOnly = Object.keys(choices).length < 2 && answer?.correct
       && /\b(?:graph|figure|image|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
     if (visualOnly) {
@@ -442,14 +507,8 @@ export function expectedQuestionCountFromAnswerKey(fullText) {
   const normalizedText = String(fullText || "").replace(/\f/g, "\n");
   const chapterAnswers = [...normalizedText.matchAll(/(?:^|\n)[ \t]*ANSWERS[ \t]*(?=\n)/g)];
   if (chapterAnswers.length > 1) {
-    const maxima = chapterAnswers.map((heading, index) => {
-      const end = chapterAnswers[index + 1]?.index ?? normalizedText.length;
-      const section = normalizedText.slice(heading.index, end);
-      const numbers = [...section.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?:The[ \t]+)?answer[ \t]+is[ \t]+[A-H]\b/gim)]
-        .map((match) => Number(match[1])).filter(Number.isFinite);
-      return numbers.length ? Math.max(...numbers) : 0;
-    }).filter(Boolean);
-    if (maxima.length > 1) return maxima.reduce((sum, count) => sum + count, 0);
+    const explicitKeys = [...normalizedText.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?:The[ \t]+)?answer[ \t]+is[ \t]+[A-H]\s*:/gim)];
+    if (explicitKeys.length >= 3) return explicitKeys.length;
   }
   const ids = [...normalizedText.matchAll(/(?:^|\n)\s*Q(\d+)\s*:\s*[A-H]\b/gim)]
     .map((m) => Number(m[1]))
