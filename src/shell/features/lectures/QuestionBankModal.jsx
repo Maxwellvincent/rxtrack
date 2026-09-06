@@ -104,6 +104,8 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
             questionBankMetaStore.writeAwait(userId, pendingMeta),
           ]);
         }
+      } catch (e) {
+        results.push({ filename: "Question bank storage", error: e?.message || String(e) });
       } finally {
         setSummary(summarizeBankUpload(results));
         if (weakCategories.length) setWeakConceptsFound(weakCategories);

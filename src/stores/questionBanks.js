@@ -1,68 +1,109 @@
-/**
- * rxt-question-banks — Firestore-first, one kv document.
- *
- * Uploaded exam questions, keyed by source filename. They are read as few-shot
- * exemplars when generating questions, which is the reason this survived App's
- * retirement while the rest of the exam tooling did not.
- *
- * NOT mirrored to localStorage: the only reader that needed a synchronous local
- * copy was App.jsx, and the shell reads this store. 51 files was 618KB of a
- * ~5MB budget.
- */
+/** Question banks persisted one bank per Firestore kv document. */
 import {
   isHydrated as cloudIsHydrated,
   readCloud,
   readError as cloudReadError,
   subscribeToCloudStore,
-  writeCloud,
   writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 
 export const key = "rxt-question-banks";
+const indexKey = "rxt-question-bank-index-v2";
 const fallback = {};
+let activeUserId = null;
+const shardKey = (filename) => `rxt-question-bank-v2:${filename}`;
+
+function legacy(userId) {
+  return userId ? readCloud(userId, key, fallback) : readJson(userId, key, fallback);
+}
+function index(userId) {
+  return userId ? readCloud(userId, indexKey, fallback) : {};
+}
 
 export function read(userId) {
-  if (!userId) return readJson(userId, key, fallback);
-  return readCloud(userId, key, fallback);
+  if (!userId) return legacy(userId);
+  activeUserId = userId;
+  const result = { ...(legacy(userId) || {}) };
+  for (const [filename, entry] of Object.entries(index(userId) || {})) {
+    if (entry?.deleted) {
+      delete result[filename];
+      continue;
+    }
+    const questions = readCloud(userId, shardKey(filename), null);
+    if (Array.isArray(questions)) result[filename] = questions;
+  }
+  return result;
 }
 
-// Authoritative replace — removing a bank has to stay removed.
+async function persist(userId, value) {
+  if (!userId) return value;
+  activeUserId = userId;
+  const desired = value || {};
+  const current = read(userId);
+  const nextIndex = { ...(index(userId) || {}) };
+  const writes = [];
+  for (const [filename, questions] of Object.entries(desired)) {
+    // Callers assemble a new outer object but preserve unchanged bank arrays.
+    // Do not migrate every legacy bank merely because it lacks a v2 entry.
+    if (current[filename] === questions) continue;
+    writes.push(writeCloudAwait(userId, shardKey(filename), questions));
+    nextIndex[filename] = { updatedAt: Date.now() };
+  }
+  for (const filename of Object.keys(current)) {
+    if (!Object.prototype.hasOwnProperty.call(desired, filename)) {
+      nextIndex[filename] = { deleted: true, updatedAt: Date.now() };
+    }
+  }
+  await Promise.all(writes);
+  await writeCloudAwait(userId, indexKey, nextIndex);
+  return value;
+}
+
 export function write(userId, value) {
   if (!userId) return value;
-  return writeCloud(userId, key, value);
+  persist(userId, value).catch((error) => console.warn("question banks: write failed", error?.message || error));
+  return value;
 }
-
-/** Authoritative replace whose promise confirms the Firestore write landed. */
-export function writeAwait(userId, value) {
-  if (!userId) return Promise.resolve(value);
-  return writeCloudAwait(userId, key, value);
-}
-
-/** Add or replace one file's questions, leaving the other banks alone. */
+export function writeAwait(userId, value) { return persist(userId, value); }
 export function saveBank(userId, filename, questions) {
   if (!filename) return read(userId);
-  return write(userId, { ...(read(userId) || {}), [filename]: questions });
+  const next = { ...(read(userId) || {}), [filename]: questions };
+  write(userId, next);
+  return next;
 }
-
 export function removeBank(userId, filename) {
   const next = { ...(read(userId) || {}) };
   delete next[filename];
-  return write(userId, next);
+  write(userId, next);
+  return next;
 }
-
 export function merge(userId, incoming) {
-  return write(userId, { ...(read(userId) || {}), ...(incoming || {}) });
+  const next = { ...(read(userId) || {}), ...(incoming || {}) };
+  write(userId, next);
+  return next;
 }
 
 export function subscribe(cb) {
-  return subscribeToCloudStore(key, cb);
+  let shardUnsubs = [];
+  const subscribeShards = () => {
+    shardUnsubs.forEach((unsub) => unsub());
+    shardUnsubs = activeUserId
+      ? Object.keys(index(activeUserId) || {}).map((filename) => subscribeToCloudStore(shardKey(filename), cb))
+      : [];
+    cb();
+  };
+  const unsubs = [subscribeToCloudStore(key, cb), subscribeToCloudStore(indexKey, subscribeShards)];
+  return () => { unsubs.forEach((unsub) => unsub()); shardUnsubs.forEach((unsub) => unsub()); };
 }
-
 export function isHydrated(userId) {
-  return cloudIsHydrated(userId, key);
+  if (!userId) return true;
+  activeUserId = userId;
+  if (!cloudIsHydrated(userId, key) || !cloudIsHydrated(userId, indexKey)) return false;
+  return Object.entries(index(userId) || {}).every(([filename, entry]) => entry?.deleted || cloudIsHydrated(userId, shardKey(filename)));
 }
-
 export function readError(userId) {
-  return cloudReadError(userId, key);
+  if (!userId) return null;
+  return cloudReadError(userId, key) || cloudReadError(userId, indexKey) ||
+    Object.keys(index(userId) || {}).map((filename) => cloudReadError(userId, shardKey(filename))).find(Boolean) || null;
 }
