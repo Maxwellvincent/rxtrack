@@ -5,7 +5,11 @@ import { withDeadline } from "../../../asyncDeadline.js";
 import { repairTaskForIndex } from "./focusedRepair.js";
 
 const MAX_ATTEMPTS = 3;
-const REQUEST_TIMEOUT_MS = 180_000;
+// Local Ollama completions for large, school-style prompts routinely take a little over
+// two minutes on this Mac. Keep the outer deadline beyond the bridge deadline so a healthy
+// local generation is not aborted and silently sent to paid cloud providers.
+const REQUEST_TIMEOUT_MS = 360_000;
+const LOCAL_BRIDGE_TIMEOUT_MS = 300_000;
 export function alreadyUsed(q, history) {
   const stem = q.stem.toLowerCase().replace(/\s+/g, " ").trim();
   return history.some(h => {
@@ -59,7 +63,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
           ...deps,
           maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),
           callAIJSON: (...args) => {
-            args[6] = { ...args[6], signal, bridgeTimeoutMs: 90_000, throwOnError: true };
+            args[6] = { ...args[6], signal, bridgeTimeoutMs: LOCAL_BRIDGE_TIMEOUT_MS, throwOnError: true };
             return deps.callAIJSON(...args);
           },
         }), deps.requestTimeoutMs || REQUEST_TIMEOUT_MS);
