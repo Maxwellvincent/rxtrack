@@ -15,6 +15,7 @@ import {
   readError as cloudReadError,
   subscribeToCloudStore,
   writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 
@@ -30,6 +31,12 @@ export function read(userId) {
 export function write(userId, value) {
   if (!userId) return value;
   return writeCloud(userId, key, value);
+}
+
+/** Authoritative replace whose promise confirms the Firestore write landed. */
+export function writeAwait(userId, value) {
+  if (!userId) return Promise.resolve(value);
+  return writeCloudAwait(userId, key, value);
 }
 
 /** Add or replace one file's questions, leaving the other banks alone. */

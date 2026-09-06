@@ -20,6 +20,14 @@ function fakeBackend() {
 let backend;
 
 describe("questionBankMeta store", () => {
+  it("accumulates distinct uploads in one pending batch", () => {
+    let pending = questionBankMeta.withRecordedUpload({}, { filename: "week4.pdf", blockId: "dm" });
+    pending = questionBankMeta.withRecordedUpload(pending, { filename: "week5.pdf", blockId: "dm" });
+
+    expect(Object.values(pending)).toHaveLength(2);
+    expect(Object.values(pending).map((entry) => entry.filename).sort()).toEqual(["week4.pdf", "week5.pdf"]);
+  });
+
   beforeEach(() => {
     installDomStorage();
     backend = fakeBackend();

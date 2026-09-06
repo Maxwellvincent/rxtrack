@@ -18,6 +18,7 @@ import {
   readError as cloudReadError,
   subscribeToCloudStore,
   writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 
@@ -42,21 +43,32 @@ export function write(userId, value) {
   return writeCloud(userId, key, value);
 }
 
+/** Authoritative replace whose promise confirms the Firestore write landed. */
+export function writeAwait(userId, value) {
+  if (!userId) return Promise.resolve(value);
+  return writeCloudAwait(userId, key, value);
+}
+
+/** Pure upload metadata update, used to assemble reliable multi-file writes. */
+export function withRecordedUpload(current, { filename, blockId, sourceKind = "school" }) {
+  if (!filename) return current || {};
+  const next = {};
+  for (const [id, entry] of Object.entries(current || {})) {
+    if (entry?.filename === filename) continue;
+    next[id] = entry;
+  }
+  const bankId = generateBankId();
+  next[bankId] = { filename, blockId, sourceKind, uploadedAt: Date.now() };
+  return next;
+}
+
 /**
  * Record a new upload, replacing any existing entry (any bankId) that
  * currently claims this filename — single-owner-per-filename.
  */
 export function recordUpload(userId, { filename, blockId, sourceKind = "school" }) {
   if (!filename) return read(userId);
-  const current = read(userId) || {};
-  const next = {};
-  for (const [id, entry] of Object.entries(current)) {
-    if (entry?.filename === filename) continue;
-    next[id] = entry;
-  }
-  const bankId = generateBankId();
-  next[bankId] = { filename, blockId, sourceKind, uploadedAt: Date.now() };
-  return write(userId, next);
+  return write(userId, withRecordedUpload(read(userId), { filename, blockId, sourceKind }));
 }
 
 /**

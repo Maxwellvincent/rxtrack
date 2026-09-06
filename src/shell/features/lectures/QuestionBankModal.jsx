@@ -39,6 +39,9 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
       const results = [];
       const weakCategories = [];
       const savedResults = [];
+      let pendingBanks = { ...(questionBanksStore.read(userId) || {}) };
+      let pendingMeta = { ...(questionBankMetaStore.read(userId) || {}) };
+      let banksChanged = false;
       try {
         for (const file of files) {
           try {
@@ -61,12 +64,11 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
             }
             const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind });
             if (questions.length) {
-              const currentBanks = questionBanksStore.read(userId) || {};
-              const nextBanks = Object.fromEntries(Object.entries(currentBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
-              questionBanksStore.write(userId, { ...nextBanks, [bankTitle]: questions });
-              const currentMeta = questionBankMetaStore.read(userId) || {};
-              questionBankMetaStore.write(userId, Object.fromEntries(Object.entries(currentMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle)));
-              questionBankMetaStore.recordUpload(userId, { filename: bankTitle, blockId, sourceKind });
+              pendingBanks = Object.fromEntries(Object.entries(pendingBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
+              pendingBanks[bankTitle] = questions;
+              pendingMeta = Object.fromEntries(Object.entries(pendingMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle));
+              pendingMeta = questionBankMetaStore.withRecordedUpload(pendingMeta, { filename: bankTitle, blockId, sourceKind });
+              banksChanged = true;
             }
             const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });
             if (reportResult && userId) {
@@ -94,6 +96,13 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
           } catch (e) {
             results.push({ filename: file.name, error: e?.message || String(e) });
           }
+        }
+        if (banksChanged) {
+          setStatus("Saving question banks…");
+          await Promise.all([
+            questionBanksStore.writeAwait(userId, pendingBanks),
+            questionBankMetaStore.writeAwait(userId, pendingMeta),
+          ]);
         }
       } finally {
         setSummary(summarizeBankUpload(results));
