@@ -206,6 +206,75 @@ export function objectivesAsAtoms(objectives) {
     .filter((a) => a.content);
 }
 
+function normalizedFallbackFact(atom, index) {
+  const term = String(atom?.term || "").trim();
+  const content = String(atom?.content || "").trim();
+  if (!content) return null;
+  return {
+    term: term && term !== "objective" ? term : `Lecture concept ${index + 1}`,
+    content,
+    atomKey: term && term !== "objective" ? term.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() : null,
+    objectiveIds: Array.isArray(atom?.objectiveIds) ? atom.objectiveIds.filter(Boolean).slice(0, 1) : [],
+  };
+}
+
+/**
+ * Credit-independent safety net assembled only from uploaded lecture facts/objectives.
+ * These are honest foundational recognition items, not claimed as ExamSoft-style questions.
+ */
+export function buildGroundedRecallQuestions({ atoms = [], objectives = [], count = 10, avoidStems = [] } = {}) {
+  const source = [...atoms, ...objectivesAsAtoms(objectives)].map(normalizedFallbackFact).filter(Boolean);
+  const unique = source.filter((fact, index) => source.findIndex((candidate) =>
+    candidate.term.toLowerCase() === fact.term.toLowerCase() && candidate.content.toLowerCase() === fact.content.toLowerCase()
+  ) === index);
+  if (!unique.length) return [];
+
+  const avoided = new Set((avoidStems || []).map((stem) => String(stem).trim().toLowerCase().replace(/\s+/g, " ")));
+  const questions = [];
+  const variants = [
+    { descriptionMode: true, stem: (fact) => `Which lecture concept best matches this description: ${fact.content}?` },
+    { descriptionMode: false, stem: (fact) => `Based on the uploaded lecture, which statement best describes ${fact.term}?` },
+    { descriptionMode: true, stem: (fact) => `Which concept is directly associated with the following lecture-supported finding: ${fact.content}?` },
+    { descriptionMode: false, stem: (fact) => `Which lecture-supported relationship belongs to ${fact.term}?` },
+    { descriptionMode: false, stem: (fact) => `When reviewing ${fact.term}, which statement should be recalled from this lecture?` },
+  ];
+  const maxPasses = Math.ceil(count / unique.length) * variants.length;
+  for (let pass = 0; questions.length < count && pass < maxPasses; pass += 1) {
+    const fact = unique[pass % unique.length];
+    const variantIndex = Math.floor(pass / unique.length) % variants.length;
+    const stem = variants[variantIndex].stem(fact);
+    const key = stem.toLowerCase().replace(/\s+/g, " ");
+    if (avoided.has(key)) continue;
+    const descriptionMode = variants[variantIndex].descriptionMode;
+    const distractors = unique
+      .filter((candidate) => candidate !== fact)
+      .map((candidate) => descriptionMode ? candidate.term : candidate.content)
+      .filter((value, index, list) => value && list.indexOf(value) === index)
+      .slice(0, 4);
+    if (!distractors.length) distractors.push("No supported relationship is stated in the uploaded lecture.");
+    const values = [descriptionMode ? fact.term : fact.content, ...distractors];
+    const letters = ["A", "B", "C", "D", "E"];
+    const rotation = pass % values.length;
+    const rotated = [...values.slice(rotation), ...values.slice(0, rotation)];
+    questions.push({
+      stem,
+      choices: Object.fromEntries(rotated.map((value, index) => [letters[index], value])),
+      correct: letters[(values.length - rotation) % values.length],
+      explanation: `${fact.term}: ${fact.content}`,
+      whyWrong: {},
+      topic: fact.term,
+      atomKey: fact.atomKey,
+      objectiveIds: fact.objectiveIds,
+      taskType: "grounded-recall",
+      difficulty: "foundational",
+      generationMode: "grounded-fallback",
+      qualityAudit: { version: 1, status: "source-grounded", checks: ["lecture-source-only"] },
+    });
+    avoided.add(key);
+  }
+  return questions.slice(0, count);
+}
+
 /**
  * Build the config, then generate. `deps.callAIJSON` is the AI transport, so a
  * test drives the whole path without a network call.
@@ -323,6 +392,15 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   }
 
   if (accepted.length < requested) {
+    accepted.push(...buildGroundedRecallQuestions({
+      atoms: args.atoms,
+      objectives: args.objectives,
+      count: requested - accepted.length,
+      avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
+    }));
+    onProgress({ requested, ready: accepted.length, attempt: attempts, phase: accepted.length >= requested ? "ready" : "fallback" });
+  }
+  if (accepted.length < requested) {
     return {
       error: `Only ${accepted.length}/${requested} questions passed quality review. The quiz was not started. ${lastError || "Retry to generate the remaining questions."}`,
       questions: accepted,
@@ -330,5 +408,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       requested,
     };
   }
-  return { questions: accepted.slice(0, requested), requested, incomplete: false };
+  return {
+    questions: accepted.slice(0, requested),
+    requested,
+    incomplete: false,
+    fallbackCount: accepted.filter((question) => question.generationMode === "grounded-fallback").length,
+  };
 }

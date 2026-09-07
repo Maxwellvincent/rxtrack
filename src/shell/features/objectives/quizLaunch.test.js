@@ -8,6 +8,7 @@ import {
   readExemplarsForBlock,
   buildQuizConfig,
   objectivesAsAtoms,
+  buildGroundedRecallQuestions,
   startObjectiveQuiz,
   prepareObjectiveQuiz,
   resolveDefaultDifficulty,
@@ -214,15 +215,29 @@ describe("prepareObjectiveQuiz", () => {
     expect(progress.at(-1)).toMatchObject({ ready: 3, requested: 3, phase: "ready" });
   });
 
-  it("does not claim a partial set is ready", async () => {
+  it("fills a provider failure with grounded lecture questions", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("provider unavailable"));
     const result = await prepareObjectiveQuiz(
       { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 10 },
       { callAIJSON, maxPrepareAttempts: 1 }
     );
-    expect(result.incomplete).toBe(true);
-    expect(result.questions).toHaveLength(0);
-    expect(result.error).toMatch(/0\/10/);
+    expect(result.incomplete).toBe(false);
+    expect(result.questions).toHaveLength(10);
+    expect(result.fallbackCount).toBe(10);
+  });
+
+  it("builds credit-independent questions only from uploaded facts", () => {
+    const questions = buildGroundedRecallQuestions({
+      atoms: [
+        { term: "Insulin", content: "Promotes GLUT4 translocation in skeletal muscle.", objectiveIds: ["o1"] },
+        { term: "Glucagon", content: "Promotes hepatic glycogenolysis.", objectiveIds: ["o2"] },
+      ],
+      count: 4,
+    });
+    expect(questions).toHaveLength(4);
+    expect(questions.every((question) => question.generationMode === "grounded-fallback")).toBe(true);
+    expect(questions.every((question) => question.qualityAudit.status === "source-grounded")).toBe(true);
+    expect(questions.every((question) => question.explanation.includes(":"))).toBe(true);
   });
 
   it("continues after a fully rejected replacement batch", async () => {

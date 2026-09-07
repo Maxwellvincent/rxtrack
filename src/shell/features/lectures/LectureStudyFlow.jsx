@@ -1305,7 +1305,9 @@ export function LectureStudyFlow({
                     ? "Replacing questions that did not pass review"
                     : quizPreparation.phase === "reviewing"
                       ? "Checking accuracy and objective alignment"
-                      : "Generating school-style questions"}</span>
+                      : quizPreparation.phase === "fallback"
+                        ? "Building grounded recall from your lecture"
+                        : "Generating school-style questions"}</span>
                 <span className="font-mono">{quizPreparation.ready}/{quizPreparation.requested} ready · {elapsed}s</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
