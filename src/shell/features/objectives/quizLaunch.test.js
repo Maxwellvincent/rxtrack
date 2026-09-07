@@ -224,6 +224,23 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.questions).toHaveLength(0);
     expect(result.error).toMatch(/0\/10/);
   });
+
+  it("continues after a fully rejected replacement batch", async () => {
+    const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two" }, correct: "A", explanation: "Because." });
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ questions: [made("Q1")] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }] })
+      .mockResolvedValueOnce({ questions: [made("Rejected")] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: false, issues: ["ambiguous_key"] }] })
+      .mockResolvedValueOnce({ questions: [made("Q2")] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }] });
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 2 },
+      { callAIJSON, maxPrepareAttempts: 3 }
+    );
+    expect(result.incomplete).toBe(false);
+    expect(result.questions.map((question) => question.stem).sort()).toEqual(["Q1?", "Q2?"]);
+  });
 });
 
 describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {

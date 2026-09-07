@@ -293,11 +293,15 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
     const remaining = requested - accepted.length;
-    onProgress({ requested, ready: accepted.length, attempt, phase: "generating" });
+    // Replacement rounds intentionally ask for a few spare candidates. One larger refill is
+    // materially faster than several generator -> reviewer round trips when the reviewer is
+    // rejecting a high share of the batch; only the requested number can ever be accepted.
+    const batchCount = attempt === 1 ? remaining : Math.min(15, remaining + Math.ceil(remaining / 2));
+    onProgress({ requested, ready: accepted.length, attempt, phase: attempt === 1 ? "generating" : "refilling" });
     const result = await startObjectiveQuiz(
       {
         ...args,
-        questionCount: remaining,
+        questionCount: batchCount,
         avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
       },
       deps
@@ -311,7 +315,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       if (accepted.length >= requested) break;
     }
     onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
-    if (!result.questions?.length && result.error) break;
+    // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
+    // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
+    // cannot improve inside this preparation run, so stop those immediately.
+    const qualityOnlyRejection = /quality review rejected the generated batch/i.test(result.error || "");
+    if (!result.questions?.length && result.error && !qualityOnlyRejection) break;
   }
 
   if (accepted.length < requested) {

@@ -1299,13 +1299,19 @@ export function LectureStudyFlow({
           {quizPreparation && (
             <div role="status" aria-live="polite" className="rounded-xl border border-accent/40 bg-bg-elevated p-4">
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-text-1">
-                <span>{quizPreparation.ready >= quizPreparation.requested ? "Quiz ready" : "Preparing and checking questions"}</span>
+                <span>{quizPreparation.ready >= quizPreparation.requested
+                  ? "Quiz ready"
+                  : quizPreparation.phase === "refilling"
+                    ? "Replacing questions that did not pass review"
+                    : quizPreparation.phase === "reviewing"
+                      ? "Checking accuracy and objective alignment"
+                      : "Generating school-style questions"}</span>
                 <span className="font-mono">{quizPreparation.ready}/{quizPreparation.requested} ready · {elapsed}s</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
                 <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round((quizPreparation.ready / quizPreparation.requested) * 100)}%` }} />
               </div>
-              <p className="mt-2 text-xs text-text-3">Weak or repeated items are withheld and their slots are regenerated before the quiz begins.</p>
+              <p className="mt-2 text-xs text-text-3">Accepted questions stay saved while only missing slots are refilled. Replacement rounds generate a few spare candidates to reduce waiting.</p>
             </div>
           )}
 
