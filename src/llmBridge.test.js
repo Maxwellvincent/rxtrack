@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { probeIsFresh, bridgeComplete, resetBridgeProbe } from "./llmBridge.js";
+import { probeIsFresh, bridgeComplete, parseBridgeJSON, resetBridgeProbe } from "./llmBridge.js";
 import { installDomStorage } from "./stores/testEnv.js";
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetBridgeProbe(); });
@@ -45,5 +45,16 @@ describe("probeIsFresh", () => {
     const age = 10_000;
     expect(probeIsFresh({ at: NOW - age, ok: true }, NOW)).toBe(true);
     expect(probeIsFresh({ at: NOW - age, ok: false }, NOW)).toBe(false);
+  });
+});
+
+describe("parseBridgeJSON", () => {
+  it("repairs a missing comma in a local-model array response", () => {
+    const malformed = `{"questions":[{"stem":"First","correct":"A"} {"stem":"Second","correct":"B"}]}`;
+    expect(parseBridgeJSON(malformed).questions).toHaveLength(2);
+  });
+
+  it("repairs fenced JSON with a trailing comma", () => {
+    expect(parseBridgeJSON('```json\n{"questions":[],}\n```')).toEqual({ questions: [] });
   });
 });

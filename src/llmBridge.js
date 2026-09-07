@@ -10,6 +10,7 @@
 // the bridge is absent, which is the common case (phone, other machines, other people).
 
 import { withDeadline } from "./asyncDeadline.js";
+import { jsonrepair } from "jsonrepair";
 
 const BRIDGE_URL =
   (typeof localStorage !== "undefined" && localStorage.getItem("rxt_bridge_url")) ||
@@ -123,7 +124,14 @@ export function parseBridgeJSON(text) {
     return JSON.parse(cleaned);
   } catch {
     const m = cleaned.match(/[[{][\s\S]*[\]}]/);
-    if (m) return JSON.parse(m[0]);
-    throw new Error("bridge reply was not JSON");
+    const candidate = m?.[0] || cleaned;
+    try {
+      // Local models occasionally omit a comma, leave a trailing comma, or emit an
+      // unescaped quote even when Ollama's JSON mode is enabled. Repair that syntax
+      // locally so a useful offline answer never spills into paid cloud fallback.
+      return JSON.parse(jsonrepair(candidate));
+    } catch {
+      throw new Error("bridge reply was not valid or repairable JSON");
+    }
   }
 }
