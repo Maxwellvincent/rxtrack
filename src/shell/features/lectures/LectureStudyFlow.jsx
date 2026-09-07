@@ -1035,8 +1035,9 @@ export function LectureStudyFlow({
   }[currentDifficultyKey];
 
   return (
-    <div className="p-5">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <main className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6 lg:py-8">
+      <header className="rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-6">
+      <div className="mb-4 flex items-center justify-between gap-3">
         <button onClick={onClose} className="font-mono text-xs text-text-3 hover:text-text-1">← back</button>
         {!confirmDeleteLecture ? (
           <button onClick={() => setConfirmDeleteLecture(true)} className="font-mono text-[11px] text-text-3 hover:text-bad">delete lecture…</button>
@@ -1064,11 +1065,30 @@ export function LectureStudyFlow({
           </div>
         )}
       </div>
-      <h2 className="text-lg font-bold text-text-1">{renamedTitle || title}</h2>
-      <RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} />
-      <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
-      <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
-      <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
+      <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture workspace</p>
+      <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
+      <div className="mt-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} /></div>
+      </header>
+
+      <section aria-labelledby="lecture-priorities-heading" className="mt-5">
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div>
+            <p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Study priorities</p>
+            <h3 id="lecture-priorities-heading" className="text-lg font-semibold text-text-1">Build, repair, then retrieve</h3>
+          </div>
+          <span className="hidden text-sm text-text-3 sm:block">Everything else stays available below.</span>
+        </div>
+        <div className="grid items-start gap-4 lg:grid-cols-2">
+          <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
+          <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
+        </div>
+      </section>
+
+      <section aria-labelledby="lecture-coverage-heading" className="mt-5">
+        <p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-text-3">Coverage</p>
+        <h3 id="lecture-coverage-heading" className="sr-only">Lecture coverage</h3>
+        <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
+      </section>
       {onGoDeep && <details className="my-3 max-w-3xl text-sm">
         <summary className="min-h-11 cursor-pointer py-2 text-text-2">Optional study tools</summary>
         <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>
@@ -1085,13 +1105,13 @@ export function LectureStudyFlow({
           }}>{busy || "Recover lecture objectives"}</Button>
         </div>
       )}
-      <div className="mb-4 font-mono text-[13px] text-text-3">
+      <div className="mb-4 mt-5 font-mono text-[13px] text-text-3">
         {stage === "loading" ? "loading lecture…" : `${atoms.length} high-yield atoms`}
       </div>
 
       {/* Status panel — shown once atoms are loaded */}
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mb-4 rounded-sm border border-border bg-bg-elevated divide-y divide-border/50">
+        <section aria-label="Lecture progress" className="mb-4 overflow-hidden rounded-xl border border-border bg-bg-elevated shadow-sm divide-y divide-border/50">
           {/* Row 1: atom mastery + difficulty */}
           <div className="flex items-center gap-4 px-4 py-2.5">
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1151,7 +1171,7 @@ export function LectureStudyFlow({
               <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objPct}%</span>
             </div>
           )}
-        </div>
+        </section>
       )}
       {stage === "quiz" && atoms.length > 0 && (
         <div className="mb-4 -mt-2 font-mono text-[11px] text-text-3">
@@ -1184,7 +1204,7 @@ export function LectureStudyFlow({
       )}
 
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mb-4 flex flex-col gap-3">
+        <section aria-label="Lecture quiz" className="mb-5 flex flex-col gap-3 rounded-2xl border border-accent/40 bg-accent-soft/40 p-4 sm:p-5">
           {/* Unified generate button — opens inline picker. This IS the Quiz feature (same
               exemplar-backed generator as the Lectures list's QUIZ button), labeled Quiz so it
               reads as one instead of a generic "make some questions" action. */}
@@ -1298,7 +1318,7 @@ export function LectureStudyFlow({
           {images.length > 0 && (
             <span className="text-[12px] text-text-3">{images.length} figures attached</span>
           )}
-        </div>
+        </section>
       )}
 
       {figuresPrompt}
@@ -1307,7 +1327,7 @@ export function LectureStudyFlow({
           big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
           application, each node linked back to the atoms that support it. */}
       {stage === "quiz" && atoms.length > 0 && (
-        <details className="mt-5 w-full max-w-3xl border-t border-border pt-4">
+        <details className="mt-4 w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
           <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
             Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span>
           </summary>
@@ -1341,7 +1361,7 @@ export function LectureStudyFlow({
           screen used to force; it stays one click away for when you actually want it. */}
       {/* Study guide — auto-generated searchable topics, checkable */}
       {(studyGuide || generatingGuide) && (
-        <details className="mt-5 w-full max-w-3xl border-t border-border pt-4">
+        <details className="mt-4 w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
           <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
               Study guide
               {studyGuide && !generatingGuide && (
@@ -1392,9 +1412,9 @@ export function LectureStudyFlow({
       )}
 
       {atoms.length > 0 && (
-        <details ref={atomsDetailsRef} className="group mt-4">
-          <summary className="cursor-pointer list-none font-mono text-[13px] text-text-3 hover:text-text-1">
-            ▸ review all {atoms.length} atoms
+        <details ref={atomsDetailsRef} className="group mt-4 rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
+          <summary className="min-h-11 cursor-pointer list-none py-2 text-base font-semibold text-text-1 hover:text-accent">
+            Reference atoms <span className="text-sm font-normal text-text-3">· {atoms.length} supporting facts</span>
           </summary>
           <div className="mt-3 space-y-4">
           {HY_TYPES.map((type) => {
@@ -1450,7 +1470,7 @@ export function LectureStudyFlow({
           </div>
         </details>
       )}
-    </div>
+    </main>
   );
 }
 

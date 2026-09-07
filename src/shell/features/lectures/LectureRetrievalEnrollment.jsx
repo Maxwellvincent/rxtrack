@@ -12,7 +12,7 @@ export function LectureRetrievalEnrollment({userId,blockId,lectureId,title,refer
   const [notes,setNotes]=useState('');
   const model=Object.values(resource.data?.models || {}).find(m=>m.lectureId===lectureId && m.blockId===blockId);
   const enrolled=!!model || saved;
-  return <section aria-label="Lecture model retrieval" className="my-3 max-w-3xl rounded-xl border border-border bg-bg-elevated p-3">
+  return <section aria-label="Lecture model retrieval" className="h-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h3 className="text-sm font-semibold">{enrolled?'✓ Model created · in retrieval':'Created your mental model?'}</h3>
         <p className="text-sm text-text-2">{enrolled?'Find it in Today → Today’s Retrieval → Model library.':'Confirm after building your own model—in chat, on paper, or here.'}</p></div>

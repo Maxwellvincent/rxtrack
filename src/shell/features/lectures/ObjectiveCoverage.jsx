@@ -6,7 +6,7 @@ export function ObjectiveCoverage({ atoms = [], objectives = [], examples = [] }
   const links = alignSchoolQuestions(examples, objectives);
   const supported = links.filter(q => q.links.length);
   const coded = supported.filter(q => q.links.some(l => l.basis === "school-code"));
-  return <details className="my-4 w-full max-w-3xl rounded-lg border border-border bg-bg-elevated p-3">
+  return <details className="w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
     <summary className="cursor-pointer py-2 font-semibold">Objective coverage · {objectives.length - coverage.uncovered.length}/{objectives.length} linked to atoms</summary>
     <p className="my-2 text-sm text-text-2">{coverage.linkedAtoms} linked atoms · {coverage.unlinkedAtoms} without a valid objective link. These are content links, not proof of mastery. Use “Tag atoms to objectives” to reconcile stored atoms; inspect the matches before treating them as coverage.</p>
     {!objectives.length && <p className="text-sm">No lecture objectives loaded. Recover or import the original objectives before relying on objective-specific practice.</p>}

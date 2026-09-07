@@ -81,7 +81,7 @@ export function ModelRepairs({ userId, lectureId, title, atoms = [], objectives 
     URL.revokeObjectURL(url);
     setNotice("Study handoff downloaded. Open or paste it into any local LLM.");
   };
-  return <details className="my-4 w-full max-w-3xl rounded-lg border border-border bg-bg-elevated p-3">
+  return <details className="h-full w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
     <summary className="min-h-11 cursor-pointer py-2 text-base font-semibold">Model repairs · {resource.loading ? "syncing…" : `${repairs.length} to revisit`}</summary>
     <p className="mb-3 text-sm text-text-2">Find the missing connection in your mental model, then retest. A correct answer clears the atom’s review flag; a later miss reopens it.</p>
     {repairs.length > 0 ? <>
