@@ -1,9 +1,9 @@
 export const DAY = 86400000;
-export const DEFAULT_SETTINGS = { minutes: 10, cap: 4, sameDay: true, questionEvidence: true, ankiEvidence: true, weekend: false };
+export const DEFAULT_SETTINGS = { minutes: 10, cap: 2, sameDay: false, questionEvidence: true, ankiEvidence: true, weekend: false };
 export function settingsFor(settings = {}) {
   return { ...DEFAULT_SETTINGS, ...settings,
     minutes: [5,10,15,20].includes(Number(settings.minutes)) ? Number(settings.minutes) : 10,
-    cap: Math.max(1, Math.min(4, Number(settings.cap) || 4)) };
+    cap: Math.max(1, Math.min(2, Number(settings.cap) || 2)) };
 }
 export function dayKey(at) { const d = new Date(at); return `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`; }
 /** Explicit learner confirmation, not automatic enrollment of an AI-generated reference. */
@@ -13,7 +13,7 @@ export function enrollLectureModel(data, input, now) {
   if (existing) return data; // Preserve history and scheduling on repeated clicks/devices.
   const id=`lecture:${input.blockId}:${input.lectureId}`;
   const model=createRetrievalModel({...input,id,lecture:input.title,
-    prompt:input.prompt || `Reconstruct your mental model for ${input.title} from memory. Explain the major parts, their causal connections, and what changes when one part fails.`},now,data.settings);
+    prompt:input.prompt || `Reconstruct your mental model for ${input.title} from memory. Explain the major parts, their causal connections, and what changes when one part fails.`},now,{...data.settings,sameDay:false});
   return {...data,models:{...data.models,[id]:{...model,lectureId:input.lectureId,confirmedCreatedAt:now}}};
 }
 export function createRetrievalModel(input, now, settings = {}) {

@@ -17,7 +17,7 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
   const [activeId,setActiveId]=useState(null);
   const [revealed,setRevealed]=useState(false);
   const [scratch,setScratch]=useState('');
-  const [attempted,setAttempted]=useState(false);
+  const [steps,setSteps]=useState({framework:false,objectives:false,repair:false});
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState('');
   const [creating,setCreating]=useState(false);
@@ -28,7 +28,7 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
   const active=data.models?.[activeId];
   const blockModels=models.filter(m=>m.blockId===blockId);
   const canReview=model=>plan.slotsLeft>0 && model.minutes<=plan.minutesLeft && !(model.history||[]).some(h=>h.day===dayKey(now));
-  const start=model=>{setActiveId(model.id);setRevealed(false);setAttempted(false);setScratch('');setNotice('');};
+  const start=model=>{setActiveId(model.id);setRevealed(false);setSteps({framework:false,objectives:false,repair:false});setScratch('');setNotice('');};
   const save = async transform => {
     if(busy || resource.loading || resource.error) return false;
     setBusy(true);setNotice('');
@@ -60,25 +60,28 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
   if(resource.error) return <section role="alert" className="rounded-xl border border-border p-4">Model retrieval could not sync. Your existing study tools are unaffected.</section>;
   return <section aria-label="Mental model retrieval" className="rounded-xl border border-border bg-bg-elevated p-4 text-text-1">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h2 className="text-lg font-semibold">Today’s Retrieval</h2><p className="text-sm text-text-2">Anki schedules atoms. RXtrack schedules models. Questions test integration.</p></div>
-      {!active && <Button disabled={busy||!plan.selected.length} onClick={()=>start(plan.selected[0])}>Start retrieval</Button>}
+      <div><h2 className="text-lg font-semibold">Post-lecture review</h2><p className="text-sm text-text-2">Recall the framework, check the objectives, then repair only what was missing.</p></div>
+      {!active && <Button disabled={busy||!plan.selected.length} onClick={()=>start(plan.selected[0])}>Start review</Button>}
     </div>
     <p className="mt-3 text-sm">{plan.selected.length ? `${plan.selected.length} high-value models · ~${plan.selected.reduce((n,m)=>n+m.minutes,0)} min` : blockModels.length ? 'Nothing else selected for today.' : 'Add your first model below.'} · {plan.done} completed today</p>
-    <p className="text-xs text-text-3">Daily budget across all blocks: {plan.spent}/{prefs.minutes} min · max {prefs.cap} models. Lower-priority models wait quietly.</p>
+    <p className="text-xs text-text-3">Daily budget across all blocks: {plan.spent}/{prefs.minutes} min · max {prefs.cap} reviews. Missed reviews wait quietly; they do not pile up.</p>
+    <details className="mt-3 rounded-lg bg-panel p-3 text-sm"><summary className="cursor-pointer font-semibold">What counts as a post-lecture review?</summary><ol className="mt-2 list-decimal space-y-1 pl-5 text-text-2"><li>Close the lecture and reconstruct its main flow in one minute.</li><li>For each school objective, say what it asks you to explain, solve, or recognize.</li><li>Open the model only after trying; add just the missing link, then stop.</li></ol><p className="mt-2 font-semibold">Done means you attempted retrieval and identified the next gap. It does not mean the lecture is finished forever.</p></details>
     {blockModels.some(m=>m.status==='Stable'||m.status==='Released') && <p className="mt-2 text-xs text-text-2">Stable / released: {blockModels.filter(m=>m.status==='Stable'||m.status==='Released').length} models</p>}
     {notice && <p role="status" className="my-3 text-sm font-semibold">{notice}</p>}
     {active ? <div className="my-4 max-w-3xl space-y-3 rounded-xl border-2 border-accent p-4">
       <div className="flex items-start justify-between gap-2"><h3 className="text-lg font-semibold">{active.title}</h3><span className="text-sm">~{active.minutes} min</span></div>
       <p className="text-base">{active.prompt}</p>
-      <p className="text-sm text-text-2">Reconstruct the relationships from memory—on paper, aloud, or below. Keep your reference closed.</p>
+      <p className="text-sm text-text-2">Keep the reference closed. This should take a few minutes, not become a lecture rewrite.</p>
       <textarea aria-label="Retrieval scratchpad" value={scratch} onChange={e=>setScratch(e.target.value)} placeholder="Optional scratchpad: A → B because…" className={`${field} min-h-28`} />
       {!revealed ? <>
-        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={attempted} onChange={e=>setAttempted(e.target.checked)} />I attempted the model from memory (or could not reconstruct it).</label>
-        <Button disabled={!attempted||busy} onClick={()=>setRevealed(true)}>Reveal / check reference</Button>
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={steps.framework} onChange={e=>setSteps({...steps,framework:e.target.checked})} /><span><strong>Framework:</strong> I stated or drew the beginning → mechanism → result from memory.</span></label>
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={steps.objectives} onChange={e=>setSteps({...steps,objectives:e.target.checked})} /><span><strong>Objectives:</strong> I tried to explain what the school expects me to understand or recognize.</span></label>
+        <Button disabled={!steps.framework||!steps.objectives||busy} onClick={()=>setRevealed(true)}>Check model and find one gap</Button>
       </> : <>
         <div className="max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-panel p-3 text-sm">{active.reference || 'No reference saved. Check against your lecture or external notes before grading.'}</div>
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={steps.repair} onChange={e=>setSteps({...steps,repair:e.target.checked})} /><span><strong>Repair:</strong> I added the missing connection or marked it for targeted questions.</span></label>
         <p className="text-sm font-semibold">How well did you reconstruct it before looking?</p>
-        <div className="grid gap-2 sm:grid-cols-3">{grades.map(([value,label,description],index)=><button key={value} type="button" disabled={busy} onClick={()=>grade(value)} className="rounded-lg border-2 border-border-strong p-3 text-left hover:border-accent focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"><strong>{['×','~','✓'][index]} {label}</strong><span className="mt-1 block text-sm text-text-2">{description}</span></button>)}</div>
+        <div className="grid gap-2 sm:grid-cols-3">{grades.map(([value,label,description],index)=><button key={value} type="button" disabled={busy||!steps.repair} onClick={()=>grade(value)} className="rounded-lg border-2 border-border-strong p-3 text-left hover:border-accent focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"><strong>{['×','~','✓'][index]} {label}</strong><span className="mt-1 block text-sm text-text-2">{description}</span></button>)}</div>
         <p className="text-xs text-text-3">Grades schedule this model only. Retest questions to clear atom/objective flags.</p>
       </>}
       <Button variant="ghost" disabled={busy} onClick={()=>setActiveId(null)}>Close without grading</Button>
@@ -117,8 +120,8 @@ export function ModelRetrievalCard({userId,blockId,examDate}) {
     <details className="mt-4 border-t border-border pt-3"><summary className="cursor-pointer font-semibold">Retrieval settings</summary>
       <div className="mt-3 max-w-md space-y-3">
         <label className="block text-sm">Daily minute budget<select className={field} disabled={busy} value={prefs.minutes} onChange={e=>save(current=>({...current,settings:{...current.settings,minutes:Number(e.target.value)}}))}>{[5,10,15,20].map(n=><option key={n}>{n}</option>)}</select></label>
-        <label className="block text-sm">Maximum models per day<select className={field} disabled={busy} value={prefs.cap} onChange={e=>save(current=>({...current,settings:{...current.settings,cap:Number(e.target.value)}}))}>{[1,2,3,4].map(n=><option key={n}>{n}</option>)}</select></label>
-        {[['sameDay','Allow first retrieval today'],['questionEvidence','Use explicitly linked question evidence'],['ankiEvidence','Use explicitly linked Anki evidence'],['weekend','Optional Saturday cumulative retrieval (same daily budget)']].map(([key,label])=><label key={key} className="flex gap-2 text-sm"><input type="checkbox" checked={prefs[key]} disabled={busy} onChange={e=>save(current=>({...current,settings:{...current.settings,[key]:e.target.checked}}))}/>{label}</label>)}
+        <label className="block text-sm">Maximum reviews per day<select className={field} disabled={busy} value={prefs.cap} onChange={e=>save(current=>({...current,settings:{...current.settings,cap:Number(e.target.value)}}))}>{[1,2].map(n=><option key={n}>{n}</option>)}</select></label>
+        {[['sameDay','Allow manually added models today'],['questionEvidence','Use explicitly linked question evidence'],['ankiEvidence','Use explicitly linked Anki evidence'],['weekend','Optional Saturday cumulative retrieval (same daily budget)']].map(([key,label])=><label key={key} className="flex gap-2 text-sm"><input type="checkbox" checked={prefs[key]} disabled={busy} onChange={e=>save(current=>({...current,settings:{...current.settings,[key]:e.target.checked}}))}/>{label}</label>)}
         <p className="text-xs text-text-3">Question/Anki evidence hooks are ready; automatic mapping is not connected yet. Early Solid checks do not accelerate release. Minutes are planned retrieval time, not a stopwatch.</p>
       </div>
     </details>

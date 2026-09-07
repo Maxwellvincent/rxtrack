@@ -3,6 +3,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
 import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
+import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
@@ -843,7 +844,7 @@ function ExamDatePicker({ blockId, userId }) {
 
 // ─── Main Today component ─────────────────────────────────────────────────────
 
-export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, quizBusyLectureId = null }) {
+export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, onOpenExam, quizBusyLectureId = null }) {
   const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId } =
     useToday(blockId, userId);
 
@@ -963,15 +964,15 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
     const mode = effectiveMode;
     if (!mode) return todayTasks;
     if (mode === "lecture") {
-      const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day");
+      const scheduled = todayTasks.filter((t) => t.matchReason === "scheduled-day").slice(0, 2);
       const due = todayTasks.filter((t) => t.matchReason === "spaced-rep-due").slice(0, 2);
-      const catchUp = todayTasks.filter((t) => t.matchReason === "catch-up").slice(0, 1);
+      const catchUp = todayTasks.filter((t) => t.matchReason === "catch-up").slice(0, Math.max(0, 2 - due.length));
       return [...scheduled, ...due, ...catchUp];
     }
     if (mode === "review") {
       return todayTasks
         .filter((t) => t.matchReason !== "scheduled-day")
-        .slice(0, 5);
+        .slice(0, 2);
     }
     if (mode === "triage") {
       const seen = todayTasks.filter((t) => (t.sessions ?? 0) > 0);
@@ -994,6 +995,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, q
   return (
     <div className="desk-today flex flex-col gap-4">
       <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} />
+      <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
       {/* Header */}
       <div className="desk-day-heading flex items-start justify-between gap-3">
         <div>

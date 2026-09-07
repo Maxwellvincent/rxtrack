@@ -453,6 +453,7 @@ function ShellMain({ theme, toggle, userId }) {
                   userId={userId}
                   onStudyLecture={onStudyLecture}
                   onStartObjectiveQuiz={onStartObjectiveQuiz}
+                  onOpenExam={() => switchTab("exam")}
                 />
               </div>
               <BlockHome
