@@ -115,7 +115,7 @@ describe("quizFromAtoms", () => {
       questions: [{ stem: "A patient presents. Which nerve?", choices: { A: "1", B: "2", C: "3", D: "4" }, correct: "A" }],
     });
 
-    const result = await quizFromAtoms({ lectureTitle: "Brachial Plexus" }, [atom()], { callAIJSON });
+    const result = await quizFromAtoms({ lectureTitle: "Brachial Plexus" }, [atom()], { callAIJSON, skipQuestionAudit: true });
 
     expect(result.questions).toHaveLength(1);
     expect(callAIJSON.mock.calls[0][1]).toContain("Brachial Plexus");

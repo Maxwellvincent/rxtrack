@@ -9,6 +9,18 @@ import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } f
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 const MCQ_SYSTEM = "You are a USMLE Step 1 question writer. Return ONLY valid JSON — no markdown, no prose.";
+const AUDIT_SYSTEM = "You are an independent medical-school question editor. Audit the supplied questions against the supplied curriculum evidence. Return ONLY valid JSON — no markdown, no prose.";
+
+export function exemplarSourceTier(question) {
+  const label = [question?.sourceFile, question?.filename, question?.bankTitle, question?.title]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/examsoft|esoft/.test(label)) return "examsoft";
+  if (question?.sourceKind === "imcq" || /\bimcq\b/.test(label)) return "imcq";
+  if (question?.sourceKind === "supplemental" || /\bnatalie\b|\bhomework\b|practice[ +_-]*questions?|\bweek[ +_-]*\d+/.test(label)) return "homework";
+  return "school";
+}
 
 function withSchoolContext(questions, cfg) {
   const chosen = selectStyleExemplars(cfg.examples || [], 5, cfg.difficulty, cfg);
@@ -28,7 +40,8 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   try {
     const prompt = buildMcqPrompt(cfg);
     const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    return { questions: withSchoolContext(normalizeQuestions(result), cfg) };
+    const generated = withSchoolContext(normalizeQuestions(result), cfg);
+    return await auditGeneratedQuestions(generated, cfg, deps);
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
   }
@@ -229,12 +242,25 @@ export function selectStyleExemplars(examples = [], limit = 5, difficulty = "med
   if (limit <= 0) return [];
   const challenge = ["hard", "expert"].includes(String(difficulty).toLowerCase());
   const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
-  const candidates = examples.filter((q) => q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false);
+  // Homework/student-authored banks are useful evidence about what content was assigned, but
+  // they are not a writing-style benchmark. ExamSoft is the closest available proxy for the
+  // real module exam; IMCQ joins the style sample only in hard/expert challenge mode.
+  const candidates = examples.filter((q) => {
+    const tier = exemplarSourceTier(q);
+    return q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false &&
+      tier !== "homework" && (challenge || tier !== "imcq");
+  });
   const linked = candidates.filter(q => (relevance.get(q) || 0) > 0);
   const valid = (linked.length ? linked : candidates)
-    .sort((a, b) => (relevance.get(b) || 0) - (relevance.get(a) || 0) || (challenge
-      ? Number(b.sourceKind === "imcq") - Number(a.sourceKind === "imcq")
-      : Number(a.sourceKind === "imcq") - Number(b.sourceKind === "imcq")));
+    .sort((a, b) => {
+      const sourceRank = (q) => {
+        const tier = exemplarSourceTier(q);
+        if (tier === "examsoft") return 0;
+        if (tier === "school") return 1;
+        return 2; // IMCQ challenge reference
+      };
+      return sourceRank(a) - sourceRank(b) || (relevance.get(b) || 0) - (relevance.get(a) || 0);
+    });
   const selected = [];
   const seenCounts = new Set();
   for (const q of valid) {
@@ -337,9 +363,95 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
       ...q,
       objectiveTexts: (cfg.objectives || []).filter(o => q.objectiveIds?.includes(o.id)).map(o => ({ id: o.id, code: o.code || "", text: o.objective || o.text || "" })),
     }));
-    return { questions: withSchoolContext(questions, cfg) };
+    return await auditGeneratedQuestions(withSchoolContext(questions, cfg), cfg, deps);
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
+  }
+}
+
+function auditQuestionPayload(question, index) {
+  return {
+    index,
+    stem: question.stem,
+    choices: question.choices,
+    correct: question.correct,
+    explanation: question.explanation,
+    whyWrong: question.whyWrong,
+    objectiveIds: question.objectiveIds,
+    topic: question.topic,
+  };
+}
+
+export function buildQuestionAuditPrompt(questions, cfg = {}) {
+  const objectives = (cfg.objectives || []).map((objective) => ({
+    id: String(objective.id || objective.code || ""),
+    code: String(objective.code || ""),
+    text: String(objective.objective || objective.text || ""),
+  }));
+  const atoms = (cfg.atoms || []).slice(0, 50).map((atom) => ({
+    term: String(atom.term || ""),
+    content: String(atom.content || ""),
+    objectiveIds: atom.objectiveIds || [],
+  }));
+  const evidence = retrieveLectureEvidence(String(cfg.lectureText || ""), cfg.objectives || [], cfg.atoms || []);
+  return (
+    `Independently audit every generated question. Do not rewrite or repair it. Approve it only when ALL checks pass:\n` +
+    `1. The keyed answer is medically correct and is the single best answer.\n` +
+    `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
+    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied.\n` +
+    `4. No choices are duplicates or medically equivalent, and the stem does not reveal the answer.\n` +
+    `5. The explanation states the decisive mechanism or reasoning, not merely that the answer is correct.\n` +
+    `6. The vignette is internally consistent and contains enough information to answer.\n` +
+    `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
+    `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
+    `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
+    `LECTURE FACTS:\n${JSON.stringify(atoms)}\n` +
+    `RETRIEVED LECTURE EVIDENCE:\n${evidence || "No lecture text supplied; use only objectives and lecture facts."}\n\n` +
+    `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
+    `Return exactly one review for every question index:\n` +
+    `{"reviews":[{"index":0,"approved":true,"issues":[]}]}\n` +
+    `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, answer_leak, weak_explanation, inconsistent_vignette.`
+  );
+}
+
+/**
+ * A distinct model request reviews the completed batch. Missing, malformed, or uncertain reviews
+ * fail closed: unapproved questions never reach the quiz or saved Firestore reserve.
+ */
+export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
+  if (!questions.length) return { questions: [] };
+  if (deps.skipQuestionAudit === true) return { questions };
+  const reviewer = deps.reviewAIJSON || deps.callAIJSON;
+  if (typeof reviewer !== "function") return { error: "Question quality review is unavailable. Nothing was saved.", questions: [] };
+  try {
+    const raw = await reviewer(
+      AUDIT_SYSTEM,
+      buildQuestionAuditPrompt(questions, cfg),
+      { reviews: [] },
+      deps.auditMaxTokens || 4000
+    );
+    const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
+    const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
+    const approved = questions.flatMap((question, index) => {
+      const review = byIndex.get(index);
+      if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length)) return [];
+      return [{
+        ...question,
+        qualityAudit: {
+          version: 1,
+          status: "approved",
+          checks: ["medical-correctness", "single-best-answer", "objective-alignment", "explanation-quality"],
+        },
+      }];
+    });
+    if (!approved.length) return { error: "Independent quality review rejected the generated batch. Retry for fresh questions.", questions: [] };
+    return {
+      questions: approved,
+      rejectedCount: questions.length - approved.length,
+      warning: approved.length < questions.length ? `${questions.length - approved.length} generated question${questions.length - approved.length === 1 ? "" : "s"} failed independent review and were withheld.` : null,
+    };
+  } catch (error) {
+    return { error: `Independent question review failed: ${error?.message || String(error)}. Nothing was saved.`, questions: [] };
   }
 }
 
@@ -403,7 +515,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection +
     atomsSection +
     contentSection +
-    `\n\nQUALITY REVIEW BEFORE RETURNING: silently review every item twice. Reject and rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples.\n` +
+    `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
     `RULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","difficulty":"${diff}"}]}`

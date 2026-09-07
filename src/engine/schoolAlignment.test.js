@@ -2,7 +2,7 @@ import { describe,it,expect } from 'vitest';
 import { alignSchoolQuestions,retrieveLectureEvidence,schoolEvidencePrompt } from './schoolAlignment.js';
 import { selectStyleExemplars,buildMcqPrompt } from './mcq.js';
 const objective={id:'o1',code:'SOM.MK.ER.PHYS.1076',text:'Granulosa aromatase converts androgen substrate into estrogen'};
-const question={id:'q1',stem:'Which ovarian cells convert androgens?',choices:{A:'Granulosa cells',B:'Theca cells'},correct:'A',schoolObjectiveCode:objective.code,sourceFile:'IMCQ.pdf'};
+const question={id:'q1',stem:'Which ovarian cells convert androgens?',choices:{A:'Granulosa cells',B:'Theca cells'},correct:'A',schoolObjectiveCode:objective.code,sourceFile:'ExamSoftPractice.pdf'};
 describe('school evidence alignment',()=>{
  it('preserves source-code evidence separately from candidate word matches',()=>{
    const [linked]=alignSchoolQuestions([question],[objective]);

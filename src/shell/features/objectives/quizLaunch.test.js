@@ -145,7 +145,7 @@ describe("startObjectiveQuiz", () => {
         blockId: "b1",
         lectures,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(result.questions).toHaveLength(1);
@@ -165,7 +165,7 @@ describe("startObjectiveQuiz", () => {
         blockId: "b1",
         lectures: [],
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(result.questions).toHaveLength(1);
@@ -183,7 +183,7 @@ describe("startObjectiveQuiz", () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("model down"));
     const result = await startObjectiveQuiz(
       { objectives: [{ id: "a", objective: "One." }], blockId: "b1", lectures: [] },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
     expect(result.error).toBe("model down");
     expect(result.questions).toEqual([]);
@@ -206,7 +206,7 @@ describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
     });
     const result = await startObjectiveQuiz(
       { objectives: [], lectureTitle: "Thyroid", blockId: "b1", lectures: [], atoms, questionCount: 1, userId: "u1", lectureIdHint: "lec1" },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
     // One-per-atom prompt, not the free-form buildMcqPrompt shape
     expect(callAIJSON.mock.calls[0][1]).toMatch(/one question per fact/i);

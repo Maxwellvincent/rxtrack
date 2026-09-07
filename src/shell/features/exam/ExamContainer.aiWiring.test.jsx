@@ -144,15 +144,20 @@ beforeEach(() => {
   callAIJSONMock.mockReset();
   createExamSessionMock.mockReset();
   createExamSessionMock.mockResolvedValue({ ok: true });
-  callAIJSONMock.mockResolvedValue({
-    questions: [
-      {
-        stem: "A real generated stem",
-        choices: { A: "a", B: "b" },
-        correct: "A",
-        explanation: "because",
-      },
-    ],
+  callAIJSONMock.mockImplementation((_system, prompt) => {
+    if (String(prompt).includes("Independently audit every generated question")) {
+      return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [] }] });
+    }
+    return Promise.resolve({
+      questions: [
+        {
+          stem: "A real generated stem",
+          choices: { A: "a", B: "b" },
+          correct: "A",
+          explanation: "because",
+        },
+      ],
+    });
   });
 });
 
@@ -178,7 +183,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     // generateMcqs's `deps.callAIJSON` was undefined — this call would never
     // happen and every launch would fail with "Could not generate any
     // questions."
-    expect(callAIJSONMock).toHaveBeenCalledTimes(1);
+    expect(callAIJSONMock).toHaveBeenCalledTimes(2); // generation + independent audit
     expect(createExamSessionMock).toHaveBeenCalledTimes(1);
 
     // And the launch actually succeeded end-to-end (transitioned to the
@@ -199,11 +204,16 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     // Attempt 1 yields 1 survivor; attempts 2-3 (the retries) yield nothing
     // further, so generation.js's own retry loop genuinely exhausts at 1 of
     // 2 requested instead of accumulating to a false non-shortfall.
-    callAIJSONMock
-      .mockResolvedValueOnce({
-        questions: [{ stem: "Only one", choices: { A: "a", B: "b" }, correct: "A", explanation: "" }],
-      })
-      .mockResolvedValue({ questions: [] });
+    let generationCalls = 0;
+    callAIJSONMock.mockImplementation((_system, prompt) => {
+      if (String(prompt).includes("Independently audit every generated question")) {
+        return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [] }] });
+      }
+      generationCalls += 1;
+      return Promise.resolve(generationCalls === 1
+        ? { questions: [{ stem: "Only one", choices: { A: "a", B: "b" }, correct: "A", explanation: "" }] }
+        : { questions: [] });
+    });
 
     const { host, unmount } = render(
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />

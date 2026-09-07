@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -89,15 +89,24 @@ describe("selectStyleExemplars", () => {
     ...extra,
   });
 
-  it("prioritizes IMCQ challenge references for hard/expert but school quizzes for medium", () => {
-    const school = q("School quiz", 5, { correct: "A" });
+  it("keeps ExamSoft first, excludes IMCQ from normal mode, and admits it only as a later challenge reference", () => {
+    const examsoft = q("ExamSoft quiz", 5, { correct: "A", sourceFile: "BPM2_ESOFT_Quiz.pdf" });
+    const school = q("School quiz", 4, { correct: "A", sourceFile: "Faculty quiz.pdf" });
     const imcq = q("IMCQ", 5, { sourceKind: "imcq", answerKeyVerified: true, correct: "A" });
     const unverified = q("Unverified", 5, { sourceKind: "imcq", answerKeyVerified: false });
-    expect(selectStyleExemplars([school, imcq, unverified], 1, "expert")).toEqual([imcq]);
-    expect(selectStyleExemplars([imcq, school], 1, "medium")).toEqual([school]);
+    expect(selectStyleExemplars([school, imcq, examsoft, unverified], 3, "expert")).toEqual([examsoft, school, imcq]);
+    expect(selectStyleExemplars([imcq, school, examsoft], 3, "medium")).toEqual([examsoft, school]);
     expect(selectStyleExemplars([school], 0)).toEqual([]);
     expect(buildAtomQuestionsPrompt({ examples: [imcq], difficulty: "expert" })).toContain("IMCQ challenge reference");
     expect(buildMcqPrompt({ examples: [imcq], difficulty: "expert" })).toContain("not calibrated");
+  });
+
+  it("uses homework only as content evidence, never as a style exemplar", () => {
+    const homework = q("Assigned practice", 5, { correct: "A", sourceFile: "ER Week 2 Practice Questions.pdf" });
+    const examsoft = q("ExamSoft", 5, { correct: "A", sourceFile: "ExamsoftPractice Questions.pdf" });
+    expect(exemplarSourceTier(homework)).toBe("homework");
+    expect(exemplarSourceTier(examsoft)).toBe("examsoft");
+    expect(selectStyleExemplars([homework, examsoft], 5)).toEqual([examsoft]);
   });
 
   it("represents the school's different option counts and excludes unusable image-only examples", () => {
@@ -116,7 +125,7 @@ describe("generateMcqs", () => {
 
   it("builds the prompt from lecture text and normalizes model output", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [q, { ...q, correct: "Z" }] });
-    const r = await generateMcqs({ lectureText: longText, subject: "Endocrine" }, { callAIJSON });
+    const r = await generateMcqs({ lectureText: longText, subject: "Endocrine" }, { callAIJSON, skipQuestionAudit: true });
     expect(callAIJSON).toHaveBeenCalledOnce();
     expect(callAIJSON.mock.calls[0][1]).toContain("Insulin is an anabolic hormone");
     expect(r.questions).toHaveLength(1); // the "Z" correct dropped by normalize
@@ -174,7 +183,7 @@ describe("generateFromAtoms", () => {
     const callAIJSON = vi.fn().mockResolvedValue({
       questions: [{ stem: "A slide shows dilated axon terminals...?", choices: { A: "Herring bodies", B: "x", C: "y", D: "z" }, correct: "A", explanation: "e" }],
     });
-    const r = await generateFromAtoms({ atoms }, { callAIJSON });
+    const r = await generateFromAtoms({ atoms }, { callAIJSON, skipQuestionAudit: true });
     expect(callAIJSON).toHaveBeenCalledOnce();
     expect(r.questions).toHaveLength(1);
   });
@@ -185,7 +194,7 @@ describe("generateFromAtoms", () => {
         { stem: "Dopamine's effect on this hormone...?", choices: { A: "a", B: "Prolactin", C: "c", D: "d" }, correct: "B", topic: "Model's own topic" },
       ],
     });
-    const r = await generateFromAtoms({ atoms }, { callAIJSON });
+    const r = await generateFromAtoms({ atoms }, { callAIJSON, skipQuestionAudit: true });
     const byStem = Object.fromEntries(r.questions.map((q) => [q.stem, q]));
     expect(byStem["A slide shows dilated axon terminals...?"].topic).toBe("Herring bodies");
     // The model's own topic, when present, is not clobbered by the backfill.
@@ -204,7 +213,7 @@ describe("generateFromAtoms", () => {
         { stem: "Dopamine's effect on this hormone...?", choices: { A: "a", B: "Prolactin", C: "c", D: "d" }, correct: "B", topic: "totally different wording" },
       ],
     });
-    const r = await generateFromAtoms({ atoms }, { callAIJSON });
+    const r = await generateFromAtoms({ atoms }, { callAIJSON, skipQuestionAudit: true });
     const byStem = Object.fromEntries(r.questions.map((q) => [q.stem, q]));
     expect(byStem["A slide shows dilated axon terminals...?"].atomKey).toBe("herring bodies");
     expect(byStem["Dopamine's effect on this hormone...?"].atomKey).toBe("prolactin");
@@ -214,6 +223,51 @@ describe("generateFromAtoms", () => {
     const p = buildAtomQuestionsPrompt({ atoms: many });
     expect(p).toContain("T9");       // 10th (index 9) present
     expect(p).not.toContain("T10");  // 11th capped out
+  });
+});
+
+describe("independent generated-question audit", () => {
+  const questions = [{
+    stem: "A patient has polyuria. Which hormone is deficient?",
+    choices: { A: "Insulin", B: "Cortisol" },
+    correct: "A",
+    explanation: "Loss of insulin causes hyperglycemia and osmotic diuresis.",
+    objectiveIds: ["o1"],
+    topic: "insulin deficiency",
+  }];
+
+  it("provides curriculum evidence and requires a separate explicit verdict", () => {
+    const prompt = buildQuestionAuditPrompt(questions, {
+      objectives: [{ id: "o1", objective: "Explain insulin deficiency" }],
+      atoms: [{ term: "Insulin", content: "Deficiency causes hyperglycemia.", objectiveIds: ["o1"] }],
+    });
+    expect(prompt).toContain("Independently audit every generated question");
+    expect(prompt).toContain("Explain insulin deficiency");
+    expect(prompt).toContain("single best answer");
+  });
+
+  it("keeps only explicitly approved items and stamps the completed audit", async () => {
+    const reviewAIJSON = vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, issues: [] }] });
+    const result = await auditGeneratedQuestions(questions, {}, { reviewAIJSON });
+    expect(reviewAIJSON).toHaveBeenCalledOnce();
+    expect(result.questions[0].qualityAudit.status).toBe("approved");
+  });
+
+  it("fails closed when the reviewer rejects or returns malformed output", async () => {
+    const rejected = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: false, issues: ["incorrect_key"] }] }) });
+    const malformed = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ questions: [] }) });
+    expect(rejected.questions).toEqual([]);
+    expect(rejected.error).toMatch(/rejected/i);
+    expect(malformed.questions).toEqual([]);
+  });
+
+  it("runs after generation as a second AI request", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions });
+    const reviewAIJSON = vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, issues: [] }] });
+    const result = await generateMcqs({ lectureText: "Insulin lowers serum glucose. ".repeat(8) }, { callAIJSON, reviewAIJSON });
+    expect(callAIJSON).toHaveBeenCalledOnce();
+    expect(reviewAIJSON).toHaveBeenCalledOnce();
+    expect(result.questions).toHaveLength(1);
   });
 });
 

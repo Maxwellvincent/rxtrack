@@ -129,7 +129,7 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
       examples: exemplars,
       avoidStems,
     },
-    { callAIJSON }
+    { callAIJSON, reviewAIJSON: deps.reviewAIJSON, skipQuestionAudit: deps.skipQuestionAudit }
   );
   if (result.error || !images.length) return result;
   return { ...result, questions: attachImagesToQuestions(result.questions, atoms, images) };

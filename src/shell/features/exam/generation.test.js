@@ -58,7 +58,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(result.errors).toEqual([]);
@@ -100,7 +100,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(result.questions).toHaveLength(1);
@@ -130,7 +130,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(callAIJSON).toHaveBeenCalledTimes(3); // 1 initial + 2 retries, then stop
@@ -156,7 +156,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(callAIJSON).toHaveBeenCalledTimes(2);
@@ -178,7 +178,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(callAIJSON).toHaveBeenCalledTimes(1);
@@ -200,7 +200,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(callAIJSON).toHaveBeenCalled();
@@ -232,7 +232,7 @@ describe("generateExamQuestions", () => {
         weakConceptAccuracyByLecture: {},
         userId: null,
       },
-      { callAIJSON }
+      { callAIJSON, skipQuestionAudit: true }
     );
 
     expect(callAIJSON).toHaveBeenCalledTimes(2);
