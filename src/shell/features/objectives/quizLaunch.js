@@ -277,3 +277,50 @@ export async function startObjectiveQuiz(args, deps = {}) {
     lectureId,
   };
 }
+
+/**
+ * Prepare the complete question set the learner requested. Quality review is allowed to reject
+ * weak items, but that must never silently turn a 10-question quiz into a one-question quiz.
+ * Refill only the missing slots and carry accepted stems forward so retries stay fresh.
+ */
+export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {}) {
+  const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
+  const accepted = [];
+  const seen = new Set();
+  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || 4);
+  let lastError = "";
+
+  onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
+  for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
+    const remaining = requested - accepted.length;
+    onProgress({ requested, ready: accepted.length, attempt, phase: "generating" });
+    const result = await startObjectiveQuiz(
+      {
+        ...args,
+        questionCount: remaining,
+        avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
+      },
+      deps
+    );
+    lastError = result.error || lastError;
+    for (const question of result.questions || []) {
+      const key = String(question?.stem || "").trim().toLowerCase().replace(/\s+/g, " ");
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      accepted.push(question);
+      if (accepted.length >= requested) break;
+    }
+    onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
+    if (!result.questions?.length && result.error) break;
+  }
+
+  if (accepted.length < requested) {
+    return {
+      error: `Only ${accepted.length}/${requested} questions passed quality review. The quiz was not started. ${lastError || "Retry to generate the remaining questions."}`,
+      questions: accepted,
+      incomplete: true,
+      requested,
+    };
+  }
+  return { questions: accepted.slice(0, requested), requested, incomplete: false };
+}

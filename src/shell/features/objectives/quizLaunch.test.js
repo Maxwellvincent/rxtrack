@@ -9,6 +9,7 @@ import {
   buildQuizConfig,
   objectivesAsAtoms,
   startObjectiveQuiz,
+  prepareObjectiveQuiz,
   resolveDefaultDifficulty,
   selectAtomsByObjectiveCoverage,
   selectExemplarsForBlock,
@@ -187,6 +188,41 @@ describe("startObjectiveQuiz", () => {
     );
     expect(result.error).toBe("model down");
     expect(result.questions).toEqual([]);
+  });
+});
+
+describe("prepareObjectiveQuiz", () => {
+  it("refills rejected slots instead of launching a partial quiz", async () => {
+    const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two", C: "Three", D: "Four" }, correct: "A" });
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ questions: [made("Q1"), made("Q2"), made("Q3")] })
+      .mockResolvedValueOnce({ reviews: [
+        { index: 0, approved: true, issues: [] },
+        { index: 1, approved: false, issues: ["weak_explanation"] },
+        { index: 2, approved: true, issues: [] },
+      ] })
+      .mockResolvedValueOnce({ questions: [made("Q4")] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }] });
+    const progress = [];
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 3 },
+      { callAIJSON },
+      (entry) => progress.push(entry)
+    );
+    expect(result.questions).toHaveLength(3);
+    expect(result.incomplete).toBe(false);
+    expect(progress.at(-1)).toMatchObject({ ready: 3, requested: 3, phase: "ready" });
+  });
+
+  it("does not claim a partial set is ready", async () => {
+    const callAIJSON = vi.fn().mockRejectedValue(new Error("provider unavailable"));
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 10 },
+      { callAIJSON, maxPrepareAttempts: 1 }
+    );
+    expect(result.incomplete).toBe(true);
+    expect(result.questions).toHaveLength(0);
+    expect(result.error).toMatch(/0\/10/);
   });
 });
 

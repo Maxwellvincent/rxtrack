@@ -36,7 +36,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { resolveDefaultDifficulty, selectExemplarsForBlock, startObjectiveQuiz } from "../objectives/quizLaunch.js";
+import { prepareObjectiveQuiz, resolveDefaultDifficulty, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
@@ -339,6 +339,7 @@ export function LectureStudyFlow({
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
+  const [quizPreparation, setQuizPreparation] = useState(null);
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
   // atoms) rather than a sequential Study round — onDone below skips round-index bookkeeping
   // for these (there is no "next round" to resume into) but still updates atom/objective
@@ -730,13 +731,14 @@ export function LectureStudyFlow({
       setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
     }
-    setBusy("Writing questions…"); setError(""); setQuestions(null);
+    setBusy("Preparing quiz…"); setError(""); setQuestions(null);
+    setQuizPreparation({ requested: count, ready: 0, attempt: 0, phase: "generating" });
 
     const priorQuestions = lecture?.id
       ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
       : [];
 
-    const result = await startObjectiveQuiz(
+    const result = await prepareObjectiveQuiz(
       {
         objectives: orderedObjectives,
         lectureTitle: title,
@@ -748,7 +750,8 @@ export function LectureStudyFlow({
         exemplars: schoolExemplars,
         avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
       },
-      { callAIJSON }
+      { callAIJSON },
+      setQuizPreparation
     );
     setBusy("");
     if (result.error) {
@@ -761,7 +764,11 @@ export function LectureStudyFlow({
       if (matching.length >= count) {
         startQuizSession([...matching].sort(() => Math.random() - 0.5).slice(0, count));
         setAdHocQuiz(true);
+        setQuizPreparation(null);
         return;
+      }
+      if (lecture?.id && result.questions?.length) {
+        generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
       }
       setError(result.error);
       return;
@@ -776,6 +783,7 @@ export function LectureStudyFlow({
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
     setAdHocQuiz(true);
     startQuizSession(result.questions);
+    setQuizPreparation(null);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
 
@@ -1211,7 +1219,7 @@ export function LectureStudyFlow({
           {!quizPicker ? (
             <div className="flex flex-wrap items-center gap-3">
               <Button
-                onClick={() => setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy) })}
+                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy) }); }}
                 disabled={!!busy}
               >
                 {busyLabel || "▸ Quiz this lecture"}
@@ -1262,25 +1270,9 @@ export function LectureStudyFlow({
                   ))}
                 </div>
               </div>
-              <div className="flex items-center gap-4">
-                <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3 w-20">Difficulty</span>
-                <div className="flex gap-1.5">
-                  {["easy", "medium", "hard", "expert"].map((d) => (
-                    <button
-                      key={d}
-                      onClick={() => setQuizPicker((p) => ({ ...p, difficulty: d }))}
-                      className={[
-                        "rounded-sm border px-2.5 py-1 font-condensed text-[12px] uppercase tracking-wide transition-colors",
-                        quizPicker.difficulty === d
-                          ? "border-accent bg-accent-soft text-accent"
-                          : "border-border text-text-2 hover:border-border-strong",
-                      ].join(" ")}
-                    >
-                      {d}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <p className="text-sm text-text-2">
+                Covers lecture objectives first, using atoms as supporting facts. Difficulty advances automatically from your performance; this quiz starts at <strong className="capitalize text-text-1">{quizPicker.difficulty}</strong>.
+              </p>
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => {
@@ -1301,6 +1293,19 @@ export function LectureStudyFlow({
                     : `Grounded in ${atoms.length} key facts`}
                 </span>
               </div>
+            </div>
+          )}
+
+          {quizPreparation && (
+            <div role="status" aria-live="polite" className="rounded-xl border border-accent/40 bg-bg-elevated p-4">
+              <div className="flex items-center justify-between gap-3 text-sm font-semibold text-text-1">
+                <span>{quizPreparation.ready >= quizPreparation.requested ? "Quiz ready" : "Preparing and checking questions"}</span>
+                <span className="font-mono">{quizPreparation.ready}/{quizPreparation.requested} ready · {elapsed}s</span>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
+                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round((quizPreparation.ready / quizPreparation.requested) * 100)}%` }} />
+              </div>
+              <p className="mt-2 text-xs text-text-3">Weak or repeated items are withheld and their slots are regenerated before the quiz begins.</p>
             </div>
           )}
 
