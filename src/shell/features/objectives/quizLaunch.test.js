@@ -254,6 +254,31 @@ describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
 });
 
 describe("objective-first atom coverage", () => {
+  it("fills a requested 10-question quiz from objectives when extraction has only 3 atoms", async () => {
+    installDomStorage();
+    const objectives = Array.from({ length: 12 }, (_, index) => ({
+      id: `o${index + 1}`,
+      code: `SOM-${index + 1}`,
+      objective: `Explain objective ${index + 1}.`,
+    }));
+    const sparseAtoms = Array.from({ length: 3 }, (_, index) => ({
+      type: "definition",
+      term: `Atom ${index + 1}`,
+      content: `Supporting fact ${index + 1}.`,
+      objectiveIds: [`o${index + 1}`],
+    }));
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+
+    await startObjectiveQuiz(
+      { objectives, lectureTitle: "Sparse lecture", blockId: "dm", atoms: sparseAtoms, questionCount: 10 },
+      { callAIJSON }
+    );
+
+    const prompt = callAIJSON.mock.calls[0][1];
+    expect(prompt).toContain("10. [objective]");
+    expect(prompt).not.toContain("11. [objective]");
+  });
+
   it("distributes a 10-question lecture quiz evenly across two objectives", () => {
     const objectives = [{ id: "o1" }, { id: "o2" }];
     const atoms = Array.from({ length: 10 }, (_, index) => ({

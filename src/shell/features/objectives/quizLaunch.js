@@ -234,6 +234,15 @@ export async function startObjectiveQuiz(args, deps = {}) {
     const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
     const linked = atoms.map(a => ({ ...a, objectiveIds: canonicalObjectiveIds([...(a.objectiveIds || []), ...matchByTerm(a, config.objectives)], config.objectives) }));
     const selected = selectAtomsByObjectiveCoverage(linked, config.objectives, progress, config.count);
+    // A sparse extraction must not silently shrink a requested lecture quiz. Fill the
+    // remaining slots directly from distinct school objectives: atoms provide supporting
+    // facts, while objectives remain the curriculum contract and primary quiz blueprint.
+    if (selected.length < config.count) {
+      const representedObjectives = new Set(selected.flatMap((atom) => atom.objectiveIds || []));
+      const objectiveFacts = objectivesAsAtoms(config.objectives)
+        .filter((atom) => !atom.objectiveIds.some((id) => representedObjectives.has(id)));
+      selected.push(...objectiveFacts.slice(0, config.count - selected.length));
+    }
     const result = await generateFromAtoms(
       { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode },
       deps

@@ -267,7 +267,7 @@ export async function callAI(systemPrompt, userPrompt, maxTokens = 1000, explici
   const model = providerToModel(provider);
 
   // Free path first: the local bridge runs on your own subscriptions.
-  const bridged = await bridgeComplete({ system: systemPrompt, prompt: userPrompt });
+  const bridged = await bridgeComplete({ system: systemPrompt, prompt: userPrompt, maxTokens });
   if (bridged !== null) return bridged;
   if (localOnlyRouting()) throw new Error("Local LLM bridge is unavailable. Cloud fallback is disabled in AI settings.");
 
@@ -323,6 +323,7 @@ export async function callAIJSON(
       system: systemPrompt,
       prompt: userPrompt,
       json: true,
+      maxTokens,
       signal: options.signal,
       timeoutMs: options.bridgeTimeoutMs,
     });
@@ -378,6 +379,7 @@ export async function callAIWithImages(systemPrompt, userPrompt, images, maxToke
     system: systemPrompt,
     prompt: userPrompt,
     images: (images || []).map((img) => ({ mimeType: img.mimeType || "image/png", data: img.base64 })),
+    maxTokens,
   });
   if (bridged !== null) {
     return bridged.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();
@@ -416,6 +418,7 @@ export async function callAIWithImage(
     system: systemPrompt,
     prompt: userPrompt,
     images: [{ mimeType, data: base64 }],
+    maxTokens,
   });
   if (bridged !== null) {
     return bridged.replace(/^```(?:markdown)?\s*/i, "").replace(/\s*```$/, "").trim();

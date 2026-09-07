@@ -16,6 +16,16 @@ it("bounds a stalled completion and cools down before using the bridge again", a
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
+it("forwards the requested output budget to the local bridge", async () => {
+  installDomStorage(); resetBridgeProbe();
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ text: "ok", backend: "ollama" }) });
+  vi.stubGlobal("fetch", fetchMock);
+  await bridgeComplete({ prompt: "ten questions", maxTokens: 8000 });
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).maxTokens).toBe(8000);
+});
+
 const NOW = 1_000_000;
 
 describe("probeIsFresh", () => {

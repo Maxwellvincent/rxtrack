@@ -73,7 +73,7 @@ export async function bridgeAvailable() {
  * Returns the model's raw text, or null when the bridge is unavailable/failed —
  * null means "caller should use the cloud path", it is not an error.
  *
- * @param {{system?:string, prompt:string, images?:Array<{mimeType:string,data:string}>, json?:boolean}} req
+ * @param {{system?:string, prompt:string, images?:Array<{mimeType:string,data:string}>, json?:boolean, maxTokens?:number}} req
  */
 export async function bridgeComplete(req) {
   req.signal?.throwIfAborted();
@@ -90,6 +90,7 @@ export async function bridgeComplete(req) {
         prompt: req.prompt || "",
         images: req.images || [],
         json: !!req.json,
+        maxTokens: req.maxTokens,
       }),
     });
       if (!r.ok) throw new Error(`bridge ${r.status}`);
