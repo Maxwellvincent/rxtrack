@@ -197,6 +197,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
     // the lecture's total has to reflect it.
     if (lectureId) {
       recordAnswer(userId, lectureId, isCorrect);
+      generatedQuestionsStore.recordUse(userId, lectureId, q.stem, isCorrect);
       recordMentalModelAttempt(userId, lectureId, {
         correct: isCorrect,
         responseMs,

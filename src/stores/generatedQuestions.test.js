@@ -43,3 +43,18 @@ describe("generatedQuestions store — addHighlight", () => {
     expect(saved.find((s) => s.stem === other.stem).highlights).toBeUndefined();
   });
 });
+
+describe("generatedQuestions store — durable reserve", () => {
+  beforeEach(() => installDomStorage());
+
+  it("deduplicates normalized stems and records how often a question was answered", () => {
+    const question = { stem: "A patient presents. Which diagnosis is most likely?", choices: { A: "One", B: "Two" }, correct: "A" };
+    generatedQuestions.addQuestions("u1", "reserve", [question, { ...question, stem: "A patient presents — which diagnosis is most likely?" }]);
+    expect(generatedQuestions.questionsForLecture("u1", "reserve")).toHaveLength(1);
+    generatedQuestions.recordUse("u1", "reserve", question.stem, true);
+    const [saved] = generatedQuestions.questionsForLecture("u1", "reserve");
+    expect(saved.id).toMatch(/^q_/);
+    expect(saved.timesAnswered).toBe(1);
+    expect(saved.timesCorrect).toBe(1);
+  });
+});

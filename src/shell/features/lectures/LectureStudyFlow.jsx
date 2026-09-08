@@ -738,6 +738,21 @@ export function LectureStudyFlow({
       ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
       : [];
 
+    const reserve = priorQuestions
+      .filter((question) => question.generationMode !== "grounded-fallback")
+      .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
+      .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+      .slice(0, count);
+    const missing = Math.max(0, count - reserve.length);
+    if (!missing) {
+      setBusy("");
+      setAdHocQuiz(true);
+      startQuizSession(reserve);
+      setQuizPreparation(null);
+      logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+      return;
+    }
+
     const result = await prepareObjectiveQuiz(
       {
         objectives: orderedObjectives,
@@ -745,7 +760,7 @@ export function LectureStudyFlow({
         blockId,
         atoms,
         difficulty,
-        questionCount: count,
+        questionCount: missing,
         userId,
         exemplars: schoolExemplars,
         avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
@@ -756,7 +771,7 @@ export function LectureStudyFlow({
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
         },
       },
-      setQuizPreparation
+      (progress) => setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready })
     );
     setBusy("");
     if (result.error) {
@@ -779,7 +794,7 @@ export function LectureStudyFlow({
       setError(result.error);
       return;
     }
-    if (!result.questions?.length) {
+    if (!result.questions?.length && !reserve.length) {
       setQuizPreparation(null);
       setError(
         "No questions came back. The local bridge was unreachable and the cloud provider returned " +
@@ -788,7 +803,7 @@ export function LectureStudyFlow({
       return;
     }
     if (result.warning) setObjectiveNotice(result.warning);
-    const questionsWithObjectiveText = result.questions.map((question) => ({
+    const questionsWithObjectiveText = [...reserve, ...(result.questions || [])].slice(0, count).map((question) => ({
       ...question,
       objectiveTexts: question.objectiveTexts?.length
         ? question.objectiveTexts
@@ -1257,6 +1272,7 @@ export function LectureStudyFlow({
                 {lectureObjectives.length > 0 ? ` · ${objMastered} mastered · ${objDeveloping} developing · ${objUntested} untested` : ""}
                 {atoms.length > 0 ? ` · ${atoms.length} supporting facts` : ""}
                 {qStats.answered > 0 ? ` · ${qStats.answered} questions answered` : ""}
+                {lecture?.id ? ` · ${generatedQuestionsStore.countForLecture(userId, lecture.id)} questions saved` : ""}
                 {schoolExamplesLoading
                   ? " · loading school examples…"
                   : schoolExemplars.length

@@ -303,6 +303,29 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.incomplete).toBe(false);
     expect(result.questions.map((question) => question.stem).sort()).toEqual(["Q1?", "Q2?"]);
   });
+
+  it("builds large reserves in ten-question batches instead of one oversized response", async () => {
+    let batch = 0;
+    const callAIJSON = vi.fn().mockImplementation(async () => {
+      const current = batch++;
+      return {
+        questions: Array.from({ length: current < 2 ? 10 : 5 }, (_, index) => ({
+          stem: `A ${30 + index}-year-old patient presents with fatigue, weight change, and abnormal laboratory findings in generated batch ${current + 1}. Which mechanism best explains this presentation ${index + 1}?`,
+          choices: { A: "Mechanism one", B: "Mechanism two", C: "Mechanism three", D: "Mechanism four", E: "Mechanism five" },
+          correct: "A",
+          explanation: "Mechanism one accounts for the findings.",
+        })),
+      };
+    });
+    const atoms = Array.from({ length: 25 }, (_, index) => ({ term: `Fact ${index + 1}`, content: `Grounded fact ${index + 1}.` }));
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], atoms, questionCount: 25 },
+      { callAIJSON, skipQuestionAudit: true }
+    );
+    expect(result.questions).toHaveLength(25);
+    expect(callAIJSON).toHaveBeenCalledTimes(3);
+    expect(callAIJSON.mock.calls.every((call) => (call[1].match(/^\d+\. \[/gm) || []).length <= 10)).toBe(true);
+  });
 });
 
 describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {

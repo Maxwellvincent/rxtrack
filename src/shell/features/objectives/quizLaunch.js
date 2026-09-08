@@ -10,7 +10,7 @@
  * same question-count rules, the same lecture match by title fragment, and the
  * school exam bank as few-shot style exemplars.
  */
-import { generateFromAtoms, generateMcqs } from "../../../engine/mcq.js";
+import { ATOM_QUIZ_CAP, generateFromAtoms, generateMcqs } from "../../../engine/mcq.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import { getLecText } from "../../../lectureText.js";
@@ -382,7 +382,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   // Two reviewed AI passes strike the useful balance here: retain school-style generation, then
   // fill remaining slots instantly from uploaded lecture facts instead of making the learner wait
   // through several more provider/reviewer round trips.
-  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || 2);
+  const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
+  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 2));
   let lastError = "";
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
@@ -391,11 +392,18 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // Replacement rounds intentionally ask for a few spare candidates. One larger refill is
     // materially faster than several generator -> reviewer round trips when the reviewer is
     // rejecting a high share of the batch; only the requested number can ever be accepted.
-    const batchCount = attempt === 1 ? remaining : Math.min(15, remaining + Math.ceil(remaining / 2));
+    const batchCount = Math.min(ATOM_QUIZ_CAP, remaining);
+    const rotate = (items = []) => {
+      if (!items.length) return items;
+      const offset = ((attempt - 1) * ATOM_QUIZ_CAP) % items.length;
+      return [...items.slice(offset), ...items.slice(0, offset)];
+    };
     onProgress({ requested, ready: accepted.length, attempt, phase: attempt === 1 ? "generating" : "refilling" });
     const result = await startObjectiveQuiz(
       {
         ...args,
+        atoms: rotate(args.atoms || []),
+        objectives: rotate(args.objectives || []),
         questionCount: batchCount,
         avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
       },
