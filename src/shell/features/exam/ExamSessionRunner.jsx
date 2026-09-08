@@ -83,9 +83,28 @@ function QuestionMeta({ question }) {
 }
 
 function LeadInCue({ stem }) {
+  const [visible, setVisible] = useState(() => {
+    try { return localStorage.getItem("rxt-show-reading-cue") === "true"; } catch { return false; }
+  });
+  if (!visible) {
+    return (
+      <button type="button" className="mb-2 text-[11px] font-medium text-text-3 underline underline-offset-2 hover:text-text-1" onClick={() => {
+        try { localStorage.setItem("rxt-show-reading-cue", "true"); } catch { /* preference is optional */ }
+        setVisible(true);
+      }}>
+        Show reading cue
+      </button>
+    );
+  }
   return (
     <div className="mb-2 rounded border-l-2 border-accent bg-panel px-2.5 py-2">
-      <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">Lead-in first · define the task</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">Lead-in first · define the task</div>
+        <button type="button" className="text-[11px] text-text-3 underline hover:text-text-1" onClick={() => {
+          try { localStorage.setItem("rxt-show-reading-cue", "false"); } catch { /* preference is optional */ }
+          setVisible(false);
+        }}>hide</button>
+      </div>
       <div className="mt-1 text-sm font-semibold text-text-1">{extractLeadIn(stem)}</div>
     </div>
   );
@@ -171,6 +190,8 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) 
             <span className="font-mono text-text-3">{letter}</span>
             <span className="flex-1">{text}</span>
             {isPicked && !revealed && <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold text-white">SELECTED</span>}
+            {revealed && letter === correct && <span className="rounded border-2 border-good bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✓ CORRECT</span>}
+            {revealed && isPicked && letter !== correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
           </button>
           {!revealed && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
             setCrossed(current => {

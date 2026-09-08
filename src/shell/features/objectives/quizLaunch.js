@@ -376,13 +376,16 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       deps
     );
     lastError = result.error || lastError;
+    const newlyAccepted = [];
     for (const question of result.questions || []) {
       const key = String(question?.stem || "").trim().toLowerCase().replace(/\s+/g, " ");
       if (!key || seen.has(key)) continue;
       seen.add(key);
       accepted.push(question);
+      newlyAccepted.push(question);
       if (accepted.length >= requested) break;
     }
+    if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
     onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
     // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
     // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
@@ -392,12 +395,14 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   }
 
   if (accepted.length < requested) {
-    accepted.push(...buildGroundedRecallQuestions({
+    const grounded = buildGroundedRecallQuestions({
       atoms: args.atoms,
       objectives: args.objectives,
       count: requested - accepted.length,
       avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
-    }));
+    });
+    accepted.push(...grounded);
+    if (grounded.length) deps.onAccepted?.(grounded);
     onProgress({ requested, ready: accepted.length, attempt: attempts, phase: accepted.length >= requested ? "ready" : "fallback" });
   }
   if (accepted.length < requested) {

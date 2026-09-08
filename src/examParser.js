@@ -278,7 +278,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       }
     }
   }
-  const answerHeadingPattern = /(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*)[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
+  const answerHeadingPattern = /(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*?)[ \t]*[.:]?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi;
   const answerHeadings = [...source.matchAll(answerHeadingPattern)];
   if (!options.singleSet && answerHeadings.length > 1) {
     const recovered = [];
@@ -294,7 +294,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     }
     if (recovered.length >= 3) return recovered;
   }
-  const answerHeading = source.search(/(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*)[ \t]*:?[ \t]*(?=\n|\d+\s*[A-H]\b)/i);
+  const answerHeading = source.search(/(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*?)[ \t]*[.:]?[ \t]*(?=\n|\d+\s*[A-H]\b)/i);
   const questionText = answerHeading >= 0 ? source.slice(0, answerHeading) : source;
   const answerText = answerHeading >= 0 ? source.slice(answerHeading) : "";
   const answers = new Map();
@@ -323,7 +323,10 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
   }
   const listedAnswerRe = /(?:^|\n)\s*(\d+)[.)]\s*([A-H])\s*(?=\n|$)/gim;
   for (const match of answerText.matchAll(listedAnswerRe)) {
-    if (!answers.has(Number(match[1]))) answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: "" });
+    // A compact/listed key is the document's authoritative answer source. Do not let a
+    // later repeated explanation block's prose regex override it or carry a neighboring
+    // rationale into this question.
+    answers.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: "" });
   }
   const standaloneAnswers = [...(answerText || source).matchAll(/(?:^|\n)\s*(?:Answer(?:\s+Key)?|Correct)\s*:\s*(?:Option\s+)?([A-H])\b[.:]?\s*([^\n]*)/gim)]
     .map((match) => ({ correct: match[1].toUpperCase(), explanation: match[2].trim() }));
@@ -489,16 +492,54 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
   }
   parsed.sort((a, b) => a.num - b.num);
 
-  if (!options.singleSet && answerHeading >= 0) {
-    const answerBody = answerText.replace(/^\s*Answers?(?:\s+Key)?(?:\s+AND\s+EXPLANATIONS?)?\s*:?\s*/i, "");
-    const repeated = parseNumberedQuestionBankText(answerBody, examTitle, { singleSet: true });
-    const merged = new Map(parsed.map((question) => [question.num, question]));
-    for (const question of repeated) {
-      const prior = merged.get(question.num);
-      const quality = (item) => (item?.correct ? 100 : 0) + Object.keys(item?.choices || {}).length * 10 + Math.min(item?.stem?.length || 0, 500) / 500;
-      if (!prior || quality(question) > quality(prior)) merged.set(question.num, question);
-    }
-    return [...merged.values()].sort((a, b) => a.num - b.num);
+  if (answerHeading >= 0) {
+    // Some school PDFs repeat every question after a compact answer key and append
+    // comments/rationales to that copy. Those longer copies are not alternate questions:
+    // treating them as such leaked comments into stems/options and could shift Q16's
+    // explanation onto Q17. Keep the clean question-side parse and attach only the
+    // explanation belonging to the same numbered block.
+    const explanationBlocks = [...answerText.matchAll(/(?:^|\n)\s*(\d{1,3})[.)]\s+([\s\S]*?)(?=(?:\n\s*\d{1,3}[.)]\s+)|$)/g)];
+    const blockData = (match, fallbackCorrect) => {
+      const body = match[2];
+      const prose = body.match(/(?:^|\n)\s*(?:Explanation|Comment)\s*(?:[—–-]|:)\s*([\s\S]*?)(?=\n\s*(?:\(?[A-H]\)?[.)]|$))/i)?.[1]
+        ?.replace(/\s+/g, " ").trim();
+      const choiceLines = [...body.matchAll(/(?:^|\n)\s*\(?([A-H])\)?[.)]\s*([\s\S]*?)(?=\n\s*\(?[A-H]\)?[.)]|$)/gi)];
+      const explicitlyCorrect = choiceLines.find((choice) => /\bcorrect(?:\s+answer)?\b/i.test(choice[2]) && !/\bincorrect\b/i.test(choice[2]));
+      const commentCorrect = body.match(/\bAnswer\s+([A-H])\s+is\s+correct\b/i)?.[1]?.toUpperCase();
+      const correct = explicitlyCorrect?.[1]?.toUpperCase() || commentCorrect || fallbackCorrect;
+      const correctChoice = choiceLines.find((choice) => choice[1].toUpperCase() === correct)?.[2]
+        ?.replace(/\s+/g, " ")
+        .replace(/\b(?:correct\s+answer|correct)\b\s*[-–—:]?\s*/ig, "")
+        .trim();
+      const explanation = [prose, correctChoice]
+        .filter(Boolean)
+        .filter((value, index, list) => list.findIndex((candidate) => candidate.toLowerCase() === value.toLowerCase()) === index)
+        .join(" ");
+      return { correct, explanation, body };
+    };
+    const words = (value) => new Set(String(value || "").toLowerCase().match(/[a-z]{4,}/g) || []);
+    return parsed.map((question) => {
+      const stemWords = words(question.stem);
+      const candidatesForNumber = explanationBlocks
+        .filter((match) => Number(match[1]) === question.num)
+        .map((match) => blockData(match, question.correct))
+        .filter((candidate) => (candidate.body.match(/(?:^|\n)\s*\(?[A-H]\)?[.)]\s+/g) || []).length >= 2)
+        .map((candidate) => ({
+          ...candidate,
+          similarity: [...words(candidate.body)].filter((word) => stemWords.has(word)).length,
+        }))
+        .sort((a, b) => b.similarity - a.similarity);
+      // Reused local numbering is common in compilation PDFs. A same-number block from a
+      // neighboring section is not a match unless its stem vocabulary actually overlaps.
+      const matching = candidatesForNumber[0]?.similarity >= Math.max(3, Math.ceil(stemWords.size * 0.18))
+        ? candidatesForNumber[0]
+        : null;
+      return {
+        ...question,
+        correct: matching?.correct || question.correct,
+        explanation: matching?.explanation || question.explanation || null,
+      };
+    });
   }
   return parsed;
 }

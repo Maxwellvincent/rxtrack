@@ -196,6 +196,60 @@ Q3: A — High sodium is expected.`;
     expect(expectedQuestionCountFromAnswerKey(source)).toBe(3);
   });
 
+  it("keeps repeated school explanations attached to their own clean questions", () => {
+    const source = `1. A newborn has a reducing sugar in urine that is not glucose. What is its chemical class?
+A. A ketohexose
+B. An aldohexose
+C. A sugar acid
+D. A sugar alcohol
+
+2. A second clinical stem asks about an intestinal enzyme deficiency?
+A. Alpha
+B. Beta
+C. Gamma
+D. Delta
+
+3. A third clinical stem asks about a lens metabolite?
+A. Alpha
+B. Beta
+C. Gamma
+D. Aldose reductase
+
+Answer Key:
+1. B
+2. D
+3. D
+
+Short explanations:
+1. A newborn has a reducing sugar in urine that is not glucose. What is its chemical class?
+Explanation - Galactose is an aldohexose and a reducing sugar.
+A. A ketohexose - Fructose is a ketohexose.
+B. An aldohexose - CORRECT ANSWER - Galactose is an aldohexose.
+C. A sugar acid
+D. A sugar alcohol
+
+2. A second clinical stem asks about an intestinal enzyme deficiency?
+Comment: This explanation belongs only to question two.
+A. Alpha
+B. Beta
+C. Gamma
+D. Delta - CORRECT ANSWER - Delta rationale.
+
+3. A third clinical stem asks about a lens metabolite?
+A. Alpha
+B. Beta
+C. Gamma
+D. Aldose reductase - CORRECT ANSWER - Forms the accumulated sugar alcohol.`;
+    const questions = parseNumberedQuestionBankText(source, "DM Week 4 Biochemistry");
+    expect(questions).toHaveLength(3);
+    expect(questions.map((question) => question.correct)).toEqual(["B", "D", "D"]);
+    expect(questions[0].stem).not.toMatch(/Explanation|Comment/i);
+    expect(questions[0].choices.B).toBe("An aldohexose");
+    expect(questions[0].explanation).toMatch(/Galactose.*aldohexose/i);
+    expect(questions[1].explanation).toMatch(/question two/i);
+    expect(questions[2].explanation).toMatch(/sugar alcohol/i);
+  });
+
   it("ignores form-feed page numbers and recognizes expanded answer headings", () => {
     const source = [
       "1. First clinical question with enough detail to parse?\nA. One\nB. Two\nC. Three\nD. Four",

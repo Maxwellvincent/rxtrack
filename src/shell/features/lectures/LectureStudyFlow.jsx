@@ -750,11 +750,17 @@ export function LectureStudyFlow({
         exemplars: schoolExemplars,
         avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
       },
-      { callAIJSON },
+      {
+        callAIJSON,
+        onAccepted: (questions) => {
+          if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
+        },
+      },
       setQuizPreparation
     );
     setBusy("");
     if (result.error) {
+      setQuizPreparation(null);
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
       const matching = priorQuestions.filter((q) =>
@@ -774,6 +780,7 @@ export function LectureStudyFlow({
       return;
     }
     if (!result.questions?.length) {
+      setQuizPreparation(null);
       setError(
         "No questions came back. The local bridge was unreachable and the cloud provider returned " +
         "nothing — check that llm-bridge is running, or the console for the bridge reason."
