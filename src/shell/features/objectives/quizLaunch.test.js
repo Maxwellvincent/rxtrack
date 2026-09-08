@@ -240,6 +240,19 @@ describe("prepareObjectiveQuiz", () => {
     expect(questions.every((question) => question.explanation.includes(":"))).toBe(true);
     expect(questions.every((question) => !question.stem.includes(".?"))).toBe(true);
     expect(questions[0].stem).not.toContain("finding: Insulin promotes");
+    expect(questions.every((question) => !/\b(?:a|the) lecture\b/i.test(question.stem))).toBe(true);
+  });
+
+  it("spreads fallback questions across distinct concepts before revisiting one", () => {
+    const questions = buildGroundedRecallQuestions({
+      atoms: [
+        { term: "Insulin", content: "Increases GLUT4 translocation." },
+        { term: "Insulin", content: "Inhibits hormone-sensitive lipase." },
+        { term: "Glucagon", content: "Promotes hepatic glycogenolysis." },
+      ],
+      count: 3,
+    });
+    expect(questions.map((question) => question.topic)).toEqual(["Insulin", "Glucagon", "Insulin"]);
   });
 
   it("keeps searching grounded variants after early stems were already used", () => {

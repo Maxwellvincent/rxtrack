@@ -874,6 +874,15 @@ export function LectureStudyFlow({
   if (questions) {
     // An ad-hoc quiz has no "next round" to resume into — it's a one-shot session.
     const hasNext = !adHocQuiz && round + 1 < rounds.length;
+    const fallbackCount = questions.filter((question) => question.generationMode === "grounded-fallback").length;
+    const reviewedCount = questions.length - fallbackCount;
+    const styleStatus = fallbackCount === 0
+      ? schoolExemplars.length
+        ? `ExamSoft-style reviewed · ${schoolExemplars.length} school examples available`
+        : "Reviewed questions · no parsed school examples available"
+      : reviewedCount > 0
+        ? `${reviewedCount} ExamSoft-style reviewed · ${fallbackCount} foundational fallback`
+        : `ExamSoft-style generation unavailable · ${fallbackCount} source-grounded checks`;
     return (
       <div className="p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -896,10 +905,8 @@ export function LectureStudyFlow({
                 ? `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
                 : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
             </div>
-            <div className={schoolExemplars.length ? "text-accent" : "text-warn"}>
-              {schoolExemplars.length
-                ? `school style active · ${schoolExemplars.length} examples available`
-                : "school style unavailable · no parsed examples found"}
+            <div className={fallbackCount === 0 && schoolExemplars.length ? "text-accent" : "text-warn"}>
+              {styleStatus}
             </div>
           </div>
         </div>

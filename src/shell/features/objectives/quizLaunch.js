@@ -224,9 +224,24 @@ function normalizedFallbackFact(atom, index) {
  */
 export function buildGroundedRecallQuestions({ atoms = [], objectives = [], count = 10, avoidStems = [] } = {}) {
   const source = [...atoms, ...objectivesAsAtoms(objectives)].map(normalizedFallbackFact).filter(Boolean);
-  const unique = source.filter((fact, index) => source.findIndex((candidate) =>
+  const exactUnique = source.filter((fact, index) => source.findIndex((candidate) =>
     candidate.term.toLowerCase() === fact.term.toLowerCase() && candidate.content.toLowerCase() === fact.content.toLowerCase()
   ) === index);
+  // Use a different concept before returning to another fact with the same term.
+  // Dense lecture extraction can produce several supporting facts for one concept;
+  // keeping them adjacent made a 10-item fallback feel like the same question repeated.
+  const firstByConcept = [];
+  const remainingByConcept = [];
+  const seenConcepts = new Set();
+  for (const fact of exactUnique) {
+    const concept = fact.atomKey || fact.term.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (seenConcepts.has(concept)) remainingByConcept.push(fact);
+    else {
+      seenConcepts.add(concept);
+      firstByConcept.push(fact);
+    }
+  }
+  const unique = [...firstByConcept, ...remainingByConcept];
   if (!unique.length) return [];
 
   const avoided = new Set((avoidStems || []).map((stem) => String(stem).trim().toLowerCase().replace(/\s+/g, " ")));
@@ -237,11 +252,11 @@ export function buildGroundedRecallQuestions({ atoms = [], objectives = [], coun
     return (withoutAnswer || fact.content).replace(/[.?!]+$/, "");
   };
   const variants = [
-    { descriptionMode: true, stem: (fact) => `A lecture describes the following finding: ${clueFor(fact)}. Which diagnosis or concept best fits?` },
-    { descriptionMode: false, stem: (fact) => `Based on the uploaded lecture, which statement best describes ${fact.term}?` },
-    { descriptionMode: true, stem: (fact) => `Which concept is directly associated with this lecture-supported finding: ${clueFor(fact)}?` },
-    { descriptionMode: false, stem: (fact) => `Which lecture-supported relationship belongs to ${fact.term}?` },
-    { descriptionMode: false, stem: (fact) => `When reviewing ${fact.term}, which statement should be recalled from this lecture?` },
+    { descriptionMode: true, stem: (fact) => `The following finding is observed: ${clueFor(fact)}. Which diagnosis or concept best explains it?` },
+    { descriptionMode: false, stem: (fact) => `Which statement most accurately describes ${fact.term}?` },
+    { descriptionMode: true, stem: (fact) => `Which concept is most directly associated with this finding: ${clueFor(fact)}?` },
+    { descriptionMode: false, stem: (fact) => `Which relationship involving ${fact.term} is most accurate?` },
+    { descriptionMode: false, stem: (fact) => `Which statement about ${fact.term} is correct?` },
   ];
   // Examine every fact/wording combination. The previous calculation could inspect only five
   // candidates when a lecture had many facts, so one avoided stem was enough to leave a 10-item
