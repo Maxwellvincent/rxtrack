@@ -104,7 +104,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           </button>
           <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
             {row.scheduledToday && <span className="rounded bg-accent/15 px-1.5 py-0.5 font-bold text-accent-text">scheduled today</span>}
-            {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">completed today</span>}
+            {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">studied today</span>}
             <DateEdit row={row} onUpdateDate={onUpdateDate} />
             <span>·</span>
             {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}

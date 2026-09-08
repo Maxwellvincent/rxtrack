@@ -307,6 +307,7 @@ export function LectureStudyFlow({
   // by an older AtomQuiz after a replacement quiz has already started, which is how a fresh
   // question 1/10 could appear above the previous quiz's "complete" banner.
   const quizSessionCounter = useRef(0);
+  const loggedQuizActivityRef = useRef(null);
   const [quizSessionId, setQuizSessionId] = useState(0);
   const [completedQuizSessionId, setCompletedQuizSessionId] = useState(null);
   const [busy, setBusy] = useState("");
@@ -717,7 +718,6 @@ export function LectureStudyFlow({
     setRound(index);
     setAdHocQuiz(false);
     startQuizSession(questions);
-    logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
 
   /**
@@ -763,9 +763,35 @@ export function LectureStudyFlow({
       setAdHocQuiz(true);
       startQuizSession(reserve);
       setQuizPreparation(null);
-      logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
       return;
     }
+
+    // A learner should never wait for the entire requested reserve before
+    // answering question one. Reuse reviewed Firestore questions immediately;
+    // if there are none, onAccepted starts the quiz after the first reviewed
+    // generation batch. Later batches append without resetting quiz state.
+    let sessionStarted = false;
+    let progressiveQuestions = [...reserve];
+    const appendPrepared = (batch = []) => {
+      const known = new Set(progressiveQuestions.map((question) => String(question?.stem || "").trim().toLowerCase()));
+      for (const question of batch) {
+        const key = String(question?.stem || "").trim().toLowerCase();
+        if (!key || known.has(key)) continue;
+        known.add(key);
+        progressiveQuestions.push(question);
+      }
+      progressiveQuestions = progressiveQuestions.slice(0, count);
+      if (!progressiveQuestions.length) return;
+      if (!sessionStarted) {
+        sessionStarted = true;
+        setAdHocQuiz(true);
+        startQuizSession(progressiveQuestions);
+        setBusy("");
+      } else {
+        setQuestions([...progressiveQuestions]);
+      }
+    };
+    if (reserve.length) appendPrepared([]);
 
     const result = await prepareObjectiveQuiz(
       {
@@ -783,6 +809,7 @@ export function LectureStudyFlow({
         callAIJSON,
         onAccepted: (questions) => {
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
+          appendPrepared(questions);
         },
       },
       (progress) => setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready })
@@ -790,6 +817,10 @@ export function LectureStudyFlow({
     setBusy("");
     if (result.error) {
       setQuizPreparation(null);
+      if (sessionStarted) {
+        setError(`Background question preparation stopped: ${result.error}`);
+        return;
+      }
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
       const matching = priorQuestions.filter((q) =>
@@ -828,10 +859,12 @@ export function LectureStudyFlow({
         })).filter((objective) => objective.text),
     }));
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questionsWithObjectiveText);
-    setAdHocQuiz(true);
-    startQuizSession(questionsWithObjectiveText);
+    if (sessionStarted) setQuestions(questionsWithObjectiveText);
+    else {
+      setAdHocQuiz(true);
+      startQuizSession(questionsWithObjectiveText);
+    }
     setQuizPreparation(null);
-    logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
 
   // An external "Quiz" click (Today/Lectures/ObjectiveTracker) opens the same picker the
@@ -962,7 +995,17 @@ export function LectureStudyFlow({
           blockId={blockId}
           lectureId={lecture?.id ?? null}
           userId={userId}
+          expectedCount={quizPreparation?.requested || questions.length}
+          preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
           onExit={() => setQuestions(null)}
+          onAnswer={() => {
+            // Opening or abandoning a quiz is not study activity. Record the
+            // lecture only after the learner actually submits an answer, once
+            // per quiz session, so an immediate exit cannot mark it done today.
+            if (loggedQuizActivityRef.current === quizSessionId) return;
+            loggedQuizActivityRef.current = quizSessionId;
+            logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
+          }}
           onReviewAtom={(atomKey) => { setQuestions(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             setCompletedQuizSessionId(quizSessionId);

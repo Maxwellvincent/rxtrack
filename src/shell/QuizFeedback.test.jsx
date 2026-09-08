@@ -24,6 +24,26 @@ function click(host, text) {
   act(() => button.click());
 }
 describe("quiz feedback", () => {
+  it("records activity only after an answer is submitted, never from merely opening the quiz", () => {
+    const onAnswer = vi.fn();
+    const { host, close } = render(<AtomQuiz userId={null} onAnswer={onAnswer} questions={[{ stem: "A sample question?", choices: { A: "Correct", B: "Wrong" }, correct: "A" }]} />);
+    expect(onAnswer).not.toHaveBeenCalled();
+    click(host, "Correct");
+    expect(onAnswer).not.toHaveBeenCalled();
+    click(host, "Certain");
+    expect(onAnswer).toHaveBeenCalledOnce();
+    close();
+  });
+  it("waits at the current last question while reviewed background questions are still arriving", () => {
+    const { host, close } = render(<AtomQuiz userId={null} expectedCount={10} preparing questions={[{ stem: "A sample question?", choices: { A: "Correct", B: "Wrong" }, correct: "A" }]} />);
+    click(host, "Correct");
+    click(host, "Certain");
+    const waiting = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Preparing next question"));
+    expect(waiting).toBeTruthy();
+    expect(waiting.disabled).toBe(true);
+    expect(host.textContent).toContain("1/10 · preparing more");
+    close();
+  });
   it("allows changing a miss reason and passes the previous reason for replacement", () => {
     const { host, close } = render(<AtomQuiz userId={null} questions={[{ stem: "A sample question?", choices: { A: "Correct", B: "Wrong" }, correct: "A" }]} />);
     click(host, "Wrong");
