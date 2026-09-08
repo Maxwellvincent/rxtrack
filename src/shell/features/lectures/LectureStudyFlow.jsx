@@ -875,8 +875,11 @@ export function LectureStudyFlow({
     // An ad-hoc quiz has no "next round" to resume into — it's a one-shot session.
     const hasNext = !adHocQuiz && round + 1 < rounds.length;
     const fallbackCount = questions.filter((question) => question.generationMode === "grounded-fallback").length;
-    const reviewedCount = questions.length - fallbackCount;
-    const styleStatus = fallbackCount === 0
+    const locallyValidatedCount = questions.filter((question) => question.qualityAudit?.status === "local-validated").length;
+    const reviewedCount = questions.length - fallbackCount - locallyValidatedCount;
+    const styleStatus = locallyValidatedCount > 0
+      ? `${reviewedCount ? `${reviewedCount} independently reviewed · ` : ""}${locallyValidatedCount} ExamSoft-style generated + structural checks${fallbackCount ? ` · ${fallbackCount} foundational` : ""}`
+      : fallbackCount === 0
       ? schoolExemplars.length
         ? `ExamSoft-style reviewed · ${schoolExemplars.length} school examples available`
         : "Reviewed questions · no parsed school examples available"
@@ -905,7 +908,7 @@ export function LectureStudyFlow({
                 ? `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
                 : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
             </div>
-            <div className={fallbackCount === 0 && schoolExemplars.length ? "text-accent" : "text-warn"}>
+            <div className={fallbackCount === 0 && locallyValidatedCount === 0 && schoolExemplars.length ? "text-accent" : "text-warn"}>
               {styleStatus}
             </div>
           </div>

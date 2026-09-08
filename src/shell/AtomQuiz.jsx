@@ -184,7 +184,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
     // ExamSoft-style objective test and must not graduate objective mastery.
-    if (blockId && q.objectiveIds?.length && q.generationMode !== "grounded-fallback") {
+    if (blockId && q.objectiveIds?.length && q.generationMode !== "grounded-fallback" && q.qualityAudit?.status !== "local-validated") {
       const objectiveMap = objectivesStore.read(userId) || {};
       let blockObjectives = selectBlockObjectives(objectiveMap, blockId);
       for (const objectiveId of [...new Set(q.objectiveIds)]) {

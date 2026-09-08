@@ -414,6 +414,31 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   );
 }
 
+function normalizedComparableText(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+/**
+ * Fast deterministic screen used when the independent reviewer cannot return usable JSON.
+ * It cannot certify medical correctness, but it prevents transport/parser trouble in the
+ * second call from discarding an otherwise usable clinical batch and replacing it with recall.
+ */
+export function locallyValidClinicalQuestions(questions = []) {
+  return questions.filter((question) => {
+    const stem = String(question?.stem || "").trim();
+    const entries = Object.entries(question?.choices || {});
+    const correctText = question?.choices?.[question?.correct];
+    if (!stem.endsWith("?") || stem.length < 100 || !correctText || entries.length < 4) return false;
+    if (!/(?:\bpatient\b|\bwoman\b|\bman\b|\bgirl\b|\bboy\b|\binfant\b|\bnewborn\b|\bchild\b|\badolescent\b|\bresearcher\b|\bvolunteer\b)/i.test(stem)) return false;
+    const values = entries.map(([, value]) => normalizedComparableText(value)).filter(Boolean);
+    if (new Set(values).size !== values.length) return false;
+    const answer = normalizedComparableText(correctText);
+    const normalizedStem = ` ${normalizedComparableText(stem)} `;
+    if (answer.length >= 4 && normalizedStem.includes(` ${answer} `)) return false;
+    return true;
+  });
+}
+
 /**
  * A distinct model request reviews the completed batch. Missing, malformed, or uncertain reviews
  * fail closed: unapproved questions never reach the quiz or saved Firestore reserve.
@@ -422,7 +447,22 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
   const reviewer = deps.reviewAIJSON || deps.callAIJSON;
-  if (typeof reviewer !== "function") return { error: "Question quality review is unavailable. Nothing was saved.", questions: [] };
+  const locallyValid = locallyValidClinicalQuestions(questions);
+  const keepLocallyValidated = (reason) => ({
+    questions: locallyValid.map((question) => ({
+      ...question,
+      qualityAudit: {
+        version: 1,
+        status: "local-validated",
+        checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"],
+      },
+    })),
+    warning: locallyValid.length
+      ? `${locallyValid.length} clinical question${locallyValid.length === 1 ? "" : "s"} passed structural checks; independent medical review was unavailable (${reason}).`
+      : null,
+    error: locallyValid.length ? null : `Independent question review was unavailable (${reason}), and no generated questions passed structural checks.`,
+  });
+  if (typeof reviewer !== "function") return keepLocallyValidated("reviewer not configured");
   try {
     const raw = await reviewer(
       AUDIT_SYSTEM,
@@ -432,8 +472,15 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     );
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
+    if (!reviews.length) return keepLocallyValidated("malformed reviewer response");
     const approved = questions.flatMap((question, index) => {
       const review = byIndex.get(index);
+      if (!review) {
+        return locallyValid.includes(question) ? [{
+          ...question,
+          qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
+        }] : [];
+      }
       if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length)) return [];
       return [{
         ...question,
@@ -451,7 +498,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       warning: approved.length < questions.length ? `${questions.length - approved.length} generated question${questions.length - approved.length === 1 ? "" : "s"} failed independent review and were withheld.` : null,
     };
   } catch (error) {
-    return { error: `Independent question review failed: ${error?.message || String(error)}. Nothing was saved.`, questions: [] };
+    return keepLocallyValidated(error?.message || String(error));
   }
 }
 

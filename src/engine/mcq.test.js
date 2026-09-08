@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -253,12 +253,34 @@ describe("independent generated-question audit", () => {
     expect(result.questions[0].qualityAudit.status).toBe("approved");
   });
 
-  it("fails closed when the reviewer rejects or returns malformed output", async () => {
+  it("rejects explicit medical failures but preserves sound clinical items when reviewer JSON is malformed", async () => {
     const rejected = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: false, issues: ["incorrect_key"] }] }) });
     const malformed = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ questions: [] }) });
     expect(rejected.questions).toEqual([]);
     expect(rejected.error).toMatch(/rejected/i);
-    expect(malformed.questions).toEqual([]);
+    expect(malformed.questions).toHaveLength(0); // too short to qualify as a clinical fallback
+  });
+
+  it("keeps a structurally sound vignette when the independent reviewer transport fails", async () => {
+    const clinical = {
+      ...questions[0],
+      stem: "A 46-year-old patient presents with polyuria, polydipsia, weight loss, and a fasting glucose concentration of 260 mg/dL. Laboratory testing shows very low C-peptide. Which hormone is deficient?",
+      choices: { A: "Insulin", B: "Cortisol", C: "Glucagon", D: "Aldosterone", E: "Epinephrine" },
+    };
+    expect(locallyValidClinicalQuestions([clinical])).toHaveLength(1);
+    const result = await auditGeneratedQuestions([clinical], {}, { reviewAIJSON: vi.fn().mockRejectedValue(new Error("bridge JSON parse failed")) });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].qualityAudit.status).toBe("local-validated");
+    expect(result.warning).toMatch(/structural checks/i);
+  });
+
+  it("does not preserve a generated question whose answer is present in its stem", () => {
+    const leaked = {
+      ...questions[0],
+      stem: "A 46-year-old patient presents with polyuria and polydipsia. Testing confirms insulin deficiency after autoimmune beta-cell destruction. Which hormone is deficient?",
+      choices: { A: "Insulin", B: "Cortisol", C: "Glucagon", D: "Aldosterone", E: "Epinephrine" },
+    };
+    expect(locallyValidClinicalQuestions([leaked])).toEqual([]);
   });
 
   it("runs after generation as a second AI request", async () => {
