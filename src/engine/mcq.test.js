@@ -69,6 +69,16 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toContain("do not repeat, paraphrase, or test the same clue-to-answer route");
     expect(prompt).toContain("3+ reasoning steps");
   });
+  it("requires atom-targeted questions to use full clinical vignettes rather than recall templates", () => {
+    const atomPrompt = buildAtomQuestionsPrompt({
+      atoms: [{ type: "definition", term: "Insulin", content: "Lowers serum glucose." }],
+      difficulty: "medium",
+    });
+    expect(atomPrompt).toContain("realistic 3-5 sentence clinical vignette");
+    expect(atomPrompt).toContain("at least two reasoning steps");
+    expect(atomPrompt).toContain("do not mention a lecture or learning objective");
+    expect(atomPrompt).toContain("reject and rewrite any draft");
+  });
   it("includes lecture content, objectives, difficulty and count", () => {
     expect(prompt).toContain("Insulin is an anabolic hormone");
     expect(prompt).toContain("Describe insulin secretion");

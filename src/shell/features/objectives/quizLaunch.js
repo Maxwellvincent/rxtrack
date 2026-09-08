@@ -19,6 +19,13 @@ import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { matchByTerm } from "../../../engine/tagAtoms.js";
 
+// Rich clinical stems plus five per-choice explanations are large JSON
+// objects. Asking for ten in one response routinely truncates otherwise good
+// batches. Five keeps each model/reviewer exchange reliable while the
+// preparation loop still fills any requested quiz size and saves each accepted
+// batch immediately.
+export const PREPARE_BATCH_SIZE = 5;
+
 /** Weakest first — fewest consecutive correct answers get quizzed first. */
 export function sortWeakestFirst(objectives) {
   return [...(objectives || [])].sort(
@@ -392,10 +399,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // Replacement rounds intentionally ask for a few spare candidates. One larger refill is
     // materially faster than several generator -> reviewer round trips when the reviewer is
     // rejecting a high share of the batch; only the requested number can ever be accepted.
-    const batchCount = Math.min(ATOM_QUIZ_CAP, remaining);
+    const batchCount = Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, remaining);
     const rotate = (items = []) => {
       if (!items.length) return items;
-      const offset = ((attempt - 1) * ATOM_QUIZ_CAP) % items.length;
+      const offset = ((attempt - 1) * PREPARE_BATCH_SIZE) % items.length;
       return [...items.slice(offset), ...items.slice(0, offset)];
     };
     onProgress({ requested, ready: accepted.length, attempt, phase: attempt === 1 ? "generating" : "refilling" });

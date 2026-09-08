@@ -306,7 +306,8 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
 
   return (
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
-    `Each question must test that specific fact (not adjacent trivia). Use a patient scenario ending in a question mark, with enough clinical evidence for the requested reasoning depth; do not force challenging vignettes into a short recall stem. ` +
+    `Each question must test that specific fact (not adjacent trivia). Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
+    `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. A medium item must require at least two reasoning steps; hard/expert items must use indirect clues rather than simply naming the diagnosis. ` +
     `Examples guide structure, not factual scope: use the supplied facts, write new cases, and honor the requested difficulty rather than copying an IMCQ's difficulty. ` +
     `Match the option count and lettering of the real exam examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E.\n\n` +
     WHY_WRONG_RULE + `\n\n` +
@@ -316,6 +317,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `\n\nLECTURE OBJECTIVES (source data):\n${objectives.map(o => `[${o.id}] ${o.code || ""} ${o.objective || o.text || ""}`).join("\n") || "No objectives available; do not claim objective coverage."}\n` +
     `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
     examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + avoidSection +
+    `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     `\n\nReturn ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","difficulty":"${diff}"}]}`
   );

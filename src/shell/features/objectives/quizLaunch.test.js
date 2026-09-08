@@ -324,7 +324,7 @@ describe("prepareObjectiveQuiz", () => {
     );
     expect(result.questions).toHaveLength(25);
     expect(callAIJSON).toHaveBeenCalledTimes(3);
-    expect(callAIJSON.mock.calls.every((call) => (call[1].match(/^\d+\. \[/gm) || []).length <= 10)).toBe(true);
+    expect(callAIJSON.mock.calls.every((call) => (call[1].match(/^\d+\. \[/gm) || []).length <= 5)).toBe(true);
   });
 });
 
