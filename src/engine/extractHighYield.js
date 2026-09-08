@@ -2,6 +2,14 @@
 // callAIJSON is injected (real one is ../aiClient.js) so the logic is testable
 // without a live model. Returns { atoms } or { error }.
 import { normalizeHighYield } from "./highYield.js";
+import { withDeadline } from "../asyncDeadline.js";
+
+// Lecture extraction must never leave the learner waiting indefinitely. The
+// local bridge normally answers well inside this window; if it does not, the UI
+// can explain the failure and offer a retry instead of displaying a timer for
+// many minutes while cloud fallbacks also exhaust their retries.
+export const EXTRACTION_TIMEOUT_MS = 120_000;
+export const EXTRACTION_BRIDGE_TIMEOUT_MS = 90_000;
 
 const SYSTEM = `You extract HIGH-YIELD, testable atoms from a medical lecture for USMLE Step 1 study.
 Every atom is EXACTLY ONE of these four types — nothing else:
@@ -20,7 +28,13 @@ Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": 
 Up to 40 atoms.`;
 
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {
-  const { callAIJSON, maxTokens = 4000 } = deps;
+  const {
+    callAIJSON,
+    maxTokens = 4000,
+    timeoutMs = EXTRACTION_TIMEOUT_MS,
+    bridgeTimeoutMs = EXTRACTION_BRIDGE_TIMEOUT_MS,
+    signal: parentSignal,
+  } = deps;
   const fullText = String(lectureText || "");
   if (fullText.length < 200) return { error: "Not enough lecture text — re-upload/convert the PDF first.", atoms: [] };
 
@@ -45,25 +59,32 @@ export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}
     return [];
   };
 
-  const runWindow = async (text, retry = false) => {
+  const runWindow = async (text, retry = false, signal) => {
     const user = `Lecture: ${lecInfo.lectureTitle || lecInfo.filename || "Untitled"}
 Type: ${lecInfo.lectureType || "LEC"}
 
 ${retry ? "The earlier content window produced no usable atoms. Extract concrete testable facts from this window; do not return an empty list when medical facts are present.\n\n" : ""}LECTURE CONTENT (markdown — bolded terms appear inside **double asterisks**):
 ${text}`;
-    const result = await callAIJSON(SYSTEM, user, { atoms: [] }, maxTokens, undefined, undefined, { throwOnError: true });
+    const result = await callAIJSON(SYSTEM, user, { atoms: [] }, maxTokens, undefined, undefined, {
+      throwOnError: true,
+      bridgeTimeoutMs,
+      signal,
+    });
     return normalizeResponse(result);
   };
 
   try {
-    let atoms = await runWindow(fullText.slice(0, 12000));
-    if (!atoms.length) {
-      // Slide decks commonly put objectives/logistics first and the actual
-      // mechanisms later. Retry the tail (or the same short document with a
-      // stricter instruction) before declaring extraction empty.
-      atoms = await runWindow(fullText.length > 12000 ? fullText.slice(-12000) : fullText, true);
-    }
-    return { atoms };
+    return await withDeadline(async (signal) => {
+      let atoms = await runWindow(fullText.slice(0, 12000), false, signal);
+      if (!atoms.length) {
+        // Slide decks commonly put objectives/logistics first and the actual
+        // mechanisms later. Retry the tail (or the same short document with a
+        // stricter instruction) before declaring extraction empty. Both passes
+        // share one deadline, so this recovery can never double the UI wait.
+        atoms = await runWindow(fullText.length > 12000 ? fullText.slice(-12000) : fullText, true, signal);
+      }
+      return { atoms };
+    }, timeoutMs, parentSignal, "Lecture extraction");
   } catch (e) {
     return { error: e?.message || String(e), atoms: [] };
   }

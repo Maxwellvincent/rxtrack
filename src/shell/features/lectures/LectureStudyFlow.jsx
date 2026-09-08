@@ -498,33 +498,47 @@ export function LectureStudyFlow({
 
   const runExtract = useCallback(async (sourceText) => {
     setBusy("Reading the lecture…"); setError("");
-    let objectivesForTagging = lectureObjectives;
     try {
-      if (!lectureObjectives.length) objectivesForTagging = await recoverObjectives(sourceText);
+      let objectivesForTagging = lectureObjectives;
+      try {
+        if (!lectureObjectives.length) objectivesForTagging = await recoverObjectives(sourceText);
+      } catch (e) {
+        setError(`Objective recovery: ${e?.message || String(e)}`);
+      }
+      const r = await extractAtoms(lecture, sourceText, {
+        callAIJSON, saveAtoms: saveLectureAtoms, userId,
+      });
+      if (r.error) {
+        const suffix = /timed out/i.test(r.error)
+          ? " Check that the local LLM bridge is running, then retry."
+          : " Retry extraction; no quiz was started.";
+        setError(`${r.error}${suffix}`);
+        return;
+      }
+      let finalAtoms = r.atoms;
+      if (objectivesForTagging.length) {
+        setBusy("Matching atoms to lecture objectives…");
+        const tagged = await tagAtomsWithObjectives(r.atoms, objectivesForTagging, { callAIJSON });
+        finalAtoms = tagged.atoms || r.atoms;
+        try { await saveLectureAtoms(userId, lecture.id, finalAtoms); }
+        catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || e}`); }
+        if (tagged.error) setError(`Atoms extracted; some objective links still need review: ${tagged.error}`);
+      }
+      // A save failure is worth saying out loud — the atoms work this session but
+      // will need re-extracting next time.
+      if (r.saveError) setError(`Atoms ready, but saving them failed: ${r.saveError}`);
+      setAtoms(finalAtoms);
+      setStage("quiz");
+      // Update cross-lecture atom index (non-blocking, non-critical)
+      try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, finalAtoms); } catch { /* ok */ }
     } catch (e) {
-      setError(`Objective recovery: ${e?.message || String(e)}`);
+      setError(`Lecture extraction failed: ${e?.message || String(e)} Check the local LLM bridge and retry.`);
+    } finally {
+      // Every success, returned error, thrown exception and timeout must make
+      // the page interactive again. Previously the r.error branch returned
+      // before this reset, producing the ever-growing elapsed timer.
+      setBusy("");
     }
-    const r = await extractAtoms(lecture, sourceText, {
-      callAIJSON, saveAtoms: saveLectureAtoms, userId,
-    });
-    if (r.error) { setError(r.error); return; }
-    let finalAtoms = r.atoms;
-    if (objectivesForTagging.length) {
-      setBusy("Matching atoms to lecture objectives…");
-      const tagged = await tagAtomsWithObjectives(r.atoms, objectivesForTagging, { callAIJSON });
-      finalAtoms = tagged.atoms || r.atoms;
-      try { await saveLectureAtoms(userId, lecture.id, finalAtoms); }
-      catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || e}`); }
-      if (tagged.error) setError(`Atoms extracted; some objective links still need review: ${tagged.error}`);
-    }
-    setBusy("");
-    // A save failure is worth saying out loud — the atoms work this session but
-    // will need re-extracting next time.
-    if (r.saveError) setError(`Atoms ready, but saving them failed: ${r.saveError}`);
-    setAtoms(finalAtoms);
-    setStage("quiz");
-    // Update cross-lecture atom index (non-blocking, non-critical)
-    try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, finalAtoms); } catch { /* ok */ }
   }, [lecture, userId, blockId, recoverObjectives, lectureObjectives.length]);
 
   const onFile = useCallback(async (file) => {

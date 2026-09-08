@@ -8,7 +8,11 @@ describe("extractTypedHighYield", () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("AI usage limit reached"));
     const result = await extractTypedHighYield(longText, {}, { callAIJSON });
     expect(result.error).toContain("usage limit");
-    expect(callAIJSON.mock.calls[0][6]).toEqual({ throwOnError: true });
+    expect(callAIJSON.mock.calls[0][6]).toMatchObject({
+      throwOnError: true,
+      bridgeTimeoutMs: 90_000,
+      signal: expect.any(AbortSignal),
+    });
     expect(callAIJSON).toHaveBeenCalledOnce();
   });
   it("calls the injected AI with the lecture text and normalizes the atoms", async () => {
@@ -60,5 +64,18 @@ describe("extractTypedHighYield", () => {
     const r = await extractTypedHighYield(text, {}, { callAIJSON });
     expect(r.atoms).toHaveLength(1);
     expect(callAIJSON.mock.calls[1][1]).toContain("PREGNANCY TAIL");
+  });
+
+  it("bounds both extraction windows with one deadline", async () => {
+    vi.useFakeTimers();
+    const callAIJSON = vi.fn((_system, _user, _fallback, _tokens, _provider, _temperature, options) => (
+      new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason)))
+    ));
+    const pending = extractTypedHighYield(longText, {}, { callAIJSON, timeoutMs: 50 });
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await pending;
+    expect(result.error).toMatch(/Lecture extraction timed out/i);
+    expect(callAIJSON).toHaveBeenCalledOnce();
+    vi.useRealTimers();
   });
 });
