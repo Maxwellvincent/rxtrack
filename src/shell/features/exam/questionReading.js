@@ -10,9 +10,15 @@ export const ERROR_REASONS = [
 export function extractLeadIn(stem) {
   const text = String(stem || "").trim();
   if (!text) return "";
-  const beforeFinal = text.slice(0, Math.max(0, text.length - 1));
-  const boundary = Math.max(beforeFinal.lastIndexOf("?"), beforeFinal.lastIndexOf("."), beforeFinal.lastIndexOf("!"));
-  return text.slice(boundary + 1).trim();
+  // Treat a trailing punctuation run as one terminator. Imported and fallback
+  // questions can end in ".?"; slicing before only the final character made the
+  // lead-in helper render a bare question mark.
+  const match = text.match(/[.?!]+$/);
+  const punctuation = match?.[0]?.includes("?") ? "?" : match?.[0]?.slice(-1) || "";
+  const body = match ? text.slice(0, -match[0].length).trim() : text;
+  const boundary = Math.max(body.lastIndexOf("?"), body.lastIndexOf("."), body.lastIndexOf("!"));
+  const lead = body.slice(boundary + 1).trim() || body;
+  return `${lead}${punctuation}`;
 }
 
 export function classifyLeadIn(stem) {

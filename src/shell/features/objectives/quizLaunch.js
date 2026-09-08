@@ -231,10 +231,15 @@ export function buildGroundedRecallQuestions({ atoms = [], objectives = [], coun
 
   const avoided = new Set((avoidStems || []).map((stem) => String(stem).trim().toLowerCase().replace(/\s+/g, " ")));
   const questions = [];
+  const clueFor = (fact) => {
+    const escaped = fact.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const withoutAnswer = fact.content.replace(new RegExp(`^${escaped}\\s*(?::|[-–—]|\\bis\\b|\\bare\\b)?\\s*`, "i"), "").trim();
+    return (withoutAnswer || fact.content).replace(/[.?!]+$/, "");
+  };
   const variants = [
-    { descriptionMode: true, stem: (fact) => `Which lecture concept best matches this description: ${fact.content}?` },
+    { descriptionMode: true, stem: (fact) => `A lecture describes the following finding: ${clueFor(fact)}. Which diagnosis or concept best fits?` },
     { descriptionMode: false, stem: (fact) => `Based on the uploaded lecture, which statement best describes ${fact.term}?` },
-    { descriptionMode: true, stem: (fact) => `Which concept is directly associated with the following lecture-supported finding: ${fact.content}?` },
+    { descriptionMode: true, stem: (fact) => `Which concept is directly associated with this lecture-supported finding: ${clueFor(fact)}?` },
     { descriptionMode: false, stem: (fact) => `Which lecture-supported relationship belongs to ${fact.term}?` },
     { descriptionMode: false, stem: (fact) => `When reviewing ${fact.term}, which statement should be recalled from this lecture?` },
   ];

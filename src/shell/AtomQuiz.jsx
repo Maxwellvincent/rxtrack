@@ -181,7 +181,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       responseMs,
       taskType: classifyLeadIn(q.stem),
     });
-    if (blockId && q.objectiveIds?.length) {
+    // Source-grounded fallbacks preserve access when AI generation is unavailable,
+    // but foundational recognition is not equivalent to an independently reviewed
+    // ExamSoft-style objective test and must not graduate objective mastery.
+    if (blockId && q.objectiveIds?.length && q.generationMode !== "grounded-fallback") {
       const objectiveMap = objectivesStore.read(userId) || {};
       let blockObjectives = selectBlockObjectives(objectiveMap, blockId);
       for (const objectiveId of [...new Set(q.objectiveIds)]) {
@@ -224,7 +227,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   return (
     <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span>Objective quiz — recognition &amp; application</span><span className="text-text-3">{i + 1}/{questions.length}</span>
+        <span>{q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}</span><span className="text-text-3">{i + 1}/{questions.length}</span>
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-panel"
@@ -240,6 +243,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
         />
       </div>
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
+        {q.generationMode === "grounded-fallback" && (
+          <div className="mb-2 rounded border border-border bg-panel px-3 py-2 text-xs text-text-2">
+            Source-grounded fallback · reinforces lecture recall, but does not count as an ExamSoft-style objective test.
+          </div>
+        )}
         {/* Stimulus first, the way a real Step 1 item presents it: read the tissue, then the
             stem. No caption — the label would answer the question. */}
         {q.image?.url && (
@@ -354,9 +362,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
               />
             )}
             <div className="rounded border border-border p-3 text-sm">
-              <strong>Objective tested</strong>
-              {q.objectiveTexts?.length ? q.objectiveTexts.map(o => <p key={o.id}>{o.code} {o.text}</p>)
-                : q.objectiveIds?.length ? <p>{q.objectiveIds.join(" · ")}</p>
+              <strong>{q.generationMode === "grounded-fallback" ? "School objective supported" : "School objective practiced"}</strong>
+              {q.objectiveTexts?.length ? q.objectiveTexts.map(o => <p key={o.id}>{o.code ? `${o.code} ` : ""}{o.text}</p>)
+                : q.objectiveIds?.length ? <p className="text-text-2">Linked to this lecture's school objective. The internal ID is intentionally hidden.</p>
                 : <p className="text-text-2">No objective link recorded for this question. Atom practice alone does not establish objective coverage.</p>}
             </div>
             {!correct && (

@@ -238,6 +238,8 @@ describe("prepareObjectiveQuiz", () => {
     expect(questions.every((question) => question.generationMode === "grounded-fallback")).toBe(true);
     expect(questions.every((question) => question.qualityAudit.status === "source-grounded")).toBe(true);
     expect(questions.every((question) => question.explanation.includes(":"))).toBe(true);
+    expect(questions.every((question) => !question.stem.includes(".?"))).toBe(true);
+    expect(questions[0].stem).not.toContain("finding: Insulin promotes");
   });
 
   it("keeps searching grounded variants after early stems were already used", () => {

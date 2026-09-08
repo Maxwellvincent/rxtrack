@@ -788,9 +788,19 @@ export function LectureStudyFlow({
       return;
     }
     if (result.warning) setObjectiveNotice(result.warning);
-    if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
+    const questionsWithObjectiveText = result.questions.map((question) => ({
+      ...question,
+      objectiveTexts: question.objectiveTexts?.length
+        ? question.objectiveTexts
+        : (question.objectiveIds || []).map((id) => objectiveById.get(id)).filter(Boolean).map((objective) => ({
+          id: objective.id,
+          code: objective.code || "",
+          text: objective.objective || objective.text || objective.title || "",
+        })).filter((objective) => objective.text),
+    }));
+    if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questionsWithObjectiveText);
     setAdHocQuiz(true);
-    startQuizSession(result.questions);
+    startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
     logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
