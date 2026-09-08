@@ -240,6 +240,38 @@ describe("prepareObjectiveQuiz", () => {
     expect(questions.every((question) => question.explanation.includes(":"))).toBe(true);
   });
 
+  it("keeps searching grounded variants after early stems were already used", () => {
+    const atoms = Array.from({ length: 7 }, (_, index) => ({
+      term: `Fact ${index + 1}`,
+      content: `Uploaded lecture statement ${index + 1}.`,
+    }));
+    const first = buildGroundedRecallQuestions({ atoms, count: 2 });
+    const questions = buildGroundedRecallQuestions({
+      atoms,
+      count: 10,
+      avoidStems: first.map((question) => question.stem),
+    });
+    expect(questions).toHaveLength(10);
+    expect(questions.every((question) => !first.some((old) => old.stem === question.stem))).toBe(true);
+  });
+
+  it("returns a usable verified partial rather than blocking launch", async () => {
+    const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two" }, correct: "A", explanation: "Because." });
+    const atoms = [{ term: "Only fact", content: "Only uploaded statement." }];
+    const exhaustedFallbackStems = buildGroundedRecallQuestions({ atoms, count: 10 }).map((question) => question.stem);
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ questions: Array.from({ length: 9 }, (_, index) => made(`Q${index + 1}`)) })
+      .mockResolvedValueOnce({ reviews: Array.from({ length: 9 }, (_, index) => ({ index, approved: true, issues: [] })) });
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], atoms, questionCount: 10, avoidStems: exhaustedFallbackStems },
+      { callAIJSON, maxPrepareAttempts: 1 }
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.incomplete).toBe(true);
+    expect(result.questions).toHaveLength(9);
+    expect(result.warning).toMatch(/Starting with 9 verified questions/);
+  });
+
   it("continues after a fully rejected replacement batch", async () => {
     const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two" }, correct: "A", explanation: "Because." });
     const callAIJSON = vi.fn()

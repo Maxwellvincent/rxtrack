@@ -731,7 +731,7 @@ export function LectureStudyFlow({
       setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
     }
-    setBusy("Preparing quiz…"); setError(""); setQuestions(null);
+    setBusy("Preparing quiz…"); setError(""); setObjectiveNotice(""); setQuestions(null);
     setQuizPreparation({ requested: count, ready: 0, attempt: 0, phase: "generating" });
 
     const priorQuestions = lecture?.id
@@ -787,6 +787,7 @@ export function LectureStudyFlow({
       );
       return;
     }
+    if (result.warning) setObjectiveNotice(result.warning);
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, result.questions);
     setAdHocQuiz(true);
     startQuizSession(result.questions);

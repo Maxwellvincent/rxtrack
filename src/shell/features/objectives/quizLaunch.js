@@ -238,7 +238,10 @@ export function buildGroundedRecallQuestions({ atoms = [], objectives = [], coun
     { descriptionMode: false, stem: (fact) => `Which lecture-supported relationship belongs to ${fact.term}?` },
     { descriptionMode: false, stem: (fact) => `When reviewing ${fact.term}, which statement should be recalled from this lecture?` },
   ];
-  const maxPasses = Math.ceil(count / unique.length) * variants.length;
+  // Examine every fact/wording combination. The previous calculation could inspect only five
+  // candidates when a lecture had many facts, so one avoided stem was enough to leave a 10-item
+  // request stuck at 9/10 even though dozens of grounded combinations remained available.
+  const maxPasses = unique.length * variants.length;
   for (let pass = 0; questions.length < count && pass < maxPasses; pass += 1) {
     const fact = unique[pass % unique.length];
     const variantIndex = Math.floor(pass / unique.length) % variants.length;
@@ -356,7 +359,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const accepted = [];
   const seen = new Set();
-  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || 4);
+  // Two reviewed AI passes strike the useful balance here: retain school-style generation, then
+  // fill remaining slots instantly from uploaded lecture facts instead of making the learner wait
+  // through several more provider/reviewer round trips.
+  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || 2);
   let lastError = "";
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
@@ -406,8 +412,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     onProgress({ requested, ready: accepted.length, attempt: attempts, phase: accepted.length >= requested ? "ready" : "fallback" });
   }
   if (accepted.length < requested) {
+    const usablePartial = accepted.length >= Math.min(requested, Math.max(3, Math.ceil(requested * 0.6)));
     return {
-      error: `Only ${accepted.length}/${requested} questions passed quality review. The quiz was not started. ${lastError || "Retry to generate the remaining questions."}`,
+      ...(usablePartial
+        ? { warning: `Starting with ${accepted.length} verified questions. ${requested - accepted.length} unavailable slots were omitted.` }
+        : { error: `Only ${accepted.length}/${requested} questions could be prepared. ${lastError || "Retry to generate the remaining questions."}` }),
       questions: accepted,
       incomplete: true,
       requested,
