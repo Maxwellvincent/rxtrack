@@ -418,7 +418,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     const lines = body.split("\n");
     let stemLines = [];
     const choices = {};
-    const tableChoices = /(?:^|\n)\s*Option\b[\s\S]{0,300}(?:^|\n)\s*Answer\s+Key\s*:/im.test(body);
+    const tableChoices = /(?:^|\n)\s*Option\b[\s\S]{0,2000}(?:^|\n)\s*Answer\s+Key\s*:/im.test(body);
     let letter = null;
     let inlineCorrect = null;
     const rationaleLines = [];
@@ -609,10 +609,12 @@ export function mergePdfQuestionCandidates(candidateLists = []) {
       return overlap >= 8 && overlap / Math.min(words.size || 1, existingWords.size || 1) >= 0.84;
     });
   };
-  for (const list of candidateLists) {
+  for (const [listIndex, list] of candidateLists.entries()) {
     for (const question of list || []) {
       const key = keyFor(question);
-      if (!key || duplicateOf(question) || !question.correct || !question.choices?.[question.correct]) continue;
+      const sameNumberNearLength = listIndex > 0 && candidateLists[0]?.length && Math.abs(candidateLists[0].length - list.length) <= 3
+        && result.some((existing) => existing.num === question.num);
+      if (!key || sameNumberNearLength || duplicateOf(question) || !question.correct || !question.choices?.[question.correct]) continue;
       result.push(question);
     }
   }
