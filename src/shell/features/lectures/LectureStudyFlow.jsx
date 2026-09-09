@@ -340,7 +340,7 @@ export function LectureStudyFlow({
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Inline quiz config picker state
-  const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
+  const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty, generationVersion }
   const [quizPreparation, setQuizPreparation] = useState(null);
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
   // atoms) rather than a sequential Study round — onDone below skips round-index bookkeeping
@@ -741,7 +741,7 @@ export function LectureStudyFlow({
     return [...lectureObjectives].sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds]);
 
-  const runQuiz = useCallback(async (count, difficulty) => {
+  const runQuiz = useCallback(async (count, difficulty, generationVersion = "v1") => {
     if (schoolExamplesLoading) {
       setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
@@ -756,6 +756,7 @@ export function LectureStudyFlow({
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
+      .filter((question) => (question.generationVersion || "v1") === generationVersion)
       .filter((question) => validReserve.has(question))
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
@@ -803,6 +804,7 @@ export function LectureStudyFlow({
         blockId,
         atoms,
         difficulty,
+        generationVersion,
         questionCount: missing,
         userId,
         exemplars: schoolExemplars,
@@ -1322,7 +1324,7 @@ export function LectureStudyFlow({
           {!quizPicker ? (
             <div className="flex flex-wrap items-center gap-3">
               <Button
-                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy) }); }}
+                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v1" }); }}
                 disabled={!!busy}
               >
                 {busyLabel || "▸ Quiz this lecture"}
@@ -1377,12 +1379,21 @@ export function LectureStudyFlow({
               <p className="text-sm text-text-2">
                 Covers lecture objectives first, using atoms as supporting facts. Difficulty advances automatically from your performance; this quiz starts at <strong className="capitalize text-text-1">{quizPicker.difficulty}</strong>.
               </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3">Generator</span>
+                {[["v1", "Current v1"], ["v2", "SGU / ExamSoft v2"]].map(([value, label]) => (
+                  <button key={value} type="button" onClick={() => setQuizPicker((p) => ({ ...p, generationVersion: value }))} className={`rounded-sm border px-2.5 py-1 font-mono text-[12px] ${quizPicker.generationVersion === value ? "border-accent bg-accent-soft text-accent" : "border-border text-text-2"}`}>
+                    {label}
+                  </button>
+                ))}
+                <span className="text-[12px] text-text-3">v2 is an opt-in comparison and keeps its saved reserve separate.</span>
+              </div>
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => {
-                    const { count, difficulty } = quizPicker;
+                    const { count, difficulty, generationVersion } = quizPicker;
                     setQuizPicker(null);
-                    runQuiz(count, difficulty);
+                    runQuiz(count, difficulty, generationVersion);
                   }}
                   disabled={!!busy}
                 >

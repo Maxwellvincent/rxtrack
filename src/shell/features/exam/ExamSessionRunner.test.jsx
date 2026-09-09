@@ -166,6 +166,12 @@ describe("ExamSessionRunner", () => {
     expect(host.querySelector('[data-testid="exam-timer"]')).toBeFalsy();
     expect(host.querySelector('[data-testid="practice-reveal"]')).toBeFalsy();
 
+    const choice = [...host.querySelectorAll("button")].find((button) => button.textContent.includes("Choice A"));
+    act(() => choice.click());
+    expect(controller.answerQuestion).not.toHaveBeenCalled();
+    act(() => host.querySelector('[data-testid="check-answer"]').click());
+    expect(controller.answerQuestion).toHaveBeenCalledWith("q1", "A");
+
     // Answering flows through answerQuestion; simulate the resulting
     // controller state (answered) on a re-render, the way the real hook
     // would after answerQuestion's optimistic update.

@@ -344,7 +344,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
       selected.push(...objectiveFacts.slice(0, config.count - selected.length));
     }
     const result = await generateFromAtoms(
-      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode },
+      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion },
       deps
     );
     return { ...result, lectureId };
@@ -354,7 +354,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
   const hasObjectives = (config?.objectives || []).length > 0;
 
   if (hasText) {
-    const result = await generateMcqs({ ...config, atoms }, deps);
+    const result = await generateMcqs({ ...config, atoms, generationVersion: args.generationVersion }, deps);
     return { ...result, lectureId };
   }
 
@@ -371,6 +371,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
         examples: config?.examples,
         avoidStems: config?.avoidStems,
         subject: config?.subject,
+        generationVersion: args.generationVersion,
       },
       deps
     )),

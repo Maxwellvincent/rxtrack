@@ -22,6 +22,7 @@ import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
 import { Button } from "../../../ui/Button.jsx";
 import { advanceOnEnter } from "../../../ui/nextQuestion.js";
 import { QuestionStem } from "../../../ui/QuestionStem.jsx";
+import { QuestionExplanation } from "../../../ui/QuestionExplanation.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
 import { useTutorExplanation } from "./useTutorExplanation.js";
@@ -310,10 +311,11 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
-  if (!q) return null;
-
-  const picked = pickedFor(session, q.questionId);
+  const picked = q ? pickedFor(session, q.questionId) : null;
   const revealed = picked != null;
+  const [draftChoice, setDraftChoice] = useState(picked);
+  useEffect(() => setDraftChoice(picked), [q?.questionId, picked]);
+  if (!q) return null;
   const isCorrect = revealed && picked === q.correct;
 
   return (
@@ -333,21 +335,27 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
         <ChoiceList
           questionId={q.questionId}
           choices={q.choices}
-          picked={picked}
+          picked={revealed ? picked : draftChoice}
           revealed={revealed}
           correct={q.correct}
-          onPick={(letter) => answerQuestion(q.questionId, letter)}
+          onPick={setDraftChoice}
         />
+
+        {!revealed && (
+          <div className="mt-3">
+            <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, draftChoice)} disabled={!draftChoice}>
+              Check answer
+            </Button>
+          </div>
+        )}
 
         {revealed && (
           <div className="mt-3 space-y-2">
             <div data-testid="practice-reveal" className={"text-xs " + (isCorrect ? "text-good" : "text-bad")}>
               {isCorrect ? "✓ Correct" : "✕ Incorrect"}
             </div>
-            {q.explanation && (
-              <div className="rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
-                {q.explanation}
-              </div>
+            {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
+              <QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} />
             )}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             {currentIndex + 1 >= questions.length ? (
@@ -416,10 +424,8 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
             <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
             <SchoolQuestionFigure question={q} />
             <ChoiceList questionId={q.questionId} choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
-            {q.explanation && (
-              <div className="mt-2 rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2">
-                {q.explanation}
-              </div>
+            {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
+              <div className="mt-2"><QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} /></div>
             )}
             {picked !== q.correct && <MissReflection userId={userId} />}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}

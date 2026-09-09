@@ -10,6 +10,7 @@ import { uniqueQuestions } from "./questionSimilarity.js";
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 const MCQ_SYSTEM = "You are a USMLE Step 1 question writer. Return ONLY valid JSON — no markdown, no prose.";
+const MCQ_V2_SYSTEM = "You are an SGU medical-school assessment writer. Write concise ExamSoft/IMCQ-style single-best-answer questions grounded only in the supplied curriculum. Return ONLY valid JSON — no markdown, no prose.";
 const AUDIT_SYSTEM = "You are an independent medical-school question editor. Audit the supplied questions against the supplied curriculum evidence. Return ONLY valid JSON — no markdown, no prose.";
 
 export function exemplarSourceTier(question) {
@@ -40,8 +41,8 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   if (text.trim().length < 150 && !atoms.length) return { error: "Not enough lecture text — convert/upload the lecture first.", questions: [] };
   try {
     const prompt = buildMcqPrompt(cfg);
-    const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    const generated = withSchoolContext(normalizeQuestions(result), cfg);
+    const result = await callAIJSON(cfg.generationVersion === "v2" ? MCQ_V2_SYSTEM : MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
+    const generated = withSchoolContext(normalizeQuestions(result), cfg).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
     return await auditGeneratedQuestions(generated, cfg, deps);
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
@@ -282,7 +283,7 @@ export function selectStyleExemplars(examples = [], limit = 5, difficulty = "med
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced" } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1" } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -305,7 +306,10 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
       avoidStems.slice(-30).map((stem, i) => `${i + 1}. ${String(stem).slice(0, 240)}`).join("\n")
     : "";
 
+  const v2Blueprint = generationVersion === "v2" ?
+    `V2 SGU/EXAMSOFT BLUEPRINT:\n- Objectives define WHAT is tested; lecture facts establish the medically correct key; examples define HOW the item is written and are never factual authority.\n- Write concise SGU-style clinical or anatomic application items, normally one or two reasoning steps, not long UWorld-style diagnostic puzzles.\n- Across a batch target 20% direct foundational application, 60% standard clinical/anatomic application, and 20% harder integration.\n- Every distractor must be the same semantic category as the key and plausible for the exact task.\n- Vary patient framing, tested relationship, lead-in, and clue-to-answer route across the batch. Never add generic patient details that do no diagnostic work.\n\n` : "";
   return (
+    v2Blueprint +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
     `Each question must test that specific fact (not adjacent trivia). Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. A medium item must require at least two reasoning steps; hard/expert items must use indirect clues rather than simply naming the diagnosis. ` +
@@ -361,9 +365,10 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   if (!atoms.length) return { error: "No atoms to quiz — extract a lecture first.", questions: [] };
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
-    const result = await callAIJSON(MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
+    const result = await callAIJSON(cfg.generationVersion === "v2" ? MCQ_V2_SYSTEM : MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
     const questions = normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])).map(q => ({
       ...q,
+      generationVersion: cfg.generationVersion || "v1",
       objectiveTexts: (cfg.objectives || []).filter(o => q.objectiveIds?.includes(o.id)).map(o => ({ id: o.id, code: o.code || "", text: o.objective || o.text || "" })),
     }));
     return await auditGeneratedQuestions(withSchoolContext(questions, cfg), cfg, deps);
@@ -539,7 +544,7 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced" } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1" } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
@@ -565,7 +570,10 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     ? "\n\nLECTURE CONTENT (retrieved across the lecture for these targets):\n" + retrieveLectureEvidence(lectureText, objectives, atoms)
     : "";
 
+  const v2Blueprint = generationVersion === "v2" ?
+    `V2 SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines the facts and correct answer. Uploaded ExamSoft/IMCQ questions teach structure only. Use concise, high-yield SGU clinical or anatomic framing with one or two reasoning steps; do not imitate overly long UWorld cases. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\n\n` : "";
   return (
+    v2Blueprint +
     `Generate exactly ${count} USMLE Step 1 clinical-vignette questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a 3-5 sentence patient scenario (age, sex, complaint, relevant history, vitals/labs/exam) ENDING in a question mark.\n` +
