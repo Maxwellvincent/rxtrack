@@ -12,6 +12,7 @@ const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 const MCQ_SYSTEM = "You are an SGU Basic Principles of Medicine exam-question writer. Reproduce the supplied SGU ExamSoft/IMCQ writing style, not generic UWorld/NBME style. Return ONLY valid JSON — no markdown, no prose.";
 const MCQ_V2_SYSTEM = MCQ_SYSTEM;
 const AUDIT_SYSTEM = "You are an independent medical-school question editor. Audit the supplied questions against the supplied curriculum evidence. Return ONLY valid JSON — no markdown, no prose.";
+const REPAIR_SYSTEM = "You are a medical exam-question repair editor. Rewrite rejected questions so they are medically accurate, objective-aligned, and faithful to the supplied SGU ExamSoft/IMCQ style. Return ONLY valid JSON — no markdown, no prose.";
 
 export function exemplarSourceTier(question) {
   const label = [question?.sourceFile, question?.filename, question?.bankTitle, question?.title]
@@ -443,6 +444,20 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   );
 }
 
+function buildRepairPrompt(items, cfg = {}) {
+  const objectives = (cfg.objectives || []).map((o) => ({ id: o.id || o.code, text: o.objective || o.text }));
+  const atoms = (cfg.atoms || []).map((a) => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [] }));
+  const examples = (cfg.examples || []).slice(0, 6).map((q) => ({ stem: q.stem, choices: q.choices, correct: q.correct }));
+  return `Repair every rejected question below. Preserve the tested objective when it is valid, but change the stem, choices, key, explanation, and objectiveIds as needed to correct every listed issue. Use only the supplied lecture facts/objectives; do not add outside medical facts. Match the concise clinical/anatomic SGU ExamSoft/IMCQ style and use plausible same-category distractors. Return exactly one repaired question for each input item in the same order.
+
+OBJECTIVES:\n${JSON.stringify(objectives)}
+LECTURE FACTS:\n${JSON.stringify(atoms)}
+STYLE EXAMPLES:\n${JSON.stringify(examples)}
+REJECTED ITEMS:\n${JSON.stringify(items)}
+
+Return ONLY: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"objectiveIds":["exact objective id"],"topic":"...","taskType":"recognition|mechanism|clinical-application"}]}`;
+}
+
 function normalizedComparableText(value) {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -534,7 +549,28 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     // replacement loop: retain questions that passed deterministic safety
     // checks and label them for later review instead of silently discarding the
     // whole batch.
-    if (!distinctApproved.length) return keepLocallyValidated("reviewer rejected the entire batch");
+    if (!distinctApproved.length && deps.skipRepair !== true) {
+      const repairer = deps.repairAIJSON || deps.callAIJSON;
+      if (typeof repairer === "function") {
+        const rejectedItems = questions.map((question, index) => ({
+          index,
+          question: auditQuestionPayload(question),
+          issues: byIndex.get(index)?.issues || ["reviewer_rejected"],
+        }));
+        try {
+          const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000);
+          const repaired = normalizeQuestions(repairedRaw).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
+          if (repaired.length) {
+            const repairedAudit = await auditGeneratedQuestions(repaired, cfg, { ...deps, skipRepair: true });
+            if (repairedAudit.questions?.length) return repairedAudit;
+          }
+        } catch (repairError) {
+          // Fall through to deterministic validation; a repair transport failure
+          // must not erase otherwise structurally sound questions.
+        }
+      }
+      return keepLocallyValidated("reviewer rejected the batch after repair");
+    }
     return {
       questions: distinctApproved,
       rejectedCount: questions.length - distinctApproved.length,

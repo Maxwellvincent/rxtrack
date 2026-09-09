@@ -285,6 +285,17 @@ describe("independent generated-question audit", () => {
     expect(result.warning).toMatch(/structural checks/i);
   });
 
+  it("repairs a rejected batch before falling back", async () => {
+    const repair = vi.fn().mockResolvedValue({ questions });
+    const audit = vi.fn()
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: false, issues: ["weak_explanation"] }] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }] });
+    const result = await auditGeneratedQuestions(questions, { objectives: [{ id: "o1", objective: "Explain insulin deficiency" }] }, { reviewAIJSON: audit, repairAIJSON: repair });
+    expect(repair).toHaveBeenCalledOnce();
+    expect(audit).toHaveBeenCalledTimes(2);
+    expect(result.questions[0].qualityAudit.status).toBe("approved");
+  });
+
   it("does not preserve a generated question whose answer is present in its stem", () => {
     const leaked = {
       ...questions[0],
