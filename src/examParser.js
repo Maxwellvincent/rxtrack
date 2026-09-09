@@ -1,4 +1,5 @@
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
+import { bridgePdf2md } from "./llmBridge.js";
 import { extractWithSmartFallback } from "./ingest/pdfText.js";
 import { imageForText, isUsableImage } from "./lectureImages.js";
 import { cleanLectureTitle } from "./lectureTitle.js";
@@ -1394,6 +1395,17 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   }
   if (format === "madcow") {
     questions = parseMadcowPages(pages, examTitle);
+    if (questions.length < 10 && !opts?.skipPdf2mdFallback) {
+      onProgress?.("🧾 PDF text incomplete — running local pdf2md fallback…");
+      try {
+        const markdown = await bridgePdf2md(file);
+        if (markdown) {
+          const mdPages = markdown.split(/(?=!\[\]\(_page_\d+_)/i).map((text, index) => ({ num: index + 1, text, imgCount: /!\[[^\]]*\]\(/.test(text) ? 1 : 0 }));
+          const recovered = parseMadcowPages(mdPages, examTitle);
+          if (recovered.length > questions.length) questions = recovered;
+        }
+      } catch (error) { console.warn("pdf2md fallback failed:", error?.message || error); }
+    }
     onProgress?.(`✓ Parsed ${questions.length} Mad Cow question/explanation sets locally`);
   } else if (format === "report") {
     onProgress?.("✓ Detected score report; saving grade and category evidence");

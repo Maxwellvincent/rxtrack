@@ -115,6 +115,22 @@ export async function bridgeComplete(req) {
   }
 }
 
+/** Run the installed local pdf2md wrapper for image-heavy question-bank PDFs. */
+export async function bridgePdf2md(file, timeoutMs = 900000) {
+  if (!file || !(await bridgeAvailable())) return null;
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  const data = btoa(binary);
+  const result = await withDeadline(async signal => {
+    const response = await fetch(`${BRIDGE_URL}/pdf2md`, { method: "POST", signal, headers: { "content-type": "application/json" }, body: JSON.stringify({ data }) });
+    if (!response.ok) throw new Error((await response.json().catch(() => ({})))?.error || `pdf2md bridge ${response.status}`);
+    return response.json();
+  }, timeoutMs, undefined, "Local pdf2md");
+  return result?.markdown || null;
+}
+
 /** Bridge backends are told to emit bare JSON, but CLIs still like to wrap it in chatter. */
 export function parseBridgeJSON(text) {
   const cleaned = String(text || "")
