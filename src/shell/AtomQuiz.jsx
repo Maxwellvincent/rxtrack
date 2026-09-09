@@ -14,6 +14,7 @@ import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
 import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
 import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModelImpact.js";
+import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
 // Handles patterns like "(A) text", "(B) text" anywhere in the string.
@@ -364,6 +365,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 choices={q.choices}
               />
             )}
+            <QuestionQualityRating userId={userId} question={q} />
             <div className="rounded border border-border p-3 text-sm">
               <strong>{q.generationMode === "grounded-fallback" ? "School objective supported" : "School objective practiced"}</strong>
               {q.objectiveTexts?.length ? q.objectiveTexts.map(o => <p key={o.id}>{o.code ? `${o.code} ` : ""}{o.text}</p>)

@@ -56,6 +56,7 @@ import {
 import * as questionStats from "../../../stores/lectureQuestionStats.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
+import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
@@ -342,6 +343,7 @@ export function LectureStudyFlow({
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty, generationVersion }
   const [quizPreparation, setQuizPreparation] = useState(null);
+  const generatorComparison = questionRatingsStore.comparison(userId);
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
   // atoms) rather than a sequential Study round — onDone below skips round-index bookkeeping
   // for these (there is no "next round" to resume into) but still updates atom/objective
@@ -1387,6 +1389,16 @@ export function LectureStudyFlow({
                   </button>
                 ))}
                 <span className="text-[12px] text-text-3">v2 is an opt-in comparison and keeps its saved reserve separate.</span>
+              </div>
+              <div className="rounded border border-border bg-panel px-3 py-2 text-[12px] text-text-2">
+                <strong>Question quality:</strong>
+                {["v1", "v2"].map((version) => {
+                  const stats = generatorComparison[version];
+                  return <span key={version} className="ml-3"><strong>{version}</strong> {stats.count}/25 rated{stats.count ? ` · ${stats.fairPercent}% fair · ${stats.examStylePercent}% ExamSoft-like` : ""}</span>;
+                })}
+                {(generatorComparison.v1.count < 25 || generatorComparison.v2.count < 25)
+                  ? <span className="ml-3 text-text-3">Recommendation unlocks after 25 ratings per version.</span>
+                  : <span className="ml-3 font-semibold text-text-1">Recommended: {(generatorComparison.v2.fairPercent + generatorComparison.v2.examStylePercent) >= (generatorComparison.v1.fairPercent + generatorComparison.v1.examStylePercent) ? "v2" : "v1"}</span>}
               </div>
               <div className="flex items-center gap-3">
                 <Button

@@ -23,6 +23,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { advanceOnEnter } from "../../../ui/nextQuestion.js";
 import { QuestionStem } from "../../../ui/QuestionStem.jsx";
 import { QuestionExplanation } from "../../../ui/QuestionExplanation.jsx";
+import { QuestionQualityRating } from "../../../ui/QuestionQualityRating.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
 import { useTutorExplanation } from "./useTutorExplanation.js";
@@ -307,7 +308,7 @@ function ExamFormat({ controller, submitOpts }) {
 // "Finish" button, reachable once the last question is answered/revealed,
 // calls the same `submit()` the controller already exposes for format
 // "exam" — same function, now reachable from practice's UI too.
-function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
+function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
@@ -357,6 +358,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI }) {
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} />
             )}
+            <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             {currentIndex + 1 >= questions.length ? (
               <Button onClick={() => submit(submitOpts)} disabled={submitting}>
@@ -427,6 +429,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <div className="mt-2"><QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} /></div>
             )}
+            <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
             {picked !== q.correct && <MissReflection userId={userId} />}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
             </div>
@@ -531,6 +534,7 @@ export function ExamSessionRunner({
           tutorModeEnabled={tutorModeEnabled}
           submitOpts={submitOpts}
           callAI={callAI}
+          userId={userId}
         />
       )}
       <div className="flex items-center justify-between">
