@@ -808,6 +808,7 @@ export function LectureStudyFlow({
         questionCount: missing,
         userId,
         exemplars: schoolExemplars,
+        feedback: questionRatingsStore.feedbackFor(userId, lecture?.id, generationVersion),
         avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
       },
       {

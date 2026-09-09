@@ -46,3 +46,18 @@ export function comparison(userId) {
     issuePercent: ratings.length ? Math.round(100 * ratings.filter((r) => r.issue).length / ratings.length) : null,
   }]));
 }
+
+/** Compact, prompt-safe feedback summary used to prevent recurring generation mistakes. */
+export function feedbackFor(userId, lectureId = null, generationVersion = null) {
+  const ratings = Object.values(read(userId).ratings || {}).filter((rating) =>
+    (!lectureId || rating.lectureId === lectureId) && (!generationVersion || rating.generationVersion === generationVersion)
+  );
+  const issueCounts = {};
+  for (const rating of ratings) if (rating.issue) issueCounts[rating.issue] = (issueCounts[rating.issue] || 0) + 1;
+  return {
+    sampleSize: ratings.length,
+    fairNo: ratings.filter((r) => r.fair === false).length,
+    examStyleNo: ratings.filter((r) => r.examStyle === false).length,
+    issueCounts: Object.fromEntries(Object.entries(issueCounts).sort((a, b) => b[1] - a[1]).slice(0, 8)),
+  };
+}
