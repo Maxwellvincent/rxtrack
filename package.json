@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "bridge:check": "./scripts/check-llm-bridge.sh",
     "sync:struggle": "node scripts/sync-struggle-tracker.mjs",
     "sync:struggle:watch": "node scripts/sync-struggle-tracker.mjs --watch"
   },
