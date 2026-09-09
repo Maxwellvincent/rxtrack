@@ -212,6 +212,12 @@ Q3: A — High sodium is expected.`;
     expect(merged.map((item) => item.stem)).toContain("Recovered final question");
   });
 
+  it("deduplicates near-identical sequential/layout PDF stems", () => {
+    const q = (stem) => ({ stem, correct: "A", choices: { A: "One", B: "Two" } });
+    const merged = mergePdfQuestionCandidates([[q("A patient with severe abdominal pain has nausea and vomiting after meals." )], [q("A patient with severe abdominal pain has nausea and vomiting after meals and dehydration.")]]);
+    expect(merged).toHaveLength(1);
+  });
+
   it("recovers answer choices when PDF.js collapses a page into one line", () => {
     const collapsed = `1. A patient has a sufficiently detailed clinical presentation. Which finding is expected? A. Alpha B. Beta C. Gamma D. Delta\n2. A second patient has a sufficiently detailed clinical presentation. Which finding is expected? A. One B. Two C. Three D. Four\n3. A third patient has a sufficiently detailed clinical presentation. Which finding is expected? A. Red B. Blue C. Green D. Yellow\nAnswer Key: 1 B, 2 C, 3 A`;
     const questions = parseNumberedQuestionBankText(collapsed, "Collapsed PDF");

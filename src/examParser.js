@@ -596,13 +596,23 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
 
 export function mergePdfQuestionCandidates(candidateLists = []) {
   const result = [];
-  const indexes = new Map();
   const keyFor = (question) => String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const wordsFor = (question) => new Set(String(question?.stem || "").toLowerCase().match(/[a-z0-9]{3,}/g) || []);
+  const duplicateOf = (question) => {
+    const key = keyFor(question);
+    const words = wordsFor(question);
+    return result.find((existing) => {
+      const existingKey = keyFor(existing);
+      if (key && existingKey && (key.includes(existingKey) || existingKey.includes(key))) return true;
+      const existingWords = wordsFor(existing);
+      const overlap = [...words].filter((word) => existingWords.has(word)).length;
+      return overlap >= 8 && overlap / Math.min(words.size || 1, existingWords.size || 1) >= 0.84;
+    });
+  };
   for (const list of candidateLists) {
     for (const question of list || []) {
       const key = keyFor(question);
-      if (!key || indexes.has(key) || !question.correct || !question.choices?.[question.correct]) continue;
-      indexes.set(key, result.length);
+      if (!key || duplicateOf(question) || !question.correct || !question.choices?.[question.correct]) continue;
       result.push(question);
     }
   }
