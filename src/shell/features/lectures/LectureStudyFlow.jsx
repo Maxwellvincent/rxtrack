@@ -879,7 +879,7 @@ export function LectureStudyFlow({
   useEffect(() => {
     if (!autoOpenQuiz || autoOpenedRef.current || stage !== "quiz" || !atoms.length) return;
     autoOpenedRef.current = true;
-    setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
+    setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2" });
   }, [autoOpenQuiz, stage, atoms.length, qStats.accuracy]);
 
 
@@ -1148,9 +1148,9 @@ export function LectureStudyFlow({
   }[currentDifficultyKey];
 
   return (
-    <main className="mx-auto w-full max-w-[1180px] px-4 py-6 sm:px-6 lg:py-8">
-      <header className="rounded-2xl border border-border bg-bg-elevated p-4 shadow-sm sm:p-6">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <main className="mx-auto w-full max-w-[1120px] px-4 py-6 sm:px-6 lg:py-8">
+      <header className="border-b border-border pb-5">
+      <div className="mb-3 flex items-center justify-between gap-3">
         <button onClick={onClose} className="font-mono text-xs text-text-3 hover:text-text-1">← back</button>
         {!confirmDeleteLecture ? (
           <button onClick={() => setConfirmDeleteLecture(true)} className="font-mono text-[11px] text-text-3 hover:text-bad">delete lecture…</button>
@@ -1178,34 +1178,28 @@ export function LectureStudyFlow({
           </div>
         )}
       </div>
-      <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture workspace</p>
+      <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
-      <div className="mt-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} /></div>
+      <details className="mt-2 w-fit text-sm text-text-3">
+        <summary className="cursor-pointer py-1 hover:text-text-1">Lecture settings</summary>
+        <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} /></div>
+      </details>
       </header>
 
-      <section aria-labelledby="lecture-priorities-heading" className="mt-5">
-        <div className="mb-2 flex items-end justify-between gap-3">
-          <div>
-            <p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Study priorities</p>
-            <h3 id="lecture-priorities-heading" className="text-lg font-semibold text-text-1">Build, repair, then retrieve</h3>
+      <details className="mt-5 rounded-xl border border-border bg-bg-elevated">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+          <span><span className="block font-semibold text-text-1">Learning plan</span><span className="text-sm text-text-3">Mental-model setup, repairs, and objective links</span></span>
+          <span className="font-mono text-[12px] text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts</span>
+        </summary>
+        <div className="space-y-4 border-t border-border p-4">
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
+            <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
           </div>
-          <span className="hidden text-sm text-text-3 sm:block">Everything else stays available below.</span>
+          <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
+          {onGoDeep && <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>}
         </div>
-        <div className="grid items-start gap-4 lg:grid-cols-2">
-          <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
-          <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
-        </div>
-      </section>
-
-      <section aria-labelledby="lecture-coverage-heading" className="mt-5">
-        <p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-text-3">Coverage</p>
-        <h3 id="lecture-coverage-heading" className="sr-only">Lecture coverage</h3>
-        <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
-      </section>
-      {onGoDeep && <details className="my-3 max-w-3xl text-sm">
-        <summary className="min-h-11 cursor-pointer py-2 text-text-2">Optional study tools</summary>
-        <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>
-      </details>}
+      </details>
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
@@ -1218,13 +1212,13 @@ export function LectureStudyFlow({
           }}>{busy || "Recover lecture objectives"}</Button>
         </div>
       )}
-      <div className="mb-4 mt-5 font-mono text-[13px] text-text-3">
-        {stage === "loading" ? "loading lecture…" : `${atoms.length} high-yield atoms`}
-      </div>
-
       {/* Status panel — shown once atoms are loaded */}
       {stage === "quiz" && atoms.length > 0 && (
-        <section aria-label="Lecture progress" className="mb-4 overflow-hidden rounded-xl border border-border bg-bg-elevated shadow-sm divide-y divide-border/50">
+        <section aria-label="Lecture progress" className="mt-5 overflow-hidden rounded-t-2xl border border-b-0 border-accent/40 bg-bg-elevated divide-y divide-border/50">
+          <div className="flex items-center justify-between px-4 py-3">
+            <div><p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Practice</p><h3 className="text-lg font-semibold text-text-1">Test this lecture</h3></div>
+            <span className="font-mono text-[12px] text-text-3">{atoms.length} supporting facts</span>
+          </div>
           {/* Row 1: atom mastery + difficulty */}
           <div className="flex items-center gap-4 px-4 py-2.5">
             <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -1287,11 +1281,10 @@ export function LectureStudyFlow({
         </section>
       )}
       {stage === "quiz" && atoms.length > 0 && (
-        <div className="mb-4 -mt-2 font-mono text-[11px] text-text-3">
-          Rounds fills from any question answered here, Study or Quiz. Objectives still graduate
-          to mastered only on finishing all rounds, or a Quiz scoring 80%+ — that bar stays strict
-          on purpose, it's what your schedule leans on.
-        </div>
+        <details className="border-x border-accent/40 bg-bg-elevated px-4 pb-2 text-[12px] text-text-3">
+          <summary className="cursor-pointer py-2">How progress is counted</summary>
+          Questions answered here, in Study, or in Quiz count toward practice. Objectives become mastered only after all rounds or a Quiz score of 80% or higher.
+        </details>
       )}
 
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
@@ -1317,7 +1310,7 @@ export function LectureStudyFlow({
       )}
 
       {stage === "quiz" && atoms.length > 0 && (
-        <section aria-label="Lecture quiz" className="mb-5 flex flex-col gap-3 rounded-2xl border border-accent/40 bg-accent-soft/40 p-4 sm:p-5">
+        <section aria-label="Lecture quiz" className="mb-6 flex flex-col gap-3 rounded-b-2xl border border-t-0 border-accent/40 bg-accent-soft/40 p-4 sm:p-5">
           {/* Unified generate button — opens inline picker. This IS the Quiz feature (same
               exemplar-backed generator as the Lectures list's QUIZ button), labeled Quiz so it
               reads as one instead of a generic "make some questions" action. */}
@@ -1330,15 +1323,11 @@ export function LectureStudyFlow({
                 {busyLabel || "▸ Quiz this lecture"}
               </Button>
               <span className="text-[12px] text-text-3">
-                {lectureObjectives.length} school objectives
-                {lectureObjectives.length > 0 ? ` · ${objMastered} mastered · ${objDeveloping} developing · ${objUntested} untested` : ""}
-                {atoms.length > 0 ? ` · ${atoms.length} supporting facts` : ""}
-                {qStats.answered > 0 ? ` · ${qStats.answered} questions answered` : ""}
-                {lecture?.id ? ` · ${generatedQuestionsStore.countForLecture(userId, lecture.id)} questions saved` : ""}
+                {lecture?.id ? `${generatedQuestionsStore.countForLecture(userId, lecture.id)} reviewed questions saved` : "Questions are saved for reuse"}
                 {schoolExamplesLoading
                   ? " · loading school examples…"
                   : schoolExemplars.length
-                    ? ` · school style: ${schoolExemplars.length} examples`
+                    ? ` · ${schoolExemplars.length} school-style examples`
                     : " · no school examples loaded"}
               </span>
               {done > 0 && (
@@ -1388,8 +1377,9 @@ export function LectureStudyFlow({
                 ))}
                 <span className="text-[12px] text-text-3">v2 is an opt-in comparison and keeps its saved reserve separate.</span>
               </div>
-              <div className="rounded border border-border bg-panel px-3 py-2 text-[12px] text-text-2">
-                <strong>Question quality:</strong>
+              <details className="rounded border border-border bg-panel px-3 py-2 text-[12px] text-text-2">
+                <summary className="cursor-pointer font-semibold">Compare v1 and v2 ratings</summary>
+                <div className="mt-2">
                 {["v1", "v2"].map((version) => {
                   const stats = generatorComparison[version];
                   return <span key={version} className="ml-3"><strong>{version}</strong> {stats.count}/25 rated{stats.count ? ` · ${stats.fairPercent}% fair · ${stats.examStylePercent}% ExamSoft-like` : ""}</span>;
@@ -1397,7 +1387,8 @@ export function LectureStudyFlow({
                 {(generatorComparison.v1.count < 25 || generatorComparison.v2.count < 25)
                   ? <span className="ml-3 text-text-3">Recommendation unlocks after 25 ratings per version.</span>
                   : <span className="ml-3 font-semibold text-text-1">Recommended: {(generatorComparison.v2.fairPercent + generatorComparison.v2.examStylePercent) >= (generatorComparison.v1.fairPercent + generatorComparison.v1.examStylePercent) ? "v2" : "v1"}</span>}
-              </div>
+                </div>
+              </details>
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => {
@@ -1461,11 +1452,18 @@ export function LectureStudyFlow({
 
       {figuresPrompt}
 
+      {stage === "quiz" && atoms.length > 0 && (
+        <div className="mt-7 mb-2">
+          <p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-text-3">Review &amp; reference</p>
+          <p className="text-sm text-text-3">Open only what you need after practice.</p>
+        </div>
+      )}
+
       {/* Mental model — the reasoning framework this lecture's atoms attach to. Not a summary:
           big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
           application, each node linked back to the atoms that support it. */}
       {stage === "quiz" && atoms.length > 0 && (
-        <details className="mt-4 w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
+        <details className="mt-0 w-full rounded-t-xl border border-b-0 border-border bg-bg-elevated p-4">
           <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
             Mental model <span className="text-sm font-normal text-text-2">· {generatingModel ? "building…" : mentalModel ? "saved framework" : "not built yet"}</span>
           </summary>
@@ -1499,7 +1497,7 @@ export function LectureStudyFlow({
           screen used to force; it stays one click away for when you actually want it. */}
       {/* Study guide — auto-generated searchable topics, checkable */}
       {(studyGuide || generatingGuide) && (
-        <details className="mt-4 w-full rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
+        <details className="mt-0 w-full rounded-none border border-b-0 border-border bg-bg-elevated p-4">
           <summary className="min-h-11 cursor-pointer rounded py-2 text-base font-semibold text-text-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
               Study guide
               {studyGuide && !generatingGuide && (
@@ -1550,7 +1548,7 @@ export function LectureStudyFlow({
       )}
 
       {atoms.length > 0 && (
-        <details ref={atomsDetailsRef} className="group mt-4 rounded-xl border border-border bg-bg-elevated p-4 shadow-sm">
+        <details ref={atomsDetailsRef} className="group mt-0 rounded-b-xl border border-border bg-bg-elevated p-4">
           <summary className="min-h-11 cursor-pointer list-none py-2 text-base font-semibold text-text-1 hover:text-accent">
             Reference atoms <span className="text-sm font-normal text-text-3">· {atoms.length} supporting facts</span>
           </summary>

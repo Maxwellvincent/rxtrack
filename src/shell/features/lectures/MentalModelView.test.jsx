@@ -28,20 +28,18 @@ function mount(ui) {
 describe("MentalModelView", () => {
   installDomStorage();
 
-  it("puts the overview paragraph first and hides all lookup material behind one disclosure", () => {
+  it("puts the overview first and keeps lookup sections collapsed", () => {
     const container = mount(<MentalModelOverview model={model}><button>Tracking tool</button></MentalModelOverview>);
     const paragraph = container.querySelector("p");
     expect(paragraph.textContent).toBe(model.bigPicture);
     expect(paragraph.closest("details")).toBe(null);
-    const reference = container.querySelector("details");
-    expect(reference.querySelector("summary").textContent).toBe("Reference details");
-    expect(reference.open).toBe(false);
-    expect(reference.textContent).toContain("Renin");
-    expect(reference.textContent).toContain("Tracking tool");
-    expect(reference.textContent).not.toContain(model.bigPicture);
-    act(() => { reference.querySelector("summary").click(); });
-    expect(reference.open).toBe(true);
-    expect([...reference.querySelectorAll("details")].every((d) => !d.open)).toBe(true);
+    const sections = [...container.querySelectorAll("details")];
+    expect(sections.length).toBeGreaterThan(0);
+    expect(sections.every((section) => !section.open)).toBe(true);
+    expect(sections[0].querySelector("summary").textContent).toBe("Components(1)");
+    expect(sections[0].textContent).toContain("Renin");
+    expect(container.textContent).toContain("Tracking tool");
+    expect(sections.every((section) => !section.textContent.includes(model.bigPicture))).toBe(true);
   });
 
   it("renders every section without throwing and wires atom-chip clicks", () => {
