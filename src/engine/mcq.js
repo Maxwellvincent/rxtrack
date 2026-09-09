@@ -9,8 +9,8 @@ import { uniqueQuestions } from "./questionSimilarity.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
-const MCQ_SYSTEM = "You are a USMLE Step 1 question writer. Return ONLY valid JSON — no markdown, no prose.";
-const MCQ_V2_SYSTEM = "You are an SGU medical-school assessment writer. Write concise ExamSoft/IMCQ-style single-best-answer questions grounded only in the supplied curriculum. Return ONLY valid JSON — no markdown, no prose.";
+const MCQ_SYSTEM = "You are an SGU Basic Principles of Medicine exam-question writer. Reproduce the supplied SGU ExamSoft/IMCQ writing style, not generic UWorld/NBME style. Return ONLY valid JSON — no markdown, no prose.";
+const MCQ_V2_SYSTEM = MCQ_SYSTEM;
 const AUDIT_SYSTEM = "You are an independent medical-school question editor. Audit the supplied questions against the supplied curriculum evidence. Return ONLY valid JSON — no markdown, no prose.";
 
 export function exemplarSourceTier(question) {
@@ -22,6 +22,26 @@ export function exemplarSourceTier(question) {
   if (question?.sourceKind === "imcq" || /\bimcq\b/.test(label)) return "imcq";
   if (question?.sourceKind === "supplemental" || /\bnatalie\b|\bhomework\b|practice[ +_-]*questions?|\bweek[ +_-]*\d+/.test(label)) return "homework";
   return "school";
+}
+
+/** Compact, deterministic style fingerprint used to keep generation anchored to the real bank. */
+export function buildStyleFingerprint(examples = []) {
+  const usable = examples.filter((q) => q?.stem && q?.choices);
+  if (!usable.length) return { sampleSize: 0 };
+  const stems = usable.map((q) => String(q.stem).trim());
+  const avg = (values) => Math.round(values.reduce((a, b) => a + b, 0) / Math.max(1, values.length));
+  const leadIns = stems.flatMap((s) => [...s.matchAll(/(?:Which of the following|What is|The most likely|Which structure|Which nerve|Which vessel)/gi)].map((m) => m[0].toLowerCase()));
+  const scenarioTypes = ["surgery", "trauma", "imaging", "ultrasound", "x-ray", "laboratory", "histology", "procedure", "newborn", "symptoms"]
+    .map((label) => ({ label, count: stems.filter((s) => new RegExp(`\\b${label}\\b`, "i").test(s)).length }))
+    .filter((entry) => entry.count);
+  return {
+    sampleSize: usable.length,
+    averageStemCharacters: avg(stems.map((s) => s.length)),
+    averageSentences: Math.round((stems.map((s) => s.split(/[.!?]+/).filter(Boolean).length).reduce((a, b) => a + b, 0) / usable.length) * 10) / 10,
+    optionCounts: [...new Set(usable.map((q) => Object.keys(q.choices).length))].sort((a, b) => a - b),
+    commonLeadIns: [...new Set(leadIns)].slice(0, 6),
+    scenarioTypes: scenarioTypes.sort((a, b) => b.count - a.count).slice(0, 6),
+  };
 }
 
 function withSchoolContext(questions, cfg) {
@@ -242,15 +262,13 @@ function renderChoices(choices) {
  */
 export function selectStyleExemplars(examples = [], limit = 5, difficulty = "medium", targets = {}) {
   if (limit <= 0) return [];
-  const challenge = ["hard", "expert"].includes(String(difficulty).toLowerCase());
   const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
-  // Homework/student-authored banks are useful evidence about what content was assigned, but
-  // they are not a writing-style benchmark. ExamSoft is the closest available proxy for the
-  // real module exam; IMCQ joins the style sample only in hard/expert challenge mode.
+  // Homework/student-authored banks are useful evidence about assigned content, but ExamSoft
+  // and IMCQ remain the primary writing-style references.
   const candidates = examples.filter((q) => {
     const tier = exemplarSourceTier(q);
     return q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false &&
-      tier !== "homework" && (challenge || tier !== "imcq");
+      tier !== "homework";
   });
   const linked = candidates.filter(q => (relevance.get(q) || 0) > 0);
   const valid = (linked.length ? linked : candidates)
@@ -294,6 +312,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     .join("\n");
 
   const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
+  const styleFingerprint = buildStyleFingerprint(styleExamples);
   const examplesSection = styleExamples.length
     ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
       styleExamples.map((q, i) =>
@@ -571,12 +590,12 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     : "";
 
   const v2Blueprint = generationVersion === "v2" ?
-    `V2 SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines the facts and correct answer. Uploaded ExamSoft/IMCQ questions teach structure only. Use concise, high-yield SGU clinical or anatomic framing with one or two reasoning steps; do not imitate overly long UWorld cases. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\n\n` : "";
+    `SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines factual content and the correct answer. Uploaded ExamSoft/IMCQ questions define structure, wording, clue density, and distractor style only. Use concise clinical/anatomic framing, usually one or two reasoning steps, rather than generic UWorld/NBME diagnostic puzzles. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\nSTYLE FINGERPRINT: ${JSON.stringify(styleFingerprint)}\n\n` : "";
   return (
     v2Blueprint +
-    `Generate exactly ${count} USMLE Step 1 clinical-vignette questions on "${subject}".\n\n` +
+    `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
-    `Each stem: a 3-5 sentence patient scenario (age, sex, complaint, relevant history, vitals/labs/exam) ENDING in a question mark.\n` +
+    `Each stem: a concise clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. Match the reference bank's typical sentence count and clue density; do not force artificial patient details or long board-style diagnostic narratives.\n` +
     `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer.\n` +
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +

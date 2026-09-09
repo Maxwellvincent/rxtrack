@@ -99,13 +99,13 @@ describe("selectStyleExemplars", () => {
     ...extra,
   });
 
-  it("keeps ExamSoft first, excludes IMCQ from normal mode, and admits it only as a later challenge reference", () => {
+  it("keeps ExamSoft first and admits verified IMCQ as a style reference", () => {
     const examsoft = q("ExamSoft quiz", 5, { correct: "A", sourceFile: "BPM2_ESOFT_Quiz.pdf" });
     const school = q("School quiz", 4, { correct: "A", sourceFile: "Faculty quiz.pdf" });
     const imcq = q("IMCQ", 5, { sourceKind: "imcq", answerKeyVerified: true, correct: "A" });
     const unverified = q("Unverified", 5, { sourceKind: "imcq", answerKeyVerified: false });
     expect(selectStyleExemplars([school, imcq, examsoft, unverified], 3, "expert")).toEqual([examsoft, school, imcq]);
-    expect(selectStyleExemplars([imcq, school, examsoft], 3, "medium")).toEqual([examsoft, school]);
+    expect(selectStyleExemplars([imcq, school, examsoft], 3, "medium")).toEqual([examsoft, school, imcq]);
     expect(selectStyleExemplars([school], 0)).toEqual([]);
     expect(buildAtomQuestionsPrompt({ examples: [imcq], difficulty: "expert" })).toContain("IMCQ challenge reference");
     expect(buildMcqPrompt({ examples: [imcq], difficulty: "expert" })).toContain("not calibrated");
