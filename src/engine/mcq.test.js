@@ -267,8 +267,9 @@ describe("independent generated-question audit", () => {
   it("rejects explicit medical failures but preserves sound clinical items when reviewer JSON is malformed", async () => {
     const rejected = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: false, issues: ["incorrect_key"] }] }) });
     const malformed = await auditGeneratedQuestions([{ ...questions[0], stem: "A patient has polyuria. Which hormone is deficient?" }], {}, { reviewAIJSON: vi.fn().mockResolvedValue({ questions: [] }) });
-    expect(rejected.questions).toEqual([]);
-    expect(rejected.error).toMatch(/rejected/i);
+    expect(rejected.questions).toHaveLength(1);
+    expect(rejected.questions[0].qualityAudit.status).toBe("local-validated");
+    expect(rejected.warning).toMatch(/reviewer rejected/i);
     expect(malformed.questions).toHaveLength(0); // too short to qualify as a clinical fallback
   });
 

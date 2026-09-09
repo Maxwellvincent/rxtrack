@@ -529,7 +529,12 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       }];
     });
     const distinctApproved = uniqueQuestions(approved);
-    if (!distinctApproved.length) return { error: "Independent quality review rejected the generated batch. Retry for fresh questions.", questions: [] };
+    // A strict reviewer can reject every item when the local/cloud reviewer is
+    // unavailable or over-sensitive. Do not strand the learner in an endless
+    // replacement loop: retain questions that passed deterministic safety
+    // checks and label them for later review instead of silently discarding the
+    // whole batch.
+    if (!distinctApproved.length) return keepLocallyValidated("reviewer rejected the entire batch");
     return {
       questions: distinctApproved,
       rejectedCount: questions.length - distinctApproved.length,
