@@ -130,14 +130,25 @@ export function groupPairedKeySlides(pages) {
   if (groups.length < 16) {
     const recovered = [];
     const seen = new Set();
-    for (const page of pages || []) {
-      const parsed = parseSlideQuestionText(page?.text);
+    for (let pageIndex = 0; pageIndex < (pages || []).length; pageIndex++) {
+      const page = pages[pageIndex];
+      // PDF.js can split an unnumbered stem and its choices across adjacent
+      // slides/text blocks. Try a small forward window before giving up.
+      let parsed = parseSlideQuestionText(page?.text);
+      let parsedPage = page;
+      if (!parsed) {
+        for (let width = 1; width <= 2 && !parsed; width++) {
+          const joined = pages.slice(pageIndex, pageIndex + width + 1).map((candidate) => candidate?.text || "").join("\n");
+          parsed = parseSlideQuestionText(joined);
+          if (parsed) parsedPage = { ...page, text: joined, imgCount: Math.max(...pages.slice(pageIndex, pageIndex + width + 1).map((candidate) => candidate?.imgCount || 0)) };
+        }
+      }
       if (!parsed || parsed.stem.length < 40 || Object.keys(parsed.choices).length < 2) continue;
       const signature = parsed.stem.toLowerCase().replace(/\s+/g, " ").slice(0, 180);
       if (seen.has(signature)) continue;
       seen.add(signature);
-      const objectiveMatch = String(page?.text || "").match(/\b(SOM\.[A-Z0-9.]+)\s+([^\n]+)/i);
-      recovered.push({ ...parsed, num: recovered.length + 1, questionPage: page, answerPage: page, schoolObjectiveCode: objectiveMatch?.[1] || null, schoolObjective: objectiveMatch?.[2]?.trim() || null });
+      const objectiveMatch = String(parsedPage?.text || "").match(/\b(SOM\.[A-Z0-9.]+)\s+([^\n]+)/i);
+      recovered.push({ ...parsed, num: recovered.length + 1, questionPage: parsedPage, answerPage: parsedPage, schoolObjectiveCode: objectiveMatch?.[1] || null, schoolObjective: objectiveMatch?.[2]?.trim() || null });
     }
     if (recovered.length > groups.length) return recovered;
   }
