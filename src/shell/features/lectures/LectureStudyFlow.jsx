@@ -18,6 +18,7 @@ import {
   overwriteObjectivesInCloud,
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
+import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
@@ -752,8 +753,10 @@ export function LectureStudyFlow({
       ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
       : [];
 
+    const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
+      .filter((question) => validReserve.has(question))
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
       .slice(0, count);

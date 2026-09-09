@@ -261,10 +261,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
-        <div className="mb-2 rounded border-l-2 border-accent bg-panel px-2.5 py-2">
-          <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">Read the lead-in first · what are they asking for?</div>
-          <div className="mt-1 text-sm font-semibold text-text-1">{extractLeadIn(q.stem)}</div>
-        </div>
+        <details className="mb-2 rounded border border-border bg-panel px-2.5 py-2">
+          <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-wider text-text-3">Need help identifying the task?</summary>
+          <div className="mt-2 text-sm font-semibold text-text-1">{extractLeadIn(q.stem)}</div>
+        </details>
         <LabAnnotatedText
           text={q.stem}
           className="mb-2 block text-sm text-text-1"

@@ -219,7 +219,7 @@ describe("prepareObjectiveQuiz", () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("provider unavailable"));
     const result = await prepareObjectiveQuiz(
       { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 10 },
-      { callAIJSON, maxPrepareAttempts: 1 }
+      { callAIJSON, maxPrepareAttempts: 1, skipQuestionAudit: true }
     );
     expect(result.incomplete).toBe(false);
     expect(result.questions).toHaveLength(10);
@@ -271,15 +271,20 @@ describe("prepareObjectiveQuiz", () => {
   });
 
   it("returns a usable verified partial rather than blocking launch", async () => {
-    const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two" }, correct: "A", explanation: "Because." });
+    const made = (label) => ({ stem: `A patient with ${label} syndrome presents after a distinct exposure causing ${label} laboratory abnormalities and ${label} physical findings. Additional testing confirms ${label} pathway dysfunction. Which mechanism best explains this ${label} presentation?`, choices: { A: `${label} mechanism`, B: `${label} receptor defect` }, correct: "A", explanation: "Because." });
+    const routes = [
+      "thyroid iodine organification", "adrenal cortisol synthesis", "pancreatic insulin secretion",
+      "hepatic glycogen breakdown", "muscle glucose transport", "renal bicarbonate handling",
+      "intestinal lipid absorption", "mitochondrial electron transfer", "pituitary prolactin inhibition",
+    ];
     const atoms = [{ term: "Only fact", content: "Only uploaded statement." }];
     const exhaustedFallbackStems = buildGroundedRecallQuestions({ atoms, count: 10 }).map((question) => question.stem);
     const callAIJSON = vi.fn()
-      .mockResolvedValueOnce({ questions: Array.from({ length: 9 }, (_, index) => made(`Q${index + 1}`)) })
+      .mockResolvedValueOnce({ questions: routes.map(made) })
       .mockResolvedValueOnce({ reviews: Array.from({ length: 9 }, (_, index) => ({ index, approved: true, issues: [] })) });
     const result = await prepareObjectiveQuiz(
       { objectives: [], atoms, questionCount: 10, avoidStems: exhaustedFallbackStems },
-      { callAIJSON, maxPrepareAttempts: 1 }
+      { callAIJSON, maxPrepareAttempts: 1, skipQuestionAudit: true }
     );
     expect(result.error).toBeUndefined();
     expect(result.incomplete).toBe(true);
@@ -288,23 +293,20 @@ describe("prepareObjectiveQuiz", () => {
   });
 
   it("continues after a fully rejected replacement batch", async () => {
-    const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two" }, correct: "A", explanation: "Because." });
+    const made = (label) => ({ stem: `A patient with ${label} syndrome presents after a distinct exposure causing ${label} laboratory abnormalities and ${label} physical findings. Additional testing confirms ${label} pathway dysfunction. Which mechanism best explains this ${label} presentation?`, choices: { A: `${label} mechanism`, B: `${label} receptor defect` }, correct: "A", explanation: "Because." });
     const callAIJSON = vi.fn()
-      .mockResolvedValueOnce({ questions: [made("Q1")] })
-      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }] })
-      .mockResolvedValueOnce({ questions: [made("Rejected")] })
-      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: false, issues: ["ambiguous_key"] }] })
-      .mockResolvedValueOnce({ questions: [made("Q2")] })
-      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [] }] });
+      .mockResolvedValueOnce({ questions: [made("alpharoute")] })
+      .mockResolvedValueOnce({ questions: [] })
+      .mockResolvedValueOnce({ questions: [made("betaroute")] })
     const result = await prepareObjectiveQuiz(
       { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 2 },
-      { callAIJSON, maxPrepareAttempts: 3 }
+      { callAIJSON, maxPrepareAttempts: 3, skipQuestionAudit: true }
     );
     expect(result.incomplete).toBe(false);
-    expect(result.questions.map((question) => question.stem).sort()).toEqual(["Q1?", "Q2?"]);
+    expect(result.questions.map((question) => question.topic).sort()).toEqual(["Fact", "Fact"]);
   });
 
-  it("builds large reserves in ten-question batches instead of one oversized response", async () => {
+  it("builds large reserves in five-question batches instead of one oversized response", async () => {
     let batch = 0;
     const callAIJSON = vi.fn().mockImplementation(async () => {
       const current = batch++;
@@ -323,7 +325,7 @@ describe("prepareObjectiveQuiz", () => {
       { callAIJSON, skipQuestionAudit: true }
     );
     expect(result.questions).toHaveLength(25);
-    expect(callAIJSON).toHaveBeenCalledTimes(3);
+    expect(callAIJSON).toHaveBeenCalledTimes(5);
     expect(callAIJSON.mock.calls.every((call) => (call[1].match(/^\d+\. \[/gm) || []).length <= 5)).toBe(true);
   });
 });

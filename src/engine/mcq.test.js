@@ -238,10 +238,11 @@ describe("generateFromAtoms", () => {
 
 describe("independent generated-question audit", () => {
   const questions = [{
-    stem: "A patient has polyuria. Which hormone is deficient?",
-    choices: { A: "Insulin", B: "Cortisol" },
+    stem: "A 19-year-old woman presents with polyuria, polydipsia, and an 8-kg unintentional weight loss over 2 months. Laboratory studies show a fasting glucose concentration of 280 mg/dL and a very low serum C-peptide concentration. Which hormone is most likely deficient?",
+    choices: { A: "Insulin", B: "Cortisol", C: "Glucagon", D: "Aldosterone", E: "Epinephrine" },
     correct: "A",
-    explanation: "Loss of insulin causes hyperglycemia and osmotic diuresis.",
+    explanation: "Low C-peptide demonstrates reduced endogenous insulin secretion. The resulting hyperglycemia causes osmotic diuresis and explains the polyuria and polydipsia.",
+    whyWrong: { A: "Low C-peptide confirms reduced endogenous insulin.", B: "Cortisol excess can raise glucose but does not cause low C-peptide.", C: "Glucagon excess does not explain low C-peptide with this presentation.", D: "Aldosterone affects sodium and potassium rather than C-peptide.", E: "Epinephrine does not cause this persistent syndrome." },
     objectiveIds: ["o1"],
     topic: "insulin deficiency",
   }];
@@ -265,7 +266,7 @@ describe("independent generated-question audit", () => {
 
   it("rejects explicit medical failures but preserves sound clinical items when reviewer JSON is malformed", async () => {
     const rejected = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: false, issues: ["incorrect_key"] }] }) });
-    const malformed = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ questions: [] }) });
+    const malformed = await auditGeneratedQuestions([{ ...questions[0], stem: "A patient has polyuria. Which hormone is deficient?" }], {}, { reviewAIJSON: vi.fn().mockResolvedValue({ questions: [] }) });
     expect(rejected.questions).toEqual([]);
     expect(rejected.error).toMatch(/rejected/i);
     expect(malformed.questions).toHaveLength(0); // too short to qualify as a clinical fallback
@@ -275,7 +276,6 @@ describe("independent generated-question audit", () => {
     const clinical = {
       ...questions[0],
       stem: "A 46-year-old patient presents with polyuria, polydipsia, weight loss, and a fasting glucose concentration of 260 mg/dL. Laboratory testing shows very low C-peptide. Which hormone is deficient?",
-      choices: { A: "Insulin", B: "Cortisol", C: "Glucagon", D: "Aldosterone", E: "Epinephrine" },
     };
     expect(locallyValidClinicalQuestions([clinical])).toHaveLength(1);
     const result = await auditGeneratedQuestions([clinical], {}, { reviewAIJSON: vi.fn().mockRejectedValue(new Error("bridge JSON parse failed")) });
@@ -291,6 +291,17 @@ describe("independent generated-question audit", () => {
       choices: { A: "Insulin", B: "Cortisol", C: "Glucagon", D: "Aldosterone", E: "Epinephrine" },
     };
     expect(locallyValidClinicalQuestions([leaked])).toEqual([]);
+  });
+
+  it("rejects a vague clinical wrapper whose clues do not distinguish the answer", () => {
+    const vague = {
+      stem: "A 45-year-old man presents with a history of intermittent abdominal pain. On examination, the patient has tenderness in the upper mid-abdomen. Which of the following best describes the location of the peritoneum in this patient?",
+      choices: { A: "Parietal peritoneum", B: "Visceral peritoneum", C: "Peritoneal cavity", D: "Mesentery", E: "Lesser sac" },
+      correct: "B",
+      explanation: "The visceral peritoneum covers abdominal organs and therefore is the best answer for this patient's nonspecific tenderness.",
+      whyWrong: { A: "It lines the wall, not the reason for the symptoms.", B: "It covers organs.", C: "It is a space, not the reason for the symptoms.", D: "It suspends bowel.", E: "It is posterior to the stomach." },
+    };
+    expect(locallyValidClinicalQuestions([vague])).toEqual([]);
   });
 
   it("runs after generation as a second AI request", async () => {

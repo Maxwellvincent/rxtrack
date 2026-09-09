@@ -57,4 +57,11 @@ describe("generatedQuestions store — durable reserve", () => {
     expect(saved.timesAnswered).toBe(1);
     expect(saved.timesCorrect).toBe(1);
   });
+
+  it("does not save a demographic paraphrase of the same reasoning route", () => {
+    const first = { stem: "A 45-year-old man has abdominal pain and right lower quadrant tenderness. Which membrane is involved?", choices: { A: "Parietal peritoneum", B: "Visceral peritoneum", C: "Pleura", D: "Pericardium" }, correct: "A", objectiveIds: ["o1"] };
+    const repeat = { ...first, stem: "A 55-year-old male has abdominal pain with right lower quadrant tenderness. Which membrane is involved?" };
+    generatedQuestions.addQuestions("u1", "semantic", [first, repeat]);
+    expect(generatedQuestions.questionsForLecture("u1", "semantic")).toHaveLength(1);
+  });
 });

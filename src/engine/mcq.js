@@ -5,6 +5,7 @@
 import { normAtomKey } from "./atomNorm.js";
 import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
+import { uniqueQuestions } from "./questionSimilarity.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -403,7 +404,9 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied.\n` +
     `4. No choices are duplicates or medically equivalent, and the stem does not reveal the answer.\n` +
     `5. The explanation states the decisive mechanism or reasoning, not merely that the answer is correct.\n` +
-    `6. The vignette is internally consistent and contains enough information to answer.\n` +
+    `6. The vignette is internally consistent and contains enough discriminating information to answer. Symptoms or an anatomic region must actually distinguish the key from every plausible alternative; generic pain or tenderness alone is not enough.\n` +
+    `7. The clinical facts and answer relationship work in both directions: the clues support the key, and the key specifically explains the clues. Reject decorative patient details that could be removed without changing a direct-recall question.\n` +
+    `8. Compare the entire batch. Reject paraphrases that test the same clue-to-answer route, even when age, sex, location, or option order changes.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
     `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
     `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
@@ -412,7 +415,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index:\n` +
     `{"reviews":[{"index":0,"approved":true,"issues":[]}]}\n` +
-    `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, answer_leak, weak_explanation, inconsistent_vignette.`
+    `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices.`
   );
 }
 
@@ -426,19 +429,27 @@ function normalizedComparableText(value) {
  * second call from discarding an otherwise usable clinical batch and replacing it with recall.
  */
 export function locallyValidClinicalQuestions(questions = []) {
-  return questions.filter((question) => {
+  const structurallyValid = questions.filter((question) => {
     const stem = String(question?.stem || "").trim();
     const entries = Object.entries(question?.choices || {});
     const correctText = question?.choices?.[question?.correct];
-    if (!stem.endsWith("?") || stem.length < 100 || !correctText || entries.length < 4) return false;
+    if (!stem.endsWith("?") || stem.length < 160 || stem.split(/[.!?]+/).filter((part) => part.trim()).length < 3 || !correctText || entries.length < 4) return false;
     if (!/(?:\bpatient\b|\bwoman\b|\bman\b|\bgirl\b|\bboy\b|\binfant\b|\bnewborn\b|\bchild\b|\badolescent\b|\bresearcher\b|\bvolunteer\b)/i.test(stem)) return false;
     const values = entries.map(([, value]) => normalizedComparableText(value)).filter(Boolean);
     if (new Set(values).size !== values.length) return false;
     const answer = normalizedComparableText(correctText);
     const normalizedStem = ` ${normalizedComparableText(stem)} `;
     if (answer.length >= 4 && normalizedStem.includes(` ${answer} `)) return false;
+    const explanation = String(question?.explanation || "").trim();
+    if (explanation.length < 60) return false;
+    const whyWrong = Object.values(question?.whyWrong || {}).map((value) => String(value || "").toLowerCase());
+    if (whyWrong.length && whyWrong.length < entries.length) return false;
+    const nonDiscriminating = whyWrong.filter((value) => /not (?:the )?(?:reason|cause).{0,30}(?:symptom|finding)|not relevant to (?:the )?(?:symptom|case)/.test(value)).length;
+    if (nonDiscriminating >= 2) return false;
+    if (/history of intermittent abdominal pain/i.test(stem) && /tenderness in (?:the )?(?:right lower quadrant|upper mid-abdomen)/i.test(stem) && !/laboratory|imaging|ct |ultrasound|biopsy|surgery|trauma|fever|guarding|rebound/i.test(stem)) return false;
     return true;
   });
+  return uniqueQuestions(structurallyValid);
 }
 
 /**
@@ -483,7 +494,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
         }] : [];
       }
-      if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length)) return [];
+      if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length) || !locallyValid.includes(question)) return [];
       return [{
         ...question,
         qualityAudit: {
@@ -493,11 +504,12 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         },
       }];
     });
-    if (!approved.length) return { error: "Independent quality review rejected the generated batch. Retry for fresh questions.", questions: [] };
+    const distinctApproved = uniqueQuestions(approved);
+    if (!distinctApproved.length) return { error: "Independent quality review rejected the generated batch. Retry for fresh questions.", questions: [] };
     return {
-      questions: approved,
-      rejectedCount: questions.length - approved.length,
-      warning: approved.length < questions.length ? `${questions.length - approved.length} generated question${questions.length - approved.length === 1 ? "" : "s"} failed independent review and were withheld.` : null,
+      questions: distinctApproved,
+      rejectedCount: questions.length - distinctApproved.length,
+      warning: distinctApproved.length < questions.length ? `${questions.length - distinctApproved.length} generated question${questions.length - distinctApproved.length === 1 ? "" : "s"} failed independent review or duplicated another item and were withheld.` : null,
     };
   } catch (error) {
     return keepLocallyValidated(error?.message || String(error));

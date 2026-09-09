@@ -18,6 +18,7 @@ import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { matchByTerm } from "../../../engine/tagAtoms.js";
+import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
 
 // Rich clinical stems plus five per-choice explanations are large JSON
 // objects. Asking for ten in one response routinely truncates otherwise good
@@ -420,7 +421,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const newlyAccepted = [];
     for (const question of result.questions || []) {
       const key = String(question?.stem || "").trim().toLowerCase().replace(/\s+/g, " ");
-      if (!key || seen.has(key)) continue;
+      if (!key || seen.has(key) || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
       seen.add(key);
       accepted.push(question);
       newlyAccepted.push(question);

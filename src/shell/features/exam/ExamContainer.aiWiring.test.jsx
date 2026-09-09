@@ -138,6 +138,16 @@ async function flush() {
   });
 }
 
+function validClinicalQuestion(label = "insulin") {
+  return {
+    stem: `A 24-year-old patient presents with progressive polyuria, polydipsia, weight loss, and fatigue related to ${label}. Laboratory studies show a fasting glucose concentration of 280 mg/dL and a low serum C-peptide concentration. Which mechanism best explains these findings?`,
+    choices: { A: "Loss of endogenous insulin secretion", B: "Excess cortisol secretion", C: "Excess glucagon secretion", D: "Loss of aldosterone secretion", E: "Excess epinephrine secretion" },
+    correct: "A",
+    explanation: "Low C-peptide demonstrates reduced endogenous insulin secretion. The resulting hyperglycemia causes osmotic diuresis and explains the presenting symptoms.",
+    whyWrong: { A: "Low C-peptide confirms reduced endogenous insulin.", B: "Cortisol excess does not cause low C-peptide.", C: "Glucagon excess does not explain this complete pattern.", D: "Aldosterone loss produces electrolyte abnormalities instead.", E: "Epinephrine excess is episodic and does not lower C-peptide." },
+  };
+}
+
 beforeEach(() => {
   installDomStorage();
   testQuestionCount = 1;
@@ -149,14 +159,7 @@ beforeEach(() => {
       return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [] }] });
     }
     return Promise.resolve({
-      questions: [
-        {
-          stem: "A real generated stem",
-          choices: { A: "a", B: "b" },
-          correct: "A",
-          explanation: "because",
-        },
-      ],
+      questions: [validClinicalQuestion()],
     });
   });
 });
@@ -211,7 +214,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
       }
       generationCalls += 1;
       return Promise.resolve(generationCalls === 1
-        ? { questions: [{ stem: "Only one", choices: { A: "a", B: "b" }, correct: "A", explanation: "" }] }
+        ? { questions: [validClinicalQuestion("single partial result")] }
         : { questions: [] });
     });
 

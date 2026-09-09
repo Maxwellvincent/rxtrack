@@ -12,6 +12,7 @@
  * while the most recently used 30 lectures remain available in this working set.
  */
 import { readCloud, writeCloud, subscribeToCloudStore } from "./cloudBase.js";
+import { areNearDuplicateQuestions } from "../engine/questionSimilarity.js";
 
 export const key = "rxt-gen-questions";
 
@@ -43,20 +44,19 @@ export function addQuestions(userId, lectureId, newQuestions) {
   const existing = current[lectureId]?.questions ?? [];
   const existingStems = new Set(existing.map((q) => normalizedStem(q.stem)));
   const now = new Date().toISOString();
-  const fresh = newQuestions
-    .filter((q) => {
-      const key = normalizedStem(q.stem);
-      if (!key || existingStems.has(key)) return false;
-      existingStems.add(key);
-      return true;
-    })
-    .map((question) => ({
+  const fresh = [];
+  for (const question of newQuestions) {
+    const stemKey = normalizedStem(question?.stem);
+    if (!stemKey || existingStems.has(stemKey) || [...existing, ...fresh].some((other) => areNearDuplicateQuestions(question, other))) continue;
+    existingStems.add(stemKey);
+    fresh.push({
       ...question,
       id: question.id || questionId(question),
       createdAt: question.createdAt || now,
       timesAnswered: Number(question.timesAnswered) || 0,
       timesCorrect: Number(question.timesCorrect) || 0,
-    }));
+    });
+  }
   const merged = [...existing, ...fresh];
   const next = {
     ...current,
