@@ -13,6 +13,8 @@ import * as schoolResultsStore from "../../../stores/schoolResults.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { cleanLectureTitle } from "../../../lectureTitle.js";
 import { uploadQuestionBankPage } from "../../../supabase.js";
+import { collectStyleSources, downloadStyleSources } from "../../../engine/styleDataset.js";
+import * as questionRatingsStore from "../../../stores/questionRatings.js";
 
 function extractImcqBreakdownKeys(text) {
   return [...String(text || "").matchAll(/\b([A-H])\s*[✓✔]/g)].map((match) => match[1].toUpperCase());
@@ -152,6 +154,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
   const allNames = Object.keys(banks).sort();
   const names = (showAllBanks ? allNames : allNames.filter((name) => blockNames.has(name)));
   const totalQuestions = names.reduce((n, name) => n + (banks[name]?.length || 0), 0);
+  const styleSources = collectStyleSources(banks, meta, questionRatingsStore.read(userId).ratings || {});
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={busy ? undefined : onClose}>
@@ -235,7 +238,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
           </div>
         )}
 
-        {names.length > 0 && (
+          {names.length > 0 && (
           <div className="mb-3">
             <button
               onClick={() => setShowManage((s) => !s)}
@@ -254,7 +257,11 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
                   </div>
                 ))}
               </div>
-            )}
+          )}
+          <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-elevated px-3 py-2">
+            <span className="text-xs text-text-2">Style-training export · {styleSources.length} ExamSoft/IMCQ questions</span>
+            <button type="button" disabled={!styleSources.length || busy} onClick={() => downloadStyleSources(styleSources)} className="font-mono text-[12px] text-accent hover:underline disabled:opacity-40">export JSON</button>
+          </div>
           </div>
         )}
 
