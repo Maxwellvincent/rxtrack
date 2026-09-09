@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
 describe("PDF glyph fidelity", () => {
   it("keeps a self-keyed Practice MCQ appendix after conventional keyed sections", () => {
@@ -192,6 +192,24 @@ Q3: A — High sodium is expected.`;
     expect(questions.map((question) => question.num)).toEqual([1, 4]);
     expect(questions.map((question) => question.correct)).toEqual(["A", "D"]);
     expect(expectedQuestionCountFromAnswerKey(source)).toBe(2);
+  });
+
+  it("parses answer-keyed table choices without punctuation after each letter", () => {
+    const source = `1. Investigators compare several pancreatic secretion states. Which set is expected?\nOption Volume Phase Hormones\nA Minimal Cephalic Gastrin\nB Maximal Gastric CCK\nC Moderate Intestinal Gastrin\nD Maximal Intestinal CCK and secretin\nE Moderate Gastric VIP\nAnswer Key: D\nRationale: Intestinal secretion is maximal.`;
+    const questions = parseNumberedQuestionBankText(source, "Physiology", { allowSingle: true });
+    expect(questions).toHaveLength(1);
+    expect(questions[0].choices.D).toContain("Maximal Intestinal");
+    expect(questions[0].correct).toBe("D");
+  });
+
+  it("merges complementary browser PDF text strategies by normalized stem", () => {
+    const question = (stem, correct = "A") => ({ stem, correct, choices: { A: "One", B: "Two" } });
+    const merged = mergePdfQuestionCandidates([
+      [question("A 20-year-old patient has a finding."), question("Second source question")],
+      [question("A 20 - year - old patient has a finding."), question("Recovered final question", "B")],
+    ]);
+    expect(merged).toHaveLength(3);
+    expect(merged.map((item) => item.stem)).toContain("Recovered final question");
   });
 
   it("recovers answer choices when PDF.js collapses a page into one line", () => {

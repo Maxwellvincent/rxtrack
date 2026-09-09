@@ -418,6 +418,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     const lines = body.split("\n");
     let stemLines = [];
     const choices = {};
+    const tableChoices = /(?:^|\n)\s*Option\b[\s\S]{0,300}(?:^|\n)\s*Answer\s+Key\s*:/im.test(body);
     let letter = null;
     let inlineCorrect = null;
     const rationaleLines = [];
@@ -444,7 +445,9 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
         if (!/^Attachment\s*:/i.test(line) && !/^_+$/.test(line)) rationaleLines.push(line);
         continue;
       }
-      const choice = line.match(/^([✓✔])?\s*(?:\(([A-H])\)|([A-H])[.)]|([A-H])\s{2,})\s*(.*)$/i);
+      let choice = line.match(/^([✓✔])?\s*(?:\(([A-H])\)|([A-H])[.)]|([A-H])\s{2,})\s*(.*)$/i);
+      const tableChoice = !choice && tableChoices ? line.match(/^([A-H])\s+(.+)$/i) : null;
+      if (tableChoice) choice = [tableChoice[0], null, null, null, tableChoice[1], tableChoice[2]];
       if (choice) {
         letter = (choice[2] || choice[3] || choice[4]).toUpperCase();
         choices[letter] = choice[5].trim();
@@ -589,6 +592,21 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     });
   }
   return parsed.filter((question) => !unsupportedAnswerNumbers.has(question.num));
+}
+
+export function mergePdfQuestionCandidates(candidateLists = []) {
+  const result = [];
+  const indexes = new Map();
+  const keyFor = (question) => String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  for (const list of candidateLists) {
+    for (const question of list || []) {
+      const key = keyFor(question);
+      if (!key || indexes.has(key) || !question.correct || !question.choices?.[question.correct]) continue;
+      indexes.set(key, result.length);
+      result.push(question);
+    }
+  }
+  return result.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
 }
 
 export function expectedQuestionCountFromAnswerKey(fullText) {
@@ -1259,7 +1277,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
       const keyedB = b.questions.filter((q) => q.correct).length;
       return keyedB - keyedA || b.questions.length - a.questions.length || (b.text === layoutText ? 1 : -1);
     });
-    deterministicFromPdf = candidates[0].questions;
+    deterministicFromPdf = mergePdfQuestionCandidates(candidates.map((candidate) => candidate.questions));
     fullText = candidates[0].text;
   }
 
