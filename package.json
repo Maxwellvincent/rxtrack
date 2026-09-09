@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "bridge:check": "./scripts/check-llm-bridge.sh",
+    "style:dataset": "node scripts/build-style-dataset.mjs",
     "sync:struggle": "node scripts/sync-struggle-tracker.mjs",
     "sync:struggle:watch": "node scripts/sync-struggle-tracker.mjs --watch"
   },
