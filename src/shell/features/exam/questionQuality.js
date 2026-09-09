@@ -53,7 +53,10 @@ export function schoolStyleSimilarity(question, exemplars = []) {
   return Math.round(Math.max(...scores) * 100);
 }
 
-const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+const normalize = value => {
+  const text = value && typeof value === "object" ? Object.entries(value).map(([key, cell]) => `${key} ${cell ?? ""}`).join(" ") : String(value || "");
+  return text.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+};
 
 /** Free deterministic review passes before a generated item can enter Firestore. */
 export function questionQualityIssues(question, objectives = []) {

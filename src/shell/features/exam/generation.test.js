@@ -84,7 +84,7 @@ describe("generateExamQuestions", () => {
     expect(ids.size).toBe(3);
   });
 
-  it("filters out table-shaped or non-string choice questions", async () => {
+  it("preserves table-shaped choice questions for the table renderer", async () => {
     const callAIJSON = vi.fn().mockResolvedValueOnce({
       questions: [mcq("Good question"), tableMcq("Bad table question")],
     });
@@ -103,12 +103,11 @@ describe("generateExamQuestions", () => {
       { callAIJSON, skipQuestionAudit: true }
     );
 
-    expect(result.questions).toHaveLength(1);
+    expect(result.questions).toHaveLength(2);
     expect(result.questions[0].stem).toBe("Good question");
-    // shortfall (1 of 2) triggers retries, which will also return the same
-    // mocked table question again and again — so an error should be recorded.
-    expect(result.errors).toHaveLength(1);
-    expect(result.errors[0]).toMatchObject({ lectureId: "lec1", requested: 2 });
+    expect(result.questions[1].choiceLayout).toBe("table");
+    expect(result.questions[1].choices.A).toEqual({ rowA: "x" });
+    expect(result.errors).toEqual([]);
   });
 
   it("retries the shortfall then records an error if still short after 2 retries", async () => {

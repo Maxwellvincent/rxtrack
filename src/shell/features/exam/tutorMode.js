@@ -37,7 +37,7 @@ const TUTOR_SYSTEM_PROMPT =
  */
 export function buildTutorPrompt({ stem, choices, correct, explanation, lectureLabel }) {
   const choiceLines = Object.entries(choices || {})
-    .map(([letter, text]) => `${letter}. ${text}`)
+    .map(([letter, value]) => `${letter}. ${value && typeof value === "object" ? Object.entries(value).map(([key, cell]) => `${key}: ${cell}`).join("; ") : value}`)
     .join("\n");
 
   return [

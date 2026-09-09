@@ -23,9 +23,11 @@ export function questionPoolKey({ blockId, lectureId, difficulty, lecture, objec
 }
 
 export function isValidPoolQuestion(q) {
-  return typeof q?.stem === "string" && q.stem.trim().length > 0 && q.choiceLayout !== "table"
+  const validChoice = value => typeof value === "string" ? value.trim().length > 0
+    : value && typeof value === "object" && !Array.isArray(value) && Object.values(value).some(cell => String(cell ?? "").trim());
+  return typeof q?.stem === "string" && q.stem.trim().length > 0
     && q.choices && Object.keys(q.choices).length >= 2
-    && Object.values(q.choices).every(v => typeof v === "string" && v.trim())
+    && Object.values(q.choices).every(validChoice)
     && Object.hasOwn(q.choices, q.correct);
 }
 

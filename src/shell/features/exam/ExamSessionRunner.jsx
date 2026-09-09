@@ -23,6 +23,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { advanceOnEnter } from "../../../ui/nextQuestion.js";
 import { QuestionStem } from "../../../ui/QuestionStem.jsx";
 import { QuestionExplanation } from "../../../ui/QuestionExplanation.jsx";
+import { ChoiceValue, hasTableChoices } from "../../../ui/ChoiceValue.jsx";
 import { QuestionQualityRating } from "../../../ui/QuestionQualityRating.jsx";
 import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
@@ -159,7 +160,7 @@ function SyncIndicator({ status }) {
   );
 }
 
-function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) {
+function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, choiceColumns = [], choiceLayout = null }) {
   const [crossed, setCrossed] = useState(new Set());
   useEffect(() => setCrossed(new Set()), [questionId]);
   return (
@@ -190,7 +191,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick }) 
             }
           >
             <span className="font-mono text-text-3">{letter}</span>
-            <span className="flex-1">{text}</span>
+            <span className="flex-1"><ChoiceValue value={text} columns={choiceColumns} table={choiceLayout === "table" || hasTableChoices({ choices, choiceLayout })} /></span>
             {isPicked && !revealed && <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold text-white">SELECTED</span>}
             {revealed && letter === correct && <span className="rounded border-2 border-good bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✓ CORRECT</span>}
             {revealed && isPicked && letter !== correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
@@ -265,6 +266,8 @@ function ExamFormat({ controller, submitOpts }) {
           <ChoiceList
             questionId={q.questionId}
             choices={q.choices}
+            choiceColumns={q.choiceColumns}
+            choiceLayout={q.choiceLayout}
             picked={pickedFor(session, q.questionId)}
             revealed={false}
             onPick={(letter) => answerQuestion(q.questionId, letter)}
@@ -336,6 +339,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         <ChoiceList
           questionId={q.questionId}
           choices={q.choices}
+          choiceColumns={q.choiceColumns}
+          choiceLayout={q.choiceLayout}
           picked={revealed ? picked : draftChoice}
           revealed={revealed}
           correct={q.correct}
@@ -425,7 +430,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
             <LeadInCue stem={q.stem} />
             <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
             <SchoolQuestionFigure question={q} />
-            <ChoiceList questionId={q.questionId} choices={q.choices} picked={picked} revealed correct={q.correct} onPick={() => {}} />
+            <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
               <div className="mt-2"><QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} /></div>
             )}

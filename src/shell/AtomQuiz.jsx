@@ -15,6 +15,7 @@ import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
 import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModelImpact.js";
 import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
+import { ChoiceValue, choiceValueToText, hasTableChoices } from "../ui/ChoiceValue.jsx";
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
 // Handles patterns like "(A) text", "(B) text" anywhere in the string.
@@ -73,7 +74,7 @@ function ExplanationBlock({ text, correctLetter, whyWrong, choices = {} }) {
                       you are looking at the reasoning, not back up at the list. */}
                   {optionText && (
                     <span className={isCorrect ? "font-semibold text-text-1" : "font-semibold text-text-2"}>
-                      {optionText} —{" "}
+                      <ChoiceValue value={optionText} table={optionText && typeof optionText === "object"} /> —{" "}
                     </span>
                   )}
                   <LabAnnotatedText text={body} className={isCorrect ? "text-text-2" : "text-text-3"} />
@@ -298,7 +299,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                   className={"flex flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + borderCls}
                 >
                   <span className="font-mono text-text-3">{letter}</span>
-                  <span className={isCrossed ? "line-through text-text-3" : ""}>{txt}</span>
+                  <span className={isCrossed ? "line-through text-text-3 flex-1" : "flex-1"}><ChoiceValue value={txt} columns={q.choiceColumns || []} table={hasTableChoices(q)} /></span>
                 </button>
                 {/* Cross-out toggle — only before reveal */}
                 {!revealed && (

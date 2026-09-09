@@ -1,4 +1,5 @@
 import { LabAnnotatedText } from "./LabValue.jsx";
+import { ChoiceValue } from "./ChoiceValue.jsx";
 
 function cleanText(text) {
   return String(text || "").replace(/\[PAGE_BREAK(?::\d+)?\]/gi, " ").replace(/\s+/g, " ").trim();
@@ -36,7 +37,7 @@ export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {
                   {correct ? "✓" : "✕"} {letter}
                 </span>
                 <span className="flex-1">
-                  {choices[letter] && <strong className="text-text-1">{choices[letter]} — </strong>}
+                  {choices[letter] && <strong className="text-text-1"><ChoiceValue value={choices[letter]} table={choices[letter] && typeof choices[letter] === "object"} /> — </strong>}
                   <LabAnnotatedText text={body} className={correct ? "text-text-2" : "text-text-3"} />
                 </span>
               </li>
