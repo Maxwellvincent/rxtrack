@@ -1328,7 +1328,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   if (format === "report") {
     onProgress?.("✓ Detected score report; saving grade and category evidence");
     questions = [];
-  } else if (!opts?.useLlm && deterministic.length >= 3) {
+  } else if (!opts?.forcePairedKey && !opts?.useLlm && deterministic.length >= 3) {
     onProgress?.(`✓ Parsed ${deterministic.length} questions locally — no AI used`);
     questions = deterministic;
   } else if (format === "pairedkey") {

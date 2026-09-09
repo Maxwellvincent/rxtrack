@@ -61,7 +61,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
           try {
             const bankTitle = cleanLectureTitle(file.name);
             setStatus(`${file.name} — reading…`);
-            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm, requireSourceKeys: !(file === imcqSource && imcqKeys) });
+            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm, forcePairedKey: file === imcqSource && imcqKeys, requireSourceKeys: !(file === imcqSource && imcqKeys) });
             if (file === imcqSource && imcqKeys) {
               const sourceQuestions = parsed?.questions || [];
               if (sourceQuestions.length !== imcqKeys.length) throw new Error(`IMCQ source contained ${sourceQuestions.length} questions; expected ${imcqKeys.length} to match the supplied breakdown.`);
