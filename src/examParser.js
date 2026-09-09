@@ -1293,6 +1293,13 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     fullText = candidates[0].text;
   }
 
+  // Some answer-breakdown PDFs are supplied only to key a companion question
+  // deck. Allow the uploader to request text extraction without invoking the
+  // generic AI parser; the companion merge can then validate every key.
+  if (opts?.textOnly) {
+    return { questions: [], examTitle: cleanLectureTitle(file.name), totalQuestions: 0, expectedQuestions: null, format: "text", fullText, chunks: pages.map((p) => ({ text: p.text })) };
+  }
+
   const format = _isText ? "standard" : detectFormat(pages, fullText);
   const formatLabels = {
     grid: "Grid/table slide format",

@@ -14,6 +14,10 @@ import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { cleanLectureTitle } from "../../../lectureTitle.js";
 import { uploadQuestionBankPage } from "../../../supabase.js";
 
+function extractImcqBreakdownKeys(text) {
+  return [...String(text || "").matchAll(/\b([A-H])\s*[✓✔]/g)].map((match) => match[1].toUpperCase());
+}
+
 export function QuestionBankModal({ blockId, blockName = "", lectures = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
   const schoolResultsRes = useStoreResource(schoolResultsStore, userId);
@@ -43,11 +47,26 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
       let pendingMeta = { ...(questionBankMetaStore.read(userId) || {}) };
       let banksChanged = false;
       try {
+        const imcqSource = files.find((file) => /IMCQ.*KEY/i.test(file.name));
+        const imcqBreakdown = files.find((file) => /IMCQ.*Answer.*Breakdown/i.test(file.name));
+        let imcqKeys = null;
+        if (imcqSource && imcqBreakdown) {
+          setStatus(`${imcqBreakdown.name} — extracting answer key…`);
+          const breakdown = await parseExamPDF(imcqBreakdown, undefined, { textOnly: true });
+          imcqKeys = extractImcqBreakdownKeys(breakdown.fullText);
+          if (imcqKeys.length !== 16) throw new Error(`IMCQ answer breakdown contained ${imcqKeys.length} keyed answers; expected exactly 16.`);
+        }
         for (const file of files) {
+          if (file === imcqBreakdown && imcqSource && imcqKeys) continue;
           try {
             const bankTitle = cleanLectureTitle(file.name);
             setStatus(`${file.name} — reading…`);
             const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm, requireSourceKeys: true });
+            if (file === imcqSource && imcqKeys) {
+              const sourceQuestions = parsed?.questions || [];
+              if (sourceQuestions.length !== imcqKeys.length) throw new Error(`IMCQ source contained ${sourceQuestions.length} questions; expected ${imcqKeys.length} to match the supplied breakdown.`);
+              parsed.questions = sourceQuestions.map((question, index) => ({ ...question, correct: imcqKeys[index] }));
+            }
             const pageUrls = new Map();
             const withDurableImages = [];
             for (const question of parsed?.questions || []) {
