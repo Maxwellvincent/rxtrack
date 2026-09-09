@@ -75,7 +75,7 @@ describe("buildMcqPrompt", () => {
       difficulty: "medium",
     });
     expect(atomPrompt).toContain("realistic 3-5 sentence clinical vignette");
-    expect(atomPrompt).toContain("at least two reasoning steps");
+    expect(atomPrompt).toContain("1–2 reasoning steps");
     expect(atomPrompt).toContain("do not mention a lecture or learning objective");
     expect(atomPrompt).toContain("reject and rewrite any draft");
   });
