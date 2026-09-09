@@ -188,15 +188,51 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
     .replace(/^[ \t]*\d*[ \t]*Click here to enter text\.?[ \t]*$/gim, "");
   const appendDistinct = (primary, extra) => {
     const result = [...primary];
-    const keys = new Set(primary.map((question) => String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()));
+    const normalizeStem = (question) => String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const indexes = new Map(primary.map((question, index) => [normalizeStem(question), index]));
     for (const question of extra) {
-      const key = String(question?.stem || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-      if (!key || keys.has(key)) continue;
-      keys.add(key);
+      const key = normalizeStem(question);
+      if (!key) continue;
+      if (indexes.has(key)) {
+        const existingIndex = indexes.get(key);
+        const existing = result[existingIndex];
+        result[existingIndex] = {
+          ...existing,
+          explanation: existing.explanation || question.explanation || null,
+          hasImage: !!(existing.hasImage || question.hasImage),
+          sourcePage: existing.sourcePage || question.sourcePage,
+        };
+        continue;
+      }
+      indexes.set(key, result.length);
       result.push(question);
     }
     return result.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
   };
+  // Compilation handouts often concatenate several independently numbered banks. Each bank
+  // has its own Answer Key and may repeat every question again under Short Explanations. Parse
+  // the clean question run immediately before every key in isolation, then merge those results
+  // with the broader fallbacks below. This keeps a later explanation typo (or another section's
+  // reused question number) from overriding the compact key printed for the original question.
+  if (!options.singleSet && !options.skipIndependentKeys) {
+    const keyHeadings = [...source.matchAll(/(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*?)[ \t]*[.:]?[ \t]*(?=\n|\d+\s*[A-H]\b)/gi)];
+    const recovered = [];
+    for (let index = 0; index < keyHeadings.length; index++) {
+      const heading = keyHeadings[index];
+      const before = source.slice(0, heading.index);
+      const starts = [...before.matchAll(/(?:^|\n)[ \t]*1[.)][ \t]+(?=\S)/g)];
+      const start = starts.at(-1)?.index;
+      if (start == null) continue;
+      const nextHeading = keyHeadings[index + 1]?.index ?? source.length;
+      const isolated = source.slice(start, nextHeading);
+      const set = parseNumberedQuestionBankText(isolated, examTitle, { singleSet: true });
+      recovered.push(...set.filter((question) => question.correct && question.choices?.[question.correct]));
+    }
+    if (recovered.length >= 3) {
+      const baseline = parseNumberedQuestionBankText(source, examTitle, { ...options, skipIndependentKeys: true });
+      return appendDistinct(recovered, baseline);
+    }
+  }
   const parseInterleavedPairs = () => {
     const headings = [...source.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?=\S)/g)].map((match) => ({
       num: Number(match[1]), start: match.index || 0, bodyStart: (match.index || 0) + match[0].length,
@@ -297,6 +333,13 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
   const answerHeading = source.search(/(?:^|\n)[ \t]*(?:Answers?(?:[ \t]+Key)?(?:[ \t]+AND[ \t]+EXPLANATIONS?)?|Answer[ \t]+key[ \t]+for[^\n]*?)[ \t]*[.:]?[ \t]*(?=\n|\d+\s*[A-H]\b)/i);
   const questionText = answerHeading >= 0 ? source.slice(0, answerHeading) : source;
   const answerText = answerHeading >= 0 ? source.slice(answerHeading) : "";
+  // The quiz runner currently scores one selected letter. Do not silently turn a
+  // select-all or matching-table key into its first letter, which creates a false
+  // "correct" answer. These items remain in the source PDF for manual study.
+  const unsupportedAnswerNumbers = new Set([
+    ...answerText.matchAll(/(?:^|\n)\s*(\d+)[.)]\s*[A-H]\s*[,;/]\s*[A-H]\b/gim),
+    ...answerText.matchAll(/(?:^|\n)\s*(\d+)[.)]\s*Answer\s*:\s*[A-H]\s*[–—-]\s*[IVX]+\s*;/gim),
+  ].map((match) => Number(match[1])));
   const answers = new Map();
   const compactKey = answerText.match(/Answers?\s+Key\s*:\s*([^\n]+)/i)?.[1] || "";
   for (const match of compactKey.matchAll(/(?:^|[,;]\s*)\s*(\d+)\s*([A-H])\b/gi)) {
@@ -518,7 +561,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       return { correct, explanation, body };
     };
     const words = (value) => new Set(String(value || "").toLowerCase().match(/[a-z]{4,}/g) || []);
-    return parsed.map((question) => {
+    return parsed.filter((question) => !unsupportedAnswerNumbers.has(question.num)).map((question) => {
       const stemWords = words(question.stem);
       const candidatesForNumber = explanationBlocks
         .filter((match) => Number(match[1]) === question.num)
@@ -536,47 +579,58 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
         : null;
       return {
         ...question,
-        correct: matching?.correct || question.correct,
-        explanation: matching?.explanation || question.explanation || null,
+        // A compact/listed answer key is authoritative. Repeated explanation copies may
+        // contain mislabeled letters, so they can enrich the rationale but never change it.
+        correct: answers.has(question.num) ? question.correct : matching?.correct || question.correct,
+        explanation: (typeof matching?.explanation === "string" ? matching.explanation : null)
+          || (typeof question.explanation === "string" ? question.explanation : null)
+          || null,
       };
     });
   }
-  return parsed;
+  return parsed.filter((question) => !unsupportedAnswerNumbers.has(question.num));
 }
 
 export function expectedQuestionCountFromAnswerKey(fullText) {
   const normalizedText = String(fullText || "").replace(/\f/g, "\n");
+  const deterministicKeyed = parseNumberedQuestionBankText(normalizedText)
+    .filter((question) => question.correct && question.choices?.[question.correct]).length;
+  // The deterministic parser has already reconciled reset-numbered sets and excluded
+  // unsupported/unkeyed items. That is a stronger count than raw occurrences of words such
+  // as "correct" inside teaching prose.
+  if (deterministicKeyed >= 3) return deterministicKeyed;
+  const bestCount = (count) => Math.max(Number(count) || 0, deterministicKeyed) || null;
   const chapterAnswers = [...normalizedText.matchAll(/(?:^|\n)[ \t]*ANSWERS[ \t]*(?=\n)/g)];
   if (chapterAnswers.length > 1) {
     const explicitKeys = [...normalizedText.matchAll(/(?:^|\n)[ \t]*(\d{1,3})[.)]?[ \t]+(?:The[ \t]+)?answer[ \t]+is[ \t]+[A-H]\s*:/gim)];
-    if (explicitKeys.length >= 3) return explicitKeys.length;
+    if (explicitKeys.length >= 3) return bestCount(explicitKeys.length);
   }
   const ids = [...normalizedText.matchAll(/(?:^|\n)\s*Q(\d+)\s*:\s*[A-H]\b/gim)]
     .map((m) => Number(m[1]))
     .filter(Number.isFinite);
-  if (ids.length) return new Set(ids).size;
+  if (ids.length) return bestCount(new Set(ids).size);
   const source = normalizedText;
   const compact = source.match(/Answers?\s+Key\s*:\s*([^\n]+)/i)?.[1] || "";
   const compactIds = [...compact.matchAll(/(?:^|[,;]\s*)\s*(\d+)\s*[A-H]\b/gi)].map(match => Number(match[1]));
-  if (compactIds.length >= 3) return new Set(compactIds).size;
+  if (compactIds.length >= 3) return bestCount(new Set(compactIds).size);
   const answerHeading = source.search(/\n\s*Answers?(?:\s+Key)?(?:\s+AND\s+EXPLANATIONS?)?\s*:?\s*\n/i);
   const answerSection = answerHeading >= 0 ? source.slice(answerHeading) : source;
   const repeatedKeyIds = [...answerSection.matchAll(/(?:^|\n)\s*(\d+)[.)]\s+[^\n][\s\S]*?\n\s*Answer(?:\s+Key)?\s*:\s*(?:Option\s+)?[A-H]\b/gi)].map(match => Number(match[1]));
-  if (repeatedKeyIds.length >= 3) return new Set(repeatedKeyIds).size;
+  if (repeatedKeyIds.length >= 3) return bestCount(new Set(repeatedKeyIds).size);
   const proseIds = [...source.matchAll(/(?:^|\n)\s*(\d+)[.)]?\s+(?:The\s+)?Answer(?:\s+Key)?\s*(?:is|:)?\s*(?:Option\s+)?[A-H]\b/gim)]
     .map((match) => Number(match[1]));
   const standalone = (answerSection.match(/(?:^|\n)\s*Answer(?:\s+Key)?\s*:\s*(?:Option\s+)?[A-H]\b/gim) || []).length;
   const marked = [...answerSection.matchAll(/(?:^|\n)\s*(?:\([A-H]\)|[A-H][.)])\s*([^\n]*(?:yes|correct)[^\n]*)/gim)]
     .filter((match) => !/\b(?:no|incorrect|not correct)\b/i.test(match[1])).length;
   const explicitCount = Math.max(new Set(proseIds).size, standalone, marked);
-  if (explicitCount >= 3) return explicitCount;
+  if (explicitCount >= 3) return bestCount(explicitCount);
   const inlineIds = [...source.matchAll(/(?:^|\n)\s*Question\s*#\s*:\s*(\d+)/gim)]
     .map((match) => Number(match[1]))
     .filter(Number.isFinite);
   const checkedChoices = (source.match(/(?:^|\n)\s*[✓✔]\s*[A-H][.)]/gim) || []).length;
   return inlineIds.length >= 3 && checkedChoices >= inlineIds.length
-    ? new Set(inlineIds).size
-    : null;
+    ? bestCount(new Set(inlineIds).size)
+    : bestCount(0);
 }
 
 /**
@@ -1226,6 +1280,14 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   const deterministic = deterministicFromPdf?.length
     ? deterministicFromPdf
     : parseNumberedQuestionBankText(fullText, examTitle);
+  const expectedFromKey = expectedQuestionCountFromAnswerKey(fullText);
+  if (opts?.requireSourceKeys && _isText && /!\[[^\]]*\]\([^)]+\)/.test(fullText)) {
+    throw new Error("This Markdown question bank references external images that are not included in a text upload. Upload the original PDF so RXTrack can preserve its figures.");
+  }
+  const deterministicKeyedCount = deterministic.filter((question) => question.correct && question.choices?.[question.correct]).length;
+  if (opts?.requireSourceKeys && format === "standard" && !expectedFromKey && deterministicKeyedCount < 3) {
+    throw new Error("No source answer key was detected. This bank was not imported because generated or medically inferred answers would not be source-verified.");
+  }
   if (format === "report") {
     onProgress?.("✓ Detected score report; saving grade and category evidence");
     questions = [];
@@ -1270,7 +1332,6 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   // A numbered answer key is a stronger completeness signal than an AI
   // parser's self-reported output. Never overwrite a good bank with a silent
   // partial import (the 30-question ExamSoft file previously landed as 17).
-  const expectedFromKey = expectedQuestionCountFromAnswerKey(fullText);
   const keyedCount = questions.filter((question) => question.correct && question.choices?.[question.correct]).length;
   if (expectedFromKey && (questions.length < expectedFromKey || keyedCount < expectedFromKey)) {
     const recovered = parseNumberedQuestionBankText(fullText, examTitle);
@@ -1278,8 +1339,6 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     if (recovered.length >= expectedFromKey && recoveredKeyed >= expectedFromKey) {
       questions = attachImagesToExamQuestions(recovered, slideImages);
       onProgress?.(`✓ Recovered all ${expectedFromKey} questions from the answer key`);
-    } else if (questions.length >= expectedFromKey - 2 && keyedCount === questions.length && questions.length / expectedFromKey >= 0.9) {
-      onProgress?.(`⚠ Imported ${questions.length}/${expectedFromKey}; one source item could not be reconstructed safely`);
     } else {
       throw new Error(
         `Partial import blocked: the answer key contains ${expectedFromKey} questions, but only ${questions.length} questions and ${keyedCount} keyed answers were extracted. ` +

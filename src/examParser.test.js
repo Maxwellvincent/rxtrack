@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
 describe("PDF glyph fidelity", () => {
   it("keeps a self-keyed Practice MCQ appendix after conventional keyed sections", () => {
@@ -176,6 +176,24 @@ Q3: A — High sodium is expected.`;
     expect(questions.map((question) => question.correct)).toEqual(["B", "A", "D", "D", "C", "A"]);
   });
 
+  it("keeps each compact key authoritative across repeated explanation copies and later resets", () => {
+    const set = (title, keys, wrongExplanationKey = null) => `${title}\n${keys.map((_, index) => `${index + 1}. ${title} original clinical stem ${index + 1} has enough detail to parse safely. Which finding is expected?\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta`).join("\n\n")}\n\nAnswer Key:\n${keys.map((key, index) => `${index + 1}. ${key}`).join("\n")}\n\nShort explanations:\n${keys.map((key, index) => `${index + 1}. ${title} original clinical stem ${index + 1} has enough detail to parse safely. Which finding is expected?\nA. Alpha${wrongExplanationKey === "A" && index === 0 ? " - CORRECT ANSWER" : ""}\nB. Beta${key === "B" ? " - CORRECT ANSWER" : ""}\nC. Gamma${key === "C" ? " - CORRECT ANSWER" : ""}\nD. Delta${key === "D" ? " - CORRECT ANSWER" : ""}`).join("\n\n")}`;
+    const final = `Practice questions for final pathway\n${[1, 2, 3].map((number) => `${number}. Final pathway clinical stem ${number} has enough detail to parse safely. Which finding is expected?\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta`).join("\n\n")}\n\nAnswer key for the practice questions with short explanations.\n${["D", "A", "C"].map((key, index) => `${index + 1}. Final pathway clinical stem ${index + 1} has enough detail to parse safely. Which finding is expected?\nA. Alpha${key === "A" ? " - Correct answer" : ""}\nB. Beta\nC. Gamma${key === "C" ? " - Correct answer" : ""}\nD. Delta${key === "D" ? " - Correct answer" : ""}`).join("\n\n")}`;
+    const source = `${set("Carbohydrates", ["D", "B", "C"], "A")}\n\n${set("Glycolysis", ["B", "D", "A"])}\n\n${final}`;
+    const questions = parseNumberedQuestionBankText(source, "Compilation");
+    expect(questions).toHaveLength(9);
+    expect(questions.map((question) => question.correct)).toEqual(["D", "B", "C", "B", "D", "A", "D", "A", "C"]);
+    expect(expectedQuestionCountFromAnswerKey(source)).toBe(9);
+  });
+
+  it("does not misrepresent multi-answer or matching keys as single-answer questions", () => {
+    const source = `${[1, 2, 3, 4].map((number) => `${number}. Clinical stem ${number} has enough detail to parse safely. Which finding is expected?\nA. Alpha\nB. Beta\nC. Gamma\nD. Delta`).join("\n\n")}\n\nAnswer Key:\n1. A\n2. B, C\n3. Answer: A – II; B – I\n4. D`;
+    const questions = parseNumberedQuestionBankText(source, "Mixed formats");
+    expect(questions.map((question) => question.num)).toEqual([1, 4]);
+    expect(questions.map((question) => question.correct)).toEqual(["A", "D"]);
+    expect(expectedQuestionCountFromAnswerKey(source)).toBe(2);
+  });
+
   it("recovers answer choices when PDF.js collapses a page into one line", () => {
     const collapsed = `1. A patient has a sufficiently detailed clinical presentation. Which finding is expected? A. Alpha B. Beta C. Gamma D. Delta\n2. A second patient has a sufficiently detailed clinical presentation. Which finding is expected? A. One B. Two C. Three D. Four\n3. A third patient has a sufficiently detailed clinical presentation. Which finding is expected? A. Red B. Blue C. Green D. Yellow\nAnswer Key: 1 B, 2 C, 3 A`;
     const questions = parseNumberedQuestionBankText(collapsed, "Collapsed PDF");
@@ -280,6 +298,18 @@ D. Aldose reductase - CORRECT ANSWER - Forms the accumulated sugar alcohol.`;
     expect(questions.map((question) => question.correct)).toEqual(["B", "B", "B"]);
     expect(questions[1].explanation).toBe("Explanation 2.");
     expect(expectedQuestionCountFromAnswerKey(annotated)).toBe(3);
+  });
+
+  it("blocks a standard school bank with no source answer key", async () => {
+    const text = [1, 2, 3].map((number) => `${number}. Unkeyed clinical question ${number} has enough detail to parse?\nA. Alpha\nB. Beta\nC. Gamma`).join("\n\n");
+    const file = new File([text], "Gray review.md", { type: "text/markdown" });
+    await expect(parseExamPDF(file, null, { requireSourceKeys: true })).rejects.toThrow(/No source answer key/i);
+  });
+
+  it("blocks Markdown sidecar images and directs question-bank uploads to the PDF", async () => {
+    const text = [1, 2, 3].map((number) => `${number}. Image-based clinical question ${number} has enough detail to parse?\n![](figure-${number}.jpg)\nA. Alpha\nB. Beta\nC. Gamma`).join("\n\n") + "\nAnswer Key: 1 A, 2 B, 3 C";
+    const file = new File([text], "Image bank.md", { type: "text/markdown" });
+    await expect(parseExamPDF(file, null, { requireSourceKeys: true })).rejects.toThrow(/Upload the original PDF/i);
   });
 });
 

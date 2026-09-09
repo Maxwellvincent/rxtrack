@@ -47,7 +47,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
           try {
             const bankTitle = cleanLectureTitle(file.name);
             setStatus(`${file.name} — reading…`);
-            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm });
+            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm, requireSourceKeys: true });
             const pageUrls = new Map();
             const withDurableImages = [];
             for (const question of parsed?.questions || []) {
@@ -59,7 +59,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
                 }
                 sourceImageUrl = pageUrls.get(question.sourcePage);
               }
-              const { sourceImageDataUrl, ...storedQuestion } = question;
+              const { sourceImageDataUrl: _sourceImageDataUrl, ...storedQuestion } = question;
               withDurableImages.push({ ...storedQuestion, ...(sourceImageUrl ? { sourceImageUrl } : {}) });
             }
             const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind });
