@@ -204,6 +204,43 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
   return questions;
 }
 
+/** Mad Cow DES decks repeat: question/choices, keyed duplicate, explanation. */
+export function parseMadcowPages(pages, examTitle = "") {
+  const questions = [];
+  const seen = new Set();
+  for (let i = 0; i < (pages || []).length; i++) {
+    const page = pages[i];
+    const parsed = parseSlideQuestionText(page?.text);
+    if (!parsed || parsed.stem.length < 80 || Object.keys(parsed.choices).length < 3) continue;
+    const signature = parsed.stem.toLowerCase().replace(/\s+/g, " ").slice(0, 220);
+    if (seen.has(signature)) continue;
+    const window = pages.slice(i, i + 4);
+    const answerPage = window.find((candidate) => /\b(?:the\s+)?correct\s+answer\s+is\s+([A-H])\b/i.test(candidate?.text || ""));
+    const answerMatch = String(answerPage?.text || "").match(/\b(?:the\s+)?correct\s+answer\s+is\s+([A-H])\b(?:[.:]?\s*)([\s\S]*)/i);
+    if (!answerMatch) continue;
+    const correct = answerMatch[1].toUpperCase();
+    if (!parsed.choices[correct]) continue;
+    seen.add(signature);
+    const explanation = answerMatch[2].replace(/\s+/g, " ").trim().slice(0, 4000);
+    questions.push({
+      id: `q${questions.length + 1}`,
+      num: questions.length + 1,
+      type: "clinicalVignette",
+      imageQuestion: !!page.imgCount,
+      subject: "Uploaded",
+      topic: examTitle || "Mad Cow review",
+      stem: parsed.stem,
+      choices: parsed.choices,
+      correct,
+      explanation: explanation || null,
+      difficulty: "medium",
+      hasImage: !!page.imgCount || /\b(?:image|ultrasound|x-ray|radiograph|shown|arrow|figure)\b/i.test(parsed.stem),
+      sourcePage: page.num,
+    });
+  }
+  return questions;
+}
+
 /**
  * Parse a continuous ExamSoft-style bank without an AI round trip.
  *
@@ -1328,13 +1365,15 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     return { questions: [], examTitle: cleanLectureTitle(file.name), totalQuestions: 0, expectedQuestions: null, format: "text", fullText, chunks: pages.map((p) => ({ text: p.text })) };
   }
 
-  const format = _isText ? "standard" : detectFormat(pages, fullText);
+  const isMadcow = /madcow|m a d c o w/i.test(`${file?.name || ""} ${fullText.slice(0, 600)}`);
+  const format = _isText ? "standard" : isMadcow ? "madcow" : detectFormat(pages, fullText);
   const formatLabels = {
     grid: "Grid/table slide format",
     slidedeck: "Slide deck format",
     standard: "Standard question bank format",
     nbme: "NBME style format",
     pairedkey: "Paired school answer-key slides",
+    madcow: "Mad Cow question/explanation slides",
     report: "Exam performance report",
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
@@ -1353,7 +1392,10 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   if (opts?.requireSourceKeys && format === "standard" && !expectedFromKey && deterministicKeyedCount < 3) {
     throw new Error("No source answer key was detected. This bank was not imported because generated or medically inferred answers would not be source-verified.");
   }
-  if (format === "report") {
+  if (format === "madcow") {
+    questions = parseMadcowPages(pages, examTitle);
+    onProgress?.(`✓ Parsed ${questions.length} Mad Cow question/explanation sets locally`);
+  } else if (format === "report") {
     onProgress?.("✓ Detected score report; saving grade and category evidence");
     questions = [];
   } else if (!opts?.forcePairedKey && !opts?.useLlm && deterministic.length >= 3) {

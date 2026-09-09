@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
 describe("PDF glyph fidelity", () => {
+  it("parses Mad Cow question and explanation slide sequences", () => {
+    const pages = [
+      { num: 1, text: "A patient has epigastric pain after meals and imaging shows a gastric bubble behind the heart. Which structure is abnormal?\nA. Esophagus\nB. Diaphragmatic hiatus\nC. Appendix", imgCount: 0 },
+      { num: 2, text: "The correct answer is B. Enlargement of the diaphragmatic hiatus causes a hiatal hernia.", imgCount: 0 },
+    ];
+    expect(parseMadcowPages(pages, "Mad Cow")).toMatchObject([{ num: 1, correct: "B", explanation: expect.stringContaining("Enlargement") }]);
+  });
   it("keeps a self-keyed Practice MCQ appendix after conventional keyed sections", () => {
     const conventional = `1. Main clinical question one asks which finding?\nA. Alpha\nB. Beta\n2. Main clinical question two asks which finding?\nA. Alpha\nB. Beta\n3. Main clinical question three asks which finding?\nA. Alpha\nB. Beta\nAnswer Key:\n1. A\n2. B\n3. A`;
     const appendix = `Practice MCQ for Digestion, explanations\n1. Appendix clinical question one asks which finding?\nA. Alpha\nB. Beta CORRECT ANSWER\n2. Appendix clinical question two asks which finding?\nA. Alpha CORRECT ANSWER\nB. Beta\n3. Appendix clinical question three asks which finding?\nA. Alpha\nB. Beta CORRECT ANSWER`;
