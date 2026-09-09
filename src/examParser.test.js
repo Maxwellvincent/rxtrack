@@ -203,10 +203,10 @@ Q3: A — High sodium is expected.`;
   });
 
   it("merges complementary browser PDF text strategies by normalized stem", () => {
-    const question = (stem, correct = "A") => ({ stem, correct, choices: { A: "One", B: "Two" } });
+    const question = (stem, correct = "A", num = null) => ({ stem, correct, num, choices: { A: "One", B: "Two" } });
     const merged = mergePdfQuestionCandidates([
-      [question("A 20-year-old patient has a finding."), question("Second source question")],
-      [question("A 20 - year - old patient has a finding."), question("Recovered final question", "B")],
+      [question("A 20-year-old patient has a finding.", "A", 1), question("Second source question", "A", 2)],
+      [question("A 20 - year - old patient has a finding.", "A", 1), question("Recovered final question", "B", 3)],
     ]);
     expect(merged).toHaveLength(3);
     expect(merged.map((item) => item.stem)).toContain("Recovered final question");
