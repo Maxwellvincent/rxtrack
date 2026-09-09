@@ -223,13 +223,11 @@ export function MentalModelView({ model, onAtomClick }) {
 export function MentalModelOverview({ model, onAtomClick, children }) {
   return <div className="mt-3 space-y-3">
     <p className="text-base leading-relaxed text-text-1">
-      {model.bigPicture || "No overview paragraph was saved for this model. The reference details are still available below."}
+      {model.bigPicture || "No overview paragraph was saved for this model. Supporting details are available below."}
     </p>
-    <ModelSection title="Reference details">
-      <p className="text-sm text-text-2">Optional lookup material for your chat walkthrough—not a checklist to complete.</p>
-      <MentalModelView model={{ ...model, bigPicture: null }} onAtomClick={onAtomClick} />
-      {children}
-    </ModelSection>
+    <p className="text-xs text-text-3">Use the sections below as optional lookup material, not a checklist.</p>
+    <MentalModelView model={{ ...model, bigPicture: null }} onAtomClick={onAtomClick} />
+    {children}
   </div>;
 }
 
@@ -1326,7 +1324,7 @@ export function LectureStudyFlow({
           {!quizPicker ? (
             <div className="flex flex-wrap items-center gap-3">
               <Button
-                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 10, difficulty: resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v1" }); }}
+                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2" }); }}
                 disabled={!!busy}
               >
                 {busyLabel || "▸ Quiz this lecture"}
@@ -1362,7 +1360,7 @@ export function LectureStudyFlow({
               <div className="flex items-center gap-4">
                 <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3 w-20">Questions</span>
                 <div className="flex gap-1.5">
-                  {[5, 10, 25, 50, 100].map((n) => (
+                  {[5, 10, 15, 25, 50, 100].map((n) => (
                     <button
                       key={n}
                       onClick={() => setQuizPicker((p) => ({ ...p, count: n }))}
