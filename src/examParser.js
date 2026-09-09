@@ -76,9 +76,8 @@ export function detectFormat(pages, fullText) {
 function parseSlideQuestionText(text) {
   const source = String(text || "").replace(/\r/g, "").trim();
   const first = source.match(/^\s*(\d+)[.)]\s+([\s\S]*)$/);
-  if (!first) return null;
-  const num = Number(first[1]);
-  const lines = first[2].split("\n");
+  const num = first ? Number(first[1]) : null;
+  const lines = (first ? first[2] : source).split("\n");
   const stemLines = [];
   const choices = {};
   let letter = null;
@@ -95,7 +94,8 @@ function parseSlideQuestionText(text) {
       stemLines.push(line);
     }
   }
-  return { num, stem: stemLines.join(" ").replace(/\s+/g, " ").trim(), choices };
+  const stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
+  return stem && Object.keys(choices).length >= 2 ? { num, stem, choices } : null;
 }
 
 /**
@@ -123,6 +123,23 @@ export function groupPairedKeySlides(pages) {
       schoolObjective: objectiveMatch?.[2]?.trim() || null,
     });
     if (answerPage) i++;
+  }
+  // Some IMCQ exports omit numeric labels entirely and place the objective code
+  // only on the final duplicate slide. Recover those by unique stem text and
+  // assign stable sequential numbers; the companion breakdown supplies keys.
+  if (groups.length < 16) {
+    const recovered = [];
+    const seen = new Set();
+    for (const page of pages || []) {
+      const parsed = parseSlideQuestionText(page?.text);
+      if (!parsed || parsed.stem.length < 40 || Object.keys(parsed.choices).length < 2) continue;
+      const signature = parsed.stem.toLowerCase().replace(/\s+/g, " ").slice(0, 180);
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      const objectiveMatch = String(page?.text || "").match(/\b(SOM\.[A-Z0-9.]+)\s+([^\n]+)/i);
+      recovered.push({ ...parsed, num: recovered.length + 1, questionPage: page, answerPage: page, schoolObjectiveCode: objectiveMatch?.[1] || null, schoolObjective: objectiveMatch?.[2]?.trim() || null });
+    }
+    if (recovered.length > groups.length) return recovered;
   }
   return groups;
 }
