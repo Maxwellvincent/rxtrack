@@ -388,9 +388,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const accepted = [];
   const seen = new Set();
-  // Two reviewed AI passes strike the useful balance here: retain school-style generation, then
-  // fill remaining slots instantly from uploaded lecture facts instead of making the learner wait
-  // through several more provider/reviewer round trips.
+  // Bound generation retries. V1 can fill remaining slots from lecture facts;
+  // V2 must report a shortfall instead of substituting foundational recall.
   const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 2));
   let lastError = "";
@@ -437,7 +436,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     if (!result.questions?.length && result.error && !qualityOnlyRejection) break;
   }
 
-  if (accepted.length < requested) {
+  if (accepted.length < requested && args.generationVersion !== "v2") {
     const grounded = buildGroundedRecallQuestions({
       atoms: args.atoms,
       objectives: args.objectives,
@@ -452,7 +451,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const usablePartial = accepted.length >= Math.min(requested, Math.max(3, Math.ceil(requested * 0.6)));
     return {
       ...(usablePartial
-        ? { warning: `Starting with ${accepted.length} verified questions. ${requested - accepted.length} unavailable slots were omitted.` }
+        ? { warning: `Starting with ${accepted.length} prepared questions. ${requested - accepted.length} unavailable slots were omitted.` }
         : { error: `Only ${accepted.length}/${requested} questions could be prepared. ${lastError || "Retry to generate the remaining questions."}` }),
       questions: accepted,
       incomplete: true,

@@ -1,5 +1,6 @@
 # Local-only data and recovery snapshots must never be uploaded with a deploy.
 backups/
+tmp/
 
 # Vercel installs dependencies and builds these artifacts itself.
 node_modules/

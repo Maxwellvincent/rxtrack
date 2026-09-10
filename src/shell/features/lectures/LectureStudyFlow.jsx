@@ -830,6 +830,9 @@ export function LectureStudyFlow({
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
       const matching = priorQuestions.filter((q) =>
+        q.generationMode !== "grounded-fallback" &&
+        (q.generationVersion || "v1") === generationVersion &&
+        validReserve.has(q) &&
         String(q?.difficulty || "").toLowerCase() === difficulty &&
         (!orderedObjectives.length || q.objectiveIds?.length)
       );

@@ -226,6 +226,35 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.fallbackCount).toBe(10);
   });
 
+  it("reports V2 provider failure without publishing recall substitutes", async () => {
+    const onAccepted = vi.fn();
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 10, generationVersion: "v2" },
+      { callAIJSON: vi.fn().mockRejectedValue(new Error("provider unavailable")), onAccepted }
+    );
+    expect(result.incomplete).toBe(true);
+    expect(result.questions).toEqual([]);
+    expect(result.error).toMatch(/Only 0\/10.*provider unavailable/);
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("keeps accepted V2 questions when retries run short without filling with recall", async () => {
+    const onAccepted = vi.fn();
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ questions: [{ stem: "Which pathway accounts for the supplied findings?", choices: { A: "One", B: "Two", C: "Three", D: "Four" }, correct: "A" }] })
+      .mockRejectedValue(new Error("provider unavailable"));
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 2, generationVersion: "v2" },
+      { callAIJSON, onAccepted, skipQuestionAudit: true }
+    );
+    expect(result.incomplete).toBe(true);
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].generationVersion).toBe("v2");
+    expect(result.questions[0].generationMode).not.toBe("grounded-fallback");
+    expect(onAccepted).toHaveBeenCalledOnce();
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+  });
+
   it("builds credit-independent questions only from uploaded facts", () => {
     const questions = buildGroundedRecallQuestions({
       atoms: [
@@ -289,7 +318,7 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.error).toBeUndefined();
     expect(result.incomplete).toBe(true);
     expect(result.questions).toHaveLength(9);
-    expect(result.warning).toMatch(/Starting with 9 verified questions/);
+    expect(result.warning).toMatch(/Starting with 9 prepared questions/);
   });
 
   it("continues after a fully rejected replacement batch", async () => {
