@@ -23,6 +23,18 @@ function stableSnapshot(store, userId) {
 }
 
 /**
+ * The data value can legitimately be identical before and after hydration —
+ * for example, a missing Firestore document and an empty fallback both read as
+ * `{}`. Hydration is still a meaningful UI change, so include that status in
+ * the external-store snapshot used by React.
+ */
+function resourceSnapshot(store, userId) {
+  const data = stableSnapshot(store, userId);
+  const { loading, error } = statusOf(store, userId);
+  return JSON.stringify([data, loading, error?.message || ""]);
+}
+
+/**
  * `loading` and `error` are real for a cloud-backed store and inert for a
  * localStorage one, which answers synchronously and is therefore never loading.
  * A store opts in by exporting `isHydrated` / `readError`; the shape consumers
@@ -45,8 +57,8 @@ export function useStoreResource(store, userIdArg, select = (data) => data, prep
 
   const snapshot = useSyncExternalStore(
     subscribe,
-    () => stableSnapshot(store, userId),
-    () => stableSnapshot(store, userId)
+    () => resourceSnapshot(store, userId),
+    () => resourceSnapshot(store, userId)
   );
 
   const state = useMemo(() => {

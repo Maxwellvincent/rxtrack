@@ -52,6 +52,18 @@ describe("useStoreResource", () => {
     expect(seen.at(-1)).toMatchObject({ loading: false, data: { a: 1 } });
   });
 
+  it("re-renders when an empty fallback finishes hydrating", async () => {
+    let hydrated = false;
+    const store = makeStore({}, { isHydrated: () => hydrated, readError: () => null });
+    const seen = [];
+    await mount(store, (r) => seen.push({ loading: r.loading, data: r.data }));
+    expect(seen.at(-1).loading).toBe(true);
+
+    hydrated = true;
+    await act(async () => { store.set({}); });
+    expect(seen.at(-1)).toEqual({ loading: false, data: {} });
+  });
+
   it("surfaces a store's read error", async () => {
     const store = makeStore({}, { isHydrated: () => true, readError: () => new Error("permission-denied") });
     const seen = [];
