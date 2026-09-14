@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -59,6 +59,13 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toContain("A patient with X");
   });
 
+  it("requires varied school-style task endings and mostly second-order reasoning", () => {
+    expect(prompt).toContain("QUESTION-TASK VARIATION");
+    expect(prompt).toMatch(/at least 60%/);
+    expect(prompt).toMatch(/downstream consequence/);
+    expect(prompt).toMatch(/final task family/i);
+  });
+
   it("tells later generations not to repeat previously used stems", () => {
     const prompt = buildAtomQuestionsPrompt({
       atoms: [{ type: "definition", term: "Insulin", content: "Lowers serum glucose." }],
@@ -98,6 +105,39 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/"questions"/);
     expect(prompt).toMatch(/stem/);
     expect(prompt).toMatch(/choices/);
+  });
+});
+
+describe("question ending analysis", () => {
+  it("distinguishes the target of a Which stem from its shared opening", () => {
+    expect(questionEndingTask("Which mechanism best explains the patient's findings?")).toBe("mechanism");
+    expect(questionEndingTask("What additional laboratory finding would be expected?")).toBe("prediction");
+    expect(questionEndingTask("A patient has decreased serum glucose. Which enzyme is most likely deficient?")).toBe("identification");
+    expect(questionEndingTask("Which statement best describes the relationship between these abnormalities?")).toBe("relationship");
+    expect(questionEndingTask("Which diagnosis is most likely?")).toBe("diagnosis");
+  });
+
+  it("records ending families and second-order signal in the style fingerprint", () => {
+    const fingerprint = buildStyleFingerprint([
+      { stem: "A patient has a defect. Which mechanism best explains the findings?", choices: { A: "a", B: "b" } },
+      { stem: "A patient has a defect. What additional laboratory finding would be expected?", choices: { A: "a", B: "b" } },
+      { stem: "A patient has a lesion. Which enzyme is deficient?", choices: { A: "a", B: "b" } },
+    ]);
+    expect(fingerprint.endingFamilies.map(({ family }) => family)).toEqual(expect.arrayContaining(["mechanism", "prediction", "identification"]));
+    expect(fingerprint.secondOrderRate).toBeGreaterThanOrEqual(2 / 3);
+  });
+
+  it("removes only excess items when one ending family dominates a mixed batch", () => {
+    const questions = [
+      "Which enzyme is deficient?",
+      "Which enzyme is affected?",
+      "Which hormone is secreted?",
+      "Which structure is injured?",
+      "What additional laboratory finding would be expected?",
+    ].map((stem) => ({ stem }));
+    const varied = diversifyQuestionEndings(questions);
+    expect(varied).toHaveLength(4);
+    expect(varied.some(({ stem }) => /additional laboratory/.test(stem))).toBe(true);
   });
 });
 

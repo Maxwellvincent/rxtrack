@@ -26,6 +26,56 @@ export function exemplarSourceTier(question) {
   return "school";
 }
 
+const TASK_FAMILY_LABELS = {
+  mechanism: "mechanism or explanation",
+  prediction: "predicted finding, lab, hormone, pathway, or physiologic change",
+  identification: "structure, enzyme, receptor, cell, pathway, or component identification",
+  diagnosis: "diagnosis or named process",
+  relationship: "relationship, comparison, or best-characterizing statement",
+  decision: "next step, treatment, or intervention",
+  other: "other focused single-best-answer task",
+};
+
+/** Classify the final ask so prompt examples and generated batches can be audited for variety. */
+export function questionEndingTask(stem = "") {
+  const text = String(stem).replace(/\s+/g, " ").trim().replace(/[?!.]+$/, "").toLowerCase();
+  const lastSentence = text.split(/(?<=[.!?])\s+/).at(-1) || text;
+  const ask = lastSentence;
+  if (/\b(next step|treatment|management|intervention|administered|should be done)\b/.test(ask)) return "decision";
+  if (/\b(best explain|explains|mechanism|responsible for|cause of|due to|why does|why is|pathogenesis)\b/.test(ask)) return "mechanism";
+  if (/\b(additional|expected|observed|finding|laboratory|lab|concentration|level|acid-base|physiologic effect|alteration|change|increased|decreased|result|associated with|would occur|would be expected)\b/.test(ask)) return "prediction";
+  if (/\b(diagnosis|diagnose|condition|disorder|process)\b/.test(ask)) return "diagnosis";
+  if (/\b(best describe|best characteriz|relationship|statement|compare|comparison|normal course|chemical nature)\b/.test(ask)) return "relationship";
+  if (/\b(structure|nerve|vessel|enzyme|hormone|cell|receptor|intermediate|pathway|component|layer|ligament|muscle|gene|transporter|coenzyme)\b/.test(ask)) return "identification";
+  return "other";
+}
+
+function isSecondOrderStem(stem = "") {
+  return ["mechanism", "prediction", "relationship", "decision"].includes(questionEndingTask(stem));
+}
+
+function taskFamilyCounts(stems = []) {
+  return stems.reduce((counts, stem) => {
+    const family = questionEndingTask(stem);
+    counts[family] = (counts[family] || 0) + 1;
+    return counts;
+  }, {});
+}
+
+function taskVariationPrompt(styleFingerprint, difficulty, batchLabel = "batch") {
+  const diff = String(difficulty).toLowerCase();
+  const secondOrderTarget = diff === "easy" ? "at least 40%" : "at least 60%";
+  const observed = styleFingerprint?.sampleSize
+    ? `Observed school ending families: ${JSON.stringify(styleFingerprint.endingFamilies)}; observed second-order signal: ${Math.round((styleFingerprint.secondOrderRate || 0) * 100)}%.`
+    : "No school ending fingerprint was available; use the distribution below.";
+  return `\n\nQUESTION-TASK VARIATION (${batchLabel}): ${observed}\n` +
+    `- The school questions may often begin with "Which," but their final task varies. Do not repeat the generic phrase "Which of the following" as the complete template; use it no more than twice in a batch and vary the noun being requested.\n` +
+    `- Rotate among these ending families when the supplied facts support them: mechanism/explanation ("Which mechanism best explains...?"), predicted downstream finding or lab ("What additional finding would be expected...?" or "Which change is most likely...?"), identification ("Which structure/enzyme/receptor...?"), diagnosis/process ("Which diagnosis or process...?"), relationship/characterization ("Which statement best describes the relationship...?"), and conditional prediction ("If this step were blocked, what would change...?"). Do not force a family that the lecture cannot support.\n` +
+    `- At least ${secondOrderTarget} of ${batchLabel} should require clue -> underlying mechanism or lesion -> downstream consequence. The final ask should test the consequence, relationship, or mechanism when the objective allows it, rather than merely naming the first recognizable term.\n` +
+    `- Across ${batchLabel}, avoid repeating the same final sentence pattern, answer object, or clue-to-answer route. A different patient age or reordered options does not make a repeated task new.\n` +
+    `- Use the exact medical relationship supported by the lecture, objectives, and uploaded ExamSoft/IMCQ/homework evidence. Return taskType as recognition, mechanism, clinical-application, or fresh-retest, but vary the natural-language ending independently of that label.\n`;
+}
+
 /** Compact, deterministic style fingerprint used to keep generation anchored to the real bank. */
 export function buildStyleFingerprint(examples = []) {
   const usable = examples.filter((q) => q?.stem && q?.choices);
@@ -33,6 +83,7 @@ export function buildStyleFingerprint(examples = []) {
   const stems = usable.map((q) => String(q.stem).trim());
   const avg = (values) => Math.round(values.reduce((a, b) => a + b, 0) / Math.max(1, values.length));
   const leadIns = stems.flatMap((s) => [...s.matchAll(/(?:Which of the following|What is|The most likely|Which structure|Which nerve|Which vessel)/gi)].map((m) => m[0].toLowerCase()));
+  const endingCounts = taskFamilyCounts(stems);
   const scenarioTypes = ["surgery", "trauma", "imaging", "ultrasound", "x-ray", "laboratory", "histology", "procedure", "newborn", "symptoms"]
     .map((label) => ({ label, count: stems.filter((s) => new RegExp(`\\b${label}\\b`, "i").test(s)).length }))
     .filter((entry) => entry.count);
@@ -42,6 +93,8 @@ export function buildStyleFingerprint(examples = []) {
     averageSentences: Math.round((stems.map((s) => s.split(/[.!?]+/).filter(Boolean).length).reduce((a, b) => a + b, 0) / usable.length) * 10) / 10,
     optionCounts: [...new Set(usable.map((q) => Object.keys(q.choices).length))].sort((a, b) => a - b),
     commonLeadIns: [...new Set(leadIns)].slice(0, 6),
+    endingFamilies: Object.entries(endingCounts).sort((a, b) => b[1] - a[1]).map(([family, count]) => ({ family, label: TASK_FAMILY_LABELS[family], count })),
+    secondOrderRate: stems.filter(isSecondOrderStem).length / stems.length,
     scenarioTypes: scenarioTypes.sort((a, b) => b.count - a.count).slice(0, 6),
   };
 }
@@ -264,7 +317,7 @@ function renderChoices(choices) {
  * across the remaining bank. Image-dependent exemplars are excluded because their image is not
  * sent with the text prompt and would teach the model to reference a figure it cannot provide.
  */
-export function selectStyleExemplars(examples = [], limit = 5, difficulty = "medium", targets = {}) {
+export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "medium", targets = {}) {
   if (limit <= 0) return [];
   const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
   // Homework/student-authored banks are useful evidence about assigned content, but ExamSoft
@@ -337,8 +390,9 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
 
   const v2Blueprint = generationVersion === "v2" ?
     `V2 SGU/EXAMSOFT BLUEPRINT:\n- Objectives define WHAT is tested; lecture facts establish the medically correct key; examples define HOW the item is written and are never factual authority.\n- Write concise SGU-style clinical or anatomic application items, normally one or two reasoning steps, not long UWorld-style diagnostic puzzles.\n- Across a batch target 20% direct foundational application, 60% standard clinical/anatomic application, and 20% harder integration.\n- Every distractor must be the same semantic category as the key and plausible for the exact task.\n- Vary patient framing, tested relationship, lead-in, and clue-to-answer route across the batch. Never add generic patient details that do no diagnostic work.\n\n` : "";
+  const taskSection = taskVariationPrompt(styleFingerprint, diff, "atom-question batch");
   return (
-    v2Blueprint +
+    v2Blueprint + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
     `Each question must test that specific fact (not adjacent trivia). Use the supplied clinical correlate, cues, buzzwords, or inheritance pattern when present so the learner practices recognizing the lecture's clues. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. Medium items should use a concise 2–3 sentence stem and 1–2 reasoning steps; hard/expert items may use longer stems and indirect clues, but only when the supplied objective warrants that difficulty. ` +
@@ -445,6 +499,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `7. The clinical facts and answer relationship work in both directions: the clues support the key, and the key specifically explains the clues. Reject decorative patient details that could be removed without changing a direct-recall question.\n` +
     `8. Do not allow named diseases, syndromes, treatments, or laboratory findings absent from the supplied lecture evidence/objectives. A fact may be clinically true yet still fail this curriculum-grounding check; reject it as unsupported_fact.\n` +
     `9. Compare the entire batch. Reject paraphrases that test the same clue-to-answer route, even when age, sex, location, or option order changes.\n` +
+    `10. Compare the final asks across the batch. The school style may use "Which" often, but the target must vary. For batches of five or more, expect at least three supported task families and at least half of the items to require a second-order clue -> mechanism or lesion -> downstream finding/relationship step. Flag a repetitive generic ending or first-order-only batch as repetitive_task_ending when it materially reduces practice value.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
     `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
     `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
@@ -454,7 +509,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index:\n` +
     `{"reviews":[{"index":0,"approved":true,"issues":[]}]}\n` +
-    `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices.`
+    `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending.`
   );
 }
 
@@ -505,6 +560,25 @@ export function locallyValidClinicalQuestions(questions = []) {
   return uniqueQuestions(structurallyValid);
 }
 
+/** Keep a generated batch from being dominated by one generic final ask. */
+export function diversifyQuestionEndings(questions = []) {
+  if (questions.length < 4) return questions;
+  const families = questions.map((question) => questionEndingTask(question?.stem));
+  if (new Set(families).size < 2) return questions;
+  const cap = Math.ceil(questions.length * 0.6);
+  const counts = {};
+  const selected = [];
+  for (let i = 0; i < questions.length; i += 1) {
+    const family = families[i];
+    if ((counts[family] || 0) >= cap) continue;
+    counts[family] = (counts[family] || 0) + 1;
+    selected.push(questions[i]);
+  }
+  // Preserve the full batch when classification cannot find enough alternatives. The prompt
+  // still guides the model, and a later refill can supply missing task families.
+  return selected.length >= Math.ceil(questions.length * 0.6) ? selected : questions;
+}
+
 /**
  * A distinct model request reviews the completed batch. Missing, malformed, or uncertain reviews
  * fail closed: unapproved questions never reach the quiz or saved Firestore reserve.
@@ -513,7 +587,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
   const reviewer = deps.reviewAIJSON || deps.callAIJSON;
-  const locallyValid = locallyValidClinicalQuestions(questions);
+  const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions));
   const keepLocallyValidated = (reason) => ({
     questions: locallyValid.map((question) => ({
       ...question,
@@ -557,7 +631,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         },
       }];
     });
-    const distinctApproved = uniqueQuestions(approved);
+    const distinctApproved = diversifyQuestionEndings(uniqueQuestions(approved));
     // A strict reviewer can reject every item when the local/cloud reviewer is
     // unavailable or over-sensitive. Do not strand the learner in an endless
     // replacement loop: retain questions that passed deterministic safety
@@ -653,8 +727,9 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
 
   const v2Blueprint = generationVersion === "v2" ?
     `SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines factual content and the correct answer. Uploaded ExamSoft/IMCQ questions define structure, wording, clue density, and distractor style only. Use concise clinical/anatomic framing, usually one or two reasoning steps, rather than generic UWorld/NBME diagnostic puzzles. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\nSTYLE FINGERPRINT: ${JSON.stringify(styleFingerprint)}\n\n` : "";
+  const taskSection = taskVariationPrompt(styleFingerprint, diff, "question batch");
   return (
-    v2Blueprint +
+    v2Blueprint + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a concise clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For medium items use 2–3 sentences and at most two reasoning steps; reserve 4–5 sentence, multi-domain or indirect-clue stems for hard/expert items. Match the reference bank's typical sentence count and clue density; do not force artificial patient details or long board-style diagnostic narratives.\n` +
@@ -666,7 +741,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
-    `RULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
+    `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","difficulty":"${diff}"}]}`
   );
