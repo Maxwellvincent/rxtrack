@@ -82,15 +82,21 @@ function accuracyClass(accuracy) {
 export function computeObjectiveReadiness(sessions, objectives = []) {
   const knownIds = new Set((objectives || []).map((o) => o?.id).filter(Boolean));
   const stats = {};
-  for (const session of sessions || []) {
+  for (const [sessionIndex, session] of (sessions || []).entries()) {
+    const sessionKey = session?.sessionId || session?.id || session?.submittedAt || `session-${sessionIndex}`;
     for (const question of session?.questions || []) {
       const answer = (session.answers || []).find((a) => a.questionId === question.questionId);
       if (!answer) continue;
       const correct = !!answer && answer.value === question.correct;
       for (const objectiveId of question.objectiveIds || []) {
         if (knownIds.size && !knownIds.has(objectiveId)) continue;
-        const prev = stats[objectiveId] || { attempts: 0, correct: 0 };
-        stats[objectiveId] = { attempts: prev.attempts + 1, correct: prev.correct + (correct ? 1 : 0) };
+        const prev = stats[objectiveId] || { attempts: 0, correct: 0, sessions: new Set(), taskTypes: new Set(), latestCorrect: false };
+        prev.attempts += 1;
+        prev.correct += correct ? 1 : 0;
+        prev.sessions.add(sessionKey);
+        if (question.taskType) prev.taskTypes.add(question.taskType);
+        prev.latestCorrect = correct;
+        stats[objectiveId] = prev;
       }
     }
   }
@@ -98,7 +104,17 @@ export function computeObjectiveReadiness(sessions, objectives = []) {
   const total = knownIds.size || testedIds.length;
   const attempts = testedIds.reduce((sum, id) => sum + stats[id].attempts, 0);
   const correct = testedIds.reduce((sum, id) => sum + stats[id].correct, 0);
-  const ready = testedIds.filter((id) => stats[id].attempts >= 2 && stats[id].correct / stats[id].attempts >= 0.8).length;
+  const ready = testedIds.filter((id) => {
+    const stat = stats[id];
+    return stat.attempts >= 3 && stat.sessions.size >= 2 && stat.taskTypes.size >= 2
+      && stat.correct / stat.attempts >= 0.8 && stat.latestCorrect;
+  }).length;
+  const provisional = testedIds.filter((id) => {
+    const stat = stats[id];
+    return stat.attempts >= 2 && stat.correct / stat.attempts >= 0.8 && !(
+      stat.attempts >= 3 && stat.sessions.size >= 2 && stat.taskTypes.size >= 2 && stat.latestCorrect
+    );
+  }).length;
   const weak = testedIds.filter((id) => stats[id].attempts >= 2 && stats[id].correct / stats[id].attempts < 0.6).length;
   return {
     tested: testedIds.length,
@@ -106,6 +122,7 @@ export function computeObjectiveReadiness(sessions, objectives = []) {
     coverage: total ? testedIds.length / total : 0,
     accuracy: attempts ? correct / attempts : null,
     ready,
+    provisional,
     weak,
     stats,
   };
@@ -140,7 +157,7 @@ export function computePacingMetrics(sessions = []) {
   };
 }
 
-export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], onNavigateToLecture, onReviewSession }) {
+export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], generationCoverage = null, onNavigateToLecture, onReviewSession }) {
   const [queueNow,setQueueNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setQueueNow(Date.now()),60000);return ()=>clearInterval(timer);},[]);
   const [loading, setLoading] = useState(true);
@@ -257,6 +274,16 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <ConfidenceCalibration records={studyAnswers}/>
+      {generationCoverage && (
+        <section className="mb-4 rounded-xl border border-border bg-panel p-4" aria-label="Prepared question objective coverage">
+          <div className="font-mono text-[12px] uppercase tracking-wider text-text-3">Prepared question coverage</div>
+          <p className="mt-1 text-sm text-text-2">
+            {generationCoverage.covered?.length || 0}/{objectives.length} objectives represented in the generated set.
+            {generationCoverage.untested?.length ? ` ${generationCoverage.untested.length} remain untested.` : " Every supplied objective is represented."}
+          </p>
+          {!!generationCoverage.untested?.length && <p className="mt-1 text-sm text-status-purple">Untested objective IDs: {generationCoverage.untested.join(", ")}</p>}
+        </section>
+      )}
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
         Integrated Exam performance
       </div>
@@ -265,7 +292,8 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         {[
           ["Objective coverage", `${Math.round(readiness.coverage * 100)}%`],
           ["Exam accuracy", readiness.accuracy === null ? "—" : `${Math.round(readiness.accuracy * 100)}%`],
-          ["Ready objectives", String(readiness.ready)],
+          ["Durably ready objectives", String(readiness.ready)],
+          ["Provisional objectives", String(readiness.provisional)],
           ["Weak objectives", String(readiness.weak)],
           ["Average pace", pacing.secondsPerQuestion === null ? "—" : `${Math.round(pacing.secondsPerQuestion)} sec/q`],
         ].map(([label, value]) => (

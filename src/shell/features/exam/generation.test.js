@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
-import { generateExamQuestions } from "./generation.js";
+import { buildObjectiveCoverage, generateExamQuestions, resolveQuestionObjectiveIds } from "./generation.js";
 
 const LECTURE_BODY = "Brachial plexus anatomy. ".repeat(20); // over the 150-char floor
 
@@ -41,6 +41,18 @@ function tableMcq(stem) {
 beforeEach(() => installDomStorage());
 
 describe("generateExamQuestions", () => {
+  it("keeps objective provenance conservative when a multi-objective item is untagged", () => {
+    const objectives = [{ id: "o1", code: "A" }, { id: "o2", code: "B" }];
+    expect(resolveQuestionObjectiveIds({ objectiveIds: ["B", "unknown"] }, objectives)).toEqual(["o2"]);
+    expect(resolveQuestionObjectiveIds({}, objectives)).toEqual([]);
+    expect(buildObjectiveCoverage([{ objectiveIds: ["o1"] }, {}], objectives)).toMatchObject({
+      covered: ["o1"], untested: ["o2"], untagged: 1, coverageRate: 0.5,
+    });
+    expect(buildObjectiveCoverage([{}], [{ id: "o1" }])).toMatchObject({
+      covered: ["o1"], untested: [], untagged: 0, coverageRate: 1,
+    });
+  });
+
   it("generates once per lecture and stamps provenance on every surviving question", async () => {
     const callAIJSON = vi
       .fn()
@@ -106,7 +118,7 @@ describe("generateExamQuestions", () => {
     expect(result.questions).toHaveLength(2);
     expect(result.questions[0].stem).toBe("Good question");
     expect(result.questions[1].choiceLayout).toBe("table");
-    expect(result.questions[1].choices.A).toEqual({ rowA: "x" });
+    expect(Object.values(result.questions[1].choices)).toContainEqual({ rowA: "x" });
     expect(result.errors).toEqual([]);
   });
 

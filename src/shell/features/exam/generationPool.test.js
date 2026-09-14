@@ -33,6 +33,19 @@ describe("parallel generation with durable reuse", () => {
     expect(result.cacheHits).toBe(1);
     expect(result.questions).toHaveLength(2);
   });
+  it("adds the sole lecture objective to older prepared questions without tags", async () => {
+    const storage = pool();
+    storage.ready.mockResolvedValueOnce([{ ...q("Stored"), poolId: "saved", lectureId: "l1" }]);
+    const result = await generateExamQuestions({
+      ...args,
+      allocation: { l1: 1 },
+      lecturesById: { l1: { lectureTitle: "Lecture One" } },
+      objectivesByLecture: { l1: [{ id: "obj1" }] },
+    }, { pool: storage });
+    expect(result.questions[0].objectiveIds).toEqual(["obj1"]);
+    expect(result.coverage.covered).toEqual(["obj1"]);
+    expect(result.coverage.untagged).toBe(0);
+  });
   it("rejects repeated and overgenerated questions across workers", async () => {
     generate.mockResolvedValue({ questions: [q("Identical"), q("Identical")] });
     const result = await generateExamQuestions({ ...args, allocation: { l1: 1, l2: 1 } });

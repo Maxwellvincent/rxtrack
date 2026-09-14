@@ -52,7 +52,7 @@ describe("computeObjectiveReadiness", () => {
       ],
     }];
     expect(computeObjectiveReadiness(sessions, [{ id: "o1" }, { id: "o2" }, { id: "o3" }])).toMatchObject({
-      tested: 2, total: 3, ready: 1, weak: 1, accuracy: 0.5,
+      tested: 2, total: 3, ready: 0, provisional: 1, weak: 1, accuracy: 0.5,
     });
   });
 });

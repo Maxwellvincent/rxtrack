@@ -78,6 +78,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   // read; surfaced here as a brief, dismissable warning once the user is in
   // the session, rather than silently dropped.
   const [launchWarning, setLaunchWarning] = useState(null);
+  const [generationCoverage, setGenerationCoverage] = useState(null);
 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
@@ -371,6 +372,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           weakConceptAccuracyByLecture, weakConcepts },
           { callAIJSON, onProgress: p => report(`${p.completed || 0}/${p.total || config.questionCount} ready · ${p.message}`) });
         if (!result.ok) throw new Error(result.error);
+        setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
         return `${result.prepared}/${config.questionCount} questions saved in Firestore. Start an exam when ready.${result.generationErrors?.length ? " Some slots still need generation." : ""}`;
       },
@@ -419,6 +421,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         { callAIJSON, onProgress: setLaunchProgress }
       );
       if (result.ok) {
+        setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
         setShowLaunchModal(false);
         setActiveSessionId(result.sessionId);
@@ -621,6 +624,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           userId={userId}
           lecturesById={lecturesById}
           objectives={objectives}
+          generationCoverage={generationCoverage}
           onNavigateToLecture={onNavigateToLecture}
           onReviewSession={setActiveSessionId}
         />

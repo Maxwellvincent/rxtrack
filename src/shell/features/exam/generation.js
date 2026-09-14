@@ -3,6 +3,7 @@ import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questi
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { repairTaskForIndex } from "./focusedRepair.js";
+import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -19,6 +20,34 @@ export function alreadyUsed(q, history) {
   }) || isSemanticDuplicate(q, history);
 }
 
+/** Keep provenance honest: a question may claim only supplied objective IDs.
+ * If a lecture has one objective, an older generator response without tags can
+ * be safely attributed to that sole target. With multiple objectives, leaving
+ * it untagged is safer than claiming broad coverage. */
+export function resolveQuestionObjectiveIds(question, objectives = []) {
+  const ids = canonicalObjectiveIds(question?.objectiveIds || [], objectives);
+  if (ids.length) return ids.slice(0, 1);
+  return objectives.length === 1 && objectives[0]?.id ? [objectives[0].id] : [];
+}
+
+export function buildObjectiveCoverage(questions = [], objectives = []) {
+  const counts = Object.fromEntries(objectives.map(o => [o.id, 0]));
+  for (const question of questions) {
+    for (const id of resolveQuestionObjectiveIds(question, objectives)) {
+      if (id in counts) counts[id] += 1;
+    }
+  }
+  const total = questions.length;
+  return {
+    counts,
+    covered: objectives.filter(o => counts[o.id] > 0).map(o => o.id),
+    untested: objectives.filter(o => counts[o.id] === 0).map(o => o.id),
+    untagged: questions.filter(q => !resolveQuestionObjectiveIds(q, objectives).length).length,
+    questionCount: total,
+    coverageRate: objectives.length ? objectives.filter(o => counts[o.id] > 0).length / objectives.length : null,
+  };
+}
+
 /** Two bounded workers, incremental cloud persistence, then atomic assignment
  * at launch. A prepared pool is not an answer history or a mastery claim. */
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
@@ -29,6 +58,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
   const history = deps.pool ? await deps.pool.history() : [];
   let nextIndex = 0, cacheHits = 0, stopError = null;
+  const coverageByLecture = {};
   const progress = message => deps.onProgress?.({ message, completed: questions.length, total, cacheHits });
 
   async function generateLecture(lectureId) {
@@ -39,7 +69,6 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
     const difficulty = resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
-    const objectiveIds = objectives.map(o => o?.id).filter(Boolean);
     const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode }) : null;
     let obtained = 0, attempt = 0, errorMessage = null;
     if (deps.pool) {
@@ -47,7 +76,8 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       for (const q of await deps.pool.ready(bucket)) {
         if (obtained >= requested) break;
         if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length) continue;
-        accepted.push(q); questions.push(q); obtained++; cacheHits++;
+        const cached = { ...q, objectiveIds: resolveQuestionObjectiveIds(q, objectives) };
+        accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
       }
       progress(`Loaded saved questions: ${lectureTitle}`);
     }
@@ -79,7 +109,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         if (!isValidPoolQuestion(q) || qualityIssues.length || alreadyUsed(q, [...history, ...accepted])) continue;
         const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
-          objectiveIds: q.objectiveIds?.length ? q.objectiveIds : objectiveIds,
+          objectiveIds: resolveQuestionObjectiveIds(q, objectives),
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
           source: exemplars.length ? "school-style generated" : "lecture generated" };
         // Reserve in this run before awaiting storage, preventing worker races.
@@ -92,6 +122,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     }
     if (obtained < requested) errors.push({ lectureId, requested, obtained,
       message: `${lectureTitle}: ${obtained}/${requested} questions ready. ${errorMessage || stopError || `Shortfall after ${attempt} attempts.`}` });
+    coverageByLecture[lectureId] = buildObjectiveCoverage(
+      questions.filter(q => q.lectureId === lectureId), objectives
+    );
   }
   async function worker() {
     while (nextIndex < lectureIds.length) {
@@ -102,5 +135,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   const results = await Promise.allSettled(Array.from({ length: Math.min(2, lectureIds.length) }, worker));
   const failed = results.find(r => r.status === "rejected");
   if (failed) throw failed.reason;
-  return { questions, errors, cacheHits };
+  const blockObjectives = lectureIds.flatMap(id => objectivesByLecture?.[id] || []);
+  return {
+    questions,
+    errors,
+    cacheHits,
+    coverageByLecture,
+    coverage: buildObjectiveCoverage(questions, blockObjectives),
+  };
 }

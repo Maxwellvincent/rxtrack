@@ -74,7 +74,7 @@ async function runLaunch(
     sessionId,
   });
 
-  const { questions, errors: generationErrors, cacheHits = 0 } = await generateExamQuestions(
+  const { questions, errors: generationErrors, cacheHits = 0, coverage = null } = await generateExamQuestions(
     {
       allocation,
       lecturesById,
@@ -101,12 +101,13 @@ async function runLaunch(
     };
   }
 
-  if (prepareOnly) return { ok: true, prepared: questions.length, cacheHits, generationErrors };
+  if (prepareOnly) return { ok: true, prepared: questions.length, cacheHits, generationErrors, coverage };
   if (format === "exam" && questions.length < questionCount && !savedOnly) {
     return {
       ok: false,
       readyCount: questions.length,
       canStartSaved: questions.length > 0,
+      coverage,
       error: `${questions.length}/${questionCount} questions are saved and ready. The timed exam has not started. You can start with the saved questions now or retry later to fill the remaining slots. ${generationErrors[0]?.message || ""}`,
     };
   }
@@ -136,7 +137,7 @@ async function runLaunch(
     return { ok: false, error: result.error };
   }
 
-  return { ok: true, sessionId, generationErrors, cacheHits };
+  return { ok: true, sessionId, generationErrors, cacheHits, coverage };
   } catch (error) {
     await pool.finish(sessionId, { status: "error", error: error.message, durationMs: Date.now() - startedGenerationAt }).catch(() => {});
     throw error;
