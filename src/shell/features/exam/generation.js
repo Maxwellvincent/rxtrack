@@ -1,9 +1,10 @@
-import { readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
+import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { repairTaskForIndex } from "./focusedRepair.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
+import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -54,6 +55,13 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
   blockId, lectures, weakConceptAccuracyByLecture, userId, generationId }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const exemplars = readExemplarsForBlock(userId, blockId);
+  const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
+    atoms: Object.values(atomsByLecture || {}).flat(),
+    examples: exemplars,
+    analyses: readClinicalAnalysesForBlock(userId, blockId),
+    // Supplying the lecture-wide library makes a block exam share recurring signals across
+    // lectures while retaining the analyzed homework evidence for this block.
+  });
   const lectureIds = Object.keys(allocation || {}).filter(id => allocation[id] > 0);
   const total = lectureIds.reduce((n, id) => n + allocation[id], 0);
   const history = deps.pool ? await deps.pool.history() : [];
@@ -89,7 +97,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       try {
         result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, blockId, lectures, exemplars, atoms,
           studyMode,
-          difficulty, userId, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
+          difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
           ...deps,
           maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),
           callAIJSON: (...args) => {

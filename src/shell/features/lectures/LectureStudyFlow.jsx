@@ -19,6 +19,7 @@ import {
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
+import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
@@ -37,7 +38,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { prepareObjectiveQuiz, resolveDefaultDifficulty, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
+import { prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
@@ -358,6 +359,14 @@ export function LectureStudyFlow({
   const schoolExemplars = useMemo(
     () => selectExemplarsForBlock(questionBanksRes.data, questionBankMetaRes.data, blockId),
     [questionBanksRes.data, questionBankMetaRes.data, blockId]
+  );
+  const clinicalCorrelateLibrary = useMemo(
+    () => buildClinicalCorrelateLibrary({
+      atoms,
+      examples: schoolExemplars,
+      analyses: readClinicalAnalysesForBlock(userId, blockId),
+    }),
+    [atoms, schoolExemplars, userId, blockId]
   );
   const schoolExamplesLoading = questionBanksRes.loading || questionBankMetaRes.loading;
 
@@ -698,6 +707,7 @@ export function LectureStudyFlow({
       exemplars: schoolExemplars,
       objectives: [...objectiveById.values()],
       difficulty,
+      clinicalCorrelateLibrary,
       avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
     });
     setBusy("");
@@ -719,7 +729,7 @@ export function LectureStudyFlow({
     setRound(index);
     setAdHocQuiz(false);
     startQuizSession(questions);
-  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
+  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
 
   /**
    * "Quiz this lecture" — any count, any difficulty, drawn from real atoms same as a Study
@@ -808,6 +818,7 @@ export function LectureStudyFlow({
         questionCount: missing,
         userId,
         exemplars: schoolExemplars,
+        clinicalCorrelateLibrary,
         feedback: questionRatingsStore.feedbackFor(userId, lecture?.id, generationVersion),
         avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
       },
@@ -874,7 +885,7 @@ export function LectureStudyFlow({
       startQuizSession(questionsWithObjectiveText);
     }
     setQuizPreparation(null);
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
 
   // An external "Quiz" click (Today/Lectures/ObjectiveTracker) opens the same picker the
   // in-page button opens — once per mount, so revisiting Study later for the same lecture
@@ -1201,6 +1212,22 @@ export function LectureStudyFlow({
             <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
           </div>
           <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
+          {clinicalCorrelateLibrary.length > 0 && (
+            <details className="rounded-lg border border-border bg-bg-elevated p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-text-1">
+                Recurring clinical correlates ({clinicalCorrelateLibrary.length})
+              </summary>
+              <p className="mt-2 text-xs text-text-3">Signals repeated in this lecture and/or its uploaded question sets. They are available as optional clue patterns during question generation.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {clinicalCorrelateLibrary.map((entry) => (
+                  <div key={`${entry.label}-${entry.sourceKinds?.join("-")}`} className="rounded border border-border p-2 text-sm">
+                    <div className="font-medium text-text-1">{entry.label}</div>
+                    <div className="mt-1 text-xs text-text-3">{entry.sourceKinds?.join(" · ")} · {entry.frequency} references</div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
           {onGoDeep && <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>}
         </div>
       </details>

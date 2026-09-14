@@ -6,6 +6,7 @@ import { normAtomKey } from "./atomNorm.js";
 import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
+import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -186,6 +187,8 @@ export function normalizeQuestions(raw) {
       atomKey: q.atomKey ? String(q.atomKey) : null,
       objectiveIds: Array.isArray(q.objectiveIds) ? q.objectiveIds.map(String).filter(Boolean) : [],
       taskType: q.taskType ? String(q.taskType).trim() : null,
+      clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,
+      clinicalCueUsed: q.clinicalCueUsed ? String(q.clinicalCueUsed).trim() : null,
     };
     out.push(shuffleChoices(validated));
     if (out.length >= 100) break;
@@ -302,7 +305,7 @@ export function selectStyleExemplars(examples = [], limit = 5, difficulty = "med
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [] } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -328,6 +331,9 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   const feedbackSection = feedback?.sampleSize
     ? `\n\nLEARNED FEEDBACK FROM PRIOR QUESTIONS (${feedback.sampleSize} ratings for this lecture/version):\n- Fairness issues: ${feedback.fairNo}\n- Exam-style mismatches: ${feedback.examStyleNo}\n- Recurring issue codes: ${JSON.stringify(feedback.issueCounts || {})}\nActively correct these recurring issues in every new item; do not repeat the same failure patterns.\n`
     : "";
+  const clinicalSection = clinicalCorrelateLibrary?.length
+    ? `\n\nRECURRENT CLINICAL CORRELATES FROM THE LECTURE AND UPLOADED QUESTIONS:\n${renderClinicalCorrelateLibrary(clinicalCorrelateLibrary)}\nUse these recurring signals as optional clue-to-mechanism practice when the numbered atom supports them. Do not force a signal into every item, do not make the signal itself the answer unless the atom supports that relationship, and do not add facts that are absent from the supplied atoms/objectives.\n`
+    : "";
 
   const v2Blueprint = generationVersion === "v2" ?
     `V2 SGU/EXAMSOFT BLUEPRINT:\n- Objectives define WHAT is tested; lecture facts establish the medically correct key; examples define HOW the item is written and are never factual authority.\n- Write concise SGU-style clinical or anatomic application items, normally one or two reasoning steps, not long UWorld-style diagnostic puzzles.\n- Across a batch target 20% direct foundational application, 60% standard clinical/anatomic application, and 20% harder integration.\n- Every distractor must be the same semantic category as the key and plausible for the exact task.\n- Vary patient framing, tested relationship, lead-in, and clue-to-answer route across the batch. Never add generic patient details that do no diagnostic work.\n\n` : "";
@@ -344,7 +350,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
     `\n\nLECTURE OBJECTIVES (source data):\n${objectives.map(o => `[${o.id}] ${o.code || ""} ${o.objective || o.text || ""}`).join("\n") || "No objectives available; do not claim objective coverage."}\n` +
     `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
-    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + feedbackSection + avoidSection +
+    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + clinicalSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     `\n\nReturn ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","difficulty":"${diff}"}]}`
@@ -410,6 +416,8 @@ function auditQuestionPayload(question, index) {
     whyWrong: question.whyWrong,
     objectiveIds: question.objectiveIds,
     topic: question.topic,
+    clinicalCorrelate: question.clinicalCorrelate,
+    clinicalCueUsed: question.clinicalCueUsed,
   };
 }
 
@@ -425,6 +433,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     objectiveIds: atom.objectiveIds || [],
   }));
   const evidence = retrieveLectureEvidence(String(cfg.lectureText || ""), cfg.objectives || [], cfg.atoms || []);
+  const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Do not rewrite or repair it. Approve it only when ALL checks pass:\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
@@ -441,6 +450,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
     `LECTURE FACTS:\n${JSON.stringify(atoms)}\n` +
     `RETRIEVED LECTURE EVIDENCE:\n${evidence || "No lecture text supplied; use only objectives and lecture facts."}\n\n` +
+    `RECURRENT CLINICAL CORRELATES (optional; use only when supported by the lecture facts):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index:\n` +
     `{"reviews":[{"index":0,"approved":true,"issues":[]}]}\n` +
@@ -608,7 +618,7 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [] } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
@@ -634,6 +644,9 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
   const contentSection = lectureText
     ? "\n\nLECTURE CONTENT (retrieved across the lecture for these targets):\n" + retrieveLectureEvidence(lectureText, objectives, atoms)
     : "";
+  const clinicalSection = clinicalCorrelateLibrary?.length
+    ? `\n\nRECURRENT CLINICAL CORRELATES FROM THE LECTURE AND UPLOADED QUESTIONS:\n${renderClinicalCorrelateLibrary(clinicalCorrelateLibrary)}\nUse these as optional, curriculum-grounded clue patterns. Distribute them across the batch only when the supplied lecture facts support the relationship; never force one into an item, turn a cue into an unsupported diagnosis, or import outside facts. If a correlate conflicts with the lecture evidence, ignore it.\n`
+    : "";
   const feedbackSection = feedback?.sampleSize
     ? `\n\nLEARNED FEEDBACK FROM PRIOR QUESTIONS (${feedback.sampleSize} ratings): recurring issue codes ${JSON.stringify(feedback.issueCounts || {})}; fairness misses ${feedback.fairNo}; ExamSoft-style misses ${feedback.examStyleNo}. Correct these patterns in every new question.\n`
     : "";
@@ -650,7 +663,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
     examplesSection +
     schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection +
-    atomsSection + feedbackSection +
+    atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
     `RULES: every question UNIQUE; vary format/demographics; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +

@@ -85,6 +85,15 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/HARD/);
     expect(prompt).toContain("5");
   });
+  it("passes recurring lecture and uploaded-question clinical signals to generation", () => {
+    const clinicalPrompt = buildMcqPrompt({
+      lectureText: "A lecture fact about enzyme deficiency.",
+      clinicalCorrelateLibrary: [{ label: "family history", frequency: 2, sourceKinds: ["lecture", "homework"] }],
+    });
+    expect(clinicalPrompt).toContain("RECURRENT CLINICAL CORRELATES");
+    expect(clinicalPrompt).toContain("family history");
+    expect(clinicalPrompt).toContain("outside facts");
+  });
   it("asks for strict JSON with the questions shape", () => {
     expect(prompt).toMatch(/"questions"/);
     expect(prompt).toMatch(/stem/);

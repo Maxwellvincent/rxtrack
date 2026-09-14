@@ -13,12 +13,14 @@
 import { ATOM_QUIZ_CAP, generateFromAtoms, generateMcqs } from "../../../engine/mcq.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
+import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { matchByTerm } from "../../../engine/tagAtoms.js";
 import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
+import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 
 // Rich clinical stems plus five per-choice explanations are large JSON
 // objects. Asking for ten in one response routinely truncates otherwise good
@@ -155,6 +157,19 @@ export function readExemplarsForBlock(userId = null, blockId = null) {
   }
 }
 
+/** Analyzed upload signals scoped to the same block as the quiz. */
+export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
+  try {
+    const meta = questionBankMetaStore.read(userId) || {};
+    const entries = Object.values(meta).filter((entry) => entry && (!blockId || entry.blockId === blockId));
+    return entries
+      .map((entry) => questionBankAnalysisStore.read(userId, entry.filename))
+      .filter((analysis) => analysis && Array.isArray(analysis.items));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Everything the generator needs, decided without touching the network.
  * Returns `{ error }` instead of a config when there is nothing to quiz.
@@ -170,6 +185,8 @@ export function buildQuizConfig({
   difficulty = "medium",
   questionCount,
   studyMode = "balanced",
+  userId = null,
+  clinicalCorrelateLibrary = null,
 }) {
   const pool = sortWeakestFirst(objectives);
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
@@ -178,6 +195,11 @@ export function buildQuizConfig({
   const selected = pool.slice(0, Math.min(count, pool.length));
   const lecture = findLectureForQuiz(lectures, blockId, lectureTitle);
   const lectureText = lecture ? getLecText(lecture) : "";
+  const recurringClinicalCorrelates = clinicalCorrelateLibrary || buildClinicalCorrelateLibrary({
+    atoms,
+    examples: exemplars,
+    analyses: readClinicalAnalysesForBlock(userId, blockId),
+  });
 
   if (!selected.length && !atoms.length && !lectureText.trim()) {
     return { error: "No objectives, lecture facts, or lecture text are available to quiz." };
@@ -194,6 +216,7 @@ export function buildQuizConfig({
       difficulty,
       count,
       studyMode,
+      clinicalCorrelateLibrary: recurringClinicalCorrelates,
     },
     lectureId: lecture?.id ?? selected.map((o) => o?.linkedLecId).find(Boolean) ?? null,
   };
@@ -344,7 +367,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
       selected.push(...objectiveFacts.slice(0, config.count - selected.length));
     }
     const result = await generateFromAtoms(
-      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion },
+      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion, clinicalCorrelateLibrary: config.clinicalCorrelateLibrary },
       deps
     );
     return { ...result, lectureId };
@@ -372,6 +395,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
         avoidStems: config?.avoidStems,
         subject: config?.subject,
         generationVersion: args.generationVersion,
+        clinicalCorrelateLibrary: config.clinicalCorrelateLibrary,
       },
       deps
     )),

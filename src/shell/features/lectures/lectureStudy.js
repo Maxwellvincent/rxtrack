@@ -102,7 +102,7 @@ export async function extractAtoms(lecture, text, deps = {}) {
  * quiz can render it. Both halves are no-ops for a lecture ingested without images.
  */
 export async function quizFromAtoms(lecture, atoms, deps = {}) {
-  const { callAIJSON, exemplars = [], difficulty = "medium", avoidStems = [] } = deps;
+  const { callAIJSON, exemplars = [], difficulty = "medium", avoidStems = [], clinicalCorrelateLibrary = [] } = deps;
   const images = (lecture?.images || []).filter(isUsableImage);
 
   // Flag atoms that have a matching image, then cap image-questions at 35% so a
@@ -128,6 +128,7 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
       difficulty,
       examples: exemplars,
       avoidStems,
+      clinicalCorrelateLibrary,
     },
     { callAIJSON, reviewAIJSON: deps.reviewAIJSON, skipQuestionAudit: deps.skipQuestionAudit }
   );

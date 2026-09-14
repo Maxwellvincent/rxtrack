@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
-vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
+vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
 const q = stem => ({ stem, choices: { A: "yes", B: "no" }, correct: "A" });
 const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: {}, objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
 const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => []), save: vi.fn(async question => ({ ...question, poolId: question.questionId })) });
