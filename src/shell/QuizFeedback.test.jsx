@@ -24,6 +24,25 @@ function click(host, text) {
   act(() => button.click());
 }
 describe("quiz feedback", () => {
+  it("shows selection and the revealed correct/your-answer labels like Exam mode", () => {
+    const { host, close } = render(<AtomQuiz userId={null} questions={[{ stem: "Which choice is correct?", choices: { A: "Wrong", B: "Correct" }, correct: "B" }]} />);
+    click(host, "Wrong");
+    expect(host.textContent).toContain("SELECTED");
+    click(host, "Certain");
+    expect(host.textContent).toContain("✓ CORRECT");
+    expect(host.textContent).toContain("✕ YOUR ANSWER");
+    close();
+  });
+  it("starts a quiz without reopening highlights from an earlier attempt", () => {
+    const { host, close } = render(<AtomQuiz userId={null} questions={[{ stem: "A highlighted question", highlights: [{ start: 0, end: 11 }], choices: { A: "Correct", B: "Wrong" }, correct: "A" }]} />);
+    expect(host.querySelector('[data-highlight="true"]')).toBeNull();
+    close();
+  });
+  it("renders a recoverable state if a question set temporarily becomes empty", () => {
+    const { host, close } = render(<AtomQuiz userId={null} questions={[]} onExit={vi.fn()} />);
+    expect(host.textContent).toContain("no available question");
+    close();
+  });
   it("records activity only after an answer is submitted, never from merely opening the quiz", () => {
     const onAnswer = vi.fn();
     const { host, close } = render(<AtomQuiz userId={null} onAnswer={onAnswer} questions={[{ stem: "A sample question?", choices: { A: "Correct", B: "Wrong" }, correct: "A" }]} />);

@@ -2,7 +2,7 @@ import "../theme/tokens.css";
 import "../theme/tailwind.css";
 import "../theme/readability.css";
 import "../theme/study-desk.css";
-import { lazy, Suspense, useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import { Component, lazy, Suspense, useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { useTheme } from "./useTheme";
 import * as lecturesStore from "../stores/lectures.js";
 import { useBlocks } from "./hooks/useBlocks.js";
@@ -54,6 +54,43 @@ const QuestionBankModal = lazy(() => import("./features/lectures/QuestionBankMod
 const MasterGuide = lazy(() => import("./features/guide/MasterGuide.jsx").then((m) => ({ default: m.MasterGuide })));
 const DeepLearnContainer = lazy(() => import("./features/deeplearn/DeepLearnContainer.jsx").then((m) => ({ default: m.DeepLearnContainer })));
 const ExamContainer = lazy(() => import("./features/exam/ExamContainer.jsx").then((m) => ({ default: m.ExamContainer })));
+
+class StudyViewErrorBoundary extends Component {
+  state = { error: null };
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("Study view render failed", error, info);
+  }
+
+  componentDidUpdate(previousProps) {
+    if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
+      this.setState({ error: null });
+    }
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div className="mx-auto max-w-xl p-8">
+        <div className="rounded-lg border border-bad bg-bg-elevated p-4">
+          <div className="font-semibold text-text-1">This study page could not be displayed.</div>
+          <p className="mt-1 text-sm text-text-2">Your saved lecture and quiz data are still intact. Return to Today and reopen the page.</p>
+          <button
+            type="button"
+            onClick={this.props.onReset}
+            className="mt-3 rounded border border-border px-3 py-2 text-sm text-text-1 hover:border-border-strong"
+          >
+            Return to Today
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
 
 /**
  * Auth (Firebase) + cloud-load gate. localStorage is per-origin, so the shell
@@ -338,6 +375,16 @@ function ShellMain({ theme, toggle, userId }) {
           <TabBar active={tab} onChange={switchTab} />
         )}
         <main id="study-content" tabIndex={-1} ref={mainRef} onScroll={onMainScroll} className="desk-content flex-1 overflow-y-auto">
+          <StudyViewErrorBoundary
+            resetKey={`${tab}|${activeBlockId || ""}|${studyLecture?.id || ""}|${sessionMode || ""}|${moreView || ""}`}
+            onReset={() => {
+              setStudyLecture(null);
+              setPendingAutoQuiz(null);
+              setSessionMode(null);
+              setTab("today");
+              setMoreView(null);
+            }}
+          >
           {blocks.length === 0 ? (
             <div className="p-8 text-sm text-text-3">
               No terms yet. Import a term schedule via ⋯ → Import schedule.
@@ -463,6 +510,7 @@ function ShellMain({ theme, toggle, userId }) {
               />
             </div>
           )}
+          </StudyViewErrorBoundary>
         </main>
       </div>
       <CommandPalette
@@ -476,7 +524,7 @@ function ShellMain({ theme, toggle, userId }) {
           blockId={activeBlockId}
           userId={userId}
           onClose={() => setShowImportObjectives(false)}
-          onImported={(count) => {
+          onImported={() => {
             setShowImportObjectives(false);
           }}
         />

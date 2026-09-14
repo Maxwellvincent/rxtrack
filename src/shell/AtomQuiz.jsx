@@ -15,7 +15,9 @@ import { LabAnnotatedText } from "../ui/LabValue.jsx";
 import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
 import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModelImpact.js";
 import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
-import { ChoiceValue, choiceValueToText, hasTableChoices } from "../ui/ChoiceValue.jsx";
+import { ChoiceValue, hasTableChoices } from "../ui/ChoiceValue.jsx";
+
+const nowMs = () => Date.now();
 
 // Split explanation into: lead (correct answer) + per-wrong-choice bullets.
 // Handles patterns like "(A) text", "(B) text" anywhere in the string.
@@ -114,19 +116,16 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const [done, setDone] = useState(false);
   const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
   const [errorReason, setErrorReason] = useState(null);
-  const questionStartedAtRef = useRef(Date.now());
-  useEffect(() => { questionStartedAtRef.current = Date.now(); }, [i]);
+  const questionStartedAtRef = useRef(null);
+  useEffect(() => { questionStartedAtRef.current = nowMs(); }, [i]);
+  const currentIndex = Math.min(i, Math.max(0, questions.length - 1));
   // Keyed by stem (same key generatedQuestions dedupes on) — select text in
   // the stem to mark it, like underlining on a real exam. Seeded from
-  // whatever's already stored so a question you've marked before shows it
-  // again.
-  const [highlights, setHighlights] = useState(() => {
-    const map = {};
-    for (const q of questions) if (q.highlights?.length) map[q.stem] = q.highlights;
-    return map;
-  });
+  // this quiz session only. New quizzes should not silently reopen old marks;
+  // newly made marks are still saved for later reference.
+  const [highlights, setHighlights] = useState({});
 
-  useFocusHudSignal("questions", questions[i]?.topic ?? null, { enabled: !done });
+  useFocusHudSignal("questions", questions[currentIndex]?.topic ?? null, { enabled: !done });
 
   const onHighlight = useCallback(
     (stem, phrase) => {
@@ -148,7 +147,16 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
 
   if (done) return <Summary records={records} onExit={onExit} onReviewAtom={onReviewAtom} />;
 
-  const q = questions[i];
+  const q = questions[currentIndex];
+  if (!q) {
+    return (
+      <div className="rounded-lg border border-border bg-bg-elevated p-4 text-sm text-text-2">
+        <div className="font-semibold text-text-1">This quiz has no available question.</div>
+        <div className="mt-1">The question set changed while the page was updating. Return to the lecture and start the quiz again.</div>
+        <Button className="mt-3" onClick={onExit}>Back to lecture</Button>
+      </div>
+    );
+  }
   const displayedTotal = Math.max(questions.length, Number(expectedCount) || 0);
   const revealed = confidence != null;
   const correct = revealed && picked === q.correct;
@@ -157,7 +165,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   const rate = (level) => {
     if (picked == null || revealed) return;
     const isCorrect = picked === q.correct;
-    const responseMs = Date.now() - questionStartedAtRef.current;
+    const responseMs = nowMs() - questionStartedAtRef.current;
     setConfidence(level);
     const rec = {
       concept: q.topic || q.stem.slice(0, 60),
@@ -217,7 +225,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   };
 
   const next = () => {
-    if (i + 1 >= questions.length) {
+    if (currentIndex + 1 >= questions.length) {
       setDone(true);
       const correctCount = records.filter((r) => r.correct).length;
       const confSum = records.reduce((s, r) => s + (r.confidence || 0), 0);
@@ -226,13 +234,13 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       onDone?.({ correct: correctCount, total: questions.length, avgConfidence, hasLandmines, records });
       return;
     }
-    setI(i + 1); setPicked(null); setConfidence(null); setCrossed(new Set()); setErrorReason(null);
+    setI(currentIndex + 1); setPicked(null); setConfidence(null); setCrossed(new Set()); setErrorReason(null);
   };
 
   return (
     <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span>{q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}</span><span className="text-text-3">{i + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
+        <span>{q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}</span><span className="text-text-3">{currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-panel"
@@ -240,11 +248,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
         aria-label="Quiz progress"
         aria-valuemin={1}
         aria-valuemax={displayedTotal}
-        aria-valuenow={i + 1}
+        aria-valuenow={currentIndex + 1}
       >
         <div
           className="h-full rounded-full bg-accent transition-[width]"
-          style={{ width: `${((i + 1) / displayedTotal) * 100}%` }}
+          style={{ width: `${((currentIndex + 1) / displayedTotal) * 100}%` }}
         />
       </div>
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
@@ -293,6 +301,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
             return (
               <div key={letter} className="flex items-center gap-1.5">
                 <button
+                  type="button"
                   disabled={revealed}
                   onClick={() => !revealed && !isCrossed && setPicked(letter)}
                   aria-pressed={isPicked}
@@ -300,6 +309,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 >
                   <span className="font-mono text-text-3">{letter}</span>
                   <span className={isCrossed ? "line-through text-text-3 flex-1" : "flex-1"}><ChoiceValue value={txt} columns={q.choiceColumns || []} table={hasTableChoices(q)} /></span>
+                  {isPicked && !revealed && <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold text-white">SELECTED</span>}
+                  {revealed && letter === q.correct && <span className="rounded border-2 border-good bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✓ CORRECT</span>}
+                  {revealed && isPicked && letter !== q.correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
                 </button>
                 {/* Cross-out toggle — only before reveal */}
                 {!revealed && (
@@ -395,8 +407,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
                 </div>
               </div>
             )}
-            <Button onClick={next} disabled={preparing && i + 1 >= questions.length}>
-              {preparing && i + 1 >= questions.length ? "Preparing next question…" : i + 1 >= questions.length ? "See results" : "Next →"}
+            <Button onClick={next} disabled={preparing && currentIndex + 1 >= questions.length}>
+              {preparing && currentIndex + 1 >= questions.length ? "Preparing next question…" : currentIndex + 1 >= questions.length ? "See results" : "Next →"}
             </Button>
           </div>
         )}
