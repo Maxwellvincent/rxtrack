@@ -23,8 +23,10 @@ Rules:
 - Each atom: a specific, testable fact — never a slide title or category header.
 - DROP fluff: history, introductions, logistics, motivation, generic background.
 - Keep "content" one tight sentence.
+- When the lecture supports it, also extract a concrete clinical correlate: the patient pattern, finding, or presentation that makes this fact recognizable on a quiz.
+- Add short clinical cues or buzzwords only when the lecture teaches them. For genetics, include the inheritance pattern and the family or pedigree clues that identify it. Do not add Step 1 associations that are absent from the lecture.
 
-Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": "..." } ] }.
+Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": "...", "clinicalCorrelate": "...", "clinicalCues": ["..."], "buzzwords": ["..."], "inheritancePattern": "..." } ] }.
 Up to 40 atoms.`;
 
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {

@@ -77,6 +77,7 @@ export async function extractPdfTextFast(file) {
 export async function extractWithSmartFallback(file, onProgress, opts = {}) {
   void opts?.forceMistralOcr;
   const detectNumber = opts?.detectNumber;
+  const attempts = [];
 
   {
     try {
@@ -89,6 +90,7 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
       const slideImages = ocrExtract.slideImages || [];
       console.log("OCR success, chunks:", chunks.length, "method:", ocrExtract.method);
       const md = chunks.map((c) => c.markdown || c.text || "").join("\n\n---\n\n").trim();
+      attempts.push({ method: ocrExtract.method || "ocr", status: chunks?.length && md ? "text-found" : "empty" });
       if (chunks?.length && md) {
         const extractionMethod = ocrExtract.method || "marker-ocr";
         const baseName = cleanLectureTitle(file.name);
@@ -105,11 +107,13 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
             format: "standard",
             lectureNumber: detectNumber ? detectNumber(file.name, baseName, "LEC") : null,
             lectureTitle: baseName,
+            extractionDiagnostics: { attempts, quality: assessTextQuality(md) },
           },
           method: extractionMethod,
         };
       }
     } catch (err) {
+      attempts.push({ method: "ocr", status: "failed", error: err?.message || String(err) });
       console.warn("OCR failed, falling back to pdfplumber:", err?.message || err);
     }
   }
@@ -122,6 +126,7 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
         ...parsed,
         extractionMethod: "pdfplumber",
         pageCount: (parsed.chunks || []).length,
+        extractionDiagnostics: { attempts: [...attempts, { method: "pdfplumber", status: "text-found" }], quality: assessTextQuality(parsed.fullText || "") },
       },
       method: "pdfplumber",
     };
@@ -133,6 +138,7 @@ export async function extractWithSmartFallback(file, onProgress, opts = {}) {
       ...parsed,
       extractionMethod: hasText ? "pdfplumber" : "none",
       pageCount: (parsed.chunks || []).length,
+      extractionDiagnostics: { attempts: [...attempts, { method: "pdfplumber", status: hasText ? "text-found" : "empty" }], quality: assessTextQuality(parsed.fullText || "") },
     },
     method: hasText ? "pdfplumber" : "none",
   };

@@ -1587,6 +1587,15 @@ export function LectureStudyFlow({
                         </span>
                       )}
                       <span className="text-text-2"> — {a.content}</span>
+                      {(a.clinicalCorrelate || a.clinicalCues?.length || a.buzzwords?.length || a.inheritancePattern) && (
+                        <div className="mt-2 rounded border border-accent/30 bg-accent/5 px-2 py-1.5 text-[11px] text-text-2">
+                          <div className="font-semibold text-accent-text">Clinical recognition</div>
+                          {a.clinicalCorrelate && <div>{a.clinicalCorrelate}</div>}
+                          {a.clinicalCues?.length > 0 && <div className="text-text-3">Cues: {a.clinicalCues.join(" · ")}</div>}
+                          {a.buzzwords?.length > 0 && <div className="text-text-3">Lecture buzzwords: {a.buzzwords.join(" · ")}</div>}
+                          {a.inheritancePattern && <div className="text-text-3">Inheritance: {a.inheritancePattern}</div>}
+                        </div>
+                      )}
                       {a.objectiveIds?.length > 0 && (
                         <div className="mt-1.5 flex flex-wrap gap-1">
                           {objectiveChips(a.objectiveIds, objectiveById).map((chip) => (

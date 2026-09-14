@@ -530,6 +530,7 @@ function ShellMain({ theme, toggle, userId }) {
           blockId={activeBlockId}
           blockName={active?.name}
           lectures={(allLectures.data || []).filter((l) => l.blockId === activeBlockId)}
+          objectives={allObjectives.data?.[activeBlockId] || []}
           userId={userId}
           onClose={() => setShowQuestionBanks(false)}
         />

@@ -32,6 +32,10 @@ export function tagBankQuestions(questions, { blockId, filename, wrongOnly = fal
       importedAt: now(),
       bankType: wrongOnly ? "wrong" : "neutral",
       sourceKind: q.sourceKind || sourceKind,
+      // This describes the imported document's key, not medical correctness.
+      // Keeping the distinction explicit prevents a present answer key from
+      // being mistaken for an independent content audit.
+      sourceKeyStatus: q.sourceKeyStatus || (q.correct && q.choices?.[q.correct] ? "present" : "missing"),
     }));
 }
 

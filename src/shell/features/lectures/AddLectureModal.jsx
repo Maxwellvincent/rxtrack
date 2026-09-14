@@ -68,12 +68,14 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [mapResult, setMapResult] = useState("");
   const [atomsResult, setAtomsResult] = useState("");
   const [assetsResult, setAssetsResult] = useState("");
+  const [lastFile, setLastFile] = useState(null);
 
   const onFile = useCallback(
-    async (file) => {
+    async (file, overrides = {}) => {
       setError(""); setDone(""); setPreview(null); setProgress("");
       setSaved(null); setObjectiveResult(""); setMapResult("");
       if (!file) return;
+      setLastFile(file);
 
       const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
       let built;
@@ -85,7 +87,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
           const { contentResult, method } = await extractWithSmartFallback(
             file,
             (msg) => setProgress(msg),
-            { detectNumber: (name) => parseLectureFilename(name).number, userId, useLlm }
+            { detectNumber: (name) => parseLectureFilename(name).number, userId, useLlm: overrides.useLlm ?? useLlm }
           );
           quality = assessTextQuality(contentResult?.fullText || "");
           built = buildLectureFromExtraction({ filename: file.name, contentResult, method, blockId, termId });
@@ -114,7 +116,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         quality,
       });
     },
-    [blockId, termId, userId]
+    [blockId, termId, userId, useLlm]
   );
 
   /**
@@ -394,7 +396,8 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             </div>
             {preview.quality?.quality === "poor" && (
               <div className="mt-2 text-[13px] text-warn">
-                ⚠ {preview.quality.reason}. Convert it with pdf2md instead if the text looks wrong.
+                ⚠ {preview.quality.reason}. Try the recovery pass below if the lecture is image-heavy or the text looks wrong.
+                {lastFile && <button type="button" className="ml-2 underline" disabled={busy} onClick={() => { setUseLlm(true); onFile(lastFile, { useLlm: true }); }}>retry with LLM cleanup</button>}
               </div>
             )}
             <label className="mt-2 flex items-center gap-2 font-mono text-[12px] text-text-3">

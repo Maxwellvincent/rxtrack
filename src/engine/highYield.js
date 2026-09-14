@@ -32,7 +32,16 @@ export function normalizeHighYield(raw) {
     const key = type + "::" + term.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ type, term: term.slice(0, 140), content: content.slice(0, 400) });
+    const normalized = { type, term: term.slice(0, 140), content: content.slice(0, 400) };
+    const clinicalCorrelate = String(item.clinicalCorrelate || item.clinical || "").trim();
+    const clinicalCues = Array.isArray(item.clinicalCues) ? item.clinicalCues.map(String).map((cue) => cue.trim()).filter(Boolean).slice(0, 6) : [];
+    const buzzwords = Array.isArray(item.buzzwords) ? item.buzzwords.map(String).map((cue) => cue.trim()).filter(Boolean).slice(0, 8) : [];
+    const inheritancePattern = String(item.inheritancePattern || "").trim();
+    if (clinicalCorrelate) normalized.clinicalCorrelate = clinicalCorrelate.slice(0, 360);
+    if (clinicalCues.length) normalized.clinicalCues = clinicalCues;
+    if (buzzwords.length) normalized.buzzwords = buzzwords;
+    if (inheritancePattern) normalized.inheritancePattern = inheritancePattern.slice(0, 180);
+    out.push(normalized);
     if (out.length >= MAX) break;
   }
   // Stable order by the canonical type sequence, preserving encounter order within a type.

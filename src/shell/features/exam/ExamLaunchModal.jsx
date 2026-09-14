@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { examDurationMinutes } from "./examTiming.js";
+import { filterLecturesByScope, scopeLabel } from "../../logic/weekScope.js";
 
 // A full school-prep sitting can now reach 100 questions. Keeping the cap here
 // (rather than accepting an arbitrary number) still protects the generation
@@ -54,7 +55,6 @@ export function ExamLaunchModal({
   useEffect(() => {
     if (!launching) return;
     const started = Date.now();
-    setElapsed(0);
     const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(timer);
   }, [launching]);
@@ -68,13 +68,11 @@ export function ExamLaunchModal({
     String(examDurationMinutes(defaultQuestionCount || 20))
   );
   const [durationTouched, setDurationTouched] = useState(false);
-  const [weekNumber, setWeekNumber] = useState("all");
+  const [contentScope, setContentScope] = useState("block-so-far");
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
     .sort((a, b) => Number(a) - Number(b));
-  const scopedLectures = weekNumber === "all"
-    ? eligibleLectures
-    : eligibleLectures.filter((lecture) => String(lecture.weekNumber) === weekNumber);
+  const scopedLectures = filterLecturesByScope(eligibleLectures, contentScope);
 
   const noLectures = !scopedLectures || scopedLectures.length === 0;
 
@@ -103,12 +101,17 @@ export function ExamLaunchModal({
 
   const handleLaunch = () => {
     if (!canLaunch) return;
+    const scopePayload = contentScope === "block-so-far"
+      ? {}
+      : /^\d+$/.test(String(contentScope))
+        ? { weekNumber: contentScope }
+        : { contentScope };
     onLaunch({
       format,
       ...(studyMode === "repair" ? { studyMode } : {}),
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
-      ...(weekNumber === "all" ? {} : { weekNumber }),
+      ...scopePayload,
     });
   };
 
@@ -171,13 +174,19 @@ export function ExamLaunchModal({
             )}
           </div>
 
-          {availableWeeks.length > 0 && <div>
+          <div>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Content scope</label>
-            <select value={weekNumber} onChange={(event) => setWeekNumber(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
-              <option value="all">Entire block</option>
-              {availableWeeks.map((week) => <option key={week} value={String(week)}>Week {week}</option>)}
+            <select value={contentScope} onChange={(event) => setContentScope(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
+              {[
+                ["current-week", "This week · ends Friday"],
+                ["past-two-weeks", "Past 2 weeks · Friday cutoff"],
+                ["block-so-far", "Block so far"],
+                ["entire-block", "Entire block"],
+                ...availableWeeks.map((week) => [String(week), `Week ${week}`]),
+              ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-          </div>}
+            <div className="mt-1 font-mono text-[11px] text-text-3">{scopeLabel(contentScope)} · {scopedLectures.length} lecture{scopedLectures.length === 1 ? "" : "s"} with objectives</div>
+          </div>
 
           {/* Question count */}
           <div>
@@ -246,7 +255,7 @@ export function ExamLaunchModal({
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(weekNumber === "all" ? {} : { weekNumber }) })}
+          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(contentScope === "block-so-far" ? {} : /^\d+$/.test(String(contentScope)) ? { weekNumber: contentScope } : { contentScope }) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
         </div>}

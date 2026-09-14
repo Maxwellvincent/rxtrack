@@ -16,6 +16,7 @@ import { statsForLecture } from "../../../stores/lectureQuestionStats.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
+import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
 import { readTutorModeEnabled, writeTutorModeEnabled } from "./tutorPrefs.js";
 import { ExamLaunchModal } from "./ExamLaunchModal.jsx";
 import { ExamSessionRunner } from "./ExamSessionRunner.jsx";
@@ -30,6 +31,8 @@ import { listExamSessions } from "../../../supabase.js";
 import { cleanLectureTitle } from "../../../lectureTitle.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { buildFocusedRepairScope } from "./focusedRepair.js";
+import { sourceLabel } from "../../logic/questionBankAnalysis.js";
+import { filterLecturesByScope } from "../../logic/weekScope.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -153,6 +156,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           lectureId: lec.id,
           lectureLabel: lec.lectureTitle || lec.fileName || lec.id,
           objectiveCount: objectivesByLecture[lec.id].length,
+          ...(lec.lectureDate || lec.date ? { lectureDate: lec.lectureDate || lec.date } : {}),
           ...(lec.weekNumber != null ? { weekNumber: lec.weekNumber } : {}),
         })),
     [lectures, objectivesByLecture]
@@ -176,19 +180,40 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const blockQuestionBanks = useMemo(() => {
     const banks = questionBanksStore.read(userId) || {};
     const meta = questionBankMetaStore.read?.(userId) || {};
-    const scoped = new Set(
-      Object.values(meta)
-        .filter((entry) => entry?.blockId === blockId && banks[entry.filename])
-        .map((entry) => entry.filename)
-    );
+    const scoped = new Set(Object.values(meta).filter((entry) => entry?.blockId === blockId && banks[entry.filename]).map((entry) => entry.filename));
+    // Older uploads can have questions stamped with a block but no surviving
+    // metadata row. Keep them visible instead of hiding a valid homework bank.
+    for (const [filename, questions] of Object.entries(banks)) {
+      if (questions?.some((question) => question?.blockId === blockId)) scoped.add(filename);
+    }
     const filenames = [...scoped];
     return filenames.sort((a, b) => cleanLectureTitle(a).localeCompare(cleanLectureTitle(b), undefined, { numeric: true })).map((filename) => {
       const entry = Object.values(meta).find((item) => item?.filename === filename);
-      return { filename, questions: banks[filename] || [], aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null };
+      const questions = banks[filename] || [];
+      return { filename, questions, aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "school", expectedQuestions: entry?.expectedQuestions ?? null, analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || questions.find((question) => question?.blockId)?.blockId || null };
     });
     // Hydration flags deliberately trigger a fresh synchronous store read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision]);
+
+  const allImportedQuestionBanks = useMemo(() => {
+    const banks = questionBanksStore.read(userId) || {};
+    const meta = questionBankMetaStore.read?.(userId) || {};
+    return Object.keys(banks).sort((a, b) => cleanLectureTitle(a).localeCompare(cleanLectureTitle(b), undefined, { numeric: true })).map((filename) => {
+      const entry = Object.values(meta).find((item) => item?.filename === filename);
+      const questions = banks[filename] || [];
+      return { filename, questions, aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "school", expectedQuestions: entry?.expectedQuestions ?? null, analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || questions.find((question) => question?.blockId)?.blockId || null };
+    });
+    // Hydration flags deliberately trigger a fresh synchronous store read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision]);
+
+  useEffect(() => {
+    const filenames = Object.keys(questionBanksStore.read(userId) || {});
+    const refresh = () => setBankStoreRevision((value) => value + 1);
+    const unsubs = filenames.map((filename) => questionBankAnalysisStore.subscribe(filename, refresh));
+    return () => unsubs.forEach((unsubscribe) => unsubscribe?.());
+  }, [userId, questionBanksHydrated, questionBankMetaHydrated]);
 
   // Task 12 review fix #1 — Tutor mode had no reachable on-switch anywhere
   // in the app (writeTutorModeEnabled was called from nowhere outside its
@@ -311,8 +336,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const bankGroups = useMemo(() => {
+    const source = blockQuestionBanks.length ? blockQuestionBanks : allImportedQuestionBanks;
     const groups = {};
-    for (const bank of blockQuestionBanks) {
+    for (const bank of source) {
       const title = cleanLectureTitle(bank.filename);
       const match = title.match(/\bweek\s*(\d+)\b/i);
       const label = bank.weekNumber != null
@@ -330,8 +356,12 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       const rank = (label) => label.startsWith("Week ") ? Number(label.slice(5)) : label === "Homework" ? 100 : label === "Exams" ? 101 : 102;
       return rank(a) - rank(b);
     });
-  }, [blockQuestionBanks]);
+  }, [blockQuestionBanks, allImportedQuestionBanks]);
   const activeBankCategory = bankGroups.some(([label]) => label === bankCategory) ? bankCategory : bankGroups[0]?.[0];
+  const otherImportedQuestionBanks = useMemo(() => {
+    const currentNames = new Set(blockQuestionBanks.map((bank) => bank.filename));
+    return allImportedQuestionBanks.filter((bank) => !currentNames.has(bank.filename));
+  }, [allImportedQuestionBanks, blockQuestionBanks]);
 
   const statsForBank = (bank) => {
     const names = new Set([bank.filename, ...(bank.aliases || [])]);
@@ -355,9 +385,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const prepareQuestions = (config) => {
-    let scopedLectures = config.weekNumber != null
-      ? eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(config.weekNumber))
-      : eligibleLectures;
+    let scopedLectures = filterLecturesByScope(eligibleLectures, config.contentScope || (config.weekNumber != null ? `week-number:${config.weekNumber}` : "block-so-far"));
     let scopedObjectives = objectivesByLecture;
     if (config.studyMode === "repair") {
       const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
@@ -391,9 +419,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     setPartialLaunch(null);
     setLaunchProgress({ message: "Checking exam storage access…", completed: 0 });
     try {
-      let scopedLectures = config.weekNumber != null
-        ? eligibleLectures.filter((lecture) => String(lecture.weekNumber) === String(config.weekNumber))
-        : eligibleLectures;
+      let scopedLectures = filterLecturesByScope(eligibleLectures, config.contentScope || (config.weekNumber != null ? `week-number:${config.weekNumber}` : "block-so-far"));
       let scopedObjectives = objectivesByLecture;
       if (config.studyMode === "repair") {
         const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
@@ -578,11 +604,11 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       </section>
 
-      {blockQuestionBanks.length > 0 && (
+      {allImportedQuestionBanks.length > 0 && (
         <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
-          <div className="mb-1 text-sm font-bold text-text-1">Original school question banks</div>
+          <div className="mb-1 text-sm font-bold text-text-1">Original school question banks · imported ExamSoft & homework practice</div>
           <div className="mb-3 font-mono text-[11px] text-text-3">
-            Authentic uploaded questions. Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer.
+            {blockQuestionBanks.length ? "Authentic uploaded questions for this block." : "No uploaded bank is assigned to this block yet, so all imported banks are shown here."} Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer. Source keys are preserved and analyzed separately from medical correctness.
           </div>
           <div className="mb-3 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="School question bank categories">
             {bankGroups.map(([group]) => <button key={group} type="button" role="tab" aria-selected={activeBankCategory === group} onClick={() => setBankCategory(group)} className={`shrink-0 border-b-2 px-4 py-3 text-sm font-bold ${activeBankCategory === group ? "border-accent text-accent-text" : "border-transparent text-text-3 hover:text-text-1"}`}>{group}</button>)}
@@ -590,20 +616,34 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <div className="space-y-2">
             {(bankGroups.find(([group]) => group === activeBankCategory)?.[1] || []).map((bank) => {
               const minutes = examDurationMinutes(bank.questions.length);
-              const expectedCount = /examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null;
+              const expectedCount = bank.expectedQuestions || (/examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null);
               const incomplete = expectedCount && bank.questions.length < expectedCount;
               const stats = statsForBank(bank);
+              const analysis = bank.analysis;
+              const focusSummary = analysis?.focusCounts ? Object.entries(analysis.focusCounts).slice(0, 3).map(([label, count]) => `${label} ${count}`).join(" · ") : null;
               return (
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
-                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
                     {stats.attempts > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Attempt history · {stats.attempts}</summary>
                       <div className="mt-2 flex flex-wrap gap-2">{stats.history.map((attempt, index) => <Button key={attempt.session.sessionId || attempt.session.id} variant="outline" onClick={() => setActiveSessionId(attempt.session.sessionId || attempt.session.id)}>Review attempt {index + 1} · {attempt.score}%</Button>)}</div>
                     </details>}
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
+                    {analysis?.items?.length > 0 && <details className="mt-2 text-xs text-text-2">
+                      <summary className="cursor-pointer font-semibold">Question critique & lecture links</summary>
+                      <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => <div key={item.id} className="rounded border border-border px-2 py-1.5">
+                        <div className="font-mono text-[11px] text-text-3">Q{item.num} · {item.focus} · {item.correctnessStatus}</div>
+                        <div>{item.critique?.[0] || "Lecture support reviewed."}</div>
+                        {(item.clinicalCues?.length || item.buzzwords?.length) > 0 && <div className="text-text-3">Cues: {[...(item.clinicalCues || []), ...(item.buzzwords || [])].join(" · ")}</div>}
+                        {item.objectiveIds?.length > 0 && <div className="text-text-3">Objective: {item.objectiveIds.join(", ")}</div>}
+                        {item.clinicalCorrelates?.length > 0 && <div className="text-text-3">Lecture correlate: {item.clinicalCorrelates[0]}</div>}
+                      </div>)}</div>
+                      {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see their source-keyed rationales.</div>}
+                    </details>}
                   </div>
                   <div className="flex gap-2">
                     <Button variant="ghost" disabled={!!bankLaunching} onClick={() => renameBank(bank)}>Rename</Button>
@@ -616,6 +656,20 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               );
             })}
           </div>
+        </section>
+      )}
+
+      {otherImportedQuestionBanks.length > 0 && blockQuestionBanks.length > 0 && (
+        <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
+          <div className="mb-1 text-sm font-bold text-text-1">Other imported practice sets</div>
+          <div className="mb-3 text-xs text-text-3">These banks are saved, but assigned to another block or have no block metadata. They remain available here so an upload is never hidden.</div>
+          <div className="space-y-2">{otherImportedQuestionBanks.map((bank) => (
+            <div key={bank.filename} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-panel px-3 py-2">
+              <div className="min-w-0 flex-1"><div className="truncate text-[13px] text-text-1">{cleanLectureTitle(bank.filename)}</div><div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {sourceLabel(bank.sourceKind, bank.filename)}{bank.analysis ? ` · ${bank.analysis.status === "reviewed" ? "analyzed" : "analysis ready"}` : " · analysis pending"}</div></div>
+              <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
+              <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>
+            </div>
+          ))}</div>
         </section>
       )}
 

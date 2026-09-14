@@ -15,12 +15,15 @@ import { cleanLectureTitle } from "../../../lectureTitle.js";
 import { uploadQuestionBankPage } from "../../../supabase.js";
 import { collectStyleSources, downloadStyleSources } from "../../../engine/styleDataset.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
+import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
+import { buildQuestionBankAnalysis, buildQuestionBankCritiquePrompt, mergeQuestionBankCritique, sourceLabel } from "../../logic/questionBankAnalysis.js";
+import { startBackgroundJob } from "../../backgroundJobs.js";
 
 function extractImcqBreakdownKeys(text) {
   return [...String(text || "").matchAll(/\b([A-H])\s*[✓✔]/g)].map((match) => match[1].toUpperCase());
 }
 
-export function QuestionBankModal({ blockId, blockName = "", lectures = [], userId = null, onClose, onUploaded }) {
+export function QuestionBankModal({ blockId, blockName = "", lectures = [], objectives = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
   const schoolResultsRes = useStoreResource(schoolResultsStore, userId);
   const banks = banksRes.data;
@@ -47,6 +50,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
       const savedResults = [];
       let pendingBanks = { ...(questionBanksStore.read(userId) || {}) };
       let pendingMeta = { ...(questionBankMetaStore.read(userId) || {}) };
+      const pendingAnalyses = [];
       let banksChanged = false;
       try {
         const imcqSource = files.find((file) => /IMCQ.*KEY/i.test(file.name));
@@ -88,7 +92,24 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
               pendingBanks = Object.fromEntries(Object.entries(pendingBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
               pendingBanks[bankTitle] = questions;
               pendingMeta = Object.fromEntries(Object.entries(pendingMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle));
-              pendingMeta = questionBankMetaStore.withRecordedUpload(pendingMeta, { filename: bankTitle, blockId, sourceKind });
+              const analysis = buildQuestionBankAnalysis({
+                questions,
+                objectives,
+                lectures,
+                sourceKind,
+                filename: bankTitle,
+                expectedQuestions: parsed.expectedQuestions,
+                extractionMethod: "exam-parser",
+              });
+              pendingAnalyses.push({ filename: bankTitle, questions, analysis });
+              pendingMeta = questionBankMetaStore.withRecordedUpload(pendingMeta, {
+                filename: bankTitle,
+                blockId,
+                sourceKind,
+                expectedQuestions: parsed.expectedQuestions,
+                extractionMethod: "exam-parser",
+                analysisStatus: "ready",
+              });
               banksChanged = true;
             }
             const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });
@@ -123,7 +144,28 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
           await Promise.all([
             questionBanksStore.writeAwait(userId, pendingBanks),
             questionBankMetaStore.writeAwait(userId, pendingMeta),
+            ...pendingAnalyses.map(({ filename, analysis }) => questionBankAnalysisStore.writeAwait(userId, filename, analysis)),
           ]);
+          if (pendingAnalyses.length) {
+            startBackgroundJob({
+              label: `Analyzing ${pendingAnalyses.length} imported question bank${pendingAnalyses.length === 1 ? "" : "s"}`,
+              detail: "Checking objective and lecture support…",
+              run: async (update) => {
+                for (const [index, entry] of pendingAnalyses.entries()) {
+                  update(`${index + 1}/${pendingAnalyses.length} · critiquing ${entry.filename}`);
+                  const reviewed = await callAIJSON(
+                    "You are a strict medical education reviewer. Preserve uploaded answer keys and clearly label uncertainty.",
+                    buildQuestionBankCritiquePrompt(entry.analysis, entry.questions, objectives, lectures),
+                    { items: [] },
+                    7000
+                  );
+                  const merged = mergeQuestionBankCritique(entry.analysis, reviewed);
+                  await questionBankAnalysisStore.writeAwait(userId, entry.filename, merged);
+                }
+                return "Objective, lecture, clinical-cue, and source-key critiques are ready in Exam.";
+              },
+            });
+          }
         }
       } catch (e) {
         results.push({ filename: "Question bank storage", error: e?.message || String(e) });
@@ -136,7 +178,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
         onUploaded?.();
       }
     },
-    [blockId, blockName, lectures, userId, wrongOnly, sourceKind, useLlm, onUploaded, schoolResultsRes]
+    [blockId, blockName, lectures, objectives, userId, wrongOnly, sourceKind, useLlm, onUploaded, schoolResultsRes]
   );
 
   const remove = useCallback(
@@ -151,6 +193,9 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
 
   const meta = questionBankMetaStore.read(userId) || {};
   const blockNames = new Set(Object.values(meta).filter((entry) => entry?.blockId === blockId).map((entry) => entry.filename));
+  for (const [filename, questions] of Object.entries(banks || {})) {
+    if (questions?.some((question) => question?.blockId === blockId)) blockNames.add(filename);
+  }
   const allNames = Object.keys(banks).sort();
   const names = (showAllBanks ? allNames : allNames.filter((name) => blockNames.has(name)));
   const totalQuestions = names.reduce((n, name) => n + (banks[name]?.length || 0), 0);
@@ -160,12 +205,13 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={busy ? undefined : onClose}>
       <div className="desk-question-bank-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-bg shadow-xl sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <div className="text-lg font-bold text-text-1">Question banks</div>
+          <div className="text-lg font-bold text-text-1">Import school questions & homework</div>
           <button type="button" disabled={busy} onClick={onClose} className="p-1 text-text-3 hover:text-text-1 disabled:opacity-40" aria-label="Close question banks">✕</button>
         </div>
         <div className="overflow-y-auto px-5 py-4">
         <div className="mb-4 font-mono text-[12px] text-text-3">
-          Past exam PDFs — parsed as style exemplars so generated questions match how your school writes them.
+          Uploaded ExamSoft, homework, and practice questions remain available under Exam for practice or timed quiz sessions.
+          Each bank is analyzed for source-key coverage, objective focus, lecture support, clinical cues, and critique.
           A score report (with a category-by-category breakdown) also flags your weak categories automatically.
           Re-uploading the same filename replaces its existing bank.
           {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
@@ -183,8 +229,8 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
               <span>Guides school-style generation</span>
             </button>
             <button type="button" disabled={busy} onClick={() => setSourceKind("supplemental")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "supplemental" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
-              <span className="block font-bold">Supplemental study source</span>
-              <span>Practice only; does not define school style</span>
+              <span className="block font-bold">Homework / supplemental</span>
+              <span>Practice and critique; does not define school style</span>
             </button>
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
@@ -252,6 +298,8 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], user
                   <div key={name} className="flex items-center gap-2 border-b border-border px-3 py-1.5 last:border-0 text-[13px]">
                     <span className="flex-1 truncate text-text-2">{name}</span>
                     <span className="font-mono text-text-3">{banks[name]?.length || 0} q</span>
+                    <span className="font-mono text-[11px] text-text-3">{sourceLabel(meta[Object.keys(meta).find((id) => meta[id]?.filename === name)]?.sourceKind, name)}</span>
+                    {questionBankAnalysisStore.read(userId, name)?.status === "reviewed" && <span className="font-mono text-[11px] text-good">analyzed</span>}
                     {banks[name]?.[0]?.bankType === "wrong" && <span className="font-mono text-[13px] text-warn">missed</span>}
                     <button className="text-bad hover:underline" disabled={busy} onClick={() => remove(name)}>✕</button>
                   </div>

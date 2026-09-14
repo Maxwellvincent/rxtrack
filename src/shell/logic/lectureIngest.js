@@ -165,6 +165,7 @@ export function buildLectureFromExtraction({
       slideImages: contentResult?.slideImages || [],
       pageCount: contentResult?.pageCount ?? chunks.length,
       extractionMethod: contentResult?.extractionMethod || method || "pdf-upload",
+      extractionDiagnostics: contentResult?.extractionDiagnostics || null,
       uploadedAt: now,
       createdAt: now,
     },

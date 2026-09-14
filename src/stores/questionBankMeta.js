@@ -50,7 +50,7 @@ export function writeAwait(userId, value) {
 }
 
 /** Pure upload metadata update, used to assemble reliable multi-file writes. */
-export function withRecordedUpload(current, { filename, blockId, sourceKind = "school" }) {
+export function withRecordedUpload(current, { filename, blockId, sourceKind = "school", expectedQuestions = null, extractionMethod = null, analysisStatus = "pending" }) {
   if (!filename) return current || {};
   const next = {};
   for (const [id, entry] of Object.entries(current || {})) {
@@ -58,7 +58,7 @@ export function withRecordedUpload(current, { filename, blockId, sourceKind = "s
     next[id] = entry;
   }
   const bankId = generateBankId();
-  next[bankId] = { filename, blockId, sourceKind, uploadedAt: Date.now() };
+  next[bankId] = { filename, blockId, sourceKind, expectedQuestions, extractionMethod, analysisStatus, uploadedAt: Date.now() };
   return next;
 }
 
