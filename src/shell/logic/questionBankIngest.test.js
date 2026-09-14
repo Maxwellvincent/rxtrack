@@ -1,7 +1,34 @@
 import { describe, expect, it } from "vitest";
-import { summarizeBankUpload, tagBankQuestions } from "./questionBankIngest.js";
+import { extractPairedAnswerKey, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "./questionBankIngest.js";
 
 const opts = { blockId: "b1", filename: "2024-final.pdf", idgen: (() => { let n = 0; return () => `q${++n}`; })(), now: () => "2026-07-29T00:00:00.000Z" };
+
+describe("selectQuestionBankFiles", () => {
+  it("prefers an original PDF when a folder contains its Markdown extraction", () => {
+    const pdf = { name: "DM+Week+4+Biochemistry+Practice+Questions.pdf" };
+    const markdown = { name: "DM+Week+4+Biochemistry+Practice+Questions.md" };
+    expect(selectQuestionBankFiles([markdown, pdf])).toEqual([pdf]);
+  });
+
+  it("filters directory selections to supported question-bank files", () => {
+    expect(selectQuestionBankFiles([{ name: "notes.docx" }, { name: "questions.txt" }, { name: "figures.jpeg" }]).map((file) => file.name))
+      .toEqual(["questions.txt"]);
+  });
+});
+
+describe("paired question and answer files", () => {
+  it("pairs a Clinical Correlates question PDF with its standalone key", () => {
+    const questionFile = { name: "DM Clinical Correlates.pdf" };
+    const answerFile = { name: "DM Clinical Correlates Key.pdf" };
+    expect(pairQuestionBankFiles([answerFile, questionFile])).toEqual([{ questionFile, answerFile }]);
+  });
+
+  it("extracts keyed answers and rationales across PDF page breaks", () => {
+    const key = extractPairedAnswerKey("Q1 Answer: C. First rationale.\n\fQ2 Answer: A. Second rationale.");
+    expect(key.get(1)).toEqual({ correct: "C", explanation: "First rationale." });
+    expect(key.get(2)).toEqual({ correct: "A", explanation: "Second rationale." });
+  });
+});
 
 describe("tagBankQuestions", () => {
   it("stamps provenance on every question", () => {

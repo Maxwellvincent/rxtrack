@@ -46,7 +46,11 @@ export function mergeScheduleIntoStores(blocks, existing, opts = {}) {
       summary.blocksAdded += 1;
     }
 
-    if (desc.examDate) { examDates[block.id] = desc.examDate; summary.examDatesSet += 1; }
+    if (desc.examDate) {
+      examDates[block.id] = desc.examDate;
+      block.examDate = desc.examDate;
+      summary.examDatesSet += 1;
+    }
 
     if (desc.assessments?.length) {
       assessments[block.id] = desc.assessments.map((a) => noUndef({ ...a, blockId: block.id }));

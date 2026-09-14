@@ -251,6 +251,7 @@ export function parseMadcowPages(pages, examTitle = "") {
  */
 export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
   const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n")
+    .replace(/(^|\n)[ \t]*Q(\d{1,3})[.)][ \t]+/gim, "$1$2. ")
     .replace(/^[ \t]*\d*[ \t]*Click here to enter text\.?[ \t]*$/gim, "");
   const appendDistinct = (primary, extra) => {
     const result = [...primary];

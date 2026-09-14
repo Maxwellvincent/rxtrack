@@ -22,6 +22,24 @@ import { workAheadLectures } from "../../logic/workAhead.js";
 import { buildScheduleContext } from "./scheduleContext.js";
 import { todayTasks as todayTasks_ } from "./fallback.js";
 
+/**
+ * Build Today even when an imported block has not populated the separate exam-date store yet.
+ * The block metadata remains authoritative when it has an exam date; otherwise a bounded
+ * synthetic horizon lets the lecture scorer expose dated or urgent lectures instead of returning
+ * an empty plan solely because the horizon is missing.
+ */
+export function buildTodaySchedule(context) {
+  const scheduled = generateDailySchedule(context);
+  if (scheduled || !context?.lectures?.length) return scheduled;
+  const fallbackExam = new Date(context.now || new Date());
+  fallbackExam.setDate(fallbackExam.getDate() + 365);
+  return generateDailySchedule({
+    ...context,
+    examDate: fallbackExam.toISOString(),
+    examDates: { ...(context.examDates || {}), [context.blockId]: fallbackExam.toISOString() },
+  });
+}
+
 /** App fired this so other surfaces re-read completion; keep the contract. */
 function emitCompletionUpdated() {
   try {
@@ -59,7 +77,7 @@ export function useToday(blockId, userId, { now } = {}) {
     [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, nowValue]
   );
 
-  const daily = useMemo(() => generateDailySchedule(context), [context]);
+  const daily = useMemo(() => buildTodaySchedule(context), [context]);
   const study = useMemo(() => buildStudySchedule(context), [context]);
 
   // Day 0 if the planner placed anything there, else the urgency fallback —
@@ -93,7 +111,7 @@ export function useToday(blockId, userId, { now } = {}) {
       }
     }
     return map;
-  }, [study]);
+  }, [study, context.now]);
 
   const mutateCompletion = completion.mutate;
   const logActivity = useCallback(

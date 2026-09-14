@@ -8,13 +8,13 @@ import { useTerms } from "./hooks/useTerms.js";
 export function ExamDateModal({ blockId, blockName, termId, userId, currentStartDate, onClose }) {
   const examDates = useExamDates(userId);
   const terms = useTerms(userId);
-  const currentExam = examDates.data?.[blockId] ?? null;
-  const currentComprehensive = examDates.data?.__comprehensive ?? null;
 
   // Try to find block startDate from terms if not passed directly
   const blockInTerms = terms.data
     ?.flatMap((t) => (t.blocks || []).map((b) => ({ ...b, _termId: t.id })))
     .find((b) => b.id === blockId);
+  const currentExam = examDates.data?.[blockId] ?? blockInTerms?.examDate ?? null;
+  const currentComprehensive = examDates.data?.__comprehensive ?? null;
   const resolvedStartDate = currentStartDate ?? blockInTerms?.startDate ?? null;
 
   const [examInput, setExamInput] = useState(currentExam || "");
@@ -22,10 +22,11 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
   const [compInput, setCompInput] = useState(currentComprehensive || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const save = useCallback(async () => {
     if (!examInput && !startInput && !compInput) return;
-    setSaving(true);
+    setSaving(true); setSaveError("");
     try {
       const store = examDatesStore.read(userId) || {};
       const nextStore = {
@@ -44,15 +45,31 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
           return {
             ...t,
             blocks: (t.blocks || []).map((b) =>
-              b.id === blockId ? { ...b, startDate: startInput } : b
+              b.id === blockId
+                ? { ...b, ...(startInput ? { startDate: startInput } : {}), ...(examInput ? { examDate: examInput } : {}) }
+                : b
             ),
           };
         });
         await termsStore.write(userId, nextTerms);
       }
 
+      // Keep a manually entered exam date in the block record even when the
+      // separate date document is later rehydrated from an older snapshot.
+      if (examInput && !startInput) {
+        const allTerms = termsStore.read(userId) || [];
+        const tid = termId ?? blockInTerms?._termId;
+        const nextTerms = allTerms.map((t) => t.id !== tid ? t : {
+          ...t,
+          blocks: (t.blocks || []).map((b) => b.id === blockId ? { ...b, examDate: examInput } : b),
+        });
+        await termsStore.write(userId, nextTerms);
+      }
+
       setSaved(true);
       setTimeout(onClose, 800);
+    } catch (error) {
+      setSaveError(error?.message || "Could not save the block dates.");
     } finally {
       setSaving(false);
     }
@@ -120,6 +137,7 @@ export function ExamDateModal({ blockId, blockName, termId, userId, currentStart
             {saved ? "Saved ✓" : saving ? "Saving…" : "Save"}
           </Button>
         </div>
+        {saveError && <div className="mt-3 rounded border border-bad bg-bg-elevated p-2 text-xs text-bad">{saveError}</div>}
       </div>
     </div>
   );

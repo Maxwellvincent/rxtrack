@@ -6,7 +6,7 @@ import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
-import { summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
+import { extractPairedAnswerKey, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
 import { analyzeExamReportWeakConcepts, mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
 import { parseExamReportSummary } from "../../logic/examReportWeakConcepts.js";
 import * as schoolResultsStore from "../../../stores/schoolResults.js";
@@ -42,8 +42,10 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
   useEffect(() => questionBankMetaStore.subscribe(() => setMetaRevision((value) => value + 1)), []);
 
   const onFiles = useCallback(
-    async (files) => {
-      if (!files.length) return;
+    async (files, sourceKindOverride = null) => {
+      const selectedFiles = selectQuestionBankFiles(files);
+      if (!selectedFiles.length) return;
+      const uploadSourceKind = sourceKindOverride || sourceKind;
       setBusy(true); setSummary(null); setStatus(""); setWeakConceptsFound(null); setSchoolResultsSaved([]);
       const results = [];
       const weakCategories = [];
@@ -53,8 +55,11 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
       const pendingAnalyses = [];
       let banksChanged = false;
       try {
-        const imcqSource = files.find((file) => /IMCQ.*KEY/i.test(file.name));
-        const imcqBreakdown = files.find((file) => /IMCQ.*Answer.*Breakdown/i.test(file.name));
+        const imcqSource = selectedFiles.find((file) => /IMCQ.*KEY/i.test(file.name));
+        const imcqBreakdown = selectedFiles.find((file) => /IMCQ.*Answer.*Breakdown/i.test(file.name));
+        const pairedFiles = pairQuestionBankFiles(selectedFiles);
+        const pairedAnswers = new Map();
+        const pairedAnswerFiles = new Set();
         let imcqKeys = null;
         if (imcqSource && imcqBreakdown) {
           setStatus(`${imcqBreakdown.name} — extracting answer key…`);
@@ -62,12 +67,39 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
           imcqKeys = extractImcqBreakdownKeys(breakdown.fullText);
           if (imcqKeys.length !== 16) throw new Error(`IMCQ answer breakdown contained ${imcqKeys.length} keyed answers; expected exactly 16.`);
         }
-        for (const file of files) {
+        for (const { questionFile, answerFile } of pairedFiles) {
+          setStatus(`${answerFile.name} — extracting paired answer key…`);
+          const answerDoc = await parseExamPDF(answerFile, undefined, { textOnly: true });
+          const answerKey = extractPairedAnswerKey(answerDoc.fullText);
+          if (answerKey.size < 3) throw new Error(`${answerFile.name} did not contain at least three numbered letter answers.`);
+          pairedAnswers.set(questionFile, answerKey);
+          pairedAnswerFiles.add(answerFile);
+        }
+        for (const file of selectedFiles) {
           if (file === imcqBreakdown && imcqSource && imcqKeys) continue;
+          if (pairedAnswerFiles.has(file)) continue;
           try {
             const bankTitle = cleanLectureTitle(file.name);
             setStatus(`${file.name} — reading…`);
-            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), { useLlm, forcePairedKey: file === imcqSource && imcqKeys, requireSourceKeys: !(file === imcqSource && imcqKeys) });
+            const pairedKey = pairedAnswers.get(file);
+            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), {
+              useLlm,
+              forcePairedKey: file === imcqSource && imcqKeys,
+              requireSourceKeys: !(file === imcqSource && imcqKeys || pairedKey),
+            });
+            if (pairedKey) {
+              const parsedQuestions = parsed?.questions || [];
+              const questionsByNumber = new Map(parsedQuestions.map((question, index) => [Number(question.num || index + 1), question]));
+              const missing = [...pairedKey.keys()].filter((number) => !questionsByNumber.has(number));
+              if (missing.length) {
+                throw new Error(`${file.name} is missing keyed question number${missing.length === 1 ? "" : "s"} ${missing.join(", ")}. The pair was not imported.`);
+              }
+              parsed.questions = [...pairedKey.entries()].map(([number, answer]) => {
+                const question = questionsByNumber.get(number);
+                return { ...question, correct: answer.correct, explanation: answer.explanation || question.explanation || null };
+              });
+              parsed.expectedQuestions = parsed.questions.length;
+            }
             if (file === imcqSource && imcqKeys) {
               const sourceQuestions = parsed?.questions || [];
               if (sourceQuestions.length !== imcqKeys.length) throw new Error(`IMCQ source contained ${sourceQuestions.length} questions; expected ${imcqKeys.length} to match the supplied breakdown.`);
@@ -87,7 +119,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
               const { sourceImageDataUrl: _sourceImageDataUrl, ...storedQuestion } = question;
               withDurableImages.push({ ...storedQuestion, ...(sourceImageUrl ? { sourceImageUrl } : {}) });
             }
-            const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind });
+            const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind: uploadSourceKind });
             if (questions.length) {
               pendingBanks = Object.fromEntries(Object.entries(pendingBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
               pendingBanks[bankTitle] = questions;
@@ -96,7 +128,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
                 questions,
                 objectives,
                 lectures,
-                sourceKind,
+                sourceKind: uploadSourceKind,
                 filename: bankTitle,
                 expectedQuestions: parsed.expectedQuestions,
                 extractionMethod: "exam-parser",
@@ -105,7 +137,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
               pendingMeta = questionBankMetaStore.withRecordedUpload(pendingMeta, {
                 filename: bankTitle,
                 blockId,
-                sourceKind,
+                sourceKind: uploadSourceKind,
                 expectedQuestions: parsed.expectedQuestions,
                 extractionMethod: "exam-parser",
                 analysisStatus: "ready",
@@ -253,6 +285,20 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
             className="hidden"
             disabled={busy || schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
+          />
+        </label>
+        <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm hover:border-accent">
+          <span className="text-text-1"><span className="block font-semibold">Import a homework folder</span><span className="text-xs text-text-3">Select a local Practice Questions folder; files are assigned to this block.</span></span>
+          <span className="font-mono text-[12px] text-accent-text">folder</span>
+          <input
+            type="file"
+            multiple
+            webkitdirectory="true"
+            directory="true"
+            accept=".pdf,.md,.markdown,.txt"
+            className="hidden"
+            disabled={busy || schoolResultsRes.loading || !!schoolResultsRes.error}
+            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "supplemental"); }}
           />
         </label>
 

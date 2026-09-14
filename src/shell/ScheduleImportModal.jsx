@@ -68,10 +68,12 @@ export function ScheduleImportModal({ userId, termName = "Term 2", onClose }) {
       // With the real userId: these stores are Firestore-first and `write(null,
       // …)` is a no-op that just hands the value back, so the import used to
       // persist nothing at all on a signed-in account.
-      termsStore.write(userId, terms);
-      examDatesStore.write(userId, examDates);
-      lecturesStore.write(userId, lectures);
-      assessmentsStore.write(userId, assessments);
+      await Promise.all([
+        termsStore.write(userId, terms),
+        examDatesStore.write(userId, examDates),
+        lecturesStore.write(userId, lectures),
+        assessmentsStore.write(userId, assessments),
+      ]);
       setDone(true);
     } catch (e) { setError("Write failed: " + (e?.message || String(e))); }
     finally { setBusy(false); }

@@ -13,7 +13,7 @@ import {
   readCloud,
   readError as cloudReadError,
   subscribeToCloudStore,
-  writeCloud,
+  writeCloudAwait,
 } from "./cloudBase.js";
 import { readJson } from "./base.js";
 
@@ -33,7 +33,7 @@ export function read(userId) {
 // Authoritative replace — what a local UI write means (a delete must stay deleted).
 export function write(userId, value) {
   if (!userId) return value;
-  return writeCloud(userId, key, value);
+  return writeCloudAwait(userId, key, value);
 }
 
 // The sync path still calls this; incoming dates win for matching blocks.

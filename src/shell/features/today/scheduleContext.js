@@ -51,6 +51,7 @@ export function buildScheduleContext({
   now = new Date(),
 }) {
   const blockLectures = (lectures || []).filter((l) => l?.blockId === blockId);
+  const blockMeta = resolveBlockMeta(terms, blockId);
   // Same de-dupe the objectives UI applies, so Today counts what the tracker shows.
   const blockObjectives = dedupeByText(selectBlockObjectives(objectives, blockId));
 
@@ -68,11 +69,11 @@ export function buildScheduleContext({
     blockId,
     now: now instanceof Date ? now.toISOString() : now,
     terms,
-    blockMeta: resolveBlockMeta(terms, blockId),
+    blockMeta,
     lectures: blockLectures,
     objectives: blockObjectives,
     examDates,
-    examDate: examDates?.[blockId] ?? null,
+    examDate: examDates?.[blockId] ?? blockMeta?.examDate ?? null,
     performance,
     lecturePerformance,
     completion,

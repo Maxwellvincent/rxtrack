@@ -15,6 +15,65 @@ const newId = (idgen) =>
     ? crypto.randomUUID()
     : `qb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
+const ANSWER_FILE_HINT = /\b(?:answer(?:s)?|key|breakdown|solution(?:s)?|explanation(?:s)?)\b/i;
+
+function normalizedQuestionBankTitle(name) {
+  return String(name || "")
+    .replace(/\.(?:pdf|md|markdown|txt)$/i, "")
+    .replace(/\+/g, " ")
+    .replace(/\b(?:answer(?:s)?|key|breakdown|solution(?:s)?|explanation(?:s)?)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/** Prefer an original PDF when a folder also contains its generated Markdown extraction. */
+export function selectQuestionBankFiles(files = []) {
+  const rank = (file) => {
+    const name = String(file?.name || "").toLowerCase();
+    if (name.endsWith(".pdf")) return 3;
+    if (name.endsWith(".md") || name.endsWith(".markdown")) return 2;
+    if (name.endsWith(".txt")) return 1;
+    return 0;
+  };
+  const selected = new Map();
+  for (const file of Array.from(files || [])) {
+    if (!rank(file)) continue;
+    const key = String(file?.name || "")
+      .replace(/\.(?:pdf|md|markdown|txt)$/i, "")
+      .replace(/\+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .toLowerCase();
+    const previous = selected.get(key);
+    if (!previous || rank(file) > rank(previous)) selected.set(key, file);
+  }
+  return [...selected.values()].sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), undefined, { numeric: true }));
+}
+
+/** Match a standalone answer/rationale file with its question companion. */
+export function pairQuestionBankFiles(files = []) {
+  const selected = Array.from(files || []);
+  const answerFiles = selected.filter((file) => ANSWER_FILE_HINT.test(String(file?.name || "")) && !/IMCQ/i.test(String(file?.name || "")));
+  const questionFiles = selected.filter((file) => !ANSWER_FILE_HINT.test(String(file?.name || "")));
+  return answerFiles.flatMap((answerFile) => {
+    const answerTitle = normalizedQuestionBankTitle(answerFile.name);
+    const questionFile = questionFiles.find((candidate) => normalizedQuestionBankTitle(candidate.name) === answerTitle);
+    return questionFile ? [{ questionFile, answerFile }] : [];
+  });
+}
+
+/** Extract numbered letter keys plus the explanation that follows each key. */
+export function extractPairedAnswerKey(text = "") {
+  const records = new Map();
+  const source = String(text || "").replace(/\r/g, "");
+  const answerPattern = /(?:^|\n|\f)\s*(?:Q(?:uestion)?\s*)?(\d{1,3})\s+Answer\s*:\s*([A-H])\s*[.)]?\s*([\s\S]*?)(?=(?:\n|\f)\s*(?:Q(?:uestion)?\s*)?\d{1,3}\s+Answer\s*:|$)/gi;
+  for (const match of source.matchAll(answerPattern)) {
+    records.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].replace(/\s+/g, " ").trim() });
+  }
+  return records;
+}
+
 /**
  * Stamp parsed questions with where they came from.
  *

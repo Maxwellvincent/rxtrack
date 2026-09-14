@@ -3,6 +3,7 @@ import { installDomStorage } from "../../../stores/testEnv.js";
 import { detectStudyMode, hasUploadedContent } from "../../logic/studyMode.js";
 import { appendActivity, computeReviewDates, getNextSaturday, localDateString } from "../../logic/completionLog.js";
 import { buildScheduleContext, resolveBlockMeta, lecturePerformanceFor } from "./scheduleContext.js";
+import { buildTodaySchedule } from "./useToday.js";
 import { catchUpTasks, todayTasks } from "./fallback.js";
 import { generateDailySchedule, buildStudySchedule } from "../../logic/schedule.js";
 
@@ -140,6 +141,17 @@ describe("buildScheduleContext", () => {
     const context = buildScheduleContext(stores());
     expect(buildStudySchedule(context).lecturePlans[0].lectureId ?? "lec1").toBeTruthy();
     expect(generateDailySchedule(context).lecScores[0].urgency).toBeGreaterThan(0);
+  });
+
+  it("keeps Today populated when the exam-date store is missing a horizon", () => {
+    const context = buildScheduleContext({
+      ...stores(),
+      examDates: {},
+      lectures: [{ id: "lec1", blockId: "b1", lectureTitle: "Histology of Bone" }],
+    });
+    const daily = buildTodaySchedule(context);
+    expect(daily?.lecScores).toHaveLength(1);
+    expect(daily?.lecScores[0].lec.id).toBe("lec1");
   });
 
   it("finds the block record wherever it sits in the terms tree", () => {

@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
 
+describe("Q-numbered question banks", () => {
+  it("normalizes Q-numbered question headings", () => {
+    const source = [1, 2, 3].map((number) => `Q${number}. Which finding ${number} is expected?\n\nA. One\nB. Two\nC. Three\nD. Four`).join("\n\n");
+    const questions = parseNumberedQuestionBankText(source, "DM Clinical Correlates");
+    expect(questions).toHaveLength(3);
+    expect(questions[0]).toMatchObject({ num: 1, stem: "Which finding 1 is expected?" });
+  });
+});
+
 describe("PDF glyph fidelity", () => {
   it("parses Mad Cow question and explanation slide sequences", () => {
     const pages = [

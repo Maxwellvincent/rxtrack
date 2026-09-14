@@ -34,6 +34,7 @@ describe("mergeScheduleIntoStores", () => {
     const dm = r.terms.find((t) => t.id === "t2").blocks.find((b) => b.name === "Diabetes & Metabolism");
     expect(dm).toBeTruthy();
     expect(dm.startDate).toBe("2026-09-01");
+    expect(dm.examDate).toBe("2026-09-30");
   });
 
   it("sets exam dates keyed by resolved block id", () => {

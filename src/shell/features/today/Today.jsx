@@ -7,6 +7,7 @@ import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
+import * as termsStore from "../../../stores/terms.js";
 import { readTaskListCollapsed, writeTaskListCollapsed } from "../../navPrefs.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
@@ -816,6 +817,11 @@ function ExamDatePicker({ blockId, userId }) {
     try {
       const current = examDatesStore.read(userId) || {};
       await examDatesStore.write(userId, { ...current, [blockId]: dateInput });
+      const terms = termsStore.read(userId) || [];
+      await termsStore.write(userId, terms.map((term) => ({
+        ...term,
+        blocks: (term.blocks || []).map((block) => block.id === blockId ? { ...block, examDate: dateInput } : block),
+      })));
     } finally {
       setSaving(false);
     }
