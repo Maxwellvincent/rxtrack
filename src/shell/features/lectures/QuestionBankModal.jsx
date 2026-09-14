@@ -1,216 +1,59 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
-import { parseExamPDF } from "../../../examParser.js";
-import { callAIJSON } from "../../../aiClient.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
-import * as weakConceptsStore from "../../../stores/weakConcepts.js";
-import { extractPairedAnswerKey, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "../../logic/questionBankIngest.js";
-import { analyzeExamReportWeakConcepts, mergeExamReportConcepts } from "../../logic/examReportWeakConcepts.js";
-import { parseExamReportSummary } from "../../logic/examReportWeakConcepts.js";
 import * as schoolResultsStore from "../../../stores/schoolResults.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
-import { cleanLectureTitle } from "../../../lectureTitle.js";
-import { uploadQuestionBankPage } from "../../../supabase.js";
 import { collectStyleSources, downloadStyleSources } from "../../../engine/styleDataset.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
-import { buildQuestionBankAnalysis, buildQuestionBankCritiquePrompt, mergeQuestionBankCritique, sourceLabel } from "../../logic/questionBankAnalysis.js";
+import { sourceLabel } from "../../logic/questionBankAnalysis.js";
+import { processQuestionBankFiles } from "../../logic/questionBankImport.js";
 import { startBackgroundJob } from "../../backgroundJobs.js";
-
-function extractImcqBreakdownKeys(text) {
-  return [...String(text || "").matchAll(/\b([A-H])\s*[✓✔]/g)].map((match) => match[1].toUpperCase());
-}
 
 export function QuestionBankModal({ blockId, blockName = "", lectures = [], objectives = [], userId = null, onClose, onUploaded }) {
   const banksRes = useQuestionBanks(userId);
   const schoolResultsRes = useStoreResource(schoolResultsStore, userId);
   const banks = banksRes.data;
-  const [status, setStatus] = useState("");
-  const [summary, setSummary] = useState(null);
   const [wrongOnly, setWrongOnly] = useState(false);
   const [sourceKind, setSourceKind] = useState("school");
   const [useLlm, setUseLlm] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [showManage, setShowManage] = useState(false);
   const [showAllBanks, setShowAllBanks] = useState(false);
-  const [weakConceptsFound, setWeakConceptsFound] = useState(null);
-  const [schoolResultsSaved, setSchoolResultsSaved] = useState([]);
   const [, setMetaRevision] = useState(0);
 
   useEffect(() => questionBankMetaStore.subscribe(() => setMetaRevision((value) => value + 1)), []);
 
   const onFiles = useCallback(
-    async (files, sourceKindOverride = null) => {
-      const selectedFiles = selectQuestionBankFiles(files);
+    (files, sourceKindOverride = null) => {
+      const selectedFiles = Array.from(files || []);
       if (!selectedFiles.length) return;
       const uploadSourceKind = sourceKindOverride || sourceKind;
-      setBusy(true); setSummary(null); setStatus(""); setWeakConceptsFound(null); setSchoolResultsSaved([]);
-      const results = [];
-      const weakCategories = [];
-      const savedResults = [];
-      let pendingBanks = { ...(questionBanksStore.read(userId) || {}) };
-      let pendingMeta = { ...(questionBankMetaStore.read(userId) || {}) };
-      const pendingAnalyses = [];
-      let banksChanged = false;
-      try {
-        const imcqSource = selectedFiles.find((file) => /IMCQ.*KEY/i.test(file.name));
-        const imcqBreakdown = selectedFiles.find((file) => /IMCQ.*Answer.*Breakdown/i.test(file.name));
-        const pairedFiles = pairQuestionBankFiles(selectedFiles);
-        const pairedAnswers = new Map();
-        const pairedAnswerFiles = new Set();
-        let imcqKeys = null;
-        if (imcqSource && imcqBreakdown) {
-          setStatus(`${imcqBreakdown.name} — extracting answer key…`);
-          const breakdown = await parseExamPDF(imcqBreakdown, undefined, { textOnly: true });
-          imcqKeys = extractImcqBreakdownKeys(breakdown.fullText);
-          if (imcqKeys.length !== 16) throw new Error(`IMCQ answer breakdown contained ${imcqKeys.length} keyed answers; expected exactly 16.`);
-        }
-        for (const { questionFile, answerFile } of pairedFiles) {
-          setStatus(`${answerFile.name} — extracting paired answer key…`);
-          const answerDoc = await parseExamPDF(answerFile, undefined, { textOnly: true });
-          const answerKey = extractPairedAnswerKey(answerDoc.fullText);
-          if (answerKey.size < 3) throw new Error(`${answerFile.name} did not contain at least three numbered letter answers.`);
-          pairedAnswers.set(questionFile, answerKey);
-          pairedAnswerFiles.add(answerFile);
-        }
-        for (const file of selectedFiles) {
-          if (file === imcqBreakdown && imcqSource && imcqKeys) continue;
-          if (pairedAnswerFiles.has(file)) continue;
-          try {
-            const bankTitle = cleanLectureTitle(file.name);
-            setStatus(`${file.name} — reading…`);
-            const pairedKey = pairedAnswers.get(file);
-            const parsed = await parseExamPDF(file, (msg) => setStatus(`${file.name} — ${msg}`), {
-              useLlm,
-              forcePairedKey: file === imcqSource && imcqKeys,
-              requireSourceKeys: !(file === imcqSource && imcqKeys || pairedKey),
-            });
-            if (pairedKey) {
-              const parsedQuestions = parsed?.questions || [];
-              const questionsByNumber = new Map(parsedQuestions.map((question, index) => [Number(question.num || index + 1), question]));
-              const missing = [...pairedKey.keys()].filter((number) => !questionsByNumber.has(number));
-              if (missing.length) {
-                throw new Error(`${file.name} is missing keyed question number${missing.length === 1 ? "" : "s"} ${missing.join(", ")}. The pair was not imported.`);
-              }
-              parsed.questions = [...pairedKey.entries()].map(([number, answer]) => {
-                const question = questionsByNumber.get(number);
-                return { ...question, correct: answer.correct, explanation: answer.explanation || question.explanation || null };
-              });
-              parsed.expectedQuestions = parsed.questions.length;
-            }
-            if (file === imcqSource && imcqKeys) {
-              const sourceQuestions = parsed?.questions || [];
-              if (sourceQuestions.length !== imcqKeys.length) throw new Error(`IMCQ source contained ${sourceQuestions.length} questions; expected ${imcqKeys.length} to match the supplied breakdown.`);
-              parsed.questions = sourceQuestions.map((question, index) => ({ ...question, correct: imcqKeys[index] }));
-            }
-            const pageUrls = new Map();
-            const withDurableImages = [];
-            for (const question of parsed?.questions || []) {
-              let sourceImageUrl = question.sourceImageUrl || null;
-              if (question.sourceImageDataUrl && question.sourcePage && userId) {
-                if (!pageUrls.has(question.sourcePage)) {
-                  setStatus(`${file.name} — saving figure on page ${question.sourcePage}…`);
-                  pageUrls.set(question.sourcePage, await uploadQuestionBankPage(userId, bankTitle, question.sourcePage, question.sourceImageDataUrl));
-                }
-                sourceImageUrl = pageUrls.get(question.sourcePage);
-              }
-              const { sourceImageDataUrl: _sourceImageDataUrl, ...storedQuestion } = question;
-              withDurableImages.push({ ...storedQuestion, ...(sourceImageUrl ? { sourceImageUrl } : {}) });
-            }
-            const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind: uploadSourceKind });
-            if (questions.length) {
-              pendingBanks = Object.fromEntries(Object.entries(pendingBanks).filter(([filename]) => cleanLectureTitle(filename) !== bankTitle));
-              pendingBanks[bankTitle] = questions;
-              pendingMeta = Object.fromEntries(Object.entries(pendingMeta).filter(([, entry]) => cleanLectureTitle(entry?.filename) !== bankTitle));
-              const analysis = buildQuestionBankAnalysis({
-                questions,
-                objectives,
-                lectures,
-                sourceKind: uploadSourceKind,
-                filename: bankTitle,
-                expectedQuestions: parsed.expectedQuestions,
-                extractionMethod: "exam-parser",
-              });
-              pendingAnalyses.push({ filename: bankTitle, questions, analysis });
-              pendingMeta = questionBankMetaStore.withRecordedUpload(pendingMeta, {
-                filename: bankTitle,
-                blockId,
-                sourceKind: uploadSourceKind,
-                expectedQuestions: parsed.expectedQuestions,
-                extractionMethod: "exam-parser",
-                analysisStatus: "ready",
-              });
-              banksChanged = true;
-            }
-            const reportResult = parseExamReportSummary(parsed?.fullText, { blockId });
-            if (reportResult && userId) {
-              if (schoolResultsRes.loading || schoolResultsRes.error) {
-                throw new Error("School-result history is not ready to merge safely. Close and reopen the uploader, then retry.");
-              }
-              await schoolResultsRes.mutate({ ...schoolResultsRes.data, [reportResult.id]: reportResult });
-              savedResults.push(reportResult);
-            }
-
-            if (blockId && userId) {
-              setStatus(`${file.name} — checking for a score report…`);
-              const { entries, categories } = await analyzeExamReportWeakConcepts(
-                { text: parsed?.fullText, lectures, blockId, blockName },
-                { callAIJSON }
-              );
-              if (entries.length) {
-                const store = weakConceptsStore.read(userId) || {};
-                const merged = mergeExamReportConcepts(store[blockId] || [], entries);
-                weakConceptsStore.write(userId, { ...store, [blockId]: merged });
-                weakCategories.push(...categories.filter((c) => entries.some((e) => e.concept === c.category)));
-              }
-            }
-            results.push({ filename: bankTitle, questions, report: !!reportResult });
-          } catch (e) {
-            results.push({ filename: file.name, error: e?.message || String(e) });
-          }
-        }
-        if (banksChanged) {
-          setStatus("Saving question banks…");
-          await Promise.all([
-            questionBanksStore.writeAwait(userId, pendingBanks),
-            questionBankMetaStore.writeAwait(userId, pendingMeta),
-            ...pendingAnalyses.map(({ filename, analysis }) => questionBankAnalysisStore.writeAwait(userId, filename, analysis)),
-          ]);
-          if (pendingAnalyses.length) {
-            startBackgroundJob({
-              label: `Analyzing ${pendingAnalyses.length} imported question bank${pendingAnalyses.length === 1 ? "" : "s"}`,
-              detail: "Checking objective and lecture support…",
-              run: async (update) => {
-                for (const [index, entry] of pendingAnalyses.entries()) {
-                  update(`${index + 1}/${pendingAnalyses.length} · critiquing ${entry.filename}`);
-                  const reviewed = await callAIJSON(
-                    "You are a strict medical education reviewer. Preserve uploaded answer keys and clearly label uncertainty.",
-                    buildQuestionBankCritiquePrompt(entry.analysis, entry.questions, objectives, lectures),
-                    { items: [] },
-                    7000
-                  );
-                  const merged = mergeQuestionBankCritique(entry.analysis, reviewed);
-                  await questionBankAnalysisStore.writeAwait(userId, entry.filename, merged);
-                }
-                return "Objective, lecture, clinical-cue, and source-key critiques are ready in Exam.";
-              },
-            });
-          }
-        }
-      } catch (e) {
-        results.push({ filename: "Question bank storage", error: e?.message || String(e) });
-      } finally {
-        setSummary(summarizeBankUpload(results));
-        if (weakCategories.length) setWeakConceptsFound(weakCategories);
-        if (savedResults.length) setSchoolResultsSaved(savedResults);
-        setStatus("");
-        setBusy(false);
-        onUploaded?.();
-      }
+      startBackgroundJob({
+        label: `Importing ${selectedFiles.length} question-bank file${selectedFiles.length === 1 ? "" : "s"}`,
+        detail: "Queued · opening files…",
+        run: (update) => processQuestionBankFiles({
+          selectedFiles,
+          blockId,
+          blockName,
+          lectures,
+          objectives,
+          userId,
+          wrongOnly,
+          sourceKind: uploadSourceKind,
+          useLlm,
+          schoolResultsData: schoolResultsRes.data,
+          schoolResultsLoading: schoolResultsRes.loading,
+          schoolResultsError: schoolResultsRes.error,
+          schoolResultsMutate: schoolResultsRes.mutate,
+          update,
+          onUploaded,
+        }),
+      });
+      onClose?.();
     },
-    [blockId, blockName, lectures, objectives, userId, wrongOnly, sourceKind, useLlm, onUploaded, schoolResultsRes]
+    [blockId, blockName, lectures, objectives, userId, wrongOnly, sourceKind, useLlm, onClose, onUploaded, schoolResultsRes]
   );
 
   const remove = useCallback(
@@ -234,17 +77,18 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
   const styleSources = collectStyleSources(banks, meta, questionRatingsStore.read(userId).ratings || {});
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={busy ? undefined : onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:py-8" onClick={onClose}>
       <div className="desk-question-bank-modal flex max-h-[calc(100dvh-2rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-border bg-bg shadow-xl sm:max-h-[calc(100dvh-4rem)]" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="text-lg font-bold text-text-1">Import school questions & homework</div>
-          <button type="button" disabled={busy} onClick={onClose} className="p-1 text-text-3 hover:text-text-1 disabled:opacity-40" aria-label="Close question banks">✕</button>
+          <button type="button" onClick={onClose} className="p-1 text-text-3 hover:text-text-1" aria-label="Close question banks">✕</button>
         </div>
         <div className="overflow-y-auto px-5 py-4">
         <div className="mb-4 font-mono text-[12px] text-text-3">
           Uploaded ExamSoft, homework, and practice questions remain available under Exam for practice or timed quiz sessions.
           Each bank is analyzed for source-key coverage, objective focus, lecture support, clinical cues, and critique.
           A score report (with a category-by-category breakdown) also flags your weak categories automatically.
+          After you choose files, this window closes and the import continues in the background; progress and completion appear in the notification center.
           Re-uploading the same filename replaces its existing bank.
           {totalQuestions > 0 && <> · <span className="text-text-2">{names.length} banks · {totalQuestions} q</span></>}
         </div>
@@ -256,34 +100,34 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
 
         <div className="mb-3 flex flex-col gap-2">
           <div className="grid grid-cols-2 gap-2" aria-label="Question source type">
-            <button type="button" disabled={busy} onClick={() => setSourceKind("school")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "school" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
+            <button type="button" onClick={() => setSourceKind("school")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "school" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
               <span className="block font-bold">Official school questions</span>
               <span>Guides school-style generation</span>
             </button>
-            <button type="button" disabled={busy} onClick={() => setSourceKind("supplemental")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "supplemental" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
+            <button type="button" onClick={() => setSourceKind("supplemental")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "supplemental" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
               <span className="block font-bold">Homework / supplemental</span>
               <span>Practice and critique; does not define school style</span>
             </button>
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
-            <input type="checkbox" checked={wrongOnly} disabled={busy} onChange={(e) => setWrongOnly(e.target.checked)} />
+            <input type="checkbox" checked={wrongOnly} onChange={(e) => setWrongOnly(e.target.checked)} />
             These are questions I got wrong
           </label>
           <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
-            <input type="checkbox" checked={useLlm} disabled={busy} onChange={(e) => setUseLlm(e.target.checked)} />
+            <input type="checkbox" checked={useLlm} onChange={(e) => setUseLlm(e.target.checked)} />
             LLM cleanup — for scanned/image-heavy PDFs
           </label>
         </div>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{busy ? "Parsing…" : schoolResultsRes.loading ? "Syncing school-result history…" : "Add exam PDFs"}</span>
+          <span className="text-text-2">{schoolResultsRes.loading ? "Syncing school-result history…" : "Add exam PDFs"}</span>
           <span className="font-mono text-[12px] text-text-3">pdf · md · txt</span>
           <input
             type="file"
             multiple
             accept=".pdf,.md,.txt"
             className="hidden"
-            disabled={busy || schoolResultsRes.loading || !!schoolResultsRes.error}
+            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs); }}
           />
         </label>
@@ -297,38 +141,10 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
             directory="true"
             accept=".pdf,.md,.markdown,.txt"
             className="hidden"
-            disabled={busy || schoolResultsRes.loading || !!schoolResultsRes.error}
+            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "supplemental"); }}
           />
         </label>
-
-        {status && <div className="mb-3 font-mono text-[13px] text-text-2">{status}</div>}
-        {summary && (
-          <div className="mb-3 font-mono text-[13px]">
-            <div className="text-good">{summary.saved} question bank{summary.saved === 1 ? "" : "s"} · {summary.questions} questions added{summary.reports ? ` · ${summary.reports} score report${summary.reports === 1 ? "" : "s"} saved` : ""}</div>
-            {summary.empty.map((f) => <div key={f} className="text-text-3">⚠ {f} — no questions detected</div>)}
-            {summary.failed.map((f) => <div key={f} className="text-bad">✕ {f}</div>)}
-          </div>
-        )}
-        {weakConceptsFound && (
-          <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-2 font-mono text-[12px]">
-            <div className="mb-1 text-text-2">Score report detected — flagged as weak, below class average:</div>
-            {weakConceptsFound.map((c) => (
-              <div key={c.category} className="text-warn">
-                ⚠ {c.category} — {Math.round(c.myScore)}% (avg {Math.round(c.average)}%)
-              </div>
-            ))}
-            <div className="mt-1 text-text-3">See these under More → Weak concepts.</div>
-          </div>
-        )}
-        {schoolResultsSaved.length > 0 && (
-          <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-2 font-mono text-[12px] text-text-2">
-            {schoolResultsSaved.map((result) => (
-              <div key={result.id}>✓ Saved school result: {result.name} · {result.percent}% · {result.date}</div>
-            ))}
-            <div className="mt-1 text-text-3">Included under Today → School alignment & exam comparison.</div>
-          </div>
-        )}
 
           {names.length > 0 && (
           <div className="mb-3">
@@ -347,20 +163,20 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
                     <span className="font-mono text-[11px] text-text-3">{sourceLabel(meta[Object.keys(meta).find((id) => meta[id]?.filename === name)]?.sourceKind, name)}</span>
                     {questionBankAnalysisStore.read(userId, name)?.status === "reviewed" && <span className="font-mono text-[11px] text-good">analyzed</span>}
                     {banks[name]?.[0]?.bankType === "wrong" && <span className="font-mono text-[13px] text-warn">missed</span>}
-                    <button className="text-bad hover:underline" disabled={busy} onClick={() => remove(name)}>✕</button>
+                    <button className="text-bad hover:underline" onClick={() => remove(name)}>✕</button>
                   </div>
                 ))}
               </div>
           )}
           <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-border bg-bg-elevated px-3 py-2">
             <span className="text-xs text-text-2">Style-training export · {styleSources.length} ExamSoft/IMCQ questions</span>
-            <button type="button" disabled={!styleSources.length || busy} onClick={() => downloadStyleSources(styleSources)} className="font-mono text-[12px] text-accent hover:underline disabled:opacity-40">export JSON</button>
+            <button type="button" disabled={!styleSources.length} onClick={() => downloadStyleSources(styleSources)} className="font-mono text-[12px] text-accent hover:underline disabled:opacity-40">export JSON</button>
           </div>
           </div>
         )}
 
         <div className="flex justify-end">
-          <Button variant="outline" onClick={onClose} disabled={busy}>Done</Button>
+          <Button variant="outline" onClick={onClose}>Done</Button>
         </div>
         </div>
       </div>
