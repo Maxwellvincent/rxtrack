@@ -27,6 +27,31 @@ function normalizedQuestionBankTitle(name) {
     .toLowerCase();
 }
 
+function compactQuestionBankTitle(name) {
+  return normalizedQuestionBankTitle(name).replace(/[^a-z0-9]/g, "");
+}
+
+function isExamSoftTitle(name) {
+  return /examsoft|esoft/i.test(String(name || ""));
+}
+
+function examSoftPairSignature(name) {
+  const compact = compactQuestionBankTitle(name);
+  const system = compact.match(/(dm|er|nb)/i)?.[1]?.toLowerCase() || null;
+  const numbers = [...compact.matchAll(/\d+/g)].map((match) => match[0]);
+  return { system, number: numbers.at(-1) || null };
+}
+
+function questionBankPairMatches(answerName, questionName) {
+  const answerTitle = normalizedQuestionBankTitle(answerName);
+  const questionTitle = normalizedQuestionBankTitle(questionName);
+  if (answerTitle === questionTitle) return true;
+  if (!isExamSoftTitle(answerName) || !isExamSoftTitle(questionName)) return false;
+  const answer = examSoftPairSignature(answerName);
+  const question = examSoftPairSignature(questionName);
+  return !!answer.system && answer.system === question.system && !!answer.number && answer.number === question.number;
+}
+
 /** Prefer an original PDF when a folder also contains its generated Markdown extraction. */
 export function selectQuestionBankFiles(files = []) {
   const rank = (file) => {
@@ -57,8 +82,7 @@ export function pairQuestionBankFiles(files = []) {
   const answerFiles = selected.filter((file) => ANSWER_FILE_HINT.test(String(file?.name || "")) && !/IMCQ/i.test(String(file?.name || "")));
   const questionFiles = selected.filter((file) => !ANSWER_FILE_HINT.test(String(file?.name || "")));
   return answerFiles.flatMap((answerFile) => {
-    const answerTitle = normalizedQuestionBankTitle(answerFile.name);
-    const questionFile = questionFiles.find((candidate) => normalizedQuestionBankTitle(candidate.name) === answerTitle);
+    const questionFile = questionFiles.find((candidate) => questionBankPairMatches(answerFile.name, candidate.name));
     return questionFile ? [{ questionFile, answerFile }] : [];
   });
 }
@@ -69,6 +93,10 @@ export function extractPairedAnswerKey(text = "") {
   const source = String(text || "").replace(/\r/g, "");
   const answerPattern = /(?:^|\n|\f)\s*(?:Q(?:uestion)?\s*)?(\d{1,3})\s+Answer\s*:\s*([A-H])\s*[.)]?\s*([\s\S]*?)(?=(?:\n|\f)\s*(?:Q(?:uestion)?\s*)?\d{1,3}\s+Answer\s*:|$)/gi;
   for (const match of source.matchAll(answerPattern)) {
+    records.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].replace(/\s+/g, " ").trim() });
+  }
+  const explanationPattern = /(?:^|\n|\f)\s*(?:Q(?:uestion)?\s*)?(\d{1,3})\s*[—–-][\s\S]*?\(\s*Answer\s*:\s*([A-H])\s*\)\s*([\s\S]*?)(?=(?:\n|\f)\s*(?:Q(?:uestion)?\s*)?\d{1,3}\s*[—–-]|$)/gi;
+  for (const match of source.matchAll(explanationPattern)) {
     records.set(Number(match[1]), { correct: match[2].toUpperCase(), explanation: match[3].replace(/\s+/g, " ").trim() });
   }
   return records;

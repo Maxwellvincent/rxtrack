@@ -23,10 +23,22 @@ describe("paired question and answer files", () => {
     expect(pairQuestionBankFiles([answerFile, questionFile])).toEqual([{ questionFile, answerFile }]);
   });
 
+  it("pairs ExamSoft practice and explanation filenames with different naming conventions", () => {
+    const questionFile = { name: "ExamsoftPractice_QuestionsDM1.pdf" };
+    const answerFile = { name: "DM ESOFT Quiz 1 Answer Explanations.pdf" };
+    expect(pairQuestionBankFiles([answerFile, questionFile])).toEqual([{ questionFile, answerFile }]);
+  });
+
   it("extracts keyed answers and rationales across PDF page breaks", () => {
     const key = extractPairedAnswerKey("Q1 Answer: C. First rationale.\n\fQ2 Answer: A. Second rationale.");
     expect(key.get(1)).toEqual({ correct: "C", explanation: "First rationale." });
     expect(key.get(2)).toEqual({ correct: "A", explanation: "Second rationale." });
+  });
+
+  it("extracts ExamSoft answer explanations", () => {
+    const key = extractPairedAnswerKey("Q1 — Topic (Answer: D)\n  • D ✓ — The keyed rationale.\n\nQ2 — Next (Answer: B)\n  • B ✓ — Another rationale.");
+    expect(key.get(1)).toEqual({ correct: "D", explanation: "• D ✓ — The keyed rationale." });
+    expect(key.get(2)).toEqual({ correct: "B", explanation: "• B ✓ — Another rationale." });
   });
 });
 
