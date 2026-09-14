@@ -44,6 +44,11 @@ function startOfDay(value) {
   return d;
 }
 
+function localDateKey(value) {
+  const d = startOfDay(value);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 function daysBetween(from, to) {
   return Math.ceil((to - from) / DAY_MS);
 }
@@ -81,7 +86,7 @@ export function buildStudySchedule(context) {
 
   const comprehensiveExamDate = context.examDates?.__comprehensive ?? null;
 
-  const exam = new Date(examDate);
+  const exam = startOfDay(examDate);
   const today = startOfDay(context.now ?? new Date());
   const daysLeft = daysBetween(today, exam);
   if (daysLeft <= 0) return null;
@@ -150,7 +155,7 @@ export function buildStudySchedule(context) {
   // Full day pushes to the next one — and if that is full too, the session is
   // dropped rather than pushed further. App's behaviour, preserved.
   const addToDay = (dateObj, item) => {
-    const key = dateObj.toISOString().slice(0, 10);
+    const key = localDateKey(dateObj);
     if (!schedule[key]) schedule[key] = [];
     if (schedule[key].length < MAX_PER_DAY) {
       schedule[key].push(item);
@@ -159,7 +164,7 @@ export function buildStudySchedule(context) {
     const next = new Date(dateObj);
     next.setDate(next.getDate() + 1);
     if (next < exam) {
-      const nextKey = next.toISOString().slice(0, 10);
+      const nextKey = localDateKey(next);
       if (!schedule[nextKey]) schedule[nextKey] = [];
       if (schedule[nextKey].length < MAX_PER_DAY) {
         schedule[nextKey].push(item);
@@ -496,14 +501,14 @@ export function generateDailySchedule(context) {
     const date = new Date(today);
     date.setDate(today.getDate() + d);
     date.setHours(0, 0, 0, 0);
-    const dateStr = date.toISOString().slice(0, 10);
+    const dateStr = localDateKey(date);
     const dayTasks = [];
 
     // Pass 1 — the lecture actually happens today.
     for (const ls of lecScores) {
       if (dayTasks.length >= MAX_PER_DAY) break;
       if (scheduled.has(ls.lec.id) || !ls.availableDate) continue;
-      if (ls.availableDate.toISOString().slice(0, 10) === dateStr) {
+      if (localDateKey(ls.availableDate) === dateStr) {
         dayTasks.push({ ...ls, dateStr, matchReason: "scheduled-day" });
         scheduled.add(ls.lec.id);
       }
@@ -517,7 +522,7 @@ export function generateDailySchedule(context) {
       if (ls.availableDate > date) continue;
 
       const isOverdue = ls.nextReview && ls.nextReview < today;
-      const isDue = ls.nextReview && ls.nextReview.toISOString().slice(0, 10) === dateStr;
+      const isDue = ls.nextReview && localDateKey(ls.nextReview) === dateStr;
       if (isOverdue || isDue) {
         dayTasks.push({ ...ls, dateStr, matchReason: "spaced-rep-due" });
         scheduled.add(ls.lec.id);

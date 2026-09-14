@@ -143,6 +143,24 @@ describe("buildScheduleContext", () => {
     expect(generateDailySchedule(context).lecScores[0].urgency).toBeGreaterThan(0);
   });
 
+  it("keeps an explicit lecture date on its local calendar day", () => {
+    const daily = generateDailySchedule({
+      blockId: "b1",
+      now: new Date(2026, 8, 14),
+      examDate: "2026-09-20",
+      lectures: [{ id: "today", blockId: "b1", lectureTitle: "Today lecture", lectureDate: "2026-09-14" }],
+      objectives: [{ id: "o1", linkedLecId: "today", objective: "Explain today's lecture.", status: "untested" }],
+      performance: {},
+      lecturePerformance: {},
+      completion: {},
+      reviewedLectures: {},
+      terms: [],
+      weakConcepts: {},
+    });
+    expect(daily.schedule[0]).toMatchObject({ dateStr: "2026-09-14" });
+    expect(daily.schedule[0].tasks[0].lec.id).toBe("today");
+  });
+
   it("keeps Today populated when the exam-date store is missing a horizon", () => {
     const context = buildScheduleContext({
       ...stores(),

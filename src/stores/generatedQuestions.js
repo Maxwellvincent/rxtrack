@@ -124,6 +124,11 @@ export function questionsForLecture(userId, lectureId) {
   return read(userId)[lectureId]?.questions ?? [];
 }
 
+/** All retained generated questions, used to keep new quizzes fresh across blocks. */
+export function questionsForAllLectures(userId) {
+  return Object.values(read(userId) || {}).flatMap((entry) => entry?.questions || []);
+}
+
 export function countForLecture(userId, lectureId) {
   return questionsForLecture(userId, lectureId).length;
 }

@@ -6,13 +6,18 @@ function localDate(value) {
   return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
 }
 
-/** Saturday through Friday is one study week; Friday is the hard boundary. */
+function localDateKey(value) {
+  const date = localDate(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Monday through Friday is the study week; the boundary is after Friday. */
 export function fridayWeekKey(value) {
   const date = localDate(value);
   const day = date.getDay();
-  const daysUntilFriday = day === 6 ? 6 : 5 - day;
-  date.setDate(date.getDate() + daysUntilFriday);
-  return date.toISOString().slice(0, 10);
+  const daysToFriday = day === 0 ? -2 : day === 6 ? -1 : 5 - day;
+  date.setDate(date.getDate() + daysToFriday);
+  return localDateKey(date);
 }
 
 export function lectureDate(lecture) {
@@ -34,7 +39,7 @@ export function currentStudyWeek(lectures = [], now = new Date()) {
 function priorWeekKey(key, count) {
   const date = localDate(key);
   date.setDate(date.getDate() - (7 * count));
-  return date.toISOString().slice(0, 10);
+  return localDateKey(date);
 }
 
 export function filterLecturesByScope(lectures = [], scope = "block-so-far", now = new Date()) {

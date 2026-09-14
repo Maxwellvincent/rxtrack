@@ -8,10 +8,12 @@ const lectures = [
 ];
 
 describe("Friday study-week scopes", () => {
-  it("treats Saturday through Friday as one week", () => {
-    expect(fridayWeekKey("2026-09-05")).toBe("2026-09-11");
+  it("treats Monday through Friday as one week and keeps the weekend before Monday", () => {
+    expect(fridayWeekKey("2026-09-05")).toBe("2026-09-04");
     expect(fridayWeekKey("2026-09-11")).toBe("2026-09-11");
-    expect(fridayWeekKey("2026-09-12")).toBe("2026-09-18");
+    expect(fridayWeekKey("2026-09-12")).toBe("2026-09-11");
+    expect(fridayWeekKey("2026-09-14")).toBe("2026-09-18");
+    expect(fridayWeekKey("2026-09-15")).toBe("2026-09-18");
   });
 
   it("filters current, prior, and future content using the Friday cutoff", () => {

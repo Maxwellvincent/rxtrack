@@ -699,16 +699,14 @@ export function LectureStudyFlow({
     setSkippedAtoms(skipped);
 
     const quizAtoms = toQuiz.length ? toQuiz : roundAtoms; // fallback: quiz all if nothing left
-    const priorQuestions = lecture?.id
-      ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
-      : [];
+    const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
     const r = await quizFromAtoms({ ...lecture, images }, quizAtoms, {
       callAIJSON,
       exemplars: schoolExemplars,
       objectives: [...objectiveById.values()],
       difficulty,
       clinicalCorrelateLibrary,
-      avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
+      avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),
     });
     setBusy("");
     if (r.error) { setError(r.error); return; }
@@ -762,12 +760,14 @@ export function LectureStudyFlow({
     const priorQuestions = lecture?.id
       ? generatedQuestionsStore.questionsForLecture(userId, lecture.id)
       : [];
+    const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
 
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v1") === generationVersion)
       .filter((question) => validReserve.has(question))
+      .filter((question) => (Number(question.timesAnswered) || 0) === 0)
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
       .slice(0, count);
@@ -820,7 +820,8 @@ export function LectureStudyFlow({
         exemplars: schoolExemplars,
         clinicalCorrelateLibrary,
         feedback: questionRatingsStore.feedbackFor(userId, lecture?.id, generationVersion),
-        avoidStems: priorQuestions.map((q) => q.stem).filter(Boolean),
+        avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),
+        avoidQuestions: generatedHistory,
       },
       {
         callAIJSON,
@@ -843,6 +844,7 @@ export function LectureStudyFlow({
       const matching = priorQuestions.filter((q) =>
         q.generationMode !== "grounded-fallback" &&
         (q.generationVersion || "v1") === generationVersion &&
+        (Number(q.timesAnswered) || 0) === 0 &&
         validReserve.has(q) &&
         String(q?.difficulty || "").toLowerCase() === difficulty &&
         (!orderedObjectives.length || q.objectiveIds?.length)
@@ -987,7 +989,9 @@ export function LectureStudyFlow({
           <div className="text-right font-mono text-[13px] text-text-3">
             <div>
               {adHocQuiz
-                ? `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
+                ? quizPreparation
+                  ? `${questions.length}/${quizPreparation.requested} questions ready · ${questions[0]?.difficulty || "medium"}`
+                  : `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
                 : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
             </div>
             <div className={fallbackCount === 0 && locallyValidatedCount === 0 && schoolExemplars.length ? "text-accent" : "text-warn"}>

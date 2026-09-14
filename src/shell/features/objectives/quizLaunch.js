@@ -19,7 +19,7 @@ import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { matchByTerm } from "../../../engine/tagAtoms.js";
-import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
+import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 
 // Rich clinical stems plus five per-choice explanations are large JSON
@@ -85,18 +85,14 @@ export function readExemplars(userId = null) {
   }
 }
 
-/** Pure block selection used by both synchronous readers and hydrated React consumers. */
-export function selectExemplarsForBlock(banks = {}, meta = {}, blockId = null) {
+/**
+ * Return lifetime-wide school examples so every block benefits from the
+ * uploaded ExamSoft and IMCQ writing patterns. Lecture facts and objectives
+ * still control the content of the generated question.
+ */
+export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null) {
   const eligible = (q) => q && q.stem && q.choices && q.sourceKind !== "supplemental";
-  const all = Object.values(banks || {}).flat().filter(eligible);
-  const filenames = Object.values(meta || {})
-    .filter((entry) => entry && entry.blockId === blockId && entry.sourceKind !== "supplemental")
-    .map((entry) => entry.filename);
-  const scoped = filenames
-    .flatMap((filename) => banks?.[filename] || [])
-    .filter(eligible);
-  if (!blockId) return all;
-  return scoped.length ? scoped : all.filter(q => q.blockId === blockId);
+  return Object.values(banks || {}).flat().filter(eligible);
 }
 
 /**
@@ -139,13 +135,8 @@ export function selectAtomsByObjectiveCoverage(atoms = [], objectives = [], prog
 }
 
 /**
- * Block-scoped exemplars — same shape and filtering as `readExemplars`, but
- * limited to banks uploaded for `blockId` (via `questionBankMeta`) instead of
- * flattening every stored bank across every block.
- *
- * Falls back to the full unfiltered `readExemplars` result when nothing has
- * been uploaded for this block — a documented fallback, not a hard failure,
- * so quiz generation still gets style exemplars from whatever exists.
+ * Curriculum-wide exemplars, including ExamSoft and IMCQ uploads from earlier
+ * blocks. The active lecture still supplies the factual scope.
  */
 export function readExemplarsForBlock(userId = null, blockId = null) {
   try {
@@ -157,13 +148,18 @@ export function readExemplarsForBlock(userId = null, blockId = null) {
   }
 }
 
-/** Analyzed upload signals scoped to the same block as the quiz. */
-export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
+/** Analyzed upload signals from the whole curriculum, including homework. */
+export function readClinicalAnalysesForBlock(userId = null, _blockId = null) {
   try {
     const meta = questionBankMetaStore.read(userId) || {};
-    const entries = Object.values(meta).filter((entry) => entry && (!blockId || entry.blockId === blockId));
+    const entries = Object.values(meta).filter((entry) => entry && entry.filename);
     return entries
-      .map((entry) => questionBankAnalysisStore.read(userId, entry.filename))
+      .map((entry) => {
+        const analysis = questionBankAnalysisStore.read(userId, entry.filename);
+        return analysis
+          ? { ...analysis, sourceKind: analysis.sourceKind || entry.sourceKind, blockId: entry.blockId, filename: entry.filename }
+          : null;
+      })
       .filter((analysis) => analysis && Array.isArray(analysis.items));
   } catch {
     return [];
@@ -412,6 +408,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const accepted = [];
   const seen = new Set();
+  const normalizeStem = (stem) => String(stem || "").trim().toLowerCase().replace(/\s+/g, " ");
+  const avoidedStemKeys = new Set((args.avoidStems || []).map(normalizeStem).filter(Boolean));
+  const avoidedQuestions = Array.isArray(args.avoidQuestions) ? args.avoidQuestions.filter(Boolean) : [];
   // Bound generation retries. V1 can fill remaining slots from lecture facts;
   // V2 must report a shortfall instead of substituting foundational recall.
   const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
@@ -444,8 +443,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     lastError = result.error || lastError;
     const newlyAccepted = [];
     for (const question of result.questions || []) {
-      const key = String(question?.stem || "").trim().toLowerCase().replace(/\s+/g, " ");
-      if (!key || seen.has(key) || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
+      const key = normalizeStem(question?.stem);
+      const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
+      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
       seen.add(key);
       accepted.push(question);
       newlyAccepted.push(question);

@@ -19,10 +19,18 @@ export const CATCH_UP_WINDOW_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function localDay(dateLike) {
-  const date = dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
+  const match = typeof dateLike === "string" && dateLike.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const date = match
+    ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+    : dateLike instanceof Date ? new Date(dateLike) : new Date(dateLike);
   if (Number.isNaN(date.getTime())) return null;
   date.setHours(0, 0, 0, 0);
   return date;
+}
+
+function localDateKey(value) {
+  const date = localDay(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 /** Recent, never-started lectures that slipped past their scheduled day. */
@@ -47,7 +55,7 @@ export function catchUpTasks(daily, { today = new Date(), limit = CATCH_UP_LIMIT
     .slice(0, limit)
     .map((ls) => ({
       ...ls,
-      dateStr: todayDate.toISOString().slice(0, 10),
+      dateStr: localDateKey(todayDate),
       catchUpDays: Math.round((todayDate - localDay(ls.availableDate)) / DAY_MS),
       matchReason: "catch-up",
     }));
@@ -85,7 +93,7 @@ export function todayTasks(daily, { limit = FALLBACK_LIMIT, todayStr } = {}) {
   );
   if (!candidates.length) return { tasks: [], reason: "none" };
 
-  const dateStr = todayStr ?? new Date().toISOString().slice(0, 10);
+  const dateStr = todayStr ?? localDateKey(new Date());
   return {
     tasks: candidates.slice(0, limit).map((ls) => ({
       ...ls,

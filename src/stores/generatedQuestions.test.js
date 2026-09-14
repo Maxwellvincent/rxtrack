@@ -42,6 +42,15 @@ describe("generatedQuestions store — addHighlight", () => {
     const saved = generatedQuestions.questionsForLecture("u1", "lecD");
     expect(saved.find((s) => s.stem === other.stem).highlights).toBeUndefined();
   });
+
+  it("reads the retained question history across lectures", () => {
+    generatedQuestions.addQuestions("u-history", "lecA", [q]);
+    generatedQuestions.addQuestions("u-history", "lecB", [{ ...q, stem: "A different question?" }]);
+    expect(generatedQuestions.questionsForAllLectures("u-history").map((question) => question.stem)).toEqual([
+      q.stem,
+      "A different question?",
+    ]);
+  });
 });
 
 describe("generatedQuestions store — durable reserve", () => {

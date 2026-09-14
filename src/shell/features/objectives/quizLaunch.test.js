@@ -86,10 +86,10 @@ describe("exemplars", () => {
   });
 });
 
-describe("block-filtered exemplars", () => {
+describe("curriculum-wide exemplars", () => {
   beforeEach(() => installDomStorage());
 
-  it("returns only exemplars from banks whose meta blockId matches", () => {
+  it("returns ExamSoft and IMCQ exemplars from every uploaded block", () => {
     localStorage.setItem(
       "rxt-question-banks",
       JSON.stringify({
@@ -106,11 +106,10 @@ describe("block-filtered exemplars", () => {
     );
 
     const result = readExemplarsForBlock(null, "b1");
-    expect(result).toHaveLength(1);
-    expect(result[0].stem).toBe("B1 Q?");
+    expect(result.map((question) => question.stem)).toEqual(["B1 Q?", "B2 Q?"]);
   });
 
-  it("does not borrow unrelated blocks when no bank matches the block", () => {
+  it("still uses an earlier block when the active block has no upload", () => {
     localStorage.setItem(
       "rxt-question-banks",
       JSON.stringify({
@@ -125,7 +124,7 @@ describe("block-filtered exemplars", () => {
     );
 
     const result = readExemplarsForBlock(null, "b1");
-    expect(result).toEqual([]);
+    expect(result.map((question) => question.stem)).toEqual(["B2 Q?"]);
   });
 });
 
