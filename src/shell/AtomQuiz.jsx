@@ -174,6 +174,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       correct: isCorrect,
       atomKey: q.atomKey || null,
       objectiveIds: q.objectiveIds || [],
+      objectiveTexts: q.objectiveTexts || [],
       responseMs,
       taskType: q.taskType || classifyLeadIn(q.stem),
       difficulty: q.difficulty || null,
@@ -419,6 +420,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
 
 export function Summary({ records, onExit, onReviewAtom }) {
   const toReview = atomsToReview(records);
+  const objectivesToRepair = objectivesToReview(records);
   const objectivesTested = new Set(records.flatMap((record) => record.objectiveIds || [])).size;
   const supportingAtomsTested = new Set(records.map((record) => record.atomKey).filter(Boolean)).size;
   const pct = (a) => (a == null ? "—" : Math.round(a * 100) + "%");
@@ -434,13 +436,44 @@ export function Summary({ records, onExit, onReviewAtom }) {
           </div>
         )}
       </div>
+      {objectivesToRepair.length > 0 && (
+        <section className="rounded-lg border border-bad bg-bg-elevated p-3" aria-labelledby="objectives-to-review-heading">
+          <div id="objectives-to-review-heading" className="mb-2 font-mono text-[12px] uppercase tracking-wider text-bad">
+            ⚠ {objectivesToRepair.length} school objective{objectivesToRepair.length === 1 ? "" : "s"} to review
+          </div>
+          <ol className="flex flex-col gap-3">
+            {objectivesToRepair.map((objective) => (
+              <li key={objective.id} className="rounded border border-border bg-panel p-3">
+                {objective.code && <div className="font-mono text-[11px] text-text-3">{objective.code}</div>}
+                <div className="text-sm font-semibold leading-snug text-text-1">
+                  {objective.text || "Linked school objective — its text was not saved with this question."}
+                </div>
+                <div className="mt-1 text-[12px] text-text-3">
+                  {objective.misses} question{objective.misses === 1 ? "" : "s"} missed
+                  {objective.landmines > 0 ? ` · ${objective.landmines} confident miss${objective.landmines === 1 ? "" : "es"}` : ""}
+                </div>
+                {objective.concepts.length > 0 && (
+                  <div className="mt-1.5 text-[13px] text-text-2">
+                    Review through: {objective.concepts.join(" · ")}
+                  </div>
+                )}
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {toReview.length > 0 && objectivesToRepair.length === 0 && (
+        <div className="rounded-lg border border-warn/50 bg-bg-elevated p-3 text-sm text-text-2">
+          These misses were not saved with a school-objective link. Review the supporting facts below, then return to the lecture’s objective list.
+        </div>
+      )}
       {/* Every atom left needs-review this session, not just the landmines (sure-but-wrong) —
           those are still sorted first, but a plain miss deserves a way back too instead of
           silently not appearing anywhere. */}
       {toReview.length > 0 && (
         <div className="rounded-lg border border-bad bg-bg-elevated p-3">
           <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-bad">
-            ⚠ {toReview.length} atom{toReview.length === 1 ? "" : "s"} to review
+            {toReview.length} supporting fact{toReview.length === 1 ? "" : "s"} to repair
           </div>
           <ul className="flex flex-col gap-2">
             {toReview.map((r) => {
@@ -481,4 +514,43 @@ export function Summary({ records, onExit, onReviewAtom }) {
       {onExit && <Button onClick={onExit}>Back to lecture & model repairs</Button>}
     </div>
   );
+}
+
+/**
+ * Roll missed questions up to the school objective they were designed to test.
+ * Objective wording is copied onto the quiz record at answer time so the result remains useful
+ * even if the lecture objective store changes while the learner is taking the quiz.
+ */
+export function objectivesToReview(records = []) {
+  const textById = new Map();
+  for (const record of records) {
+    for (const objective of record?.objectiveTexts || []) {
+      if (!objective?.id) continue;
+      textById.set(objective.id, {
+        code: String(objective.code || "").trim(),
+        text: String(objective.text || objective.objective || "").trim(),
+      });
+    }
+  }
+
+  const grouped = new Map();
+  for (const record of records) {
+    if (!record || record.correct) continue;
+    for (const id of [...new Set(record.objectiveIds || [])]) {
+      if (!id) continue;
+      const current = grouped.get(id) || {
+        id,
+        ...(textById.get(id) || { code: "", text: "" }),
+        misses: 0,
+        landmines: 0,
+        concepts: [],
+      };
+      current.misses += 1;
+      if (classify(record) === "confident-wrong") current.landmines += 1;
+      if (record.concept && !current.concepts.includes(record.concept)) current.concepts.push(record.concept);
+      grouped.set(id, current);
+    }
+  }
+
+  return [...grouped.values()].sort((a, b) => b.landmines - a.landmines || b.misses - a.misses);
 }

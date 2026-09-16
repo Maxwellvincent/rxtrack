@@ -2,7 +2,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../stores/testEnv.js";
-import { AtomQuiz, Summary } from "./AtomQuiz.jsx";
+import { AtomQuiz, objectivesToReview, Summary } from "./AtomQuiz.jsx";
 import { ExamLaunchModal } from "./features/exam/ExamLaunchModal.jsx";
 import { recordReflection } from "../stores/learnerEvidence.js";
 
@@ -81,6 +81,65 @@ describe("quiz feedback", () => {
     expect(host.textContent).toContain("60%");
     expect(host.textContent).toContain("6 / 10 correct");
     expect(host.textContent).not.toContain('Accuracy by confidence');
+    close();
+  });
+  it("groups missed questions under their full school objectives before supporting facts", () => {
+    const records = [
+      {
+        correct: false,
+        confidence: 5,
+        atomKey: "urea",
+        concept: "Urea",
+        objectiveIds: ["obj-urea"],
+        objectiveTexts: [{ id: "obj-urea", code: "SOM.DM.BIOC.104", text: "Explain nitrogen disposal through the urea cycle." }],
+      },
+      {
+        correct: false,
+        confidence: 2,
+        atomKey: "glutamine",
+        concept: "Glutamine",
+        objectiveIds: ["obj-urea"],
+        objectiveTexts: [{ id: "obj-urea", code: "SOM.DM.BIOC.104", text: "Explain nitrogen disposal through the urea cycle." }],
+      },
+      {
+        correct: true,
+        confidence: 4,
+        atomKey: "cps1",
+        concept: "CPS I",
+        objectiveIds: ["obj-urea"],
+        objectiveTexts: [{ id: "obj-urea", code: "SOM.DM.BIOC.104", text: "Explain nitrogen disposal through the urea cycle." }],
+      },
+    ];
+    expect(objectivesToReview(records)).toEqual([expect.objectContaining({
+      id: "obj-urea",
+      misses: 2,
+      landmines: 1,
+      concepts: ["Urea", "Glutamine"],
+    })]);
+
+    const { host, close } = render(<Summary records={records} />);
+    expect(host.textContent).toContain("1 school objective to review");
+    expect(host.textContent).toContain("Explain nitrogen disposal through the urea cycle.");
+    expect(host.textContent).toContain("2 questions missed");
+    expect(host.textContent).toContain("Review through: Urea · Glutamine");
+    expect(host.textContent.indexOf("school objective to review")).toBeLessThan(host.textContent.indexOf("supporting facts to repair"));
+    close();
+  });
+  it("carries objective wording from an answered question into the result summary", () => {
+    const question = {
+      stem: "Which pathway handles this nitrogen load?",
+      choices: { A: "Urea cycle", B: "Glycolysis" },
+      correct: "A",
+      atomKey: "urea-cycle",
+      topic: "Urea cycle",
+      objectiveIds: ["obj-1"],
+      objectiveTexts: [{ id: "obj-1", code: "SOM.DM.1", text: "Explain the urea cycle and its regulation." }],
+    };
+    const { host, close } = render(<AtomQuiz userId={null} questions={[question]} />);
+    click(host, "Glycolysis");
+    click(host, "Certain");
+    click(host, "See results");
+    expect(host.textContent).toContain("Explain the urea cycle and its regulation.");
     close();
   });
   it("shows real generation counts, elapsed time, and locks settings while busy", () => {
