@@ -11,11 +11,12 @@ import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
-import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
+import { updateLectureDate } from "../../logic/lectureDate.js";
+import { localDateString } from "../../logic/completionLog.js";
 
 const CONFIDENCE = [
   { key: "good", label: "Solid" },
@@ -34,13 +35,23 @@ function readStoredSort() {
 
 function DateEdit({ row, onUpdateDate }) {
   const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const dateVal = row.availableDate instanceof Date && !isNaN(row.availableDate)
-    ? row.availableDate.toISOString().slice(0, 10)
+    ? localDateString(row.availableDate)
     : "";
 
-  const commit = (val) => {
-    onUpdateDate(row.lectureId, val || null);
-    setEditing(false);
+  const commit = async (val) => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const saved = await onUpdateDate(row.lectureId, val || null);
+      if (saved) setEditing(false);
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   };
 
   if (editing) {
@@ -49,9 +60,10 @@ function DateEdit({ row, onUpdateDate }) {
         type="date"
         defaultValue={dateVal}
         autoFocus
-        onBlur={(e) => commit(e.target.value)}
+        disabled={saving}
+        onBlur={(e) => { if (!saving) void commit(e.target.value); }}
         onKeyDown={(e) => {
-          if (e.key === "Enter") commit(e.target.value);
+          if (e.key === "Enter") { e.preventDefault(); void commit(e.target.value); }
           if (e.key === "Escape") setEditing(false);
         }}
         className="rounded border border-accent bg-bg px-1 py-0 font-mono text-[12px] text-text-1 focus:outline-none"
@@ -241,7 +253,6 @@ export function LectureList({
   focusLectureId = null,
 }) {
   const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
-  const lecturesResource = useLectures(null, userId);
   const questionStats = useLectureQuestionStats(userId);
   const repairProgress = useStoreResource(atomProgressStore, userId);
   const [filter, setFilter] = useState("active");
@@ -324,14 +335,18 @@ export function LectureList({
   );
 
   const onUpdateDate = useCallback(
-    (lectureId, dateStr) => {
-      const all = lecturesResource.data || [];
-      const next = all.map((lec) =>
-        lec.id === lectureId ? { ...lec, lectureDate: dateStr || null } : lec
-      );
-      lecturesResource.mutate(next);
+    async (lectureId, dateStr) => {
+      setLogged(null);
+      try {
+        await updateLectureDate(userId, lectureId, dateStr);
+        setLogged(dateStr ? "Lecture date saved." : "Lecture date cleared.");
+        return true;
+      } catch (error) {
+        setLogged(error?.message || "Could not save the lecture date.");
+        return false;
+      }
     },
-    [lecturesResource]
+    [userId]
   );
 
   const onDelete = useCallback(async (row) => {

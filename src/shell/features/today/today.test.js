@@ -3,7 +3,7 @@ import { installDomStorage } from "../../../stores/testEnv.js";
 import { detectStudyMode, hasUploadedContent } from "../../logic/studyMode.js";
 import { appendActivity, computeReviewDates, getNextSaturday, localDateString } from "../../logic/completionLog.js";
 import { buildScheduleContext, resolveBlockMeta, lecturePerformanceFor } from "./scheduleContext.js";
-import { buildTodaySchedule } from "./useToday.js";
+import { buildTodaySchedule, millisecondsUntilNextLocalDay } from "./useToday.js";
 import { catchUpTasks, todayTasks } from "./fallback.js";
 import { generateDailySchedule, buildStudySchedule } from "../../logic/schedule.js";
 
@@ -32,6 +32,13 @@ describe("detectStudyMode", () => {
     expect(hasUploadedContent({ chunks: [{ markdown: "x".repeat(201) }] })).toBe(true);
     expect(hasUploadedContent({ chunks: [{ markdown: "short" }] })).toBe(false);
     expect(hasUploadedContent(null)).toBe(false);
+  });
+});
+
+describe("live Today date", () => {
+  it("schedules the refresh just after the next local midnight", () => {
+    const now = new Date(2026, 8, 17, 23, 59, 30, 0);
+    expect(millisecondsUntilNextLocalDay(now)).toBe(31_000);
   });
 });
 

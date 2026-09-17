@@ -5,7 +5,7 @@
  * schedulers, and exposes the real action paths: log an Anki session, log a
  * review, and hand a lecture's objectives to the quiz launcher.
  */
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as completionStore from "../../../stores/completion.js";
 import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useCompletion } from "../../hooks/useCompletion.js";
@@ -47,12 +47,52 @@ function emitCompletionUpdated() {
   } catch { /* non-DOM env */ }
 }
 
+export function millisecondsUntilNextLocalDay(now = new Date()) {
+  const next = new Date(now);
+  next.setHours(24, 0, 1, 0);
+  return Math.max(1, next.getTime() - new Date(now).getTime());
+}
+
+/** Keep long-lived tabs on the current local calendar day. */
+function useLiveNow(explicitNow) {
+  const [liveNow, setLiveNow] = useState(() => explicitNow ?? new Date());
+
+  useEffect(() => {
+    if (explicitNow != null) return undefined;
+
+    let timer;
+    const scheduleRollover = (current) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const next = new Date();
+        setLiveNow(next);
+        scheduleRollover(next);
+      }, millisecondsUntilNextLocalDay(current));
+    };
+    const refresh = () => {
+      const current = new Date();
+      setLiveNow(current);
+      scheduleRollover(current);
+    };
+    const onVisible = () => { if (document.visibilityState !== "hidden") refresh(); };
+    scheduleRollover(new Date());
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [explicitNow]);
+
+  return explicitNow ?? liveNow;
+}
+
 export function useToday(blockId, userId, { now } = {}) {
-  // Stable per mount. `new Date()` inline made a fresh value every render, so
-  // the context — and every memo and callback derived from it — was new on each
-  // one: the two schedulers re-ran constantly and consumers keyed on
-  // `objectivesForTask` saw an identity change per render.
-  const nowValue = useMemo(() => now ?? new Date(), [now]);
+  // Stable between day changes, but refreshed after local midnight and whenever
+  // a backgrounded tab returns. This preserves memo stability without leaving
+  // Today permanently pinned to the date on which the component mounted.
+  const nowValue = useLiveNow(now);
   const terms = useTerms(userId);
   const lectures = useLectures(null, userId);
   const objectives = useObjectives(null, userId);
@@ -189,5 +229,6 @@ export function useToday(blockId, userId, { now } = {}) {
     workAhead,
     objectivesForTask,
     nextReviewByLectureId,
+    todayKey: localDateString(context.now),
   };
 }

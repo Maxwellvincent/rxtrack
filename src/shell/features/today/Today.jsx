@@ -851,7 +851,7 @@ function ExamDatePicker({ blockId, userId }) {
 // ─── Main Today component ─────────────────────────────────────────────────────
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, onOpenExam, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, nextDay, daily, study, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId } =
+  const { todayTasks, todayReason, nextDay, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId, todayKey } =
     useToday(blockId, userId);
 
   const [preReadTarget, setPreReadTarget] = useState(null);
@@ -873,6 +873,19 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const [lecConfig, setLecConfig] = useState(() => readLecConfig(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
   const [taskListCollapsed, setTaskListCollapsed] = useState(readTaskListCollapsed);
+
+  // A tab can remain open overnight. When useToday advances to the new local
+  // day, re-read all day-scoped UI state instead of showing yesterday's checks,
+  // rounds, or wake-time suggestion beside today's lectures. React supports
+  // this render-time adjustment when state is derived from a changed prop.
+  const dayStateKey = `${blockId}:${todayKey}`;
+  const [stateDayKey, setStateDayKey] = useState(dayStateKey);
+  if (stateDayKey !== dayStateKey) {
+    setStateDayKey(dayStateKey);
+    setChecked(readChecked(blockId));
+    setSessionCounts(readSessionCounts(blockId));
+    setWakeTime(readSleepWake(blockId).wakeTime ?? null);
+  }
 
   const suggestedMode = useMemo(() => wakeTimeMode(wakeTime), [wakeTime]);
 
