@@ -9,10 +9,10 @@
  * cache reports itself un-hydrated, which is what makes `loading` real in
  * useStoreResource — previously it was hardcoded false.
  *
- * Offline is already handled a layer down: firebase.js initialises Firestore
- * with persistentLocalCache, so snapshots are served from IndexedDB when the
- * network is gone and writes queue until it returns. That cache is what makes
- * the hand-rolled localStorage mirror redundant.
+ * Firestore is the source of truth; firebase.js uses the SDK memory cache to
+ * avoid persistent multi-tab coordination records exhausting localStorage.
+ * The bounded app-owned local mirrors below still bridge synchronous legacy
+ * readers while snapshots hydrate from Firestore.
  *
  * Docs live at users/{uid}/kv/{key} in the shape the existing sync already
  * writes — `{ data: value }` — so a converted store reads what is there today

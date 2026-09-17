@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, connectAuthEmulator } from "firebase/auth";
 import { connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage, connectStorageEmulator } from "firebase/storage";
+import { clearLegacyFirestoreSharedState } from "./firestoreCachePolicy.js";
 
 const cfg = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -31,20 +32,25 @@ export const app = initializeApp(
 );
 export const auth = getAuth(app);
 
-// Offline persistence (findings 8, R2-9): persistent IndexedDB cache with the
-// multi-tab manager; fall back to memory cache when IndexedDB is unavailable
-// (private browsing / unsupported), so init never throws.
-import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager, memoryLocalCache } from "firebase/firestore";
+// Firestore's persistent multi-tab cache writes coordination records into the
+// browser's small localStorage quota. A full quota makes those writes throw
+// asynchronously after initialization, so a surrounding try/catch cannot
+// recover and Firestore can enter an internal assertion loop.
+//
+// Firestore is RXTrack's source of truth and app-owned local mirrors remain
+// available for startup. Use the SDK's default-safe memory cache so multiple
+// open tabs and a large study history cannot exhaust localStorage. Clean up the
+// obsolete derived coordination records left by older builds before Firestore
+// starts; this never touches Firebase Auth or `rxt-*` study data.
+import { initializeFirestore, memoryLocalCache } from "firebase/firestore";
 function makeDb() {
-  if (useEmulators) return initializeFirestore(app, { localCache: memoryLocalCache() });
-  try {
-    return initializeFirestore(app, {
-      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-    });
-  } catch (e) {
-    console.warn("Firestore persistent cache unavailable, using memory:", e?.message);
-    return initializeFirestore(app, { localCache: memoryLocalCache() });
+  if (!useEmulators) {
+    const cleanup = clearLegacyFirestoreSharedState();
+    if (cleanup.removed > 0) {
+      console.info(`Firestore cache recovery: removed ${cleanup.removed} obsolete coordination record(s)`);
+    }
   }
+  return initializeFirestore(app, { localCache: memoryLocalCache() });
 }
 export const db = makeDb();
 export const storage = getStorage(app);
