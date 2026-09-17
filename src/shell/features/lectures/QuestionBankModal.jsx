@@ -85,7 +85,7 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
         </div>
         <div className="overflow-y-auto px-5 py-4">
         <div className="mb-4 font-mono text-[12px] text-text-3">
-          Uploaded ExamSoft, homework, and practice questions remain available under Exam for practice or timed quiz sessions.
+          Uploaded ExamSoft, homework, IMCQ, and in-class clicker examples remain available under Exam and guide lecture quizzes and question generation.
           Each bank is analyzed for source-key coverage, objective focus, lecture support, clinical cues, and critique.
           A score report (with a category-by-category breakdown) also flags your weak categories automatically.
           After you choose files, this window closes and the import continues in the background; progress and completion appear in the notification center.
@@ -99,14 +99,22 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
         </div>
 
         <div className="mb-3 flex flex-col gap-2">
-          <div className="grid grid-cols-2 gap-2" aria-label="Question source type">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-4" aria-label="Question source type">
             <button type="button" onClick={() => setSourceKind("school")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "school" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
               <span className="block font-bold">Official school questions</span>
               <span>Guides school-style generation</span>
             </button>
             <button type="button" onClick={() => setSourceKind("supplemental")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "supplemental" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
               <span className="block font-bold">Homework / supplemental</span>
-              <span>Practice and critique; does not define school style</span>
+              <span>Task types and misconceptions</span>
+            </button>
+            <button type="button" onClick={() => setSourceKind("imcq")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "imcq" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
+              <span className="block font-bold">IMCQ source</span>
+              <span>Challenge format and clues</span>
+            </button>
+            <button type="button" onClick={() => setSourceKind("clicker")} className={`rounded-lg border p-2 text-left text-xs ${sourceKind === "clicker" ? "border-accent bg-accent-soft text-text-1" : "border-border text-text-3"}`}>
+              <span className="block font-bold">In-class clickers</span>
+              <span>Clinical clues and images</span>
             </button>
           </div>
           <label className="flex cursor-pointer items-center gap-2 text-xs text-text-2">
@@ -143,6 +151,32 @@ export function QuestionBankModal({ blockId, blockName = "", lectures = [], obje
             className="hidden"
             disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
             onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "supplemental"); }}
+          />
+        </label>
+        <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm hover:border-accent">
+          <span className="text-text-1"><span className="block font-semibold">Import in-class clicker images</span><span className="text-xs text-text-3">Select the clicker folder or its screenshots. Complete stems are grouped into one example bank; unkeyed slides stay example-only.</span></span>
+          <span className="font-mono text-[12px] text-accent-text">images</span>
+          <input
+            type="file"
+            multiple
+            webkitdirectory="true"
+            directory="true"
+            accept=".png,.jpg,.jpeg,.webp"
+            className="hidden"
+            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
+            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "clicker"); }}
+          />
+        </label>
+        <label className="mb-4 flex cursor-pointer items-center justify-between rounded-lg border border-border px-4 py-3 text-sm hover:border-border-strong">
+          <span className="text-text-2">Add clicker image files</span>
+          <span className="font-mono text-[12px] text-text-3">png · jpg · webp</span>
+          <input
+            type="file"
+            multiple
+            accept=".png,.jpg,.jpeg,.webp"
+            className="hidden"
+            disabled={schoolResultsRes.loading || !!schoolResultsRes.error}
+            onChange={(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; onFiles(fs, "clicker"); }}
           />
         </label>
 

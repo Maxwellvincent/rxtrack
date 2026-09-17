@@ -6,7 +6,7 @@
  * lectures and weak concepts. The bank itself is what feeds question generation
  * as few-shot exemplars, and that is the part worth keeping.
  *
- * Pure — the caller parses the PDF and owns the store write.
+ * Pure — the caller parses the source and owns the store write.
  */
 
 const newId = (idgen) =>
@@ -16,6 +16,12 @@ const newId = (idgen) =>
     : `qb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
 
 const ANSWER_FILE_HINT = /\b(?:answer(?:s)?|key|breakdown|solution(?:s)?|explanation(?:s)?)\b/i;
+export const QUESTION_BANK_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"];
+
+export function isQuestionBankImage(file) {
+  const name = String(file?.name || "").toLowerCase();
+  return QUESTION_BANK_IMAGE_EXTENSIONS.some((extension) => name.endsWith(extension));
+}
 
 function normalizedQuestionBankTitle(name) {
   return String(name || "")
@@ -59,12 +65,15 @@ export function selectQuestionBankFiles(files = []) {
     if (name.endsWith(".pdf")) return 3;
     if (name.endsWith(".md") || name.endsWith(".markdown")) return 2;
     if (name.endsWith(".txt")) return 1;
+    if (isQuestionBankImage(file)) return 1;
     return 0;
   };
   const selected = new Map();
   for (const file of Array.from(files || [])) {
     if (!rank(file)) continue;
-    const key = String(file?.name || "")
+    const key = isQuestionBankImage(file)
+      ? String(file?.webkitRelativePath || file?.name || "").replace(/\s+/g, " ").trim().toLowerCase()
+      : String(file?.name || "")
       .replace(/\.(?:pdf|md|markdown|txt)$/i, "")
       .replace(/\+/g, " ")
       .replace(/\s+/g, " ")

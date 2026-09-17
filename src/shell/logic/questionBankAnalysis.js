@@ -22,6 +22,8 @@ const words = (value) => new Set((String(value || "").toLowerCase().match(/[a-z]
 const textOfObjective = (objective) => objective?.objective || objective?.text || objective?.content || "";
 
 export function sourceLabel(sourceKind = "school", filename = "") {
+  if (sourceKind === "imcq" || /\bimcq\b/i.test(filename)) return "IMCQ challenge source";
+  if (sourceKind === "clicker" || /clicker|in-class/i.test(filename)) return "In-class clicker examples";
   if (sourceKind === "homework" || sourceKind === "supplemental" || /homework|worksheet|practice question/i.test(filename)) return "Homework / supplemental";
   return "Official school / ExamSoft";
 }

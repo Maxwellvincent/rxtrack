@@ -11,6 +11,7 @@ service cloud.firestore {
       match /objectives/{blockId}{ allow read, write: if owner(uid); }
       match /objectivesBackup/{blockId}{ allow read, write: if owner(uid); } // pre-delete copies made by storage compaction
       match /lectures/{lecId}    { allow read, write: if owner(uid); }
+      match /mentalModels/{modelId} { allow read, write: if owner(uid); }
       match /kv/{key}            { allow read, write: if owner(uid); }
       match /mcq/{id}            { allow read, write: if owner(uid); }
       match /dlSessions/{id}     { allow read, write: if owner(uid); } // paused DeepLearn sessions: one doc each, they blow the single-kv-doc limit together

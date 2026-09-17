@@ -247,7 +247,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       const subject = lecture?.lectureTitle || lecture?.title || "this lecture";
       const [guideResult, modelResult] = await Promise.all([
         generateStudyGuide({ objectives, atoms, subject }, { callAIJSON }),
-        generateMentalModel({ atoms, subject }, { callAIJSON }),
+        generateMentalModel({ atoms, objectives, subject }, { callAIJSON }),
       ]);
       const made = [];
       if (guideResult.topics?.length) {

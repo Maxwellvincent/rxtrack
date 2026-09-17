@@ -10,9 +10,15 @@ describe("selectQuestionBankFiles", () => {
     expect(selectQuestionBankFiles([markdown, pdf])).toEqual([pdf]);
   });
 
-  it("filters directory selections to supported question-bank files", () => {
+  it("filters directory selections to supported question-bank files, including clicker images", () => {
     expect(selectQuestionBankFiles([{ name: "notes.docx" }, { name: "questions.txt" }, { name: "figures.jpeg" }]).map((file) => file.name))
-      .toEqual(["questions.txt"]);
+      .toEqual(["figures.jpeg", "questions.txt"]);
+  });
+
+  it("keeps same-named clicker images from separate selected folders", () => {
+    const first = { name: "slide.jpeg", webkitRelativePath: "Week 3/slide.jpeg" };
+    const second = { name: "slide.jpeg", webkitRelativePath: "Week 4/slide.jpeg" };
+    expect(selectQuestionBankFiles([first, second])).toEqual([first, second]);
   });
 });
 

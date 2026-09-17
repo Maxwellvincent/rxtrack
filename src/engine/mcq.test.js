@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -16,6 +16,11 @@ describe("normalizeQuestions", () => {
     const out = normalizeQuestions({ questions: [{ ...good, correct: "a" }] });
     expect(out).toHaveLength(1);
     expect(out[0].choices[out[0].correct]).toBe("Insulin");
+  });
+  it("keeps the generated order label and Bloom level", () => {
+    const [out] = normalizeQuestions([{ ...good, orderLevel: "third order", bloomLevel: 4 }]);
+    expect(out.orderLevel).toBe("third-order");
+    expect(out.bloomLevel).toBe(4);
   });
   it("accepts a bare array too", () => {
     expect(normalizeQuestions([good])).toHaveLength(1);
@@ -101,6 +106,16 @@ describe("buildMcqPrompt", () => {
     expect(clinicalPrompt).toContain("family history");
     expect(clinicalPrompt).toContain("outside facts");
   });
+  it("uses Homework as task evidence without promoting it to official style", () => {
+    const prompt = buildMcqPrompt({
+      lectureText: "A lecture fact about enzyme regulation. ".repeat(8),
+      objectives: [{ id: "o1", bloom_level: 4, objective: "Analyze pathway regulation" }],
+      examples: [{ sourceKind: "supplemental", sourceFile: "Homework Week 2.pdf", stem: "A patient has a pathway defect. What downstream laboratory finding is expected?", choices: { A: "a", B: "b", C: "c", D: "d" }, correct: "A" }],
+    });
+    expect(prompt).toContain("HOMEWORK TASK EVIDENCE");
+    expect(prompt).toContain("not official style or answer authority");
+    expect(prompt).toContain("ORDER-OF-REASONING BLUEPRINT");
+  });
   it("asks for strict JSON with the questions shape", () => {
     expect(prompt).toMatch(/"questions"/);
     expect(prompt).toMatch(/stem/);
@@ -146,6 +161,16 @@ describe("selectStyleExemplars", () => {
     stem,
     choices: Object.fromEntries("ABCDEFGH".slice(0, count).split("").map((letter) => [letter, letter])),
     ...extra,
+  });
+
+  it("returns separate official-style, Homework-task, and objective-order signals", () => {
+    const blueprint = buildQuestionSourceBlueprint([
+      q("Official school item", 4, { sourceFile: "ExamSoft.pdf", correct: "A" }),
+      q("Homework item. What downstream finding is expected?", 4, { sourceFile: "Homework.pdf", correct: "A" }),
+    ], [{ id: "o1", bloom_level: 4, objective: "Analyze this pathway" }], 5);
+    expect(blueprint.officialStyle.sampleSize).toBe(1);
+    expect(blueprint.homeworkTypes.sampleSize).toBe(1);
+    expect(blueprint.order.targets["third-order"]).toBe(1);
   });
 
   it("keeps ExamSoft first and admits verified IMCQ as a style reference", () => {

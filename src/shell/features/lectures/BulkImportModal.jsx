@@ -196,7 +196,7 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
           const subject = lecture.lectureTitle || lecture.title || "this lecture";
           const [guideResult, modelResult] = await Promise.all([
             generateStudyGuide({ objectives: foundObjectives, atoms: extractedAtoms, subject }, { callAIJSON }),
-            generateMentalModel({ atoms: extractedAtoms, subject }, { callAIJSON }),
+            generateMentalModel({ atoms: extractedAtoms, objectives: foundObjectives, subject }, { callAIJSON }),
           ]);
           if (guideResult.topics?.length) {
             studyGuideStore.write(userId, lecture.id, {

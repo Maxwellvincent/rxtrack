@@ -14,6 +14,7 @@ import { getChunkBody } from "../../../lectureText.js";
 import { imageForAtom, isUsableImage, attachImagesToQuestions } from "../../../lectureImages.js";
 import { matchTextToCandidates } from "../../logic/examReportWeakConcepts.js";
 import { normAtomKey } from "../../../engine/atomNorm.js";
+import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
 
 /** Minimum characters worth sending to the extractor. */
 export const MIN_TEXT = 200;
@@ -129,6 +130,7 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
       examples: exemplars,
       avoidStems,
       clinicalCorrelateLibrary,
+      orderBlueprint: buildOrderBlueprint({ objectives: deps.objectives || [], count: atoms.length }),
     },
     { callAIJSON, reviewAIJSON: deps.reviewAIJSON, skipQuestionAudit: deps.skipQuestionAudit }
   );

@@ -12,12 +12,14 @@ describe("learner evidence", () => {
     const model = applyEvidence(null, {
       source: "quiz", lectureId: "l1", objectiveIds: ["o1"], atomKey: "a1",
       correct: false, misconception: "landmine", difficulty: "expert", at: 10,
+      orderLevel: "third-order",
     });
     expect(model.total).toBe(1);
     expect(model.objectives.o1).toMatchObject({ attempts: 1, correct: 0, landmines: 1 });
     expect(model.atoms.a1.lastDifficulty).toBe("expert");
     expect(model.lectures.l1.attempts).toBe(1);
     expect(model.sources.quiz.attempts).toBe(1);
+    expect(model.orderLevels["third-order"].attempts).toBe(1);
   });
 
   it("tracks response time, answer changes, and self-classified process errors", () => {

@@ -124,7 +124,7 @@ export function ModelSection({ title, children, count }) {
 export function MentalModelView({ model, onAtomClick }) {
   const {
     bigPicture, components = [], relationships = [], mechanisms = [],
-    causeEffect = [], clinicalApplication = [], confusedPairs = [],
+    causeEffect = [], clinicalApplication = [], confusedPairs = [], reasoningLadders = [],
   } = model;
 
   return (
@@ -213,6 +213,27 @@ export function MentalModelView({ model, onAtomClick }) {
               <ModelSection key={i} title={`${p.a} vs ${p.b}`}>
                 {p.distinction && <div className="mt-1 text-text-2">{p.distinction}</div>}
               </ModelSection>
+            ))}
+          </div>
+        </ModelSection>
+      )}
+
+      {reasoningLadders.length > 0 && (
+        <ModelSection title="Objective reasoning ladders" count={reasoningLadders.length}>
+          <p className="mb-2 text-xs text-text-3">Move from recognition to relationship-based application, then integrate only when the objective and lecture facts support it.</p>
+          <div className="flex flex-col gap-2">
+            {reasoningLadders.map((ladder, i) => (
+              <div key={`${ladder.objectiveId || "objective"}-${i}`} className="rounded border border-border bg-panel p-2.5">
+                <div className="text-sm font-semibold text-text-1">{ladder.objective || ladder.objectiveId || `Objective ${i + 1}`}</div>
+                <div className="mt-2 grid gap-2 text-xs sm:grid-cols-3">
+                  {[['1st', ladder.firstOrder], ['2nd', ladder.secondOrder], ['3rd', ladder.thirdOrder]].map(([label, text]) => (
+                    <div key={label} className="rounded border border-border bg-bg p-2">
+                      <div className="font-mono font-bold text-accent-text">{label} order</div>
+                      <div className="mt-1 text-text-2">{text || "Not supported by the supplied evidence."}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </ModelSection>
@@ -445,12 +466,12 @@ export function LectureStudyFlow({
 
   const generateModel = useCallback(async () => {
     setGeneratingModel(true); setError("");
-    const result = await generateMentalModel({ atoms, subject: title }, { callAIJSON });
+    const result = await generateMentalModel({ atoms, objectives: lectureObjectives, examples: schoolExemplars, subject: title }, { callAIJSON });
     setGeneratingModel(false);
     if (result.error) { setError(result.error); return; }
     mentalModelStore.write(userId, lecture?.id, result.model);
     setMentalModel(result.model);
-  }, [atoms, title, userId, lecture?.id]);
+  }, [atoms, lectureObjectives, schoolExemplars, title, userId, lecture?.id]);
 
   const markModelReviewed = useCallback(() => {
     const next = mentalModelImpactStore.markReviewed(userId, lecture?.id, qStats);

@@ -16,6 +16,7 @@ import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
 import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModelImpact.js";
 import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
 import { ChoiceValue, hasTableChoices } from "../ui/ChoiceValue.jsx";
+import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../engine/questionOrder.js";
 
 const nowMs = () => Date.now();
 
@@ -177,6 +178,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       objectiveTexts: q.objectiveTexts || [],
       responseMs,
       taskType: q.taskType || classifyLeadIn(q.stem),
+      orderLevel: q.orderLevel || classifyQuestionOrder(q),
       difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
@@ -192,6 +194,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
       misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
       responseMs,
       taskType: classifyLeadIn(q.stem),
+      orderLevel: q.orderLevel || classifyQuestionOrder(q),
     });
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
@@ -215,6 +218,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
         responseMs,
         difficulty: q.difficulty || null,
         taskType: classifyLeadIn(q.stem),
+        orderLevel: q.orderLevel || classifyQuestionOrder(q),
         stem: q.stem,
       });
       // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
@@ -241,7 +245,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   return (
     <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span>{q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}</span><span className="text-text-3">{currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
+        <span>{q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}{q.orderLevel && <span className="ml-2 text-text-3">· {QUESTION_ORDER_LABELS[q.orderLevel]}</span>}</span><span className="text-text-3">{currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-panel"

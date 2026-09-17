@@ -21,6 +21,7 @@ import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { matchByTerm } from "../../../engine/tagAtoms.js";
 import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
+import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
 
 // Rich clinical stems plus five per-choice explanations are large JSON
 // objects. Asking for ten in one response routinely truncates otherwise good
@@ -70,7 +71,8 @@ export function findLectureForQuiz(lectures, blockId, lectureTitle) {
 }
 
 /**
- * Uploaded exam-bank questions used as style exemplars.
+ * Uploaded questions available as generation evidence. The MCQ engine separates
+ * official style exemplars from Homework task-pattern evidence downstream.
  *
  * Firestore-backed since the banks stopped being mirrored to localStorage —
  * 51 files was 618KB of a ~5MB budget. Signed out, the store falls back to
@@ -91,7 +93,7 @@ export function readExemplars(userId = null) {
  * still control the content of the generated question.
  */
 export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null) {
-  const eligible = (q) => q && q.stem && q.choices && q.sourceKind !== "supplemental";
+  const eligible = (q) => q && q.stem && q.choices;
   return Object.values(banks || {}).flat().filter(eligible);
 }
 
@@ -213,6 +215,7 @@ export function buildQuizConfig({
       count,
       studyMode,
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
+      orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
     },
     lectureId: lecture?.id ?? selected.map((o) => o?.linkedLecId).find(Boolean) ?? null,
   };
@@ -363,7 +366,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
       selected.push(...objectiveFacts.slice(0, config.count - selected.length));
     }
     const result = await generateFromAtoms(
-      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion, clinicalCorrelateLibrary: config.clinicalCorrelateLibrary },
+      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion, clinicalCorrelateLibrary: config.clinicalCorrelateLibrary, orderBlueprint: config.orderBlueprint },
       deps
     );
     return { ...result, lectureId };
@@ -392,6 +395,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
         subject: config?.subject,
         generationVersion: args.generationVersion,
         clinicalCorrelateLibrary: config.clinicalCorrelateLibrary,
+        orderBlueprint: config.orderBlueprint,
       },
       deps
     )),

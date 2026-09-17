@@ -2,7 +2,7 @@ import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait } from ".
 import { readJson, writeJson } from "./base.js";
 
 export const key = "rxt-learner-evidence-v1";
-const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, testTaking: { reasons: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
+const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
 
 export function read(userId) {
   return userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
@@ -42,6 +42,7 @@ export function applyEvidence(model, rawEvent) {
     lectures: bump(current.lectures || {}, event.lectureId, event),
     sources: bump(current.sources || {}, event.source || "quiz", event),
     taskTypes: bump(current.taskTypes || {}, event.taskType, event),
+    orderLevels: bump(current.orderLevels || {}, event.orderLevel, event),
     testTaking: {
       ...process,
       reasons: process.reasons || {},

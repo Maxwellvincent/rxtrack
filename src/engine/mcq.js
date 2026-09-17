@@ -1,12 +1,13 @@
 // mcq.js — pure MCQ generation helpers (port of the monolith's
 // genTopicVignettesWithContext prompt + validation into the shell/engine).
-// The exam-bank questions the student uploaded become few-shot STYLE exemplars
-// so the model asks questions in their school's exact style.
+// Verified ExamSoft/IMCQ questions become few-shot STYLE exemplars; Homework
+// remains separate task-pattern evidence so the source roles stay auditable.
 import { normAtomKey } from "./atomNorm.js";
 import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
 import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
+import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription } from "./questionOrder.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -22,6 +23,7 @@ export function exemplarSourceTier(question) {
     .toLowerCase();
   if (/examsoft|esoft/.test(label)) return "examsoft";
   if (question?.sourceKind === "imcq" || /\bimcq\b/.test(label)) return "imcq";
+  if (question?.sourceKind === "clicker" || /clicker|in-class/.test(label)) return "clicker";
   if (question?.sourceKind === "supplemental" || /\bnatalie\b|\bhomework\b|practice[ +_-]*questions?|\bweek[ +_-]*\d+/.test(label)) return "homework";
   return "school";
 }
@@ -52,6 +54,11 @@ export function questionEndingTask(stem = "") {
 
 function isSecondOrderStem(stem = "") {
   return ["mechanism", "prediction", "relationship", "decision"].includes(questionEndingTask(stem));
+}
+
+function isThirdOrderStem(stem = "") {
+  const sentenceCount = String(stem).split(/[.!?]+/).filter(Boolean).length;
+  return sentenceCount >= 3 && /\b(after|because|therefore|consequently|downstream|if .*blocked|in addition|combined with|both .* and|which change would result|what would be expected next)\b/i.test(stem);
 }
 
 function taskFamilyCounts(stems = []) {
@@ -95,8 +102,47 @@ export function buildStyleFingerprint(examples = []) {
     commonLeadIns: [...new Set(leadIns)].slice(0, 6),
     endingFamilies: Object.entries(endingCounts).sort((a, b) => b[1] - a[1]).map(([family, count]) => ({ family, label: TASK_FAMILY_LABELS[family], count })),
     secondOrderRate: stems.filter(isSecondOrderStem).length / stems.length,
+    thirdOrderRate: stems.filter(isThirdOrderStem).length / stems.length,
     scenarioTypes: scenarioTypes.sort((a, b) => b.count - a.count).slice(0, 6),
   };
+}
+
+/**
+ * Keep source roles explicit: official ExamSoft/IMCQ questions teach wording and
+ * option conventions; Homework teaches the kinds of relationships and traps the
+ * learner is assigned to practice. Neither source silently becomes lecture truth.
+ */
+export function buildQuestionSourceBlueprint(examples = [], objectives = [], count = 10) {
+  const homework = examples.filter((question) => exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false);
+  const clicker = examples.filter((question) => exemplarSourceTier(question) === "clicker" && question?.stem && question?.choices);
+  const homeworkFingerprint = buildStyleFingerprint(homework.slice(0, 24));
+  const clickerFingerprint = buildStyleFingerprint(clicker.slice(0, 24));
+  const official = selectStyleExemplars(examples, 5, "medium", { objectives, atoms: [] });
+  return {
+    officialStyle: buildStyleFingerprint(official),
+    homeworkTypes: homeworkFingerprint,
+    clickerTypes: clickerFingerprint,
+    order: buildOrderBlueprint({ objectives, count }),
+  };
+}
+
+function homeworkEvidencePrompt(examples = []) {
+  const homework = examples.filter((question) => exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false).slice(0, 6);
+  if (!homework.length) return "";
+  const blueprint = buildStyleFingerprint(homework);
+  return `\n\nHOMEWORK TASK EVIDENCE (assigned-practice signal, not official style or answer authority):\n` +
+    `Observed task families: ${JSON.stringify(blueprint.endingFamilies || [])}; observed second-order signal: ${Math.round((blueprint.secondOrderRate || 0) * 100)}%.\n` +
+    homework.map((question, index) => `HOMEWORK ${index + 1}: ${question.stem}`).join("\n") +
+    `\nUse Homework to include the relationships, misconception patterns, and problem types your assignments actually practice. Rewrite them as NEW questions in the verified ExamSoft/IMCQ structure; do not copy wording, import unsupported facts, or treat a homework key as an independent medical audit. Objectives still determine what may be tested.\n`;
+}
+
+function clickerEvidencePrompt(examples = []) {
+  const clickers = examples.filter((question) => exemplarSourceTier(question) === "clicker" && question?.stem && question?.choices).slice(0, 6);
+  if (!clickers.length) return "";
+  const keyed = clickers.filter((question) => question.answerKeyVerified === true && question.correct).length;
+  return `\n\nIN-CLASS CLICKER TASK EVIDENCE (lecture-discussion signal, not official exam style or answer authority):\n` +
+    `Imported ${clickers.length} complete clicker examples; ${keyed} had an unambiguous visible answer marking. Use these to learn the kinds of clinical clues, image dependence, and downstream reasoning the instructor asks students to perform. Preserve image-based task patterns when the lecture/objective supports them, but do not copy wording, infer an answer for an unkeyed image, or promote clicker content into verified practice questions without a source key.\n` +
+    clickers.map((question, index) => `CLICKER ${index + 1}${question.hasImage ? " [image-dependent]" : ""}: ${question.stem}`).join("\n") + "\n";
 }
 
 function withSchoolContext(questions, cfg) {
@@ -117,7 +163,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   try {
     const prompt = buildMcqPrompt(cfg);
     const result = await callAIJSON(cfg.generationVersion === "v2" ? MCQ_V2_SYSTEM : MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    const generated = withSchoolContext(normalizeQuestions(result), cfg).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
+    const generated = withSchoolContext(stampQuestionOrders(normalizeQuestions(result), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
     return await auditGeneratedQuestions(generated, cfg, deps);
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
@@ -240,6 +286,8 @@ export function normalizeQuestions(raw) {
       atomKey: q.atomKey ? String(q.atomKey) : null,
       objectiveIds: Array.isArray(q.objectiveIds) ? q.objectiveIds.map(String).filter(Boolean) : [],
       taskType: q.taskType ? String(q.taskType).trim() : null,
+      orderLevel: normalizeQuestionOrder(q.orderLevel || q.questionOrder),
+      bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
       clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,
       clinicalCueUsed: q.clinicalCueUsed ? String(q.clinicalCueUsed).trim() : null,
     };
@@ -320,12 +368,12 @@ function renderChoices(choices) {
 export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "medium", targets = {}) {
   if (limit <= 0) return [];
   const relevance = new Map(alignSchoolQuestions(examples, targets.objectives, targets.atoms).map(x => [x.question,x.score]));
-  // Homework/student-authored banks are useful evidence about assigned content, but ExamSoft
-  // and IMCQ remain the primary writing-style references.
+  // Homework/student-authored and in-class clicker banks are useful task evidence,
+  // but ExamSoft and IMCQ remain the primary writing-style references.
   const candidates = examples.filter((q) => {
     const tier = exemplarSourceTier(q);
     return q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false &&
-      tier !== "homework";
+      tier !== "homework" && tier !== "clicker";
   });
   const linked = candidates.filter(q => (relevance.get(q) || 0) > 0);
   const valid = (linked.length ? linked : candidates)
@@ -358,7 +406,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [] } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -370,6 +418,8 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
 
   const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
   const styleFingerprint = buildStyleFingerprint(styleExamples);
+  const sourceBlueprint = buildQuestionSourceBlueprint(examples, objectives, atoms.length);
+  const resolvedOrderBlueprint = orderBlueprint || sourceBlueprint.order;
   const examplesSection = styleExamples.length
     ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
       styleExamples.map((q, i) =>
@@ -391,8 +441,11 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   const v2Blueprint = generationVersion === "v2" ?
     `V2 SGU/EXAMSOFT BLUEPRINT:\n- Objectives define WHAT is tested; lecture facts establish the medically correct key; examples define HOW the item is written and are never factual authority.\n- Write concise SGU-style clinical or anatomic application items, normally one or two reasoning steps, not long UWorld-style diagnostic puzzles.\n- Across a batch target 20% direct foundational application, 60% standard clinical/anatomic application, and 20% harder integration.\n- Every distractor must be the same semantic category as the key and plausible for the exact task.\n- Vary patient framing, tested relationship, lead-in, and clue-to-answer route across the batch. Never add generic patient details that do no diagnostic work.\n\n` : "";
   const taskSection = taskVariationPrompt(styleFingerprint, diff, "atom-question batch");
+  const orderSection = `ORDER-OF-REASONING BLUEPRINT (separate from difficulty): ${JSON.stringify(resolvedOrderBlueprint.targets)}\n` +
+    `${resolvedOrderBlueprint.rationale}\n` +
+    `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + taskSection +
+    v2Blueprint + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
     `Each question must test that specific fact (not adjacent trivia). Use the supplied clinical correlate, cues, buzzwords, or inheritance pattern when present so the learner practices recognizing the lecture's clues. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. Medium items should use a concise 2–3 sentence stem and 1–2 reasoning steps; hard/expert items may use longer stems and indirect clues, but only when the supplied objective warrants that difficulty. ` +
@@ -404,10 +457,10 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
     `\n\nLECTURE OBJECTIVES (source data):\n${objectives.map(o => `[${o.id}] ${o.code || ""} ${o.objective || o.text || ""}`).join("\n") || "No objectives available; do not claim objective coverage."}\n` +
     `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
-    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + clinicalSection + feedbackSection + avoidSection +
+    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     `\n\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
   );
 }
 
@@ -449,7 +502,7 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
     const result = await callAIJSON(cfg.generationVersion === "v2" ? MCQ_V2_SYSTEM : MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    const questions = normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])).map(q => ({
+    const questions = stampQuestionOrders(normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])), cfg.objectives || []).map(q => ({
       ...q,
       generationVersion: cfg.generationVersion || "v1",
       objectiveTexts: (cfg.objectives || []).filter(o => q.objectiveIds?.includes(o.id)).map(o => ({ id: o.id, code: o.code || "", text: o.objective || o.text || "" })),
@@ -470,6 +523,8 @@ function auditQuestionPayload(question, index) {
     whyWrong: question.whyWrong,
     objectiveIds: question.objectiveIds,
     topic: question.topic,
+    orderLevel: question.orderLevel,
+    bloomLevel: question.bloomLevel,
     clinicalCorrelate: question.clinicalCorrelate,
     clinicalCueUsed: question.clinicalCueUsed,
   };
@@ -500,6 +555,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `8. Do not allow named diseases, syndromes, treatments, or laboratory findings absent from the supplied lecture evidence/objectives. A fact may be clinically true yet still fail this curriculum-grounding check; reject it as unsupported_fact.\n` +
     `9. Compare the entire batch. Reject paraphrases that test the same clue-to-answer route, even when age, sex, location, or option order changes.\n` +
     `10. Compare the final asks across the batch. The school style may use "Which" often, but the target must vary. For batches of five or more, expect at least three supported task families and at least half of the items to require a second-order clue -> mechanism or lesion -> downstream finding/relationship step. Flag a repetitive generic ending or first-order-only batch as repetitive_task_ending when it materially reduces practice value.\n` +
+    `11. Treat orderLevel as a reasoning claim, not a synonym for difficulty: first-order recognizes one supplied fact; second-order applies one supplied relationship; third-order integrates at least two supplied relationships before selecting a downstream result. The stated order must be supported by the item's objective and lecture facts. Flag order_level_mismatch when it is overstated or the item is mislabeled.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
     `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
     `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
@@ -524,7 +580,7 @@ LECTURE FACTS:\n${JSON.stringify(atoms)}
 STYLE EXAMPLES:\n${JSON.stringify(examples)}
 REJECTED ITEMS:\n${JSON.stringify(items)}
 
-Return ONLY: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"objectiveIds":["exact objective id"],"topic":"...","taskType":"recognition|mechanism|clinical-application"}]}`;
+Return ONLY: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"objectiveIds":["exact objective id"],"topic":"...","taskType":"recognition|mechanism|clinical-application","orderLevel":"first-order|second-order|third-order"}]}`;
 }
 
 function normalizedComparableText(value) {
@@ -647,7 +703,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         }));
         try {
           const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000);
-          const repaired = normalizeQuestions(repairedRaw).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
+          const repaired = stampQuestionOrders(normalizeQuestions(repairedRaw), cfg.objectives || []).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
           if (repaired.length) {
             const repairedAudit = await auditGeneratedQuestions(repaired, cfg, { ...deps, skipRepair: true });
             if (repairedAudit.questions?.length) return repairedAudit;
@@ -692,11 +748,13 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [] } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
   const styleFingerprint = buildStyleFingerprint(styleExamples);
+  const sourceBlueprint = buildQuestionSourceBlueprint(examples, objectives, count);
+  const resolvedOrderBlueprint = orderBlueprint || sourceBlueprint.order;
   const examplesSection = styleExamples.length
     ? "\n\nEXAMPLE QUESTIONS FROM YOUR SCHOOL'S EXAM BANK:\n" +
       "(Use their structure and plausible distractors, not their exact cases. Keep factual scope within the supplied lecture/objectives and honor the requested difficulty. IMCQs are challenge references, not calibrated exam-difficulty benchmarks.)\n" +
@@ -728,21 +786,24 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
   const v2Blueprint = generationVersion === "v2" ?
     `SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines factual content and the correct answer. Uploaded ExamSoft/IMCQ questions define structure, wording, clue density, and distractor style only. Use concise clinical/anatomic framing, usually one or two reasoning steps, rather than generic UWorld/NBME diagnostic puzzles. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\nSTYLE FINGERPRINT: ${JSON.stringify(styleFingerprint)}\n\n` : "";
   const taskSection = taskVariationPrompt(styleFingerprint, diff, "question batch");
+  const orderSection = `ORDER-OF-REASONING BLUEPRINT (separate from difficulty): ${JSON.stringify(resolvedOrderBlueprint.targets)}\n` +
+    `${resolvedOrderBlueprint.rationale}\n` +
+    `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + taskSection +
+    v2Blueprint + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a concise clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For medium items use 2–3 sentences and at most two reasoning steps; reserve 4–5 sentence, multi-domain or indirect-clue stems for hard/expert items. Match the reference bank's typical sentence count and clue density; do not force artificial patient details or long board-style diagnostic narratives.\n` +
     `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer. When the references use laboratory/data tables, generate some items with a compact table-valued answer set: set choiceLayout to "table", set choiceColumns to ordered headers (for example ["Finding","Patient 1","Patient 2"]), and make each choice an object mapping every header to its row value. Preserve ↑/↓ (increased/decreased) arrows and units exactly; never flatten table rows into prose.\n` +
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
-    examplesSection +
+    examplesSection + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) +
     schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection +
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
     `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
   );
 }

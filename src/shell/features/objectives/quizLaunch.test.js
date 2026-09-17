@@ -460,7 +460,7 @@ describe("objective-first atom coverage", () => {
     expect(selected.filter((atom) => atom.objectiveIds.includes("o2"))).toHaveLength(5);
   });
 
-  it("excludes supplemental student material from school-style exemplars", () => {
+  it("keeps supplemental student material available for task-pattern evidence", () => {
     const banks = {
       official: [{ stem: "Official?", choices: { A: "Yes" }, sourceKind: "school" }],
       natalie: [{ stem: "Student note?", choices: { A: "Yes" }, sourceKind: "supplemental" }],
@@ -469,7 +469,7 @@ describe("objective-first atom coverage", () => {
       a: { filename: "official", blockId: "dm", sourceKind: "school" },
       b: { filename: "natalie", blockId: "dm", sourceKind: "supplemental" },
     };
-    expect(selectExemplarsForBlock(banks, meta, "dm").map((q) => q.stem)).toEqual(["Official?"]);
+    expect(selectExemplarsForBlock(banks, meta, "dm").map((q) => q.stem)).toEqual(["Official?", "Student note?"]);
   });
 });
 
