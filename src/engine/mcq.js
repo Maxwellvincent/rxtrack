@@ -22,6 +22,11 @@ const REPAIR_SYSTEM = "You are a medical exam-question repair editor. Rewrite re
 export const STYLE_FINGERPRINT_LIMIT = 50;
 export const STYLE_PROMPT_EXEMPLAR_LIMIT = 12;
 
+export function styleProfilePrompt(profile) {
+  if (!profile?.sampleSize) return "";
+  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(profile)}\n`;
+}
+
 export function exemplarSourceTier(question) {
   const label = [question?.sourceFile, question?.filename, question?.bankTitle, question?.title]
     .filter(Boolean)
@@ -414,7 +419,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -453,7 +458,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + orderSection + taskSection +
+    v2Blueprint + styleProfilePrompt(styleProfile) + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
     `Each question must test that specific fact (not adjacent trivia). Use the supplied clinical correlate, cues, buzzwords, or inheritance pattern when present so the learner practices recognizing the lecture's clues. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. Medium items should use a concise 2–3 sentence stem and 1–2 reasoning steps; hard/expert items may use longer stems and indirect clues, but only when the supplied objective warrants that difficulty. ` +
@@ -756,7 +761,7 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
@@ -798,7 +803,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + orderSection + taskSection +
+    v2Blueprint + styleProfilePrompt(styleProfile) + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: a concise clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For medium items use 2–3 sentences and at most two reasoning steps; reserve 4–5 sentence, multi-domain or indirect-clue stems for hard/expert items. Match the reference bank's typical sentence count and clue density; do not force artificial patient details or long board-style diagnostic narratives.\n` +

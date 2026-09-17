@@ -10,6 +10,8 @@ import { cleanLectureTitle } from "../../lectureTitle.js";
 import { uploadQuestionBankPage } from "../../supabase.js";
 import { buildQuestionBankAnalysis, buildQuestionBankCritiquePrompt, mergeQuestionBankCritique } from "./questionBankAnalysis.js";
 import * as questionBankAnalysisStore from "../../stores/questionBankAnalysis.js";
+import * as questionStyleProfileStore from "../../stores/questionStyleProfile.js";
+import { buildStyleProfile } from "../../engine/styleProfile.js";
 
 function extractImcqBreakdownKeys(text) {
   return [...String(text || "").matchAll(/\b([A-H])\s*[✓✔]/g)].map((match) => match[1].toUpperCase());
@@ -352,6 +354,7 @@ export async function processQuestionBankFiles({
       questionBanksStore.writeAwait(userId, pendingBanks),
       questionBankMetaStore.writeAwait(userId, pendingMeta),
       ...report.pendingAnalyses.map(({ filename, analysis }) => questionBankAnalysisStore.writeAwait(userId, filename, analysis)),
+      questionStyleProfileStore.writeAwait(userId, buildStyleProfile(Object.values(pendingBanks).flat())),
     ]);
     onUploaded?.();
   }

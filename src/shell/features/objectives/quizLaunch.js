@@ -14,6 +14,7 @@ import { ATOM_QUIZ_CAP, generateFromAtoms, generateMcqs } from "../../../engine/
 import * as questionBanksStore from "../../../stores/questionBanks.js";
 import * as questionBankMetaStore from "../../../stores/questionBankMeta.js";
 import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis.js";
+import * as questionStyleProfileStore from "../../../stores/questionStyleProfile.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
@@ -22,6 +23,7 @@ import { matchByTerm } from "../../../engine/tagAtoms.js";
 import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
+import { buildStyleProfile } from "../../../engine/styleProfile.js";
 
 // Rich clinical stems plus five per-choice explanations are large JSON
 // objects. Asking for ten in one response routinely truncates otherwise good
@@ -210,6 +212,7 @@ export function buildQuizConfig({
   studyMode = "balanced",
   userId = null,
   clinicalCorrelateLibrary = null,
+  styleProfile = null,
 }) {
   const pool = sortWeakestFirst(objectives);
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
@@ -235,6 +238,7 @@ export function buildQuizConfig({
       atoms,
       lectureText,
       examples: exemplars,
+      styleProfile: styleProfile || questionStyleProfileStore.read(userId) || buildStyleProfile(exemplars),
       avoidStems,
       difficulty,
       count,
@@ -391,7 +395,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
       selected.push(...objectiveFacts.slice(0, config.count - selected.length));
     }
     const result = await generateFromAtoms(
-      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion, clinicalCorrelateLibrary: config.clinicalCorrelateLibrary, orderBlueprint: config.orderBlueprint },
+      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, styleProfile: config.styleProfile, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion, clinicalCorrelateLibrary: config.clinicalCorrelateLibrary, orderBlueprint: config.orderBlueprint },
       deps
     );
     return { ...result, lectureId };
@@ -416,6 +420,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
         objectives: config.objectives,
         difficulty: config?.difficulty,
         examples: config?.examples,
+        styleProfile: config?.styleProfile,
         avoidStems: config?.avoidStems,
         subject: config?.subject,
         generationVersion: args.generationVersion,
