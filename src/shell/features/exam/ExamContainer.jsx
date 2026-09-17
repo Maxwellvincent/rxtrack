@@ -75,6 +75,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
   const [bankCategory, setBankCategory] = useState(null);
+  const [showOtherImportedBanks, setShowOtherImportedBanks] = useState(false);
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
@@ -336,7 +337,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const bankGroups = useMemo(() => {
-    const source = blockQuestionBanks.length ? blockQuestionBanks : allImportedQuestionBanks;
+    // The Exam tab is block-scoped. Unassigned/other-block banks are retained
+    // below for semester-wide review, but should not flood every block's page.
+    const source = blockQuestionBanks;
     const groups = {};
     for (const bank of source) {
       const title = cleanLectureTitle(bank.filename);
@@ -356,7 +359,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       const rank = (label) => label.startsWith("Week ") ? Number(label.slice(5)) : label === "Homework" ? 100 : label === "Exams" ? 101 : 102;
       return rank(a) - rank(b);
     });
-  }, [blockQuestionBanks, allImportedQuestionBanks]);
+  }, [blockQuestionBanks]);
   const activeBankCategory = bankGroups.some(([label]) => label === bankCategory) ? bankCategory : bankGroups[0]?.[0];
   const otherImportedQuestionBanks = useMemo(() => {
     const currentNames = new Set(blockQuestionBanks.map((bank) => bank.filename));
@@ -604,9 +607,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       </section>
 
-      {allImportedQuestionBanks.length > 0 && (
+      {blockQuestionBanks.length > 0 && (
         <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
-          <div className="mb-1 text-sm font-bold text-text-1">Original school question banks · imported ExamSoft & homework practice</div>
+          <div className="mb-1 text-sm font-bold text-text-1">Original question banks · ExamSoft, IMCQ, homework & clicker examples</div>
           <div className="mb-3 font-mono text-[11px] text-text-3">
             {blockQuestionBanks.length ? "Authentic uploaded questions for this block." : "No uploaded bank is assigned to this block yet, so all imported banks are shown here."} Timed sessions use 90 seconds per question; practice reveals the keyed rationale after each answer. Source keys are preserved and analyzed separately from medical correctness.
           </div>
@@ -618,6 +621,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               const minutes = examDurationMinutes(bank.questions.length);
               const expectedCount = bank.expectedQuestions || (/examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null);
               const incomplete = expectedCount && bank.questions.length < expectedCount;
+              const exampleOnly = bank.sourceKind === "clicker";
               const stats = statsForBank(bank);
               const analysis = bank.analysis;
               const focusSummary = analysis?.focusCounts ? Object.entries(analysis.focusCounts).slice(0, 3).map(([label, count]) => `${label} ${count}`).join(" · ") : null;
@@ -633,6 +637,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                       <div className="mt-2 flex flex-wrap gap-2">{stats.history.map((attempt, index) => <Button key={attempt.session.sessionId || attempt.session.id} variant="outline" onClick={() => setActiveSessionId(attempt.session.sessionId || attempt.session.id)}>Review attempt {index + 1} · {attempt.score}%</Button>)}</div>
                     </details>}
                     {incomplete && <div className="mt-1 text-[11px] font-bold text-bad">⚠ Incomplete import: {bank.questions.length}/{expectedCount}. Re-upload this PDF once to replace the old parse.</div>}
+                    {exampleOnly && <div className="mt-1 text-[11px] text-accent-text">Example-only bank: use these clicker stems and images to guide generation; unkeyed slides are not scored as practice questions.</div>}
                     {analysis?.items?.length > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Question critique & lecture links</summary>
                       <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => <div key={item.id} className="rounded border border-border px-2 py-1.5">
@@ -649,8 +654,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     <Button variant="ghost" disabled={!!bankLaunching} onClick={() => renameBank(bank)}>Rename</Button>
                     <Button variant="ghost" disabled={!!bankLaunching} onClick={() => scheduleBank(bank)}>{bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
-                    <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
-                    <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>
+                    {!exampleOnly && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
+                    {!exampleOnly && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
                   </div>
                 </div>
               );
@@ -659,17 +664,30 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </section>
       )}
 
-      {otherImportedQuestionBanks.length > 0 && blockQuestionBanks.length > 0 && (
+      {otherImportedQuestionBanks.length > 0 && (
         <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
-          <div className="mb-1 text-sm font-bold text-text-1">Other imported practice sets</div>
-          <div className="mb-3 text-xs text-text-3">These banks are saved, but assigned to another block or have no block metadata. They remain available here so an upload is never hidden.</div>
-          <div className="space-y-2">{otherImportedQuestionBanks.map((bank) => (
+          <button
+            type="button"
+            aria-expanded={showOtherImportedBanks}
+            onClick={() => setShowOtherImportedBanks((open) => !open)}
+            className="flex w-full items-center justify-between text-left"
+          >
+            <span className="text-sm font-bold text-text-1">
+              {blockQuestionBanks.length ? "Comprehensive / other-block question banks" : "Question banks for comprehensive review"}
+              <span className="ml-2 font-mono text-[11px] font-normal text-text-3">{otherImportedQuestionBanks.length} saved</span>
+            </span>
+            <span className="font-mono text-xs text-text-3">{showOtherImportedBanks ? "Hide" : "Show"}</span>
+          </button>
+          {showOtherImportedBanks && <>
+            <div className="mb-3 mt-2 text-xs text-text-3">These banks are assigned to another block or have no block metadata. They stay available here for semester-wide/comprehensive practice.</div>
+            <div className="space-y-2">{otherImportedQuestionBanks.map((bank) => (
             <div key={bank.filename} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-panel px-3 py-2">
-              <div className="min-w-0 flex-1"><div className="truncate text-[13px] text-text-1">{cleanLectureTitle(bank.filename)}</div><div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {sourceLabel(bank.sourceKind, bank.filename)}{bank.analysis ? ` · ${bank.analysis.status === "reviewed" ? "analyzed" : "analysis ready"}` : " · analysis pending"}</div></div>
-              <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>
-              <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>
+              <div className="min-w-0 flex-1"><div className="truncate text-[13px] text-text-1">{cleanLectureTitle(bank.filename)}</div><div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""}{bank.analysis ? ` · ${bank.analysis.status === "reviewed" ? "analyzed" : "analysis ready"}` : " · analysis pending"}</div>{bank.sourceKind === "clicker" && <div className="mt-1 text-[11px] text-accent-text">Example-only reference bank; not available as a scored quiz.</div>}</div>
+              {bank.sourceKind !== "clicker" && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
+              {bank.sourceKind !== "clicker" && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
             </div>
-          ))}</div>
+            ))}</div>
+          </>}
         </section>
       )}
 

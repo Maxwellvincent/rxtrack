@@ -166,7 +166,7 @@ describe("ExamContainer", () => {
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
     );
 
-    expect(host.textContent).toMatch(/Original school question banks/);
+    expect(host.textContent).toMatch(/Original question banks/);
     expect(host.textContent).toMatch(/30 questions · 45 min timed/);
     const timed = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Timed quiz");
     await act(async () => timed.click());
@@ -178,6 +178,31 @@ describe("ExamContainer", () => {
       questions,
     }));
     expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toMatch(/bank-session/);
+    unmount();
+  });
+
+  it("keeps other-block banks hidden until comprehensive review is requested", () => {
+    const questions = [{ id: "q1", stem: "Stem?", choices: { A: "a", B: "b" }, correct: "A" }];
+    questionBanksReadMock.mockReturnValue({ "Current.pdf": questions, "Comprehensive.pdf": questions });
+    questionBankMetaReadMock.mockReturnValue({
+      current: { filename: "Current.pdf", blockId: "b1" },
+      comprehensive: { filename: "Comprehensive.pdf", blockId: "semester-final" },
+    });
+
+    const { host, unmount } = render(
+      <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
+    );
+
+    const bankTitles = () => Array.from(host.querySelectorAll("div")).filter((element) =>
+      element.className.includes("truncate") && element.className.includes("text-[13px]")
+    );
+    expect(bankTitles()).toHaveLength(1);
+    const reveal = Array.from(host.querySelectorAll("button")).find((button) =>
+      button.textContent.includes("Comprehensive / other-block question banks")
+    );
+    expect(reveal).toBeTruthy();
+    act(() => reveal.click());
+    expect(bankTitles()).toHaveLength(2);
     unmount();
   });
 
