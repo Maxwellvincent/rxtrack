@@ -13,6 +13,7 @@ import {
   prepareObjectiveQuiz,
   resolveDefaultDifficulty,
   selectAtomsByObjectiveCoverage,
+  selectClinicalExamplesForBlock,
   selectExemplarsForBlock,
 } from "./quizLaunch.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
@@ -125,6 +126,14 @@ describe("curriculum-wide exemplars", () => {
 
     const result = readExemplarsForBlock(null, "b1");
     expect(result.map((question) => question.stem)).toEqual(["B2 Q?"]);
+  });
+
+  it("scopes clinical prior-question evidence to the active block", () => {
+    const examples = [
+      { stem: "DM question", choices: { A: "a" }, blockId: "dm" },
+      { stem: "ER question", choices: { A: "a" }, blockId: "er" },
+    ];
+    expect(selectClinicalExamplesForBlock(examples, "dm").map((q) => q.stem)).toEqual(["DM question"]);
   });
 });
 

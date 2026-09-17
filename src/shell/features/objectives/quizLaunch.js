@@ -94,7 +94,30 @@ export function readExemplars(userId = null) {
  */
 export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null) {
   const eligible = (q) => q && q.stem && q.choices;
-  return Object.values(banks || {}).flat().filter(eligible);
+  const metaByFilename = new Map(
+    Object.values(_meta || {})
+      .filter((entry) => entry?.filename)
+      .map((entry) => [entry.filename, entry])
+  );
+  return Object.entries(banks || {}).flatMap(([filename, questions]) =>
+    (Array.isArray(questions) ? questions : [])
+      .filter(eligible)
+      .map((question) => {
+        const upload = metaByFilename.get(filename);
+        // Older imported rows did not carry blockId on every question. Stamp it
+        // from the upload metadata so clinical evidence can be scoped safely.
+        return upload?.blockId && !question.blockId ? { ...question, blockId: upload.blockId } : question;
+      })
+  );
+}
+
+/**
+ * Prior questions used as clinical-emphasis evidence must belong to the active
+ * block. The full exemplar set remains curriculum-wide for style calibration.
+ */
+export function selectClinicalExamplesForBlock(examples = [], blockId = null) {
+  if (!blockId) return examples || [];
+  return (examples || []).filter((question) => question?.blockId === blockId);
 }
 
 /**
@@ -150,11 +173,13 @@ export function readExemplarsForBlock(userId = null, blockId = null) {
   }
 }
 
-/** Analyzed upload signals from the whole curriculum, including homework. */
-export function readClinicalAnalysesForBlock(userId = null, _blockId = null) {
+/** Analyzed upload signals for the active block, including homework. */
+export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
   try {
     const meta = questionBankMetaStore.read(userId) || {};
-    const entries = Object.values(meta).filter((entry) => entry && entry.filename);
+    const entries = Object.values(meta).filter((entry) =>
+      entry && entry.filename && (!blockId || entry.blockId === blockId)
+    );
     return entries
       .map((entry) => {
         const analysis = questionBankAnalysisStore.read(userId, entry.filename);
@@ -195,7 +220,7 @@ export function buildQuizConfig({
   const lectureText = lecture ? getLecText(lecture) : "";
   const recurringClinicalCorrelates = clinicalCorrelateLibrary || buildClinicalCorrelateLibrary({
     atoms,
-    examples: exemplars,
+    examples: selectClinicalExamplesForBlock(exemplars, blockId),
     analyses: readClinicalAnalysesForBlock(userId, blockId),
   });
 

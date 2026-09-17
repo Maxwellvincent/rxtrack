@@ -38,7 +38,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
+import { prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
@@ -384,7 +384,7 @@ export function LectureStudyFlow({
   const clinicalCorrelateLibrary = useMemo(
     () => buildClinicalCorrelateLibrary({
       atoms,
-      examples: schoolExemplars,
+      examples: selectClinicalExamplesForBlock(schoolExemplars, blockId),
       analyses: readClinicalAnalysesForBlock(userId, blockId),
     }),
     [atoms, schoolExemplars, userId, blockId]

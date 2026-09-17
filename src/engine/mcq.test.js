@@ -201,6 +201,14 @@ describe("selectStyleExemplars", () => {
     expect(selected.map((item) => Object.keys(item.choices).length)).toEqual([4, 5, 6, 7, 8]);
     expect(selected.map((item) => item.stem)).not.toContain("image");
   });
+
+  it("uses the larger bank for style statistics instead of truncating at five", () => {
+    const bank = Array.from({ length: 60 }, (_, index) =>
+      q(`ExamSoft item ${index}`, 4, { sourceFile: "ExamSoft.pdf", correct: "A" })
+    );
+    const blueprint = buildQuestionSourceBlueprint(bank, [], 10);
+    expect(blueprint.officialStyle.sampleSize).toBe(50);
+  });
 });
 
 describe("generateMcqs", () => {

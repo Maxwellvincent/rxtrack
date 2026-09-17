@@ -16,6 +16,12 @@ const MCQ_V2_SYSTEM = MCQ_SYSTEM;
 const AUDIT_SYSTEM = "You are an independent medical-school question editor. Audit the supplied questions against the supplied curriculum evidence. Return ONLY valid JSON — no markdown, no prose.";
 const REPAIR_SYSTEM = "You are a medical exam-question repair editor. Rewrite rejected questions so they are medically accurate, objective-aligned, and faithful to the supplied SGU ExamSoft/IMCQ style. Return ONLY valid JSON — no markdown, no prose.";
 
+// A generation batch may be five questions, but the uploaded school bank is a
+// much larger calibration set. Aggregate all available examples into a compact
+// fingerprint and expose a diverse prompt sample separately.
+export const STYLE_FINGERPRINT_LIMIT = 50;
+export const STYLE_PROMPT_EXEMPLAR_LIMIT = 12;
+
 export function exemplarSourceTier(question) {
   const label = [question?.sourceFile, question?.filename, question?.bankTitle, question?.title]
     .filter(Boolean)
@@ -115,9 +121,9 @@ export function buildStyleFingerprint(examples = []) {
 export function buildQuestionSourceBlueprint(examples = [], objectives = [], count = 10) {
   const homework = examples.filter((question) => exemplarSourceTier(question) === "homework" && question?.stem && question?.choices && question.answerKeyVerified !== false);
   const clicker = examples.filter((question) => exemplarSourceTier(question) === "clicker" && question?.stem && question?.choices);
-  const homeworkFingerprint = buildStyleFingerprint(homework.slice(0, 24));
-  const clickerFingerprint = buildStyleFingerprint(clicker.slice(0, 24));
-  const official = selectStyleExemplars(examples, 5, "medium", { objectives, atoms: [] });
+  const homeworkFingerprint = buildStyleFingerprint(homework.slice(0, STYLE_FINGERPRINT_LIMIT));
+  const clickerFingerprint = buildStyleFingerprint(clicker.slice(0, STYLE_FINGERPRINT_LIMIT));
+  const official = selectStyleExemplars(examples, STYLE_FINGERPRINT_LIMIT, "medium", { objectives, atoms: [] });
   return {
     officialStyle: buildStyleFingerprint(official),
     homeworkTypes: homeworkFingerprint,
@@ -375,9 +381,11 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
     return q?.stem && q?.choices && !q.hasImage && q.answerKeyVerified !== false &&
       tier !== "homework" && tier !== "clicker";
   });
-  const linked = candidates.filter(q => (relevance.get(q) || 0) > 0);
-  const valid = (linked.length ? linked : candidates)
-    .sort((a, b) => {
+  // Keep the entire uploaded bank in the candidate pool. Previously, the
+  // presence of one objective-linked example discarded every unrelated example,
+  // which made a 50+ question bank behave like a tiny lecture-specific set.
+  // Relevance now ranks examples without removing the broader style library.
+  const valid = candidates.sort((a, b) => {
       const sourceRank = (q) => {
         const tier = exemplarSourceTier(q);
         if (tier === "examsoft") return 0;
@@ -416,8 +424,8 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.clinicalCorrelate ? ` [clinical correlate: ${a.clinicalCorrelate}]` : ""}${a.clinicalCues?.length ? ` [clinical cues: ${a.clinicalCues.join(", ")}]` : ""}${a.buzzwords?.length ? ` [lecture buzzwords: ${a.buzzwords.join(", ")}]` : ""}${a.inheritancePattern ? ` [inheritance: ${a.inheritancePattern}]` : ""}${a.objectiveIds?.length ? ` [linked objectives: ${a.objectiveIds.join(", ")}]` : ""}${a.hasImage ? IMAGE_NOTE : ""}`)
     .join("\n");
 
-  const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
-  const styleFingerprint = buildStyleFingerprint(styleExamples);
+  const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
+  const styleFingerprint = buildStyleFingerprint(selectStyleExemplars(examples, STYLE_FINGERPRINT_LIMIT, diff, { objectives, atoms }));
   const sourceBlueprint = buildQuestionSourceBlueprint(examples, objectives, atoms.length);
   const resolvedOrderBlueprint = orderBlueprint || sourceBlueprint.order;
   const examplesSection = styleExamples.length
@@ -751,8 +759,8 @@ const DIFF_LINE = {
 export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
 
-  const styleExamples = selectStyleExemplars(examples, 5, diff, { objectives, atoms });
-  const styleFingerprint = buildStyleFingerprint(styleExamples);
+  const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
+  const styleFingerprint = buildStyleFingerprint(selectStyleExemplars(examples, STYLE_FINGERPRINT_LIMIT, diff, { objectives, atoms }));
   const sourceBlueprint = buildQuestionSourceBlueprint(examples, objectives, count);
   const resolvedOrderBlueprint = orderBlueprint || sourceBlueprint.order;
   const examplesSection = styleExamples.length
