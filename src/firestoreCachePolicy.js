@@ -27,7 +27,14 @@ export function isLegacyFirestoreSharedStateKey(key) {
  * Storage can be disabled or throw in hardened/private browser contexts, so
  * cleanup is deliberately best-effort and must never prevent app startup.
  */
-export function clearLegacyFirestoreSharedState(storage = globalThis.localStorage) {
+export function clearLegacyFirestoreSharedState(storage) {
+  if (storage === undefined) {
+    try {
+      storage = globalThis.localStorage;
+    } catch {
+      return { removed: 0, failed: 1 };
+    }
+  }
   if (!storage) return { removed: 0, failed: 0 };
 
   let removed = 0;
