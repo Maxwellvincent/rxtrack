@@ -1170,9 +1170,6 @@ export function LectureStudyFlow({
   // The real progress bar: atoms answered correctly at least once. Unlike the old rounds-done
   // counter, this can't go stale relative to itself — it's read straight from the same store
   // every answer writes to, not blended from a separate heuristic.
-  const atomPct = atomMastery.totalCount > 0
-    ? Math.round((atomMastery.masteredCount / atomMastery.totalCount) * 100)
-    : 0;
   const accuracyPct = qStats.accuracy == null ? 0 : Math.round(qStats.accuracy * 100);
   // Banded rather than a gradient: the only decision this drives is whether the lecture goes back
   // on the review pile, and 70% is where that answer changes.
@@ -1273,25 +1270,24 @@ export function LectureStudyFlow({
         <section aria-label="Lecture progress" className="mt-5 overflow-hidden rounded-t-2xl border border-b-0 border-accent/40 bg-bg-elevated divide-y divide-border/50">
           <div className="flex items-center justify-between px-4 py-3">
             <div><p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Practice</p><h3 className="text-lg font-semibold text-text-1">Test this lecture</h3></div>
-            <span className="font-mono text-[12px] text-text-3">{atoms.length} supporting facts</span>
+            <span className="font-mono text-[12px] text-text-3">Objective-first quiz</span>
           </div>
-          {/* Row 1: atom mastery + difficulty */}
+          {/* Primary progress: objectives determine quiz coverage and mastery. */}
+          {lectureObjectives.length > 0 && (
           <div className="flex items-center gap-4 px-4 py-2.5">
             <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Atoms</span>
+              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-accent flex-shrink-0">Objectives</span>
               <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${atomPct}%`, background: atomPct === 100 ? "var(--color-good)" : "var(--color-accent)" }}
-                />
+                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${objPct}%` }} />
               </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{atomMastery.masteredCount}/{atomMastery.totalCount}</span>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objMastered}/{lectureObjectives.length} mastered</span>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">Level</span>
               <span className={`font-mono text-[11px] font-bold ${diffColor}`}>{currentDifficulty}</span>
             </div>
           </div>
+          )}
 
           {/* Row 1b: questions answered — how much work this lecture has actually had. Accuracy is
               shown next to it because the count alone cannot tell drilled-and-solid from
@@ -1307,7 +1303,7 @@ export function LectureStudyFlow({
             </div>
           )}
 
-          {/* Row 2: objectives breakdown */}
+          {/* Objective detail */}
           {lectureObjectives.length > 0 && (
             <div className="flex items-center gap-4 px-4 py-2.5">
               <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Objectives</span>
@@ -1334,6 +1330,11 @@ export function LectureStudyFlow({
               <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objPct}%</span>
             </div>
           )}
+          {/* Supporting evidence stays visible, but deliberately secondary to objective progress. */}
+          <div className="flex items-center justify-between px-4 py-2 text-[11px] text-text-3">
+            <span>Supporting lecture facts</span>
+            <span className="font-mono">{atomMastery.masteredCount}/{atomMastery.totalCount} reviewed · {atoms.length} available</span>
+          </div>
         </section>
       )}
       {stage === "quiz" && atoms.length > 0 && (
