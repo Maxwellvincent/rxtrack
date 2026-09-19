@@ -361,9 +361,8 @@ export function LectureStudyFlow({
   const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Inline quiz config picker state
-  const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty, generationVersion }
+  const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
   const [quizPreparation, setQuizPreparation] = useState(null);
-  const generatorComparison = questionRatingsStore.comparison(userId);
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
   // atoms) rather than a sequential Study round — onDone below skips round-index bookkeeping
   // for these (there is no "next round" to resume into) but still updates atom/objective
@@ -770,7 +769,8 @@ export function LectureStudyFlow({
     return [...lectureObjectives].sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds]);
 
-  const runQuiz = useCallback(async (count, difficulty, generationVersion = "v1") => {
+  const runQuiz = useCallback(async (count, difficulty) => {
+    const generationVersion = "v2";
     if (schoolExamplesLoading) {
       setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
@@ -786,7 +786,7 @@ export function LectureStudyFlow({
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
-      .filter((question) => (question.generationVersion || "v1") === generationVersion)
+      .filter((question) => (question.generationVersion || "v2") === generationVersion)
       .filter((question) => validReserve.has(question))
       .filter((question) => (Number(question.timesAnswered) || 0) === 0)
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
@@ -864,7 +864,7 @@ export function LectureStudyFlow({
       // before generation made a requested harder round repeat the exact prior quiz.
       const matching = priorQuestions.filter((q) =>
         q.generationMode !== "grounded-fallback" &&
-        (q.generationVersion || "v1") === generationVersion &&
+        (q.generationVersion || "v2") === generationVersion &&
         (Number(q.timesAnswered) || 0) === 0 &&
         validReserve.has(q) &&
         String(q?.difficulty || "").toLowerCase() === difficulty &&
@@ -917,7 +917,7 @@ export function LectureStudyFlow({
   useEffect(() => {
     if (!autoOpenQuiz || autoOpenedRef.current || stage !== "quiz" || !atoms.length) return;
     autoOpenedRef.current = true;
-    setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2" });
+    setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) });
   }, [autoOpenQuiz, stage, atoms.length, qStats.accuracy]);
 
 
@@ -1373,7 +1373,7 @@ export function LectureStudyFlow({
           {!quizPicker ? (
             <div className="flex flex-wrap items-center gap-3">
               <Button
-                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2" }); }}
+                onClick={() => { setQuizPreparation(null); setQuizPicker({ count: 15, difficulty: resolveDefaultDifficulty(qStats.accuracy) }); }}
                 disabled={!!busy}
               >
                 {busyLabel || "▸ Quiz this lecture"}
@@ -1426,31 +1426,19 @@ export function LectureStudyFlow({
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-condensed text-[12px] font-semibold uppercase tracking-wide text-text-3">Generator</span>
-                {[["v1", "Current v1"], ["v2", "SGU / ExamSoft v2"]].map(([value, label]) => (
-                  <button key={value} type="button" onClick={() => setQuizPicker((p) => ({ ...p, generationVersion: value }))} className={`rounded-sm border px-2.5 py-1 font-mono text-[12px] ${quizPicker.generationVersion === value ? "border-accent bg-accent-soft text-accent" : "border-border text-text-2"}`}>
+                {[["v2", "SGU / ExamSoft v2"]].map(([value, label]) => (
+                  <span key={value} className="rounded-sm border border-accent bg-accent-soft px-2.5 py-1 font-mono text-[12px] text-accent">
                     {label}
-                  </button>
+                  </span>
                 ))}
-                <span className="text-[12px] text-text-3">v2 is an opt-in comparison and keeps its saved reserve separate.</span>
+                <span className="text-[12px] text-text-3">V2 is the active generator for every new quiz.</span>
               </div>
-              <details className="rounded border border-border bg-panel px-3 py-2 text-[12px] text-text-2">
-                <summary className="cursor-pointer font-semibold">Compare v1 and v2 ratings</summary>
-                <div className="mt-2">
-                {["v1", "v2"].map((version) => {
-                  const stats = generatorComparison[version];
-                  return <span key={version} className="ml-3"><strong>{version}</strong> {stats.count}/25 rated{stats.count ? ` · ${stats.fairPercent}% fair · ${stats.examStylePercent}% ExamSoft-like` : ""}</span>;
-                })}
-                {(generatorComparison.v1.count < 25 || generatorComparison.v2.count < 25)
-                  ? <span className="ml-3 text-text-3">Recommendation unlocks after 25 ratings per version.</span>
-                  : <span className="ml-3 font-semibold text-text-1">Recommended: {(generatorComparison.v2.fairPercent + generatorComparison.v2.examStylePercent) >= (generatorComparison.v1.fairPercent + generatorComparison.v1.examStylePercent) ? "v2" : "v1"}</span>}
-                </div>
-              </details>
               <div className="flex items-center gap-3">
                 <Button
                   onClick={() => {
-                    const { count, difficulty, generationVersion } = quizPicker;
+                    const { count, difficulty } = quizPicker;
                     setQuizPicker(null);
-                    runQuiz(count, difficulty, generationVersion);
+                    runQuiz(count, difficulty);
                   }}
                   disabled={!!busy}
                 >

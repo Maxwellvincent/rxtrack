@@ -389,6 +389,13 @@ function ShellMain({ theme, toggle, userId }) {
             <div className="p-8 text-sm text-text-3">
               No terms yet. Import a term schedule via ⋯ → Import schedule.
             </div>
+          ) : !activeBlockId ? (
+            <div className="mx-auto max-w-xl p-8">
+              <div className="rounded-lg border border-border bg-bg-elevated p-5">
+                <div className="font-semibold text-text-1">Loading your active block…</div>
+                <p className="mt-2 text-sm text-text-3">Exam and More will appear as soon as the schedule selection finishes loading.</p>
+              </div>
+            </div>
           ) : sessionMode && activeBlockId ? (
             sessionMode === "calibrate" ? (
               <CalibrationSession

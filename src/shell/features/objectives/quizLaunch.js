@@ -421,8 +421,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const normalizeStem = (stem) => String(stem || "").trim().toLowerCase().replace(/\s+/g, " ");
   const avoidedStemKeys = new Set((args.avoidStems || []).map(normalizeStem).filter(Boolean));
   const avoidedQuestions = Array.isArray(args.avoidQuestions) ? args.avoidQuestions.filter(Boolean) : [];
-  // Bound generation retries. V1 can fill remaining slots from lecture facts;
-  // V2 must report a shortfall instead of substituting foundational recall.
+  // Bound generation retries. V2 reports a shortfall instead of substituting foundational recall.
   const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 2));
   let lastError = "";
@@ -470,17 +469,6 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     if (!result.questions?.length && result.error && !qualityOnlyRejection) break;
   }
 
-  if (accepted.length < requested && args.generationVersion !== "v2") {
-    const grounded = buildGroundedRecallQuestions({
-      atoms: args.atoms,
-      objectives: args.objectives,
-      count: requested - accepted.length,
-      avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
-    });
-    accepted.push(...grounded);
-    if (grounded.length) deps.onAccepted?.(grounded);
-    onProgress({ requested, ready: accepted.length, attempt: attempts, phase: accepted.length >= requested ? "ready" : "fallback" });
-  }
   if (accepted.length < requested) {
     const usablePartial = accepted.length >= Math.min(requested, Math.max(3, Math.ceil(requested * 0.6)));
     return {

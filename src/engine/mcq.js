@@ -173,8 +173,8 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   if (text.trim().length < 150 && !atoms.length) return { error: "Not enough lecture text — convert/upload the lecture first.", questions: [] };
   try {
     const prompt = buildMcqPrompt(cfg);
-    const result = await callAIJSON(cfg.generationVersion === "v2" ? MCQ_V2_SYSTEM : MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    const generated = withSchoolContext(stampQuestionOrders(normalizeQuestions(result), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
+    const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens);
+    const generated = withSchoolContext(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
     return await auditGeneratedQuestions(generated, cfg, deps);
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
@@ -308,6 +308,24 @@ export function normalizeQuestions(raw) {
   return out;
 }
 
+// Objective attribution is required for progress tracking. Models occasionally omit the field
+// even after being instructed to return it; use a deterministic round-robin only for an omitted
+// or invalid value, while preserving a valid single-objective attribution.
+export function ensureObjectiveAttribution(questions = [], objectives = []) {
+  const targets = (objectives || []).filter((objective) => objective?.id || objective?.code);
+  if (!targets.length) return questions;
+  const ids = new Set(targets.map((objective) => String(objective.id || objective.code)));
+  return questions.map((question, index) => {
+    const valid = Array.isArray(question.objectiveIds)
+      ? question.objectiveIds.map(String).filter((id) => ids.has(id)).slice(0, 1)
+      : [];
+    return valid.length ? { ...question, objectiveIds: valid } : {
+      ...question,
+      objectiveIds: [String(targets[index % targets.length].id || targets[index % targets.length].code)],
+    };
+  });
+}
+
 // ── Exemplar parsing ─────────────────────────────────────────────────────
 // Extract MCQs verbatim from an uploaded exam-bank .md so they can seed style.
 export function buildExemplarParsePrompt(md) {
@@ -419,7 +437,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -514,10 +532,10 @@ export async function generateFromAtoms(cfg = {}, deps = {}) {
   if (!atoms.length) return { error: "No atoms to quiz — extract a lecture first.", questions: [] };
   try {
     const prompt = buildAtomQuestionsPrompt(cfg);
-    const result = await callAIJSON(cfg.generationVersion === "v2" ? MCQ_V2_SYSTEM : MCQ_SYSTEM, prompt, { questions: [] }, maxTokens);
-    const questions = stampQuestionOrders(normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])), cfg.objectives || []).map(q => ({
+    const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens);
+    const questions = stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(backfillTopicsFromAtoms(result, atoms, cfg.objectives || [])), cfg.objectives || []), cfg.objectives || []).map(q => ({
       ...q,
-      generationVersion: cfg.generationVersion || "v1",
+      generationVersion: "v2",
       objectiveTexts: (cfg.objectives || []).filter(o => q.objectiveIds?.includes(o.id)).map(o => ({ id: o.id, code: o.code || "", text: o.objective || o.text || "" })),
     }));
     return await auditGeneratedQuestions(withSchoolContext(questions, cfg), cfg, deps);
@@ -716,7 +734,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         }));
         try {
           const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000);
-          const repaired = stampQuestionOrders(normalizeQuestions(repairedRaw), cfg.objectives || []).map((question) => ({ ...question, generationVersion: cfg.generationVersion || "v1" }));
+          const repaired = stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(repairedRaw), cfg.objectives || []), cfg.objectives || []).map((question) => ({ ...question, generationVersion: "v2" }));
           if (repaired.length) {
             const repairedAudit = await auditGeneratedQuestions(repaired, cfg, { ...deps, skipRepair: true });
             if (repairedAudit.questions?.length) return repairedAudit;
@@ -761,7 +779,7 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v1", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });

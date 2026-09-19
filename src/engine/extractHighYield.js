@@ -11,6 +11,19 @@ import { withDeadline } from "../asyncDeadline.js";
 export const EXTRACTION_TIMEOUT_MS = 120_000;
 export const EXTRACTION_BRIDGE_TIMEOUT_MS = 90_000;
 
+// Preserve the beginning, middle, and end of long slide decks in one request. The old
+// first-or-tail strategy silently dropped clinical features placed in the middle of a lecture.
+export function buildExtractionWindow(text, segmentSize = 6000) {
+  const source = String(text || "");
+  if (source.length <= segmentSize * 3) return source;
+  const middleStart = Math.max(0, Math.floor((source.length - segmentSize) / 2));
+  return [
+    "[LECTURE BEGINNING]\n" + source.slice(0, segmentSize),
+    "[LECTURE MIDDLE]\n" + source.slice(middleStart, middleStart + segmentSize),
+    "[LECTURE END]\n" + source.slice(-segmentSize),
+  ].join("\n\n");
+}
+
 const SYSTEM = `You extract HIGH-YIELD, testable atoms from a medical lecture for USMLE Step 1 study.
 Every atom is EXACTLY ONE of these four types — nothing else:
 - definition   — what a term IS (a concise defining statement)
@@ -77,13 +90,14 @@ ${text}`;
 
   try {
     return await withDeadline(async (signal) => {
-      let atoms = await runWindow(fullText.slice(0, 12000), false, signal);
+      const evidenceWindow = buildExtractionWindow(fullText);
+      let atoms = await runWindow(evidenceWindow, false, signal);
       if (!atoms.length) {
         // Slide decks commonly put objectives/logistics first and the actual
         // mechanisms later. Retry the tail (or the same short document with a
         // stricter instruction) before declaring extraction empty. Both passes
         // share one deadline, so this recovery can never double the UI wait.
-        atoms = await runWindow(fullText.length > 12000 ? fullText.slice(-12000) : fullText, true, signal);
+        atoms = await runWindow(evidenceWindow, true, signal);
       }
       return { atoms };
     }, timeoutMs, parentSignal, "Lecture extraction");
