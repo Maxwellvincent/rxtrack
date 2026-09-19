@@ -983,14 +983,14 @@ export function LectureStudyFlow({
     const locallyValidatedCount = questions.filter((question) => question.qualityAudit?.status === "local-validated").length;
     const reviewedCount = questions.length - fallbackCount - locallyValidatedCount;
     const styleStatus = locallyValidatedCount > 0
-      ? `${reviewedCount ? `${reviewedCount} passed independent medical audit · ` : ""}${locallyValidatedCount} passed structural checks (all ExamSoft-style generated)${fallbackCount ? ` · ${fallbackCount} foundational` : ""}`
+      ? `${reviewedCount ? `${reviewedCount} passed independent medical audit · ` : ""}${locallyValidatedCount} passed structural checks (ExamSoft + Step 1 style)${fallbackCount ? ` · ${fallbackCount} foundational` : ""}`
       : fallbackCount === 0
       ? schoolExemplars.length
-        ? `ExamSoft-style generated and reviewed · ${schoolExemplars.length} school examples available`
+        ? `ExamSoft + Step 1 style generated and reviewed · ${schoolExemplars.length} school examples available`
         : "Reviewed questions · no parsed school examples available"
       : reviewedCount > 0
         ? `${reviewedCount} passed medical audit · ${fallbackCount} foundational fallback`
-        : `ExamSoft-style generation unavailable · ${fallbackCount} source-grounded checks`;
+        : `ExamSoft + Step 1 generation unavailable · ${fallbackCount} source-grounded checks`;
     return (
       <div className="p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
