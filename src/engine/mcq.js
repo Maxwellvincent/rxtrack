@@ -780,6 +780,11 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     ? "\n\nLEARNING OBJECTIVES TO COVER (every question maps to one):\n" +
       objectives.map((o, i) => `${i + 1}. [${o.code || o.id || ""}] ${o.objective || o.text || ""}`).join("\n")
     : "";
+  const comparisonObjectives = objectives.filter((o) => /\b(compare|compar(?:e|ing|ison)|differentiat(?:e|ing)|distinguish|contrast|versus|\bvs\.?\b|different\s+(?:between|among))\b/i.test(String(o.objective || o.text || "")));
+  const comparisonSection = comparisonObjectives.length
+    ? "\n\nCOMPARISON OBJECTIVE REQUIREMENT:\n" + comparisonObjectives.map((o) => `[${o.id}] ${o.objective || o.text || ""}`).join("\n") +
+      "\nFor these objectives, deliberately create paired or triplet contrast items. Put the competing diseases/processes in the same answer category, test the exact discriminating clinical feature, mechanism, lab, anatomy, or time course taught by the lecture, and explain why the nearest alternative is wrong. Do not ask a generic definition and do not introduce a disease or discriminator absent from the supplied lecture evidence. Across the batch, ensure each named comparison target is represented when the requested count permits.\n"
+    : "";
 
   const atomsSection = atoms.length
     ? "\n\nKEY FACTS EXTRACTED FROM THE LECTURE (ground your questions in these specific concepts):\n" +
@@ -811,7 +816,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
     examplesSection + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) +
-    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection +
+    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection + comparisonSection +
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +

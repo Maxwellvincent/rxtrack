@@ -16,7 +16,6 @@ import {
   selectClinicalExamplesForBlock,
   selectExemplarsForBlock,
 } from "./quizLaunch.js";
-import * as atomProgressStore from "../../../stores/atomProgress.js";
 
 const LECTURE_BODY = "Brachial plexus anatomy. ".repeat(20); // well over the 150-char floor
 
@@ -340,7 +339,7 @@ describe("prepareObjectiveQuiz", () => {
       { callAIJSON, maxPrepareAttempts: 3, skipQuestionAudit: true }
     );
     expect(result.incomplete).toBe(false);
-    expect(result.questions.map((question) => question.topic).sort()).toEqual(["Fact", "Fact"]);
+    expect(result.questions).toHaveLength(2);
   });
 
   it("builds large reserves in five-question batches instead of one oversized response", async () => {
@@ -367,7 +366,7 @@ describe("prepareObjectiveQuiz", () => {
   });
 });
 
-describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
+describe("startObjectiveQuiz — objective-driven with atom evidence", () => {
   beforeEach(() => installDomStorage());
 
   const atoms = [
@@ -375,7 +374,7 @@ describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
     { type: "relationship", term: "Pendrin", content: "Apical iodide/chloride exchanger." },
   ];
 
-  it("prefers real atoms over the free-form generator when atoms are available", async () => {
+  it("uses the objective generator when atoms are available", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({
       questions: [
         { stem: "A slide shows a thyroid follicle...?", choices: { A: "Thyroglobulin", B: "x", C: "y", D: "z" }, correct: "A" },
@@ -385,15 +384,12 @@ describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
       { objectives: [], lectureTitle: "Thyroid", blockId: "b1", lectures: [], atoms, questionCount: 1, userId: "u1", lectureIdHint: "lec1" },
       { callAIJSON, skipQuestionAudit: true }
     );
-    // One-per-atom prompt, not the free-form buildMcqPrompt shape
-    expect(callAIJSON.mock.calls[0][1]).toMatch(/one question per fact/i);
-    expect(result.questions[0].atomKey).toBe("thyroglobulin");
+    expect(callAIJSON.mock.calls[0][1]).toMatch(/KEY FACTS EXTRACTED FROM THE LECTURE/i);
+    expect(callAIJSON.mock.calls[0][1]).toMatch(/Thyroglobulin/);
+    expect(result.questions[0].atomKey).toBeNull();
   });
 
-  it("draws not-yet-complete atoms first, per that lecture's own atomProgress", async () => {
-    // objectives carry linkedLecId so buildQuizConfig/findLectureForQuiz resolves a lectureId —
-    // simplest path here is a lecture match by title, same as the "generates from the lecture" test.
-    atomProgressStore.recordAtomAnswer("u1", "lec1", "thyroglobulin", true); // already complete
+  it("keeps the evidence window bounded without atom mastery ordering", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
     await startObjectiveQuiz(
       {
@@ -407,10 +403,9 @@ describe("startObjectiveQuiz — atom-driven (Quiz/Study unification)", () => {
       },
       { callAIJSON }
     );
-    // Only 1 question requested, and pendrin (needs-review/untouched) outranks the completed atom.
     const prompt = callAIJSON.mock.calls[0][1];
-    expect(prompt).toContain("Pendrin");
-    expect(prompt).not.toContain("Thyroglobulin");
+    expect(prompt).toContain("Thyroglobulin");
+    expect(prompt).not.toContain("Pendrin");
   });
 
   it("falls back to the free-form generator when there are no atoms at all", async () => {
@@ -452,8 +447,8 @@ describe("objective-first atom coverage", () => {
     );
 
     const prompt = callAIJSON.mock.calls[0][1];
-    expect(prompt).toContain("10. [objective]");
-    expect(prompt).not.toContain("11. [objective]");
+    expect(prompt).toContain("[SOM-10] Explain objective 10.");
+    expect(prompt).not.toContain("[SOM-11]");
   });
 
   it("distributes a 10-question lecture quiz evenly across two objectives", () => {

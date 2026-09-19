@@ -17,9 +17,6 @@ import * as questionBankAnalysisStore from "../../../stores/questionBankAnalysis
 import * as questionStyleProfileStore from "../../../stores/questionStyleProfile.js";
 import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
-import * as atomProgressStore from "../../../stores/atomProgress.js";
-import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
-import { matchByTerm } from "../../../engine/tagAtoms.js";
 import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
@@ -361,17 +358,9 @@ export function buildGroundedRecallQuestions({ atoms = [], objectives = [], coun
  * Build the config, then generate. `deps.callAIJSON` is the AI transport, so a
  * test drives the whole path without a network call.
  *
- * Three tiers, in order of preference:
- *  1. Real lecture atoms exist — draw `count` of them via `selectAtomsForQuiz` (not-yet-complete
- *     first, per that lecture's atomProgress) and generate one question per atom, same posture
- *     Study's rounds use. Every question comes back with an exact `atomKey`, so answering it
- *     counts toward that atom's mastery — this is what makes Quiz and Study the same underlying
- *     system instead of two that happen to look similar.
- *  2. No atoms, but lecture text or objectives exist — the old free-form generator, ungrounded in
- *     any specific atom (its questions get no atomKey, so they inform objective-level calibration
- *     only, not atom mastery).
- *  3. Nothing at all except objectives — the objectives themselves become the facts to test, one
- *     question each, rather than failing the launch outright.
+ * Objectives are the quiz contract. Atoms are supporting lecture evidence only; they must never
+ * determine which questions are selected or force one question per definition/mechanism. This
+ * keeps objective comparison/prediction tasks visible even when extraction produced many atoms.
  */
 export async function startObjectiveQuiz(args, deps = {}) {
   const atoms = Array.isArray(args.atoms) ? args.atoms : [];
@@ -381,31 +370,18 @@ export async function startObjectiveQuiz(args, deps = {}) {
 
   const { config, lectureId } = built;
 
-  if (atoms.length) {
-    const progress = lectureId ? atomProgressStore.progressForLecture(args.userId ?? null, lectureId) : {};
-    const linked = atoms.map(a => ({ ...a, objectiveIds: canonicalObjectiveIds([...(a.objectiveIds || []), ...matchByTerm(a, config.objectives)], config.objectives) }));
-    const selected = selectAtomsByObjectiveCoverage(linked, config.objectives, progress, config.count);
-    // A sparse extraction must not silently shrink a requested lecture quiz. Fill the
-    // remaining slots directly from distinct school objectives: atoms provide supporting
-    // facts, while objectives remain the curriculum contract and primary quiz blueprint.
-    if (selected.length < config.count) {
-      const representedObjectives = new Set(selected.flatMap((atom) => atom.objectiveIds || []));
-      const objectiveFacts = objectivesAsAtoms(config.objectives)
-        .filter((atom) => !atom.objectiveIds.some((id) => representedObjectives.has(id)));
-      selected.push(...objectiveFacts.slice(0, config.count - selected.length));
-    }
-    const result = await generateFromAtoms(
-      { atoms: selected, objectives: config.objectives, subject: config.subject, difficulty: config.difficulty, examples: config.examples, styleProfile: config.styleProfile, avoidStems: config.avoidStems, studyMode: config.studyMode, generationVersion: args.generationVersion, clinicalCorrelateLibrary: config.clinicalCorrelateLibrary, orderBlueprint: config.orderBlueprint },
-      deps
-    );
-    return { ...result, lectureId };
-  }
-
   const hasText = String(config?.lectureText || "").trim().length >= MIN_LECTURE_TEXT;
   const hasObjectives = (config?.objectives || []).length > 0;
 
-  if (hasText) {
-    const result = await generateMcqs({ ...config, atoms, generationVersion: args.generationVersion }, deps);
+  // The objective-first generator receives all available atoms as evidence, but chooses
+  // question targets from the objective list rather than iterating atom-by-atom.
+  if (hasText || atoms.length || hasObjectives) {
+    // Keep each request small and fast: atoms are retrieval evidence, not one-question-per-atom
+    // targets. Preparation rotates this bounded evidence window across batches.
+    const evidenceAtoms = atoms.length
+      ? atoms.slice(0, Math.max(1, config.count))
+      : objectivesAsAtoms(config.objectives || []);
+    const result = await generateMcqs({ ...config, atoms: evidenceAtoms, generationVersion: args.generationVersion }, deps);
     return { ...result, lectureId };
   }
 
