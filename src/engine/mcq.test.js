@@ -71,6 +71,12 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/final task family/i);
   });
 
+  it("uses a longer ExamSoft plus STEP 1 vignette blueprint for clinical application", () => {
+    expect(prompt).toMatch(/ExamSoft-structured, STEP 1-style clinical/i);
+    expect(prompt).toMatch(/clinical-application or third-order items, target 4–6 sentences/i);
+    expect(prompt).toMatch(/timeline.*discriminating symptoms/i);
+  });
+
   it("tells later generations not to repeat previously used stems", () => {
     const prompt = buildAtomQuestionsPrompt({
       atoms: [{ type: "definition", term: "Insulin", content: "Lowers serum glucose." }],
