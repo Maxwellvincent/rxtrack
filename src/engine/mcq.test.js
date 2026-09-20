@@ -142,7 +142,7 @@ describe("question ending analysis", () => {
     expect(fingerprint.secondOrderRate).toBeGreaterThanOrEqual(2 / 3);
   });
 
-  it("removes only excess items when one ending family dominates a mixed batch", () => {
+  it("retains every item while putting excess ending-family items after alternatives", () => {
     const questions = [
       "Which enzyme is deficient?",
       "Which enzyme is affected?",
@@ -151,7 +151,7 @@ describe("question ending analysis", () => {
       "What additional laboratory finding would be expected?",
     ].map((stem) => ({ stem }));
     const varied = diversifyQuestionEndings(questions);
-    expect(varied).toHaveLength(4);
+    expect(varied).toHaveLength(5);
     expect(varied.some(({ stem }) => /additional laboratory/.test(stem))).toBe(true);
   });
 });

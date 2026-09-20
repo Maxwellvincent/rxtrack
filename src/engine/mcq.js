@@ -647,7 +647,15 @@ export function locallyValidClinicalQuestions(questions = []) {
   return uniqueQuestions(structurallyValid);
 }
 
-/** Keep a generated batch from being dominated by one generic final ask. */
+/** Keep a generated batch from being dominated by one generic final ask.
+ *
+ * This used to enforce the family cap by dropping the excess questions. A
+ * five-question generation batch could therefore be reduced to three, making
+ * the default fifteen-question quiz stop at nine even when all five questions
+ * passed structural and medical review. Preserve every valid item; the prompt
+ * and independent reviewer still provide the diversity pressure, while order
+ * puts capped families after the first pass through supported alternatives.
+ */
 export function diversifyQuestionEndings(questions = []) {
   if (questions.length < 4) return questions;
   const families = questions.map((question) => questionEndingTask(question?.stem));
@@ -655,15 +663,17 @@ export function diversifyQuestionEndings(questions = []) {
   const cap = Math.ceil(questions.length * 0.6);
   const counts = {};
   const selected = [];
+  const deferred = [];
   for (let i = 0; i < questions.length; i += 1) {
     const family = families[i];
-    if ((counts[family] || 0) >= cap) continue;
+    if ((counts[family] || 0) >= cap) {
+      deferred.push(questions[i]);
+      continue;
+    }
     counts[family] = (counts[family] || 0) + 1;
     selected.push(questions[i]);
   }
-  // Preserve the full batch when classification cannot find enough alternatives. The prompt
-  // still guides the model, and a later refill can supply missing task families.
-  return selected.length >= Math.ceil(questions.length * 0.6) ? selected : questions;
+  return [...selected, ...deferred];
 }
 
 /**
