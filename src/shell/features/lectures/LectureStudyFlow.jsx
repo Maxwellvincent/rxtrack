@@ -358,7 +358,6 @@ export function LectureStudyFlow({
     },
     [atoms, userId, lecture?.id]
   );
-  const [elapsed, setElapsed] = useState(0);
   const [skippedAtoms, setSkippedAtoms] = useState([]);
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
@@ -421,15 +420,9 @@ export function LectureStudyFlow({
     });
   }, [userId, lecture?.id]);
 
-  // Writing five questions on the local bridge takes ~40s. Without a moving number that reads
-  // as a hung app, and the honest fix is to show the wait, not to hide it.
-  useEffect(() => {
-    if (!busy) { setElapsed(0); return; }
-    const started = Date.now();
-    const t = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [busy]);
-  const busyLabel = busy ? `${busy}${elapsed ? ` ${elapsed}s` : ""}` : "";
+  // Keep busy states useful without presenting elapsed time in two different places. The
+  // preparation card owns progress; buttons should only say what is happening.
+  const busyLabel = busy || "";
 
   // Runs once `questions` has cleared and the atoms list is actually in the DOM (a Summary
   // "review this atom" click sets reviewAtomKey the same tick it exits the quiz, so this has to
@@ -566,8 +559,7 @@ export function LectureStudyFlow({
       setError(`Lecture extraction failed: ${e?.message || String(e)} Check the local LLM bridge and retry.`);
     } finally {
       // Every success, returned error, thrown exception and timeout must make
-      // the page interactive again. Previously the r.error branch returned
-      // before this reset, producing the ever-growing elapsed timer.
+      // the page interactive again.
       setBusy("");
     }
   }, [lecture, userId, blockId, recoverObjectives, lectureObjectives.length]);
@@ -1462,7 +1454,14 @@ export function LectureStudyFlow({
           {quizPreparation && (
             <div role="status" aria-live="polite" className="rounded-xl border border-accent/40 bg-bg-elevated p-4">
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-text-1">
-                <span>{quizPreparation.ready >= quizPreparation.requested
+                <span className="flex items-center gap-2">
+                  {quizPreparation.ready < quizPreparation.requested && (
+                    <span
+                      className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-accent/30 border-t-accent"
+                      aria-hidden="true"
+                    />
+                  )}
+                  {quizPreparation.ready >= quizPreparation.requested
                   ? "Quiz ready"
                   : quizPreparation.phase === "refilling"
                     ? "Replacing questions that did not pass review"
@@ -1470,8 +1469,9 @@ export function LectureStudyFlow({
                       ? "Checking accuracy and objective alignment"
                       : quizPreparation.phase === "fallback"
                         ? "Building grounded recall from your lecture"
-                        : "Generating school-style questions"}</span>
-                <span className="font-mono">{quizPreparation.ready}/{quizPreparation.requested} ready · {elapsed}s</span>
+                        : "Generating school-style questions"}
+                </span>
+                <span className="font-mono">{quizPreparation.ready}/{quizPreparation.requested} ready</span>
               </div>
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
                 <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round((quizPreparation.ready / quizPreparation.requested) * 100)}%` }} />
