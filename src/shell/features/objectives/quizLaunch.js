@@ -425,6 +425,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 2));
   let lastError = "";
+  const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
@@ -465,8 +466,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
     // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
     // cannot improve inside this preparation run, so stop those immediately.
-    const qualityOnlyRejection = /quality review rejected the generated batch/i.test(result.error || "");
-    if (!result.questions?.length && result.error && !qualityOnlyRejection) break;
+    // An empty/rejected batch is recoverable: the next round rotates objective and atom evidence
+    // and gives the model a fresh chance. Stop immediately only for transport/provider failures;
+    // otherwise a single over-strict audit response used to strand the whole quiz at 0/N.
+    if (!result.questions?.length && result.error && isProviderFailure(result.error)) break;
   }
 
   if (accepted.length < requested) {

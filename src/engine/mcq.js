@@ -700,6 +700,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (deps.skipQuestionAudit === true) return { questions };
   const reviewer = deps.reviewAIJSON || deps.callAIJSON;
   const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions));
+  // An explicit independent approval is stronger than the conservative clinical-shape screen.
+  // Keep the basic structural guard, but do not discard an approved question merely because it
+  // is a shorter anatomy/mechanism item or uses a school-specific stem shape.
+  const locallyUsable = locallyUsableQuestions(questions);
+  const locallyUsableSet = new Set(locallyUsable);
   const keepLocallyValidated = (reason) => {
     const deferred = locallyValid.length ? [] : locallyUsableQuestions(questions);
     const candidates = locallyValid.length ? locallyValid : deferred;
@@ -741,7 +746,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
         }] : [];
       }
-      if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length) || !locallyValid.includes(question)) return [];
+      if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length) || !locallyUsableSet.has(question)) return [];
       return [{
         ...question,
         qualityAudit: {
