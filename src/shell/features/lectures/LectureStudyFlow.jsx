@@ -1158,9 +1158,13 @@ export function LectureStudyFlow({
 
   // Objective status counts
   const objMastered = lectureObjectives.filter((o) => o.status === "mastered").length;
-  const objDeveloping = lectureObjectives.filter((o) => o.status === "developing").length;
-  const objUntested = lectureObjectives.length - objMastered - objDeveloping;
-  const objPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
+  const objDeveloping = lectureObjectives.filter((o) => ["developing", "inprogress", "in_progress"].includes(o.status)).length;
+  const objStruggling = lectureObjectives.filter((o) => o.status === "struggling").length;
+  const objWorked = objMastered + objDeveloping + objStruggling;
+  const objUntested = Math.max(0, lectureObjectives.length - objWorked);
+  const objWorkedPct = lectureObjectives.length > 0 ? Math.round((objWorked / lectureObjectives.length) * 100) : 0;
+  const objMasteredPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
+  const objUntestedPct = lectureObjectives.length > 0 ? Math.round((objUntested / lectureObjectives.length) * 100) : 0;
   // The real progress bar: atoms answered correctly at least once. Unlike the old rounds-done
   // counter, this can't go stale relative to itself — it's read straight from the same store
   // every answer writes to, not blended from a separate heuristic.
@@ -1269,12 +1273,21 @@ export function LectureStudyFlow({
           {/* Primary progress: objectives determine quiz coverage and mastery. */}
           {lectureObjectives.length > 0 && (
           <div className="flex items-center gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-accent flex-shrink-0">Objectives</span>
-              <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
-                <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${objPct}%` }} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-accent flex-shrink-0">Objectives worked</span>
+                <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+                  <div className="h-full rounded-full bg-accent/60 transition-all" style={{ width: `${objWorkedPct}%` }} />
+                </div>
+                <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objWorked}/{lectureObjectives.length}</span>
               </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objMastered}/{lectureObjectives.length} mastered</span>
+              <div className="flex items-center gap-2">
+                <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3 flex-shrink-0">Not yet seen</span>
+                <div className="flex-1 h-1.5 rounded-full bg-border overflow-hidden">
+                  <div className="h-full rounded-full bg-text-3/35 transition-all" style={{ width: `${objUntestedPct}%` }} />
+                </div>
+                <span className="font-mono text-[11px] text-text-3 flex-shrink-0">{objUntested}/{lectureObjectives.length}</span>
+              </div>
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
               <span className="font-condensed text-[11px] font-semibold uppercase tracking-wide text-text-3">Level</span>
@@ -1314,6 +1327,12 @@ export function LectureStudyFlow({
                     {objDeveloping} developing
                   </span>
                 )}
+                {objStruggling > 0 && (
+                  <span className="flex items-center gap-1 font-mono text-[11px] text-bad">
+                    <span className="h-2 w-2 rounded-full bg-bad flex-shrink-0" />
+                    {objStruggling} struggling
+                  </span>
+                )}
                 {objUntested > 0 && (
                   <span className="flex items-center gap-1 font-mono text-[11px] text-text-3">
                     <span className="h-2 w-2 rounded-full bg-border flex-shrink-0" />
@@ -1321,7 +1340,7 @@ export function LectureStudyFlow({
                   </span>
                 )}
               </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objPct}%</span>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objMasteredPct}% mastered</span>
             </div>
           )}
           {/* Supporting evidence stays visible, but deliberately secondary to objective progress. */}
