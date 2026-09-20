@@ -628,15 +628,17 @@ export function locallyValidClinicalQuestions(questions = []) {
     const stem = String(question?.stem || "").trim();
     const entries = Object.entries(question?.choices || {});
     const correctText = question?.choices?.[question?.correct];
-    if (!stem.endsWith("?") || stem.length < 160 || stem.split(/[.!?]+/).filter((part) => part.trim()).length < 3 || !correctText || entries.length < 4) return false;
-    if (!/(?:\bpatient\b|\bwoman\b|\bman\b|\bgirl\b|\bboy\b|\binfant\b|\bnewborn\b|\bchild\b|\badolescent\b|\bresearcher\b|\bvolunteer\b)/i.test(stem)) return false;
+    // This is a deterministic safety screen, not a second style gate. Valid
+    // anatomy/mechanism items may be shorter than a full patient vignette and
+    // not every objective requires a named patient.
+    if (!stem.endsWith("?") || stem.length < 100 || stem.split(/[.!?]+/).filter((part) => part.trim()).length < 2 || !correctText || entries.length < 4) return false;
     const values = entries.map(([, value]) => normalizedComparableText(value)).filter(Boolean);
     if (new Set(values).size !== values.length) return false;
     const answer = normalizedComparableText(correctText);
     const normalizedStem = ` ${normalizedComparableText(stem)} `;
     if (answer.length >= 4 && normalizedStem.includes(` ${answer} `)) return false;
     const explanation = String(question?.explanation || "").trim();
-    if (explanation.length < 60) return false;
+    if (explanation.length < 40) return false;
     const whyWrong = Object.values(question?.whyWrong || {}).map((value) => String(value || "").toLowerCase());
     if (whyWrong.length && whyWrong.length < entries.length) return false;
     const nonDiscriminating = whyWrong.filter((value) => /not (?:the )?(?:reason|cause).{0,30}(?:symptom|finding)|not relevant to (?:the )?(?:symptom|case)/.test(value)).length;
@@ -645,6 +647,19 @@ export function locallyValidClinicalQuestions(questions = []) {
     return true;
   });
   return uniqueQuestions(structurallyValid);
+}
+
+/** Minimal recovery screen when independent review and repair cannot return a verdict. */
+export function locallyUsableQuestions(questions = []) {
+  return uniqueQuestions((questions || []).filter((question) => {
+    const stem = String(question?.stem || "").trim();
+    const entries = Object.entries(question?.choices || {});
+    const correctText = question?.choices?.[question?.correct];
+    const explanation = String(question?.explanation || "").trim();
+    if (!stem.endsWith("?") || stem.length < 100 || !correctText || entries.length < 4 || explanation.length < 40) return false;
+    const values = entries.map(([, value]) => normalizedComparableText(value)).filter(Boolean);
+    return new Set(values).size === values.length;
+  }));
 }
 
 /** Keep a generated batch from being dominated by one generic final ask.
@@ -685,20 +700,28 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (deps.skipQuestionAudit === true) return { questions };
   const reviewer = deps.reviewAIJSON || deps.callAIJSON;
   const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions));
-  const keepLocallyValidated = (reason) => ({
-    questions: locallyValid.map((question) => ({
+  const keepLocallyValidated = (reason) => {
+    const deferred = locallyValid.length ? [] : locallyUsableQuestions(questions);
+    const candidates = locallyValid.length ? locallyValid : deferred;
+    return {
+    questions: candidates.map((question) => ({
       ...question,
       qualityAudit: {
         version: 1,
-        status: "local-validated",
-        checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"],
+        status: locallyValid.includes(question) ? "local-validated" : "review-deferred",
+        checks: locallyValid.includes(question)
+          ? ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"]
+          : ["basic-structure", "valid-key", "distinct-choices"],
       },
     })),
-    warning: locallyValid.length
-      ? `${locallyValid.length} clinical question${locallyValid.length === 1 ? "" : "s"} passed structural checks; independent medical review was unavailable (${reason}).`
+    warning: candidates.length
+      ? (locallyValid.length
+        ? `${candidates.length} question${candidates.length === 1 ? "" : "s"} passed structural checks; independent medical review was unavailable (${reason}).`
+        : `${candidates.length} question${candidates.length === 1 ? "" : "s"} retained with basic structural checks while independent medical review was unavailable (${reason}).`)
       : null,
-    error: locallyValid.length ? null : `Independent question review was unavailable (${reason}), and no generated questions passed structural checks.`,
-  });
+    error: candidates.length ? null : `Independent question review was unavailable (${reason}), and no generated questions passed structural checks.`,
+  };
+  };
   if (typeof reviewer !== "function") return keepLocallyValidated("reviewer not configured");
   try {
     const raw = await reviewer(
