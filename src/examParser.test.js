@@ -18,6 +18,19 @@ describe("PDF glyph fidelity", () => {
     ];
     expect(parseMadcowPages(pages, "Mad Cow")).toMatchObject([{ num: 1, correct: "B", explanation: expect.stringContaining("Enlargement") }]);
   });
+  it("parses Mad Cow answer-colon slides and answer keys that omit 'is'", () => {
+    const pages = [
+      { num: 1, text: "A newborn has severe unconjugated hyperbilirubinemia. Which diagnosis is most likely?\nA. Gilbert syndrome\nB. Kernicterus\nC. Wilson disease", imgCount: 0 },
+      { num: 2, text: "A newborn has severe unconjugated hyperbilirubinemia. Which diagnosis is most likely?\nA. Gilbert syndrome\nB. Kernicterus\nC. Wilson disease", imgCount: 0 },
+      { num: 3, text: "QUESTION 1\nAnswer: B. Unconjugated bilirubin crosses the blood-brain barrier and deposits in the basal ganglia.", imgCount: 0 },
+      { num: 4, text: "A patient has abdominal pain after meals and imaging shows a gastric bubble behind the heart. Which structure is abnormal?\nA. Esophagus\nB. Diaphragmatic hiatus\nC. Appendix", imgCount: 0 },
+      { num: 5, text: "The correct answer C. The appendix is the abnormal structure.", imgCount: 0 },
+    ];
+    expect(parseMadcowPages(pages, "Mad Cow")).toMatchObject([
+      { num: 1, correct: "B", explanation: expect.stringContaining("blood-brain barrier") },
+      { num: 2, correct: "C", explanation: expect.stringContaining("appendix") },
+    ]);
+  });
   it("keeps a self-keyed Practice MCQ appendix after conventional keyed sections", () => {
     const conventional = `1. Main clinical question one asks which finding?\nA. Alpha\nB. Beta\n2. Main clinical question two asks which finding?\nA. Alpha\nB. Beta\n3. Main clinical question three asks which finding?\nA. Alpha\nB. Beta\nAnswer Key:\n1. A\n2. B\n3. A`;
     const appendix = `Practice MCQ for Digestion, explanations\n1. Appendix clinical question one asks which finding?\nA. Alpha\nB. Beta CORRECT ANSWER\n2. Appendix clinical question two asks which finding?\nA. Alpha CORRECT ANSWER\nB. Beta\n3. Appendix clinical question three asks which finding?\nA. Alpha\nB. Beta CORRECT ANSWER`;

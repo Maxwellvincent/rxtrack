@@ -207,6 +207,14 @@ async function parsePairedKeyFormat(pages, onProgress, examTitle = "") {
 
 /** Mad Cow DES decks repeat: question/choices, keyed duplicate, explanation. */
 export function parseMadcowPages(pages, examTitle = "") {
+  // Mad Cow decks are assembled from multiple DES sessions and do not use one
+  // answer-key convention. Older sessions say `The correct answer is B`, while
+  // newer biochemistry sessions use `Answer: B` (and a few omit "is"). Keep
+  // this scoped to the beginning of a line so question prose mentioning an
+  // answer choice cannot be mistaken for the key.
+  const matchMadcowAnswer = (text) => String(text || "").match(
+    /^\s*(?:(?:the\s+)?correct\s+answer\s*(?:is\s*)?|answer\s*[:\-]\s*)([A-H])\b(?:[.:)\-]?\s*)([\s\S]*)/im,
+  );
   const questions = [];
   const seen = new Set();
   for (let i = 0; i < (pages || []).length; i++) {
@@ -216,8 +224,8 @@ export function parseMadcowPages(pages, examTitle = "") {
     const signature = parsed.stem.toLowerCase().replace(/\s+/g, " ").slice(0, 220);
     if (seen.has(signature)) continue;
     const window = pages.slice(i, i + 4);
-    const answerPage = window.find((candidate) => /\b(?:the\s+)?correct\s+answer\s+is\s+([A-H])\b/i.test(candidate?.text || ""));
-    const answerMatch = String(answerPage?.text || "").match(/\b(?:the\s+)?correct\s+answer\s+is\s+([A-H])\b(?:[.:]?\s*)([\s\S]*)/i);
+    const answerPage = window.find((candidate) => matchMadcowAnswer(candidate?.text));
+    const answerMatch = matchMadcowAnswer(answerPage?.text);
     if (!answerMatch) continue;
     const correct = answerMatch[1].toUpperCase();
     if (!parsed.choices[correct]) continue;
