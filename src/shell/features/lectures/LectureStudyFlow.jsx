@@ -38,7 +38,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
+import { PREPARE_BATCH_SIZE, prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
@@ -803,10 +803,12 @@ export function LectureStudyFlow({
 
     // A learner should never wait for the entire requested reserve before
     // answering question one. Reuse reviewed Firestore questions immediately;
-    // if there are none, onAccepted starts the quiz after the first reviewed
-    // generation batch. Later batches append without resetting quiz state.
+    // if there are none, onAccepted starts the quiz after a complete reviewed
+    // generation batch. Starting on the first accepted item made a failed
+    // refill look like a one-question quiz even when fifteen were requested.
     let sessionStarted = false;
     let progressiveQuestions = [...reserve];
+    const startThreshold = Math.min(count, PREPARE_BATCH_SIZE);
     const appendPrepared = (batch = []) => {
       const known = new Set(progressiveQuestions.map((question) => String(question?.stem || "").trim().toLowerCase()));
       for (const question of batch) {
@@ -816,7 +818,7 @@ export function LectureStudyFlow({
         progressiveQuestions.push(question);
       }
       progressiveQuestions = progressiveQuestions.slice(0, count);
-      if (!progressiveQuestions.length) return;
+      if (progressiveQuestions.length < startThreshold) return;
       if (!sessionStarted) {
         sessionStarted = true;
         setAdHocQuiz(true);
