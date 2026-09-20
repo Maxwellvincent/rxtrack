@@ -309,7 +309,7 @@ function MentalModelImpact({ entry, onMarkReviewed }) {
 }
 
 export function LectureStudyFlow({
-  lecture, blockId, userId, logActivity, examDates, onClose, onGoDeep,
+  lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onGoDeep,
   // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
   // launching its own separate screen — opens the same picker this file's "Quiz this lecture"
   // button opens, just pre-triggered rather than waiting for a click.
@@ -776,6 +776,8 @@ export function LectureStudyFlow({
     const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
 
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
+    const reserveObjectiveIds = new Set();
+    const reserveConcepts = new Set();
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v2") === generationVersion)
@@ -783,6 +785,14 @@ export function LectureStudyFlow({
       .filter((question) => (Number(question.timesAnswered) || 0) === 0)
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+      .filter((question) => {
+        const ids = [...new Set((question?.objectiveIds || []).map(String).filter(Boolean))];
+        const concept = normAtomKey(question?.atomKey || question?.topic || "");
+        if (ids.some((id) => reserveObjectiveIds.has(id)) || (concept && reserveConcepts.has(concept))) return false;
+        ids.forEach((id) => reserveObjectiveIds.add(id));
+        if (concept) reserveConcepts.add(concept);
+        return true;
+      })
       .slice(0, count);
     const missing = Math.max(0, count - reserve.length);
     if (!missing) {
@@ -973,18 +983,6 @@ export function LectureStudyFlow({
   if (questions) {
     // An ad-hoc quiz has no "next round" to resume into — it's a one-shot session.
     const hasNext = !adHocQuiz && round + 1 < rounds.length;
-    const fallbackCount = questions.filter((question) => question.generationMode === "grounded-fallback").length;
-    const locallyValidatedCount = questions.filter((question) => question.qualityAudit?.status === "local-validated").length;
-    const reviewedCount = questions.length - fallbackCount - locallyValidatedCount;
-    const styleStatus = locallyValidatedCount > 0
-      ? `${reviewedCount ? `${reviewedCount} passed independent medical audit · ` : ""}${locallyValidatedCount} passed structural checks (ExamSoft + Step 1 style)${fallbackCount ? ` · ${fallbackCount} foundational` : ""}`
-      : fallbackCount === 0
-      ? schoolExemplars.length
-        ? `ExamSoft + Step 1 style generated and reviewed · ${schoolExemplars.length} school examples available`
-        : "Reviewed questions · no parsed school examples available"
-      : reviewedCount > 0
-        ? `${reviewedCount} passed medical audit · ${fallbackCount} foundational fallback`
-        : `ExamSoft + Step 1 generation unavailable · ${fallbackCount} source-grounded checks`;
     return (
       <div className="p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
@@ -1009,9 +1007,6 @@ export function LectureStudyFlow({
                   : `${questions.length}-question quiz · ${questions[0]?.difficulty || "medium"}`
                 : `round ${round + 1} of ${rounds.length} · ${roundLabel(round, rounds, atoms.length)} · ${questions[0]?.difficulty || roundDifficulty(resolveDefaultDifficulty(qStats.accuracy), round)}`}
             </div>
-            <div className={fallbackCount === 0 && locallyValidatedCount === 0 && schoolExemplars.length ? "text-accent" : "text-warn"}>
-              {styleStatus}
-            </div>
           </div>
         </div>
         {(skippedAtoms.length > 0 || questions?.some((q) => q._isHighYield)) && (
@@ -1033,6 +1028,9 @@ export function LectureStudyFlow({
           questions={questions}
           blockId={blockId}
           lectureId={lecture?.id ?? null}
+          lectureTitle={renamedTitle || title}
+          blockName={blockName}
+          lectureNumber={lecture?.lectureNumber ?? lecture?.number ?? null}
           userId={userId}
           expectedCount={quizPreparation?.requested || questions.length}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}

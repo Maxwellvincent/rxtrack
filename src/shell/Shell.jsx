@@ -420,6 +420,7 @@ function ShellMain({ theme, toggle, userId }) {
                 key={studyLecture.id}
                 lecture={studyLecture}
                 blockId={activeBlockId}
+                blockName={active?.name}
                 userId={userId}
                 logActivity={logActivity}
                 examDates={examDates.data}

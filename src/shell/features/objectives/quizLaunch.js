@@ -423,9 +423,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const avoidedQuestions = Array.isArray(args.avoidQuestions) ? args.avoidQuestions.filter(Boolean) : [];
   // Bound generation retries. V2 reports a shortfall instead of substituting foundational recall.
   const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
-  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 2));
+  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 4));
   let lastError = "";
   const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
+  const objectiveIdsSeen = new Set();
+  const conceptsSeen = new Set();
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
@@ -433,7 +435,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // Replacement rounds intentionally ask for a few spare candidates. One larger refill is
     // materially faster than several generator -> reviewer round trips when the reviewer is
     // rejecting a high share of the batch; only the requested number can ever be accepted.
-    const batchCount = Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, remaining);
+    // Ask for a full replacement batch even when only one or two slots remain. The spare
+    // candidates are discarded after deduplication, but they prevent a repeated concept from
+    // consuming the last requested slot and leaving a 21/25 quiz.
+    const batchCount = Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, Math.max(remaining, PREPARE_BATCH_SIZE));
     const rotate = (items = []) => {
       if (!items.length) return items;
       const offset = ((attempt - 1) * PREPARE_BATCH_SIZE) % items.length;
@@ -454,10 +459,16 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const newlyAccepted = [];
     for (const question of result.questions || []) {
       const key = normalizeStem(question?.stem);
+      const objectiveIds = [...new Set((question?.objectiveIds || []).map(String).filter(Boolean))];
+      const conceptKey = normalizeStem(question?.atomKey || question?.topic);
       const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
-      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
+      const repeatsObjective = objectiveIds.length > 0 && objectiveIds.some((id) => objectiveIdsSeen.has(id));
+      const repeatsConcept = conceptKey && conceptsSeen.has(conceptKey);
+      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || repeatsObjective || repeatsConcept || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
       seen.add(key);
       accepted.push(question);
+      objectiveIds.forEach((id) => objectiveIdsSeen.add(id));
+      if (conceptKey) conceptsSeen.add(conceptKey);
       newlyAccepted.push(question);
       if (accepted.length >= requested) break;
     }

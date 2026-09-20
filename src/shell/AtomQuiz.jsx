@@ -7,7 +7,7 @@ import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
 import { recordEvidence, recordReflection } from "../stores/learnerEvidence.js";
-import { classifyLeadIn, ERROR_REASONS, extractLeadIn } from "./features/exam/questionReading.js";
+import { classifyLeadIn, ERROR_REASONS } from "./features/exam/questionReading.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import { recordObjectiveAttempt, selectBlockObjectives, storageKeyFor, toEntry } from "./logic/objectives.js";
 import * as generatedQuestionsStore from "../stores/generatedQuestions.js";
@@ -109,7 +109,7 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, expectedCount = null, preparing = false }) {
+export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, expectedCount = null, preparing = false }) {
   const [i, setI] = useState(0);
   const [picked, setPicked] = useState(null);
   const [confidence, setConfidence] = useState(null);
@@ -245,7 +245,14 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
   return (
     <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span>{q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}{q.orderLevel && <span className="ml-2 text-text-3">· {QUESTION_ORDER_LABELS[q.orderLevel]}</span>}</span><span className="text-text-3">{currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
+        <span className="min-w-0 truncate" title={[blockName, lectureTitle].filter(Boolean).join(" · ")}>
+          {blockName && <span className="text-text-3">{blockName} · </span>}
+          {lectureNumber != null && <span className="text-text-3">Lecture {lectureNumber} · </span>}
+          {lectureTitle && <span className="text-text-1">{lectureTitle} · </span>}
+          {q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}
+          {q.orderLevel && <span className="ml-2 text-text-3">· {QUESTION_ORDER_LABELS[q.orderLevel]}</span>}
+        </span>
+        <span className="flex-shrink-0 text-text-3">{currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-panel"
@@ -276,10 +283,6 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", lectureId = n
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
-        <details className="mb-2 rounded border border-border bg-panel px-2.5 py-2">
-          <summary className="cursor-pointer font-mono text-[11px] uppercase tracking-wider text-text-3">Need help identifying the task?</summary>
-          <div className="mt-2 text-sm font-semibold text-text-1">{extractLeadIn(q.stem)}</div>
-        </details>
         <LabAnnotatedText
           text={q.stem}
           className="mb-2 block text-sm text-text-1"
