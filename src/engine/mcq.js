@@ -118,6 +118,32 @@ export function buildStyleFingerprint(examples = []) {
   };
 }
 
+const OBJECTIVE_MODALITIES = [
+  ["computed tomography", "CT"],
+  ["\\bCT\\b", "CT"],
+  ["magnetic resonance imaging", "MRI"],
+  ["\\bMRI\\b", "MRI"],
+  ["radiological? images?", "radiograph/radiologic imaging"],
+  ["x[- ]?ray", "radiograph"],
+  ["ultrasound|sonograph", "ultrasound"],
+  ["angiograph(?:y|ic)", "angiography"],
+  ["endoscop(?:y|ic)", "endoscopy"],
+];
+
+function objectiveModalitySection(objectives = []) {
+  const rows = objectives.map((objective) => {
+    const text = String(objective?.objective || objective?.text || "");
+    const modalities = OBJECTIVE_MODALITIES
+      .filter(([pattern]) => new RegExp(pattern, "i").test(text))
+      .map(([, label]) => label)
+      .filter((label, index, all) => all.indexOf(label) === index);
+    return modalities.length ? `[${objective?.id || objective?.code || "objective"}] ${modalities.join(", ")}` : null;
+  }).filter(Boolean);
+  if (!rows.length) return "";
+  return "\n\nOBJECTIVE MODALITY / SETTING COVERAGE:\n" + rows.join("\n") +
+    "\nWhen an objective names multiple imaging or clinical settings, preserve that breadth. Across the quiz batch, distribute questions across the named modalities when the requested count permits; do not let every item collapse onto the first modality. Each item should name the modality or setting that supplies its discriminating clue, and the final ask should test interpretation in that setting. Use only modality-specific relationships supported by the supplied lecture evidence.\n";
+}
+
 /**
  * Keep source roles explicit: official ExamSoft/IMCQ questions teach wording and
  * option conventions; Homework teaches the kinds of relationships and traps the
@@ -587,9 +613,11 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `9. Compare the entire batch. Reject paraphrases that test the same clue-to-answer route, even when age, sex, location, or option order changes.\n` +
     `10. Compare the final asks across the batch. The school style may use "Which" often, but the target must vary. For batches of five or more, expect at least three supported task families and at least half of the items to require a second-order clue -> mechanism or lesion -> downstream finding/relationship step. Flag a repetitive generic ending or first-order-only batch as repetitive_task_ending when it materially reduces practice value.\n` +
     `11. Treat orderLevel as a reasoning claim, not a synonym for difficulty: first-order recognizes one supplied fact; second-order applies one supplied relationship; third-order integrates at least two supplied relationships before selecting a downstream result. The stated order must be supported by the item's objective and lecture facts. Flag order_level_mismatch when it is overstated or the item is mislabeled.\n` +
+    `12. If the mapped objective explicitly names multiple imaging modalities or clinical settings (for example CT, MRI, and radiologic images), preserve that scope across the batch when the requested count permits. Reject an item only when it claims modality-specific findings absent from the supplied evidence; do not treat a single modality as complete coverage of a multi-modality objective.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
     `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
     `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
+    objectiveModalitySection(cfg.objectives || []) +
     `LECTURE FACTS:\n${JSON.stringify(atoms)}\n` +
     `RETRIEVED LECTURE EVIDENCE:\n${evidence || "No lecture text supplied; use only objectives and lecture facts."}\n\n` +
     `RECURRENT CLINICAL CORRELATES (optional; use only when supported by the lecture facts):\n${clinicalCorrelates || "none"}\n\n` +
@@ -872,7 +900,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
     examplesSection + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) +
-    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection + comparisonSection +
+    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection + objectiveModalitySection(objectives) + comparisonSection +
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +

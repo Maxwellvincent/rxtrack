@@ -103,6 +103,16 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/HARD/);
     expect(prompt).toContain("5");
   });
+  it("keeps modality breadth named by an objective", () => {
+    const modalityPrompt = buildMcqPrompt({
+      objectives: [{ id: "o1", objective: "Identify GI blood supply in CT, MRI, and radiological images." }],
+      atoms: [{ term: "IMA", content: "Supplies the distal colon." }],
+      count: 3,
+    });
+    expect(modalityPrompt).toContain("OBJECTIVE MODALITY / SETTING COVERAGE");
+    expect(modalityPrompt).toContain("CT, MRI, radiograph/radiologic imaging");
+    expect(modalityPrompt).toContain("do not let every item collapse onto the first modality");
+  });
   it("passes recurring lecture and uploaded-question clinical signals to generation", () => {
     const clinicalPrompt = buildMcqPrompt({
       lectureText: "A lecture fact about enzyme deficiency.",
