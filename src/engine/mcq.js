@@ -478,7 +478,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   // naming the tissue in the stem is the answer.
   const factList = atoms
     .slice(0, ATOM_QUIZ_CAP)
-    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.clinicalCorrelate ? ` [clinical correlate: ${a.clinicalCorrelate}]` : ""}${a.clinicalCues?.length ? ` [clinical cues: ${a.clinicalCues.join(", ")}]` : ""}${a.buzzwords?.length ? ` [lecture buzzwords: ${a.buzzwords.join(", ")}]` : ""}${a.inheritancePattern ? ` [inheritance: ${a.inheritancePattern}]` : ""}${a.objectiveIds?.length ? ` [linked objectives: ${a.objectiveIds.join(", ")}]` : ""}${a.hasImage ? IMAGE_NOTE : ""}`)
+    .map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.clinicalCorrelate ? ` [clinical correlate: ${a.clinicalCorrelate}]` : ""}${a.clinicalCues?.length ? ` [clinical cues: ${a.clinicalCues.join(", ")}]` : ""}${a.buzzwords?.length ? ` [lecture buzzwords: ${a.buzzwords.join(", ")}]` : ""}${a.testableDetails?.length ? ` [testable details: ${a.testableDetails.join("; ")}]` : ""}${a.exceptions?.length ? ` [exceptions: ${a.exceptions.join("; ")}]` : ""}${a.quantitativeDetails?.length ? ` [quantitative details: ${a.quantitativeDetails.join("; ")}]` : ""}${a.inheritancePattern ? ` [inheritance: ${a.inheritancePattern}]` : ""}${a.objectiveIds?.length ? ` [linked objectives: ${a.objectiveIds.join(", ")}]` : ""}${a.hasImage ? IMAGE_NOTE : ""}`)
     .join("\n");
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
@@ -512,7 +512,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   return (
     v2Blueprint + styleProfilePrompt(styleProfile) + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
-    `Each question must test that specific fact (not adjacent trivia). Use the supplied clinical correlate, cues, buzzwords, or inheritance pattern when present so the learner practices recognizing the lecture's clues. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
+    `Each question must test that specific fact (not adjacent trivia). Use the supplied clinical correlate, cues, buzzwords, testable details, exceptions, quantitative details, or inheritance pattern when present so the learner practices recognizing the lecturer's exact discriminators. Preserve qualifiers such as only/except/first/rate-limiting, timing, thresholds, laterality, anatomic level, cell type, compartment, sequence, and direction of change; these small details are often the tested distinction. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. Use an ExamSoft + STEP 1 hybrid: clinical-application items should include a meaningful timeline plus the relevant exam, laboratory, imaging, or physiologic finding, usually 3–5 sentences; recognition/mechanism items may remain shorter and use 1–2 reasoning steps when the objective is genuinely narrow. ` +
     `Examples guide structure, not factual scope: use the supplied facts, write new cases, and honor the requested difficulty rather than copying an IMCQ's difficulty. ` +
     `Match the option count and lettering of the real exam examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E.\n\n` +
@@ -880,7 +880,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
 
   const atomsSection = atoms.length
     ? "\n\nKEY FACTS EXTRACTED FROM THE LECTURE (ground your questions in these specific concepts):\n" +
-      atoms.slice(0, 50).map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.clinicalCorrelate ? ` Clinical correlate: ${a.clinicalCorrelate}` : ""}${a.clinicalCues?.length ? ` Cues: ${a.clinicalCues.join(", ")}` : ""}${a.buzzwords?.length ? ` Buzzwords: ${a.buzzwords.join(", ")}` : ""}${a.inheritancePattern ? ` Inheritance: ${a.inheritancePattern}` : ""}`).join("\n")
+    atoms.slice(0, 50).map((a, i) => `${i + 1}. [${a.type}] ${a.term}: ${a.content}${a.clinicalCorrelate ? ` Clinical correlate: ${a.clinicalCorrelate}` : ""}${a.clinicalCues?.length ? ` Cues: ${a.clinicalCues.join(", ")}` : ""}${a.buzzwords?.length ? ` Buzzwords: ${a.buzzwords.join(", ")}` : ""}${a.testableDetails?.length ? ` Testable details: ${a.testableDetails.join("; ")}` : ""}${a.exceptions?.length ? ` Exceptions: ${a.exceptions.join("; ")}` : ""}${a.quantitativeDetails?.length ? ` Quantitative details: ${a.quantitativeDetails.join("; ")}` : ""}${a.inheritancePattern ? ` Inheritance: ${a.inheritancePattern}` : ""}`).join("\n")
     : "";
 
   const contentSection = lectureText

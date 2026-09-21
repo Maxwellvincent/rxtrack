@@ -18,6 +18,11 @@ const SYNONYMS = {
 
 const MAX = 60;
 
+function stringList(value, limit, maxLength = 180) {
+  if (!Array.isArray(value)) return [];
+  return value.map(String).map((entry) => entry.trim()).filter(Boolean).slice(0, limit).map((entry) => entry.slice(0, maxLength));
+}
+
 export function normalizeHighYield(raw) {
   if (!Array.isArray(raw)) return [];
   const seen = new Set();
@@ -34,12 +39,18 @@ export function normalizeHighYield(raw) {
     seen.add(key);
     const normalized = { type, term: term.slice(0, 140), content: content.slice(0, 400) };
     const clinicalCorrelate = String(item.clinicalCorrelate || item.clinical || "").trim();
-    const clinicalCues = Array.isArray(item.clinicalCues) ? item.clinicalCues.map(String).map((cue) => cue.trim()).filter(Boolean).slice(0, 6) : [];
-    const buzzwords = Array.isArray(item.buzzwords) ? item.buzzwords.map(String).map((cue) => cue.trim()).filter(Boolean).slice(0, 8) : [];
+    const clinicalCues = stringList(item.clinicalCues, 6);
+    const buzzwords = stringList(item.buzzwords, 8);
+    const testableDetails = stringList(item.testableDetails || item.characteristics || item.details, 10);
+    const exceptions = stringList(item.exceptions || item.exclusions, 5);
+    const quantitativeDetails = stringList(item.quantitativeDetails || item.thresholds || item.values, 6);
     const inheritancePattern = String(item.inheritancePattern || "").trim();
     if (clinicalCorrelate) normalized.clinicalCorrelate = clinicalCorrelate.slice(0, 360);
     if (clinicalCues.length) normalized.clinicalCues = clinicalCues;
     if (buzzwords.length) normalized.buzzwords = buzzwords;
+    if (testableDetails.length) normalized.testableDetails = testableDetails;
+    if (exceptions.length) normalized.exceptions = exceptions;
+    if (quantitativeDetails.length) normalized.quantitativeDetails = quantitativeDetails;
     if (inheritancePattern) normalized.inheritancePattern = inheritancePattern.slice(0, 180);
     out.push(normalized);
     if (out.length >= MAX) break;

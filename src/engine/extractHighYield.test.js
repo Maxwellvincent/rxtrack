@@ -1,9 +1,32 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractTypedHighYield } from "./extractHighYield.js";
+import { extractTypedHighYield, buildExtractionWindows } from "./extractHighYield.js";
 
 const longText = "Endocrine physiology. ".repeat(30); // > 200 chars
 
 describe("extractTypedHighYield", () => {
+  it("preserves lecturer qualifiers and small testable details", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ atoms: [{
+      type: "relationship",
+      term: "Rate-limiting step",
+      content: "Controls pathway flux.",
+      testableDetails: ["Occurs in the committed step"],
+      exceptions: ["Not necessarily the first enzymatic step"],
+      quantitativeDetails: ["Activated after 2 hours"],
+    }] });
+    const r = await extractTypedHighYield(longText, {}, { callAIJSON });
+    expect(r.atoms[0]).toMatchObject({
+      testableDetails: ["Occurs in the committed step"],
+      exceptions: ["Not necessarily the first enzymatic step"],
+      quantitativeDetails: ["Activated after 2 hours"],
+    });
+  });
+
+  it("covers long decks with overlapping segment windows", () => {
+    const windows = buildExtractionWindows("A".repeat(30000), 6000, 8);
+    expect(windows.length).toBeGreaterThan(3);
+    expect(windows[0]).toContain("LECTURE SEGMENT 1");
+    expect(windows.at(-1)).toContain("LECTURE SEGMENT");
+  });
   it("preserves provider errors rather than calling them empty lectures", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("AI usage limit reached"));
     const result = await extractTypedHighYield(longText, {}, { callAIJSON });
