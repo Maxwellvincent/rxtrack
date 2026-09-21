@@ -74,6 +74,13 @@ const TYPE_META = {
   result: { label: "Results", hint: "the outcome", accent: "border-l-bad" },
 };
 
+const TIER_META = {
+  anchor: { label: "Anchor", className: "border-accent/40 bg-accent/10 text-accent-text" },
+  core: { label: "Core", className: "border-good/40 bg-good/10 text-good" },
+  supporting: { label: "Supporting", className: "border-border bg-bg-muted text-text-3" },
+  discriminator: { label: "Exam discriminator", className: "border-bad/40 bg-bad/10 text-bad" },
+};
+
 /**
  * One chip per objective an atom serves. Objectives without a SOM code fall
  * back to their text, and chips are deduped by label because this data has
@@ -1665,6 +1672,14 @@ export function LectureStudyFlow({
                       }
                     >
                       <span className="font-semibold text-text-1">{a.term}</span>
+                      {a.importanceTier && TIER_META[a.importanceTier] && (
+                        <span className={`ml-1.5 rounded border px-1 py-0.5 text-[10px] font-semibold ${TIER_META[a.importanceTier].className}`} title={a.parentTerm ? `Parent: ${a.parentTerm}` : ""}>
+                          {TIER_META[a.importanceTier].label}
+                        </span>
+                      )}
+                      {a.parentTerm && (
+                        <span className="ml-1.5 text-[10px] text-text-3">↳ {a.parentTerm}</span>
+                      )}
                       {a.isHighYield && (
                         <span className="ml-1.5 rounded bg-accent/15 px-1 font-mono text-[13px] text-accent" title={`Appears in ${a.crossCount} lectures`}>
                           ⭐ ×{a.crossCount}
