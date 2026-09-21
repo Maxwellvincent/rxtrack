@@ -63,6 +63,9 @@ import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
 import { LectureRetrievalEnrollment } from "./LectureRetrievalEnrollment.jsx";
 import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
+import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -341,6 +344,11 @@ export function LectureStudyFlow({
     const all = selectBlockObjectives(objectiveResource.data, blockId);
     return all.filter((o) => o?.linkedLecId === lecture?.id);
   }, [objectiveResource.data, blockId, lecture?.id]);
+  const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
+  const objectivePractice = useMemo(
+    () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
+    [lectureObjectives, learnerEvidence.data]
+  );
   const [round, setRound] = useState(0);
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
@@ -803,14 +811,10 @@ export function LectureStudyFlow({
       return;
     }
 
-    // A learner should never wait for the entire requested reserve before
-    // answering question one. Reuse reviewed Firestore questions immediately;
-    // if there are none, onAccepted starts the quiz after a complete reviewed
-    // generation batch. Starting on the first accepted item made a failed
-    // refill look like a one-question quiz even when fifteen were requested.
-    let sessionStarted = false;
+    // Keep the requested count as a hard contract. Generation progress is shown
+    // in the preparation card, but the runner does not open until the complete
+    // set is ready; otherwise a shortfall can look like a successful 6/15 quiz.
     let progressiveQuestions = [...reserve];
-    const startThreshold = Math.min(count, PREPARE_BATCH_SIZE);
     const appendPrepared = (batch = []) => {
       const known = new Set(progressiveQuestions.map((question) => String(question?.stem || "").trim().toLowerCase()));
       for (const question of batch) {
@@ -820,15 +824,6 @@ export function LectureStudyFlow({
         progressiveQuestions.push(question);
       }
       progressiveQuestions = progressiveQuestions.slice(0, count);
-      if (progressiveQuestions.length < startThreshold) return;
-      if (!sessionStarted) {
-        sessionStarted = true;
-        setAdHocQuiz(true);
-        startQuizSession(progressiveQuestions);
-        setBusy("");
-      } else {
-        setQuestions([...progressiveQuestions]);
-      }
     };
     if (reserve.length) appendPrepared([]);
 
@@ -860,10 +855,6 @@ export function LectureStudyFlow({
     setBusy("");
     if (result.error) {
       setQuizPreparation(null);
-      if (sessionStarted) {
-        setError(`Background question preparation stopped: ${result.error}`);
-        return;
-      }
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
       const matching = priorQuestions.filter((q) =>
@@ -886,12 +877,17 @@ export function LectureStudyFlow({
       setError(result.error);
       return;
     }
-    if (!result.questions?.length && !reserve.length) {
+    if (progressiveQuestions.length < count && !result.questions?.length) {
       setQuizPreparation(null);
       setError(
         "No questions came back. The local bridge was unreachable and the cloud provider returned " +
         "nothing — check that llm-bridge is running, or the console for the bridge reason."
       );
+      return;
+    }
+    if (result.incomplete || progressiveQuestions.length < count) {
+      setQuizPreparation(null);
+      setError(`Only ${progressiveQuestions.length}/${count} questions could be prepared. Retry to generate the remaining questions.`);
       return;
     }
     if (result.warning) setObjectiveNotice(result.warning);
@@ -906,11 +902,8 @@ export function LectureStudyFlow({
         })).filter((objective) => objective.text),
     }));
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questionsWithObjectiveText);
-    if (sessionStarted) setQuestions(questionsWithObjectiveText);
-    else {
-      setAdHocQuiz(true);
-      startQuizSession(questionsWithObjectiveText);
-    }
+    setAdHocQuiz(true);
+    startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
 
@@ -1155,11 +1148,11 @@ export function LectureStudyFlow({
   }
 
   // Objective status counts
-  const objMastered = lectureObjectives.filter((o) => o.status === "mastered").length;
-  const objDeveloping = lectureObjectives.filter((o) => ["developing", "inprogress", "in_progress"].includes(o.status)).length;
-  const objStruggling = lectureObjectives.filter((o) => o.status === "struggling").length;
-  const objWorked = objMastered + objDeveloping + objStruggling;
-  const objUntested = Math.max(0, lectureObjectives.length - objWorked);
+  const objMastered = objectivePractice.ready;
+  const objDeveloping = objectivePractice.developing;
+  const objStruggling = objectivePractice.struggling;
+  const objWorked = objectivePractice.worked;
+  const objUntested = objectivePractice.untested;
   const objWorkedPct = lectureObjectives.length > 0 ? Math.round((objWorked / lectureObjectives.length) * 100) : 0;
   const objMasteredPct = lectureObjectives.length > 0 ? Math.round((objMastered / lectureObjectives.length) * 100) : 0;
   const objUntestedPct = lectureObjectives.length > 0 ? Math.round((objUntested / lectureObjectives.length) * 100) : 0;
@@ -1316,7 +1309,7 @@ export function LectureStudyFlow({
                 {objMastered > 0 && (
                   <span className="flex items-center gap-1 font-mono text-[11px] text-good">
                     <span className="h-2 w-2 rounded-full bg-good flex-shrink-0" />
-                    {objMastered} mastered
+                    {objMastered} ready
                   </span>
                 )}
                 {objDeveloping > 0 && (
@@ -1338,8 +1331,39 @@ export function LectureStudyFlow({
                   </span>
                 )}
               </div>
-              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objMasteredPct}% mastered</span>
+              <span className="font-mono text-[11px] text-text-2 flex-shrink-0">{objMasteredPct}% ready</span>
             </div>
+          )}
+          {lectureObjectives.length > 0 && (
+            <details className="px-4 py-2.5 text-sm">
+              <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 text-text-2">
+                <span className="font-semibold">Questions to finish each objective</span>
+                <span className="font-mono text-[11px] text-text-3">
+                  {objectivePractice.minimumRemaining === 0
+                    ? "readiness floor met"
+                    : `${objectivePractice.minimumRemaining} minimum remaining`}
+                </span>
+              </summary>
+              <p className="mt-1 text-[12px] leading-relaxed text-text-3">
+                Minimum assumes the next answers are correct and varied. Lecture quizzes and submitted generated Exam Mode questions both count when linked to an objective.
+              </p>
+              <ol className="mt-2 divide-y divide-border/60">
+                {objectivePractice.rows.map((row) => (
+                  <li key={row.id} className="flex items-start gap-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-mono text-[11px] font-semibold text-accent-text">{row.code}</div>
+                      {row.text && <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-text-2">{row.text}</div>}
+                      <div className="mt-1 font-mono text-[11px] text-text-3">
+                        {row.attempts} answered · {row.correct} correct
+                      </div>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-1 font-mono text-[11px] ${row.ready ? "border-good/40 text-good" : row.state === "struggling" ? "border-bad/40 text-bad" : "border-border text-text-2"}`}>
+                      {row.ready ? "ready" : `${row.remaining} more if correct`}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </details>
           )}
           {/* Supporting evidence stays visible, but deliberately secondary to objective progress. */}
           <div className="flex items-center justify-between px-4 py-2 text-[11px] text-text-3">
@@ -1351,7 +1375,7 @@ export function LectureStudyFlow({
       {stage === "quiz" && atoms.length > 0 && (
         <details className="border-x border-accent/40 bg-bg-elevated px-4 pb-2 text-[12px] text-text-3">
           <summary className="cursor-pointer py-2">How progress is counted</summary>
-          Questions answered here, in Study, or in Quiz count toward practice. Objectives become mastered only after all rounds or a Quiz score of 80% or higher.
+          Questions answered here, in Study, Quiz, or submitted generated Exam Mode count when they carry this lecture's objective link. Readiness needs at least 3 attempts, 80% accuracy, a correct latest answer, 2 sessions, and 2 question types.
         </details>
       )}
 

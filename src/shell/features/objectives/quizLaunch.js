@@ -426,7 +426,6 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 4));
   let lastError = "";
   const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
-  const objectiveIdsSeen = new Set();
   const conceptsSeen = new Set();
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
@@ -459,15 +458,15 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const newlyAccepted = [];
     for (const question of result.questions || []) {
       const key = normalizeStem(question?.stem);
-      const objectiveIds = [...new Set((question?.objectiveIds || []).map(String).filter(Boolean))];
       const conceptKey = normalizeStem(question?.atomKey || question?.topic);
       const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
-      const repeatsObjective = objectiveIds.length > 0 && objectiveIds.some((id) => objectiveIdsSeen.has(id));
       const repeatsConcept = conceptKey && conceptsSeen.has(conceptKey);
-      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || repeatsObjective || repeatsConcept || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
+      // Repeated practice of one objective is valid and necessary for a 15-question
+      // lecture quiz. Coverage is handled by the generator's objective rotation;
+      // this reviewer only rejects duplicate stems/concepts or near-identical items.
+      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || repeatsConcept || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
       seen.add(key);
       accepted.push(question);
-      objectiveIds.forEach((id) => objectiveIdsSeen.add(id));
       if (conceptKey) conceptsSeen.add(conceptKey);
       newlyAccepted.push(question);
       if (accepted.length >= requested) break;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { advanceOnEnter } from "../ui/nextQuestion.js";
 import { highlightRanges, sameHighlight } from "../ui/highlightRanges.js";
@@ -118,6 +118,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
   const [errorReason, setErrorReason] = useState(null);
   const questionStartedAtRef = useRef(null);
+  const evidenceSessionId = useId();
+  const evidenceSessionKeyRef = useRef(`quiz:${lectureId || blockId}:${evidenceSessionId}`);
   useEffect(() => { questionStartedAtRef.current = nowMs(); }, [i]);
   const currentIndex = Math.min(i, Math.max(0, questions.length - 1));
   // Keyed by stem (same key generatedQuestions dedupes on) — select text in
@@ -184,6 +186,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     appendCalibration(userId, blockId, rec);
     recordEvidence(userId, {
       source: "quiz",
+      sessionKey: evidenceSessionKeyRef.current,
       blockId,
       lectureId,
       objectiveIds: q.objectiveIds || [],

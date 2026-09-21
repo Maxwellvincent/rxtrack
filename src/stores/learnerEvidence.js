@@ -24,11 +24,27 @@ function bump(bucket, id, event) {
   };
 }
 
+function bumpObjective(bucket, id, event) {
+  const next = bump(bucket, id, event);
+  if (!id) return next;
+  const entry = next[id];
+  const previous = bucket[id] || {};
+  const sessions = event.sessionKey
+    ? [...new Set([...(previous.sessions || []), event.sessionKey])].slice(-12)
+    : previous.sessions || [];
+  const taskTypes = { ...(previous.taskTypes || {}) };
+  if (event.taskType) taskTypes[event.taskType] = (taskTypes[event.taskType] || 0) + 1;
+  const sources = { ...(previous.sources || {}) };
+  const source = event.source || "quiz";
+  sources[source] = (sources[source] || 0) + 1;
+  return { ...next, [id]: { ...entry, sessions, taskTypes, sources } };
+}
+
 export function applyEvidence(model, rawEvent) {
   const current = model || fallback;
   const event = { ...rawEvent, at: rawEvent?.at || Date.now() };
   let objectives = current.objectives || {};
-  for (const id of [...new Set(event.objectiveIds || [])]) objectives = bump(objectives, id, event);
+  for (const id of [...new Set(event.objectiveIds || [])]) objectives = bumpObjective(objectives, id, event);
   const process = current.testTaking || fallback.testTaking;
   const responseMs = Number.isFinite(event.responseMs) ? Math.max(0, event.responseMs) : null;
   return {

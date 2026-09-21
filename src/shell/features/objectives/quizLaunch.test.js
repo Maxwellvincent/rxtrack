@@ -200,6 +200,20 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
+  it("allows repeated questions for the same objective when the stems and concepts differ", async () => {
+    const questions = [
+      { stem: "A receptor mutation changes the first messenger response. Which mechanism explains the finding?", choices: { A: "Gs activation", B: "Gi inhibition", C: "Ion channel opening", D: "Nuclear binding" }, correct: "A", objectiveIds: ["o1"], topic: "receptor signaling" },
+      { stem: "After a meal, a patient has delayed enzyme secretion despite normal hormone levels. Which pathway is impaired?", choices: { A: "Vagal reflex", B: "Bile storage", C: "Pancreatic duct response", D: "Gastric accommodation" }, correct: "C", objectiveIds: ["o1"], topic: "postprandial secretion" },
+      { stem: "A transporter is blocked at the apical membrane, reducing nutrient uptake. Which consequence follows?", choices: { A: "Lower portal delivery", B: "Increased filtration", C: "Reduced ventilation", D: "Higher muscle uptake" }, correct: "A", objectiveIds: ["o1"], topic: "apical transport" },
+    ];
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 3 },
+      { callAIJSON: vi.fn().mockResolvedValue({ questions }), skipQuestionAudit: true }
+    );
+    expect(result.incomplete).toBe(false);
+    expect(result.questions).toHaveLength(3);
+  });
+
   it("reports a shortfall instead of launching generic substitutes", async () => {
     const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two", C: "Three", D: "Four" }, correct: "A" });
     const callAIJSON = vi.fn()

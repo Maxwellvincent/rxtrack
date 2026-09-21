@@ -78,6 +78,7 @@ export async function finalizeExamSession(
         await recordAnswerAwait(userId, question.lectureId, wasCorrect);
         await recordEvidenceAwait(userId, {
           source: "integrated-exam",
+          sessionKey: session.sessionId,
           blockId: session.blockId,
           lectureId: question.lectureId,
           objectiveIds: question?.objectiveIds || [],

@@ -105,6 +105,13 @@ export function buildStyleFingerprint(examples = []) {
   const scenarioTypes = ["surgery", "trauma", "imaging", "ultrasound", "x-ray", "laboratory", "histology", "procedure", "newborn", "symptoms"]
     .map((label) => ({ label, count: stems.filter((s) => new RegExp(`\\b${label}\\b`, "i").test(s)).length }))
     .filter((entry) => entry.count);
+  const formatSignals = [
+    ["table", (q) => q.choiceLayout === "table" || Object.values(q.choices || {}).some((value) => value && typeof value === "object")],
+    ["image-or-label", (q) => q.hasImage || /\b(image|figure|label(?:ed)?|photomicrograph|histolog(?:y|ic))\b/i.test(String(q.stem))],
+    ["laboratory-data", (q) => /\b(laboratory|lab(?:oratory)?|serum|plasma|urine|concentration|level|\bNa\+|\bK\+|\bCa\+?\+|pH)\b/i.test(String(q.stem))],
+    ["timeline", (q) => /\b(\d+\s*(?:hours?|days?|weeks?|months?|years?)|since|after|during|progressive|sudden|newborn|postoperative|postpartum)\b/i.test(String(q.stem))],
+  ].map(([label, test]) => ({ label, count: usable.filter(test).length }))
+    .filter((entry) => entry.count);
   return {
     sampleSize: usable.length,
     averageStemCharacters: avg(stems.map((s) => s.length)),
@@ -115,6 +122,7 @@ export function buildStyleFingerprint(examples = []) {
     secondOrderRate: stems.filter(isSecondOrderStem).length / stems.length,
     thirdOrderRate: stems.filter(isThirdOrderStem).length / stems.length,
     scenarioTypes: scenarioTypes.sort((a, b) => b.count - a.count).slice(0, 6),
+    formatSignals,
   };
 }
 
@@ -886,7 +894,12 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     : "";
 
   const v2Blueprint = generationVersion === "v2" ?
-    `SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines factual content and the correct answer. Uploaded ExamSoft/IMCQ questions define structure, wording, clue density, and distractor style only. Use concise clinical/anatomic framing, usually one or two reasoning steps, rather than generic UWorld/NBME diagnostic puzzles. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\nSTYLE FINGERPRINT: ${JSON.stringify(styleFingerprint)}\n\n` : "";
+    `SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines factual content and the correct answer. Uploaded ExamSoft/IMCQ questions define structure, wording, clue density, and distractor style only. Use concise clinical/anatomic framing, usually one or two reasoning steps, rather than generic UWorld/NBME diagnostic puzzles. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\n` +
+    `SOURCE-GROUNDED WRITING RULES (learned from the supplied DM/ER ExamSoft, IMCQ, and Madcow examples): build the stem in three linked moves — (1) context and time course, (2) one or two discriminating examination, laboratory, imaging, histology, or procedural findings, then (3) a precise foundational-science ask. Every included detail must change the differential or support the mechanism; remove decorative comorbidities. Prefer one decisive discriminator over a long list of buzzwords.\n` +
+    `Distractors must be near-neighbors in the same semantic category (for example, adjacent structures, enzymes in the same pathway, competing autonomic routes, or related lesions). Each wrong option must be tempting for a stated reason and contradicted by a specific clue; never use joke answers, category mismatches, or an answer that is merely less specific.\n` +
+    `The school bank is single-best-answer but does not force one visual format: default to 5 options, while preserving verified 4–8-option patterns when the objective and reference style support them. Use a compact lab/data table, image or numbered-label interpretation, and histology only when the supplied lecture/objective contains that modality; do not invent image dependence. Tables must test pattern interpretation, not hide a sentence in cells.\n` +
+    `Madcow items are useful for clinical-context and anatomy/physiology task patterns, but are not a license to copy their occasional recall items or questionable explanations. Keep the factual answer anchored to the lecture and objective.\n` +
+    `STYLE FINGERPRINT: ${JSON.stringify(styleFingerprint)}\n\n` : "";
   const taskSection = taskVariationPrompt(styleFingerprint, diff, "question batch");
   const orderSection = `ORDER-OF-REASONING BLUEPRINT (separate from difficulty): ${JSON.stringify(resolvedOrderBlueprint.targets)}\n` +
     `${resolvedOrderBlueprint.rationale}\n` +
@@ -895,7 +908,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     v2Blueprint + styleProfilePrompt(styleProfile) + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
-    `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette.\n` +
+    `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette. The final sentence should ask for the mechanism, downstream consequence, structure, pathway, or best comparison—not simply repeat the diagnosis already made obvious by the stem.\n` +
     `Match the option count and lettering of the exam-bank examples below, if given (real exams often run 4-6 options, A-F); otherwise exactly 5 options A-E, each a complete answer. When the references use laboratory/data tables, generate some items with a compact table-valued answer set: set choiceLayout to "table", set choiceColumns to ordered headers (for example ["Finding","Patient 1","Patient 2"]), and make each choice an object mapping every header to its row value. Preserve ↑/↓ (increased/decreased) arrows and units exactly; never flatten table rows into prose.\n` +
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +

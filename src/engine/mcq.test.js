@@ -76,6 +76,13 @@ describe("buildMcqPrompt", () => {
     expect(prompt).toMatch(/clinical-application or third-order items, target 4–6 sentences/i);
     expect(prompt).toMatch(/timeline.*discriminating symptoms/i);
   });
+  it("grounds the ExamSoft blueprint in observed DM/ER stem and distractor patterns", () => {
+    expect(prompt).toContain("three linked moves");
+    expect(prompt).toContain("near-neighbors in the same semantic category");
+    expect(prompt).toContain("default to 5 options");
+    expect(prompt).toContain("do not invent image dependence");
+    expect(prompt).toContain("Madcow items are useful");
+  });
 
   it("tells later generations not to repeat previously used stems", () => {
     const prompt = buildAtomQuestionsPrompt({
@@ -156,6 +163,20 @@ describe("question ending analysis", () => {
     ]);
     expect(fingerprint.endingFamilies.map(({ family }) => family)).toEqual(expect.arrayContaining(["mechanism", "prediction", "identification"]));
     expect(fingerprint.secondOrderRate).toBeGreaterThanOrEqual(2 / 3);
+  });
+
+  it("records the bank's data-format signals without treating them as factual authority", () => {
+    const fingerprint = buildStyleFingerprint([
+      { stem: "A patient has serum sodium 128 mEq/L after 3 days of symptoms. What finding is expected?", choices: { A: "a", B: "b" } },
+      { stem: "The photomicrograph shows labeled seminiferous tubules. Which cell is indicated?", choices: { A: "a", B: "b" }, hasImage: true },
+      { stem: "Compare the following values.", choiceLayout: "table", choices: { A: { Finding: "low" }, B: { Finding: "high" } } },
+    ]);
+    expect(fingerprint.formatSignals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "laboratory-data", count: 1 }),
+      expect.objectContaining({ label: "image-or-label", count: 1 }),
+      expect.objectContaining({ label: "table", count: 1 }),
+      expect.objectContaining({ label: "timeline", count: 1 }),
+    ]));
   });
 
   it("retains every item while putting excess ending-family items after alternatives", () => {
