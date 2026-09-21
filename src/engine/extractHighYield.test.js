@@ -21,6 +21,17 @@ describe("extractTypedHighYield", () => {
     });
   });
 
+  it("passes block and slide-local objectives into extraction", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ atoms: [] });
+    await extractTypedHighYield(longText, {
+      lectureTitle: "Heme",
+      objectives: [{ code: "SOM.1267", objective: "Explain heme synthesis" }],
+      slideObjectiveCodes: ["SOM.1267"],
+    }, { callAIJSON });
+    expect(callAIJSON.mock.calls[0][1]).toContain("Explain heme synthesis");
+    expect(callAIJSON.mock.calls[0][1]).toContain("SOM.1267");
+  });
+
   it("covers long decks with overlapping segment windows", () => {
     const windows = buildExtractionWindows("A".repeat(30000), 6000, 8);
     expect(windows.length).toBeGreaterThan(3);

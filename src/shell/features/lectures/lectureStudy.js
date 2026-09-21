@@ -15,6 +15,7 @@ import { imageForAtom, isUsableImage, attachImagesToQuestions } from "../../../l
 import { matchTextToCandidates } from "../../logic/examReportWeakConcepts.js";
 import { normAtomKey } from "../../../engine/atomNorm.js";
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
+import { extractSlideObjectiveEvidence } from "../../../engine/lectureBenchmark.js";
 
 /** Minimum characters worth sending to the extractor. */
 export const MIN_TEXT = 200;
@@ -72,10 +73,17 @@ export async function loadLecture(lecture, { fetchContent, userId }) {
  * A save failure does not lose the atoms — they come back either way.
  */
 export async function extractAtoms(lecture, text, deps = {}) {
-  const { callAIJSON, saveAtoms, userId } = deps;
+  const { callAIJSON, saveAtoms, userId, objectives = [] } = deps;
+  const slideObjectiveCodes = extractSlideObjectiveEvidence(lecture?.chunks || [])
+    .flatMap((slide) => slide.codes);
   const result = await extractTypedHighYield(
     text,
-    { lectureTitle: lecture?.lectureTitle || lecture?.title, lectureType: lecture?.lectureType },
+    {
+      lectureTitle: lecture?.lectureTitle || lecture?.title,
+      lectureType: lecture?.lectureType,
+      objectives,
+      slideObjectiveCodes,
+    },
     { callAIJSON }
   );
   if (result.error) return { atoms: result.atoms || [], error: result.error, saved: false };

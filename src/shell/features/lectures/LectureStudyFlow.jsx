@@ -538,7 +538,7 @@ export function LectureStudyFlow({
         setError(`Objective recovery: ${e?.message || String(e)}`);
       }
       const r = await extractAtoms(lecture, sourceText, {
-        callAIJSON, saveAtoms: saveLectureAtoms, userId,
+        callAIJSON, saveAtoms: saveLectureAtoms, userId, objectives: objectivesForTagging,
       });
       if (r.error) {
         const suffix = /timed out/i.test(r.error)

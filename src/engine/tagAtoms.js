@@ -90,7 +90,7 @@ export async function tagAtomsWithObjectives(atoms, objectives, deps = {}) {
 
   // Pass 1 — free.
   const seeded = list.map((atom) => {
-    const ids = canonicalObjectiveIds([...(atom.objectiveIds || []), ...matchByTerm(atom, objs)], objs);
+    const ids = canonicalObjectiveIds([...(atom.objectiveIds || []), ...(atom.objectiveCodes || []), ...matchByTerm(atom, objs)], objs);
     return { ...atom, objectiveIds: ids };
   });
   const byTerm = seeded.filter((a) => a.objectiveIds.length).length;

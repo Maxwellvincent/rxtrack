@@ -60,7 +60,7 @@ Rules:
 - When the lecture supports it, also extract a concrete clinical correlate: the patient pattern, finding, or presentation that makes this fact recognizable on a quiz.
 - Add short clinical cues or buzzwords only when the lecture teaches them. For genetics, include the inheritance pattern and the family or pedigree clues that identify it. Do not add Step 1 associations that are absent from the lecture.
 
-Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": "...", "clinicalCorrelate": "...", "clinicalCues": ["..."], "buzzwords": ["..."], "testableDetails": ["..."], "exceptions": ["..."], "quantitativeDetails": ["..."], "inheritancePattern": "..." } ] }.
+Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": "...", "clinicalCorrelate": "...", "clinicalCues": ["..."], "buzzwords": ["..."], "testableDetails": ["..."], "exceptions": ["..."], "quantitativeDetails": ["..."], "objectiveCodes": ["exact slide/block objective code(s) when supported"], "inheritancePattern": "..." } ] }.
 Up to 40 atoms per segment. Prefer several precise atoms over one overloaded summary atom.`;
 
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {
@@ -96,8 +96,15 @@ export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}
   };
 
   const runWindow = async (text, retry = false, signal) => {
+    const objectiveContext = Array.isArray(lecInfo.objectives) && lecInfo.objectives.length
+      ? `\nBLOCK OBJECTIVES (use as scope, not as a substitute for slide evidence):\n${lecInfo.objectives.map((objective) => `[${objective.code || objective.id || ""}] ${objective.objective || objective.text || ""}`).join("\n")}`
+      : "";
+    const slideCodes = Array.isArray(lecInfo.slideObjectiveCodes) && lecInfo.slideObjectiveCodes.length
+      ? `\nSLIDE-LOCAL OBJECTIVE CODES (higher-priority signals for the nearby slide details): ${[...new Set(lecInfo.slideObjectiveCodes)].join(", ")}`
+      : "";
     const user = `Lecture: ${lecInfo.lectureTitle || lecInfo.filename || "Untitled"}
 Type: ${lecInfo.lectureType || "LEC"}
+${objectiveContext}${slideCodes}
 
 ${retry ? "The earlier content window produced no usable atoms. Extract concrete testable facts from this window; do not return an empty list when medical facts are present.\n\n" : ""}LECTURE CONTENT (markdown — bolded terms appear inside **double asterisks**; tables, headings, arrows, units, and slide emphasis are evidence):
 ${text}`;

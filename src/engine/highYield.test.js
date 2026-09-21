@@ -25,6 +25,24 @@ describe("normalizeHighYield", () => {
     expect(out[0].term).toBe("TSH");
   });
 
+  it("keeps objective codes and microdetail fields for later attribution", () => {
+    const [out] = normalizeHighYield([{
+      type: "mechanism",
+      term: "ALAS1",
+      content: "Heme feedback inhibits expression.",
+      objectiveCodes: "SOM.MK.I.BPM2.3.DM.2.BCHM.1268",
+      testableDetails: ["liver"],
+      exceptions: ["erythroid cells use ALAS2"],
+      quantitativeDetails: ["2 ALA form PBG"],
+    }]);
+    expect(out).toMatchObject({
+      objectiveCodes: ["SOM.MK.I.BPM2.3.DM.2.BCHM.1268"],
+      testableDetails: ["liver"],
+      exceptions: ["erythroid cells use ALAS2"],
+      quantitativeDetails: ["2 ALA form PBG"],
+    });
+  });
+
   it("dedupes by type+term (case-insensitive), keeping the first", () => {
     const out = normalizeHighYield([
       { type: "definition", term: "Cortisol", content: "first" },

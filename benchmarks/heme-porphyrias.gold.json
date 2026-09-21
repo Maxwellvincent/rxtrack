@@ -1,0 +1,17 @@
+{
+  "lecture": "DM 29 — Heme Synthesis and Porphyrias",
+  "source": "DM+Lecture+29-Heme+synthesis+and+Porphyrias.pdf",
+  "notes": "Paraphrased human-review ledger. Verify against the current source slide before changing it.",
+  "facts": [
+    {"id":"pathway-compartments","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1267"],"terms":["heme synthesis","mitochondria","cytosol"],"requiredDetails":[{"patterns":["start and end in mitochondria","begins and ends in mitochondria","intermediates in cytosol","cytosol"]}]},
+    {"id":"pathway-stoichiometry","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1267"],"terms":["ALA","porphobilinogen","hydroxymethylbilane","PBG"],"requiredDetails":[{"patterns":["2 ALA","two ALA"]},{"patterns":["4 PBG","four PBG"]}]},
+    {"id":"alas-plp","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1269"],"terms":["ALA synthase","pyridoxal phosphate","vitamin B6","PLP"],"requiredDetails":[{"patterns":["PLP","pyridoxal phosphate"]}]},
+    {"id":"lead-cofactors","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1270"],"terms":["lead poisoning","ALA dehydratase","ferrochelatase","zinc"],"requiredDetails":[{"patterns":["zinc"]},{"patterns":["ALA and protoporphyrin IX","ALA","protoporphyrin IX"]}]},
+    {"id":"liver-vs-erythroid","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1268"],"terms":["ALAS1","ALAS2","liver","erythroid","iron"],"requiredDetails":[{"patterns":["heme feedback","heme inhibits","ALAS1"]},{"patterns":["iron response element","iron regulates translation","ALAS2"]}]},
+    {"id":"aip-enzyme-metabolites","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1272"],"terms":["acute intermittent porphyria","AIP","HMB synthase","PBG deaminase"],"requiredDetails":[{"patterns":["HMB synthase","PBG deaminase"]},{"patterns":["ALA and PBG","ALA","porphobilinogen"]}]},
+    {"id":"aip-clinical-distinction","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1271","SOM.MK.I.BPM2.3.DM.2.BCHM.1272"],"terms":["AIP","abdominal pain","photosensitivity","neurologic"],"requiredDetails":[{"patterns":["no photosensitivity","without photosensitivity"]},{"patterns":["abdominal pain","neurologic"]}]},
+    {"id":"aip-treatment-trigger","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1273","SOM.MK.I.BPM2.3.DM.2.BCHM.1274"],"terms":["hemin","barbiturates","acute intermittent porphyria"],"requiredDetails":[{"patterns":["hemin inhibits ALAS1","hemin","ALAS1"]},{"patterns":["avoid barbiturates","barbiturates induce","CYP450"]}]},
+    {"id":"cep","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1275"],"terms":["congenital erythropoietic porphyria","CEP","uroporphyrinogen III synthase","type I"],"requiredDetails":[{"patterns":["erythroid","bone marrow"]},{"patterns":["uroporphyrin I","coproporphyrin I"]},{"patterns":["childhood","severe photosensitivity"]}]},
+    {"id":"pct","objectiveIds":["SOM.MK.I.BPM2.3.DM.2.BCHM.1276"],"terms":["porphyria cutanea tarda","PCT","uroporphyrinogen decarboxylase","uroporphyrin III"],"requiredDetails":[{"patterns":["adult","40 50"]},{"patterns":["sunlight","alcohol","iron"]},{"patterns":["uroporphyrin III"]}]}
+  ]
+}

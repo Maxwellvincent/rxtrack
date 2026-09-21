@@ -19,8 +19,8 @@ const SYNONYMS = {
 const MAX = 60;
 
 function stringList(value, limit, maxLength = 180) {
-  if (!Array.isArray(value)) return [];
-  return value.map(String).map((entry) => entry.trim()).filter(Boolean).slice(0, limit).map((entry) => entry.slice(0, maxLength));
+  const values = Array.isArray(value) ? value : (value == null ? [] : [value]);
+  return values.map(String).map((entry) => entry.trim()).filter(Boolean).slice(0, limit).map((entry) => entry.slice(0, maxLength));
 }
 
 export function normalizeHighYield(raw) {
@@ -44,6 +44,7 @@ export function normalizeHighYield(raw) {
     const testableDetails = stringList(item.testableDetails || item.characteristics || item.details, 10);
     const exceptions = stringList(item.exceptions || item.exclusions, 5);
     const quantitativeDetails = stringList(item.quantitativeDetails || item.thresholds || item.values, 6);
+    const objectiveCodes = stringList(item.objectiveCodes || item.objectives, 12, 120);
     const inheritancePattern = String(item.inheritancePattern || "").trim();
     if (clinicalCorrelate) normalized.clinicalCorrelate = clinicalCorrelate.slice(0, 360);
     if (clinicalCues.length) normalized.clinicalCues = clinicalCues;
@@ -51,6 +52,7 @@ export function normalizeHighYield(raw) {
     if (testableDetails.length) normalized.testableDetails = testableDetails;
     if (exceptions.length) normalized.exceptions = exceptions;
     if (quantitativeDetails.length) normalized.quantitativeDetails = quantitativeDetails;
+    if (objectiveCodes.length) normalized.objectiveCodes = objectiveCodes;
     if (inheritancePattern) normalized.inheritancePattern = inheritancePattern.slice(0, 180);
     out.push(normalized);
     if (out.length >= MAX) break;
