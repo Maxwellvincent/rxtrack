@@ -200,6 +200,7 @@ function ShellMain({ theme, toggle, userId }) {
   const [showRecognize, setShowRecognize] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showAddLecture, setShowAddLecture] = useState(false);
+  const [reextractLecture, setReextractLecture] = useState(null);
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [showQuestionBanks, setShowQuestionBanks] = useState(false);
   const [showRoutine, setShowRoutine] = useState(false);
@@ -425,6 +426,7 @@ function ShellMain({ theme, toggle, userId }) {
                 logActivity={logActivity}
                 examDates={examDates.data}
                 onClose={() => { setStudyLecture(null); setPendingAutoQuiz(null); }}
+                onReExtract={(target) => { setReextractLecture(target || null); setShowAddLecture(true); }}
                 autoOpenQuiz={!!pendingAutoQuiz}
                 focusObjectiveIds={pendingAutoQuiz?.focusObjectiveIds}
                 onGoDeep={(lecId) => {
@@ -570,7 +572,8 @@ function ShellMain({ theme, toggle, userId }) {
           blockId={activeBlockId}
           termId={active?.termId ?? null}
           userId={userId}
-          onClose={() => setShowAddLecture(false)}
+          targetLecture={reextractLecture}
+          onClose={() => { setShowAddLecture(false); setReextractLecture(null); }}
         />
       )}
       {showBulkImport && activeBlockId && (

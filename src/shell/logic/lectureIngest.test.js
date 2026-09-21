@@ -242,6 +242,17 @@ describe("upsertLecture", () => {
     expect(result.action).toBe("added");
     expect(result.lectures).toHaveLength(2);
   });
+
+  it("fills an explicitly selected lecture even when the replacement filename differs", () => {
+    const result = upsertLecture(
+      [{ ...existing, lectureDate: "2026-09-21", chunks: [{ markdown: "old" }] }],
+      { ...incoming, lectureNumber: 99, lectureTitle: "Downloaded filename", fullText: "new", chunks: [{ markdown: "new" }] },
+      { targetId: "old" },
+    );
+    expect(result.action).toBe("filled");
+    expect(result.lecture.id).toBe("old");
+    expect(result.lecture.fullText).toBe("new");
+  });
 });
 
 describe("findFillTarget / fillLecture — the schedule stub case", () => {

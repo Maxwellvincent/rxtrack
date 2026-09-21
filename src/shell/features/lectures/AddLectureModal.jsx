@@ -55,7 +55,7 @@ function lectureText(lecture) {
   return (lecture?.chunks || []).map((c) => c.markdown || c.text || "").join("\n\n");
 }
 
-export function AddLectureModal({ blockId, termId = null, userId = null, onClose, onAdded }) {
+export function AddLectureModal({ blockId, termId = null, userId = null, onClose, onAdded, targetLecture = null }) {
   const [preview, setPreview] = useState(null); // { lecture, action, replacedId }
   const [lectureDate, setLectureDate] = useState("");
   const [useLlm, setUseLlm] = useState(false);
@@ -106,7 +106,9 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       if (built.error) { setError(built.error); return; }
 
       const current = lecturesStore.read(userId) || [];
-      const { action, filledId, lecture: merged } = upsertLecture(current, built.lecture);
+      const { action, filledId, lecture: merged } = upsertLecture(current, built.lecture, {
+        targetId: targetLecture?.id || null,
+      });
       setPreview({
         lecture: built.lecture,
         action,
@@ -116,7 +118,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         quality,
       });
     },
-    [blockId, termId, userId, useLlm]
+    [blockId, termId, userId, useLlm, targetLecture]
   );
 
   /**
@@ -283,7 +285,9 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       // Fill the row that is already there. It holds the schedule's date and
       // week, and its id is what objectives, sessions and completion point at —
       // swapping in a new row throws all of that away.
-      const { lectures, lecture: merged, action } = upsertLecture(current, incoming);
+      const { lectures, lecture: merged, action } = upsertLecture(current, incoming, {
+        targetId: targetLecture?.id || null,
+      });
       const lecture = merged || incoming;
 
       setProgress("Saving the full lecture…");
@@ -339,15 +343,14 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep, buildStudyAssets]);
+  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep, buildStudyAssets, targetLecture]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!busy) onClose?.(); }}>
       <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
-        <div className="mb-1 text-lg font-bold text-text-1">Add a lecture</div>
+        <div className="mb-1 text-lg font-bold text-text-1">{targetLecture ? "Re-extract lecture" : "Add a lecture"}</div>
         <div className="mb-4 text-xs text-text-3">
-          Drop a PDF in: it goes through marker OCR (local server → Datalab → Mistral, falling back to
-          direct text extraction), then objectives and the teaching map are pulled out for you. A .md
+          {targetLecture ? `Choose the replacement PDF for “${targetLecture.lectureTitle || targetLecture.filename || "this lecture"}”. ` : "Drop a PDF in: "}It goes through the local pdftotext text layer first, then Marker/Mistral OCR when needed; objectives and the teaching map are pulled out for you. A .md
           from <span className="font-mono">pdf2md</span> skips the OCR step. Type, number and title
           come from the filename.
         </div>

@@ -320,6 +320,7 @@ function MentalModelImpact({ entry, onMarkReviewed }) {
 
 export function LectureStudyFlow({
   lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onGoDeep,
+  onReExtract = null,
   // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
   // launching its own separate screen — opens the same picker this file's "Quiz this lecture"
   // button opens, just pre-triggered rather than waiting for a click.
@@ -1186,7 +1187,17 @@ export function LectureStudyFlow({
       <div className="mb-3 flex items-center justify-between gap-3">
         <button onClick={onClose} className="font-mono text-xs text-text-3 hover:text-text-1">← back</button>
         {!confirmDeleteLecture ? (
-          <button onClick={() => setConfirmDeleteLecture(true)} className="font-mono text-[11px] text-text-3 hover:text-bad">delete lecture…</button>
+          <div className="flex items-center gap-3">
+            {onReExtract && (
+              <button
+                onClick={() => onReExtract(lecture)}
+                className="font-mono text-[11px] text-accent hover:text-accent-text"
+              >
+                ↻ Re-extract PDF
+              </button>
+            )}
+            <button onClick={() => setConfirmDeleteLecture(true)} className="font-mono text-[11px] text-text-3 hover:text-bad">delete lecture…</button>
+          </div>
         ) : (
           <div className="flex items-center gap-2 rounded border border-bad/40 bg-bad/5 px-2 py-1">
             <span className="text-[12px] text-text-2">Permanently delete?</span>

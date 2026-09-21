@@ -279,9 +279,11 @@ export function findFillTarget(lectures, lecture) {
  * schedule's dates. `mode: "replace"` keeps the old behaviour of swapping in a
  * brand new row, which the caller must then tombstone.
  */
-export function upsertLecture(lectures, lecture, { mode = "fill" } = {}) {
+export function upsertLecture(lectures, lecture, { mode = "fill", targetId = null } = {}) {
   const list = lectures || [];
-  const existing = findFillTarget(list, lecture);
+  const existing = targetId
+    ? list.find((candidate) => candidate?.id === targetId) || null
+    : findFillTarget(list, lecture);
 
   if (!existing) {
     return { lectures: [...list, lecture], replacedId: null, filledId: null, action: "added" };
