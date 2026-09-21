@@ -53,6 +53,7 @@ Every atom is EXACTLY ONE of these four types — nothing else:
 Rules:
 - Prioritize **bolded** terms (markdown ** **) — they are the lecturer's flagged high-yield points.
 - Each atom: a specific, testable fact — never a slide title or category header. Do not let a broad overview atom replace separate disease-, enzyme-, cell/site-, metabolite-, laboratory-, treatment-, or trigger-specific atoms taught on later slides.
+- Build a hierarchy: use importanceTier anchor for the lecture's organizing concept, core for major diseases/pathways, supporting for mechanisms and relationships, and discriminator for small exam-defining characteristics. Set parentTerm to the immediate parent (for example, AIP → Porphyrias; no parent for the anchor). Set detailRole to the kind of detail being preserved.
 - DROP fluff: history, introductions, logistics, motivation, generic background.
 - Keep "content" one tight sentence, but do not erase testable qualifiers.
 - Preserve small examinable details in separate arrays: testableDetails for distinguishing characteristics, exceptions for "except/only/unlike" rules, and quantitativeDetails for thresholds, ranges, timing, direction arrows, doses, or named values. Preserve laterality, anatomic level, cell type, compartment, and sequence when taught.
@@ -60,7 +61,7 @@ Rules:
 - When the lecture supports it, also extract a concrete clinical correlate: the patient pattern, finding, or presentation that makes this fact recognizable on a quiz.
 - Add short clinical cues or buzzwords only when the lecture teaches them. For genetics, include the inheritance pattern and the family or pedigree clues that identify it. Do not add Step 1 associations that are absent from the lecture.
 
-Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": "...", "clinicalCorrelate": "...", "clinicalCues": ["..."], "buzzwords": ["..."], "testableDetails": ["..."], "exceptions": ["..."], "quantitativeDetails": ["..."], "objectiveCodes": ["exact slide/block objective code(s) when supported"], "inheritancePattern": "..." } ] }.
+Return ONLY valid JSON: { "atoms": [ { "type": "...", "term": "...", "content": "...", "importanceTier": "anchor|core|supporting|discriminator", "parentTerm": "...", "detailRole": "overview|definition|mechanism|comparison|clinical-feature|laboratory|metabolite|trigger|treatment|exception|cofactor|localization|quantitative", "clinicalCorrelate": "...", "clinicalCues": ["..."], "buzzwords": ["..."], "testableDetails": ["..."], "exceptions": ["..."], "quantitativeDetails": ["..."], "objectiveCodes": ["exact slide/block objective code(s) when supported"], "inheritancePattern": "..." } ] }.
 Up to 40 atoms per segment. Prefer several precise atoms over one overloaded summary atom.`;
 
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {

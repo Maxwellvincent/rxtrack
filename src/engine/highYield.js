@@ -19,6 +19,8 @@ const SYNONYMS = {
 // Long lectures can legitimately contain more than sixty distinct, objective-linked facts.
 // Keep a generous ceiling here; quiz rounds still page atoms in small batches later.
 const MAX = 100;
+const IMPORTANCE_TIERS = ["anchor", "core", "supporting", "discriminator"];
+const DETAIL_ROLES = ["overview", "definition", "mechanism", "comparison", "clinical-feature", "laboratory", "metabolite", "trigger", "treatment", "exception", "cofactor", "localization", "quantitative"];
 
 function stringList(value, limit, maxLength = 180) {
   const values = Array.isArray(value) ? value : (value == null ? [] : [value]);
@@ -45,6 +47,13 @@ export function normalizeHighYield(raw) {
     const exceptions = stringList(item.exceptions || item.exclusions, 5);
     const quantitativeDetails = stringList(item.quantitativeDetails || item.thresholds || item.values, 6);
     const objectiveCodes = stringList(item.objectiveCodes || item.objectives, 12, 120);
+    const importanceTier = IMPORTANCE_TIERS.includes(String(item.importanceTier || item.level || "").trim().toLowerCase())
+      ? String(item.importanceTier || item.level).trim().toLowerCase()
+      : null;
+    const detailRole = DETAIL_ROLES.includes(String(item.detailRole || "").trim().toLowerCase())
+      ? String(item.detailRole).trim().toLowerCase()
+      : null;
+    const parentTerm = String(item.parentTerm || item.parent || "").trim();
     const inheritancePattern = String(item.inheritancePattern || "").trim();
     if (clinicalCorrelate) normalized.clinicalCorrelate = clinicalCorrelate.slice(0, 360);
     if (clinicalCues.length) normalized.clinicalCues = clinicalCues;
@@ -53,6 +62,9 @@ export function normalizeHighYield(raw) {
     if (exceptions.length) normalized.exceptions = exceptions;
     if (quantitativeDetails.length) normalized.quantitativeDetails = quantitativeDetails;
     if (objectiveCodes.length) normalized.objectiveCodes = objectiveCodes;
+    if (importanceTier) normalized.importanceTier = importanceTier;
+    if (detailRole) normalized.detailRole = detailRole;
+    if (parentTerm) normalized.parentTerm = parentTerm.slice(0, 140);
     if (inheritancePattern) normalized.inheritancePattern = inheritancePattern.slice(0, 180);
     const previous = byKey.get(key);
     if (!previous) {
@@ -74,6 +86,9 @@ export function normalizeHighYield(raw) {
       exceptions: mergeList(previous.exceptions, normalized.exceptions, 8),
       quantitativeDetails: mergeList(previous.quantitativeDetails, normalized.quantitativeDetails, 8),
       objectiveCodes: mergeList(previous.objectiveCodes, normalized.objectiveCodes, 16),
+      importanceTier: previous.importanceTier || normalized.importanceTier,
+      detailRole: previous.detailRole || normalized.detailRole,
+      parentTerm: previous.parentTerm || normalized.parentTerm,
       inheritancePattern: previous.inheritancePattern || normalized.inheritancePattern,
     });
   }

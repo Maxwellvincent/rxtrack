@@ -31,6 +31,7 @@ describe("extractTypedHighYield", () => {
     expect(callAIJSON.mock.calls[0][1]).toContain("Explain heme synthesis");
     expect(callAIJSON.mock.calls[0][1]).toContain("SOM.1267");
     expect(callAIJSON.mock.calls[0][1]).toContain("OBJECTIVE COVERAGE CONTRACT");
+    expect(callAIJSON.mock.calls[0][0]).toContain("importanceTier");
   });
 
   it("covers long decks with overlapping segment windows", () => {

@@ -76,6 +76,9 @@ export function partitionAtomsForRound(atoms, termIndex, objectiveById) {
   toQuiz.sort((a, b) => {
     if (a.isHighYield && !b.isHighYield) return -1;
     if (!a.isHighYield && b.isHighYield) return 1;
+    const rank = { anchor: 0, core: 1, supporting: 2, discriminator: 3 };
+    const tierDelta = (rank[a.importanceTier] ?? 2) - (rank[b.importanceTier] ?? 2);
+    if (tierDelta) return tierDelta;
     return 0;
   });
 

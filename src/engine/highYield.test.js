@@ -53,6 +53,18 @@ describe("normalizeHighYield", () => {
     expect(out.exceptions).toContain("erythroid cells use ALAS2");
   });
 
+  it("preserves the parent-child hierarchy and detail role", () => {
+    const [out] = normalizeHighYield([{
+      type: "result",
+      term: "AIP photosensitivity distinction",
+      content: "AIP has no photosensitivity.",
+      importanceTier: "discriminator",
+      parentTerm: "Porphyrias",
+      detailRole: "clinical-feature",
+    }]);
+    expect(out).toMatchObject({ importanceTier: "discriminator", parentTerm: "Porphyrias", detailRole: "clinical-feature" });
+  });
+
   it("dedupes by type+term (case-insensitive) while merging later qualifiers", () => {
     const out = normalizeHighYield([
       { type: "definition", term: "Cortisol", content: "first" },
