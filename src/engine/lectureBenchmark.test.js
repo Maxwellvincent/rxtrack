@@ -33,8 +33,8 @@ describe("lecture benchmark", () => {
     const result = scoreQuestionUsage({
       gold,
       questions: [
-        { stem: "A patient with lead poisoning has elevated protoporphyrin IX. Which enzyme is affected?", objectiveIds: ["o1"] },
-        { stem: "A patient has acute intermittent porphyria but no photosensitivity. Which enzyme is deficient?", objectiveIds: ["o2"] },
+        { stem: "A patient with lead poisoning has elevated protoporphyrin IX and impaired ALA dehydratase. Which enzyme is affected?", objectiveIds: ["o1"] },
+        { stem: "A patient has acute intermittent porphyria from HMB synthase deficiency but no photosensitivity. Which enzyme is deficient?", objectiveIds: ["o2"] },
       ],
     });
     expect(result.coverage).toBe(1);

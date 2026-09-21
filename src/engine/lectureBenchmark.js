@@ -71,7 +71,8 @@ export function objectiveEvidenceForAtom(atom, slideEvidence = [], objectives = 
 function scoreGoldRow(row, atoms = []) {
   const candidates = atoms.filter((atom) => {
     const atomText = [atom?.term, atom?.content, atom?.clinicalCorrelate, atom?.clinicalCues, atom?.buzzwords, atom?.testableDetails, atom?.exceptions, atom?.quantitativeDetails];
-    return matchesAny(atomText, row.terms || []);
+    const termMatches = (row.terms || []).filter((term) => matchesAny(atomText, [term])).length;
+    return termMatches >= (row.minTermMatches || 2);
   });
   const best = candidates.find((atom) => {
     const atomText = [atom?.term, atom?.content, atom?.clinicalCorrelate, atom?.clinicalCues, atom?.buzzwords, atom?.testableDetails, atom?.exceptions, atom?.quantitativeDetails];
@@ -111,7 +112,8 @@ export function scoreQuestionUsage({ questions = [], gold = [] } = {}) {
     const matches = questions.filter((question) => {
       const questionText = [question?.stem, question?.explanation, question?.whyWrong, question?.topic];
       const objectiveMatch = !row.objectiveIds?.length || row.objectiveIds.some((id) => (question?.objectiveIds || []).map(String).includes(String(id)));
-      return objectiveMatch && matchesAny(questionText, row.terms || []);
+      const termMatches = (row.terms || []).filter((term) => matchesAny(questionText, [term])).length;
+      return objectiveMatch && termMatches >= (row.minTermMatches || 2);
     });
     const detailQuestions = matches.filter((question) => (row.requiredDetails || []).some((detail) => matchesAny(question, detail.patterns || detail)));
     return { id: row.id, generated: matches.length > 0, usesDetail: detailQuestions.length > 0, questionCount: matches.length };
