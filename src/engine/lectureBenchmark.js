@@ -27,16 +27,37 @@ function codeSet(value) {
   return new Set((Array.isArray(value) ? value : [value]).filter(Boolean).map(String));
 }
 
+function normalizeObjectiveCode(code) {
+  return String(code || "").replace(/\s+/g, "").replace(/^SOM\.?/i, "SOM.");
+}
+
+function objectiveKeywords(objective) {
+  return new Set(normalize(objective?.objective || objective?.text || "")
+    .split(/\s+/)
+    .filter((word) => word.length >= 5 && !/^(?:describe|explain|identify|evaluate|discuss|differentiate|classify|the|with|from|into|that|this|these|those|which|their|there)$/.test(word)));
+}
+
 /** Extract slide-local SOM objective codes from OCR chunks without trusting slide titles. */
-export function extractSlideObjectiveEvidence(chunks = []) {
+export function extractSlideObjectiveEvidence(chunks = [], objectives = []) {
   return (chunks || []).map((chunk, index) => {
     const text = textOf(chunk?.markdown || chunk?.text || chunk?.content || chunk);
-    const codes = [...new Set(text.match(/SOM\.?\s*(?:[A-Z]{1,4}\.)?MK\.?[^\s,;|]+/gi) || [])]
-      .map((code) => code.replace(/\s+/g, "").replace(/SOM\.?/i, "SOM."));
+    const compact = text.replace(/SOM\s*\.\s*/gi, "SOM.").replace(/\s*\.\s*/g, ".");
+    const codes = [...new Set(compact.match(/SOM\.(?:[A-Z0-9]+\.){4,}\d{4}/gi) || [])].map(normalizeObjectiveCode);
+    const inferredCodes = [];
+    if (!codes.length && objectives.length) {
+      const words = new Set(normalize(text).split(/\s+/));
+      for (const objective of objectives) {
+        const keywords = objectiveKeywords(objective);
+        const overlap = [...keywords].filter((word) => words.has(word)).length;
+        // Conservative fallback: require two distinctive objective words in the slide.
+        if (overlap >= 2) inferredCodes.push(normalizeObjectiveCode(objective.code || objective.objectiveCode || objective.id));
+      }
+    }
     return {
       index,
       pageNumber: chunk?.pageNumber ?? index + 1,
-      codes,
+      codes: [...new Set([...codes, ...inferredCodes].filter(Boolean))],
+      inferred: !codes.length && inferredCodes.length > 0,
       text,
     };
   }).filter((entry) => entry.codes.length);

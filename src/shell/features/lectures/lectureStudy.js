@@ -74,7 +74,7 @@ export async function loadLecture(lecture, { fetchContent, userId }) {
  */
 export async function extractAtoms(lecture, text, deps = {}) {
   const { callAIJSON, saveAtoms, userId, objectives = [] } = deps;
-  const slideObjectiveCodes = extractSlideObjectiveEvidence(lecture?.chunks || [])
+  const slideObjectiveCodes = extractSlideObjectiveEvidence(lecture?.chunks || [], objectives)
     .flatMap((slide) => slide.codes);
   const result = await extractTypedHighYield(
     text,

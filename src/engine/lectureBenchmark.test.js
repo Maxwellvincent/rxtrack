@@ -15,6 +15,15 @@ describe("lecture benchmark", () => {
     expect(evidence[0]).toMatchObject({ pageNumber: 12, codes: ["SOM.MK.I.BPM2.3.DM.2.BCHM.1270"] });
   });
 
+  it("normalizes wrapped codes and conservatively infers a block objective when the border code is lost", () => {
+    const evidence = extractSlideObjectiveEvidence([
+      { pageNumber: 4, markdown: "Lead poisoning inhibits ALA dehydratase and causes microcytic anemia." },
+      { pageNumber: 5, markdown: "SOM. MK.I.BPM2.3.DM.2.BCHM.1270" },
+    ], [{ id: "o1", code: "SOM.MK.I.BPM2.3.DM.2.BCHM.1270", objective: "Describe ALA dehydratase and evaluate effects of lead poisoning" }]);
+    expect(evidence[0]).toMatchObject({ inferred: true, codes: ["SOM.MK.I.BPM2.3.DM.2.BCHM.1270"] });
+    expect(evidence[1].codes).toEqual(["SOM.MK.I.BPM2.3.DM.2.BCHM.1270"]);
+  });
+
   it("scores both atom recall and the small details inside an atom", () => {
     const result = scoreLectureAtoms({
       atoms: [
