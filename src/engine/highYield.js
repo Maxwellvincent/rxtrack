@@ -16,7 +16,9 @@ const SYNONYMS = {
   result: "result", outcome: "result", consequence: "result", effect: "result",
 };
 
-const MAX = 60;
+// Long lectures can legitimately contain more than sixty distinct, objective-linked facts.
+// Keep a generous ceiling here; quiz rounds still page atoms in small batches later.
+const MAX = 100;
 
 function stringList(value, limit, maxLength = 180) {
   const values = Array.isArray(value) ? value : (value == null ? [] : [value]);
@@ -25,8 +27,8 @@ function stringList(value, limit, maxLength = 180) {
 
 export function normalizeHighYield(raw) {
   if (!Array.isArray(raw)) return [];
-  const seen = new Set();
-  const out = [];
+  const byKey = new Map();
+  const mergeList = (left, right, limit) => [...new Set([...(left || []), ...(right || [])])].slice(0, limit);
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
     const type = SYNONYMS[String(item.type || "").trim().toLowerCase()];
@@ -35,8 +37,6 @@ export function normalizeHighYield(raw) {
     const content = String(item.content || item.fact || item.detail || "").trim();
     if (!term || !content) continue;
     const key = type + "::" + term.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
     const normalized = { type, term: term.slice(0, 140), content: content.slice(0, 400) };
     const clinicalCorrelate = String(item.clinicalCorrelate || item.clinical || "").trim();
     const clinicalCues = stringList(item.clinicalCues, 6);
@@ -54,9 +54,30 @@ export function normalizeHighYield(raw) {
     if (quantitativeDetails.length) normalized.quantitativeDetails = quantitativeDetails;
     if (objectiveCodes.length) normalized.objectiveCodes = objectiveCodes;
     if (inheritancePattern) normalized.inheritancePattern = inheritancePattern.slice(0, 180);
-    out.push(normalized);
-    if (out.length >= MAX) break;
+    const previous = byKey.get(key);
+    if (!previous) {
+      byKey.set(key, normalized);
+      continue;
+    }
+    // The same term often appears on multiple slides with different exam qualifiers.
+    // Merge those qualifiers instead of letting the first extraction silently win.
+    const mergedContent = previous.content === normalized.content
+      ? previous.content
+      : `${previous.content} ${normalized.content}`.slice(0, 600);
+    byKey.set(key, {
+      ...previous,
+      content: mergedContent,
+      clinicalCorrelate: [previous.clinicalCorrelate, normalized.clinicalCorrelate].filter(Boolean).join(" ").slice(0, 500) || undefined,
+      clinicalCues: mergeList(previous.clinicalCues, normalized.clinicalCues, 8),
+      buzzwords: mergeList(previous.buzzwords, normalized.buzzwords, 10),
+      testableDetails: mergeList(previous.testableDetails, normalized.testableDetails, 12),
+      exceptions: mergeList(previous.exceptions, normalized.exceptions, 8),
+      quantitativeDetails: mergeList(previous.quantitativeDetails, normalized.quantitativeDetails, 8),
+      objectiveCodes: mergeList(previous.objectiveCodes, normalized.objectiveCodes, 16),
+      inheritancePattern: previous.inheritancePattern || normalized.inheritancePattern,
+    });
   }
+  const out = [...byKey.values()].slice(0, MAX);
   // Stable order by the canonical type sequence, preserving encounter order within a type.
   return HY_TYPES.flatMap((t) => out.filter((a) => a.type === t));
 }

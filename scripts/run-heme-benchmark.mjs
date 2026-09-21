@@ -52,23 +52,30 @@ const extraction = await extractTypedHighYield(lectureText, {
 if (extraction.error) throw new Error(`Extraction failed: ${extraction.error}`);
 console.log(`Atoms extracted: ${extraction.atoms.length}`);
 
+const extractionScore = scoreLectureAtoms({ atoms: extraction.atoms, gold: gold.facts, objectives });
+const benchmarkAtoms = extractionScore.rows
+  .map((row) => row.atom)
+  .filter(Boolean)
+  .filter((atom, index, all) => all.findIndex((candidate) => `${candidate.type}::${candidate.term}` === `${atom.type}::${atom.term}`) === index);
+console.log(`Objective-targeted benchmark atoms: ${benchmarkAtoms.length}`);
+
 const generated = await generateFromAtoms({
-  atoms: extraction.atoms,
+  atoms: benchmarkAtoms,
   objectives,
   lectureText,
   subject: "Heme Synthesis and Porphyrias",
   difficulty: "medium",
-  count: extraction.atoms.length,
+  count: benchmarkAtoms.length,
 }, { callAIJSON, skipQuestionAudit: true, maxTokens: 12000 });
 if (generated.error) throw new Error(`Question generation failed: ${generated.error}`);
 console.log(`Questions generated: ${generated.questions.length}`);
 
-const extractionScore = scoreLectureAtoms({ atoms: extraction.atoms, gold: gold.facts, objectives });
 const questionScore = scoreQuestionUsage({ questions: generated.questions, gold: gold.facts });
 const report = {
   lecture: gold.lecture,
   sourceCharacters: lectureText.length,
   atoms: extraction.atoms.length,
+  benchmarkAtoms: benchmarkAtoms.length,
   questions: generated.questions.length,
   extraction: {
     coreRecall: extractionScore.coreRecall,

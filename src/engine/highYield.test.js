@@ -43,14 +43,25 @@ describe("normalizeHighYield", () => {
     });
   });
 
-  it("dedupes by type+term (case-insensitive), keeping the first", () => {
+  it("merges repeated terms so later slide qualifiers are not lost", () => {
+    const [out] = normalizeHighYield([
+      { type: "mechanism", term: "ALAS1", content: "Heme inhibits expression.", testableDetails: ["liver"] },
+      { type: "mechanism", term: "ALAS1", content: "Barbiturates induce expression.", exceptions: ["erythroid cells use ALAS2"] },
+    ]);
+    expect(out.content).toContain("Barbiturates induce expression");
+    expect(out.testableDetails).toContain("liver");
+    expect(out.exceptions).toContain("erythroid cells use ALAS2");
+  });
+
+  it("dedupes by type+term (case-insensitive) while merging later qualifiers", () => {
     const out = normalizeHighYield([
       { type: "definition", term: "Cortisol", content: "first" },
       { type: "definition", term: "cortisol", content: "second (dupe)" },
       { type: "mechanism", term: "Cortisol", content: "different type, kept" },
     ]);
     expect(out).toHaveLength(2);
-    expect(out.find((a) => a.type === "definition").content).toBe("first");
+    expect(out.find((a) => a.type === "definition").content).toContain("first");
+    expect(out.find((a) => a.type === "definition").content).toContain("second");
   });
 
   it("tolerates non-array / garbage input", () => {
@@ -61,6 +72,6 @@ describe("normalizeHighYield", () => {
 
   it("caps the list length", () => {
     const many = Array.from({ length: 100 }, (_, i) => ({ type: "definition", term: "t" + i, content: "c" + i }));
-    expect(normalizeHighYield(many).length).toBeLessThanOrEqual(60);
+    expect(normalizeHighYield(many).length).toBeLessThanOrEqual(100);
   });
 });

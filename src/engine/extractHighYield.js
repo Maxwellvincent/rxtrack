@@ -52,7 +52,7 @@ Every atom is EXACTLY ONE of these four types — nothing else:
 
 Rules:
 - Prioritize **bolded** terms (markdown ** **) — they are the lecturer's flagged high-yield points.
-- Each atom: a specific, testable fact — never a slide title or category header.
+- Each atom: a specific, testable fact — never a slide title or category header. Do not let a broad overview atom replace separate disease-, enzyme-, cell/site-, metabolite-, laboratory-, treatment-, or trigger-specific atoms taught on later slides.
 - DROP fluff: history, introductions, logistics, motivation, generic background.
 - Keep "content" one tight sentence, but do not erase testable qualifiers.
 - Preserve small examinable details in separate arrays: testableDetails for distinguishing characteristics, exceptions for "except/only/unlike" rules, and quantitativeDetails for thresholds, ranges, timing, direction arrows, doses, or named values. Preserve laterality, anatomic level, cell type, compartment, and sequence when taught.
@@ -66,7 +66,7 @@ Up to 40 atoms per segment. Prefer several precise atoms over one overloaded sum
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {
   const {
     callAIJSON,
-    maxTokens = 4000,
+  maxTokens = 6000,
     timeoutMs = EXTRACTION_TIMEOUT_MS,
     bridgeTimeoutMs = EXTRACTION_BRIDGE_TIMEOUT_MS,
     signal: parentSignal,
@@ -106,7 +106,7 @@ export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}
 Type: ${lecInfo.lectureType || "LEC"}
 ${objectiveContext}${slideCodes}
 
-${retry ? "The earlier content window produced no usable atoms. Extract concrete testable facts from this window; do not return an empty list when medical facts are present.\n\n" : ""}LECTURE CONTENT (markdown — bolded terms appear inside **double asterisks**; tables, headings, arrows, units, and slide emphasis are evidence):
+${retry ? "The earlier content window produced no usable atoms. Extract concrete testable facts from this window; do not return an empty list when medical facts are present.\n\n" : ""}OBJECTIVE COVERAGE CONTRACT: For every block or slide-local objective code supplied above, search the relevant slide segment and emit at least one specific atom when the lecture teaches it. For disease objectives, preserve the exact deficient enzyme, affected cell/site, accumulated metabolite(s), clinical discriminator(s), laboratory finding(s), trigger(s), treatment, and important exception(s). For pathway objectives, preserve compartment, order, stoichiometry, cofactors, and regulatory differences. Never satisfy a specific objective with only a generic overview atom.\n\nLECTURE CONTENT (markdown — bolded terms appear inside **double asterisks**; tables, headings, arrows, units, and slide emphasis are evidence):
 ${text}`;
     const result = await callAIJSON(SYSTEM, user, { atoms: [] }, maxTokens, undefined, undefined, {
       throwOnError: true,
