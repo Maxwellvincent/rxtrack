@@ -10,6 +10,7 @@ import { hasDatalabKey, extractWithDatalab } from "./markerDatalab";
 import { canUseDatalabProxy, extractWithDatalabProxy } from "./markerDatalabProxy";
 import { extractTextWithMistral, extractPDFWithMistral } from "./mistralOCR";
 import { normalizeMarkerResult } from "./ocrShared";
+import { bridgePdf2md } from "./llmBridge";
 
 const isTextUpload = (file) => {
   const n = (file?.name || "").toLowerCase();
@@ -25,12 +26,67 @@ const isTextUpload = (file) => {
 const hasMistral = () => !!import.meta.env.VITE_MISTRAL_API_KEY;
 
 /**
+ * The local pdf2md bridge runs Poppler's `pdftotext -layout` fast path before
+ * Marker.  Keep the native text layer as one chunk per PDF page so lecture
+ * objectives and tiny qualifiers retain their page provenance.  The bridge
+ * wrapper puts the fast output in a fenced text block. The heading check below
+ * intentionally rejects Marker-rich Markdown, because that path should retain
+ * its OCR/image handling instead of being reduced to text only.
+ */
+function normalizeNativePdfText(markdown) {
+  const source = String(markdown || "");
+  // The wrapper's native fast path starts with this heading. If Marker had to
+  // run first, it appends the layout text to a richer Markdown document; let
+  // the normal OCR provider handle that case so figures and OCR-only labels
+  // are not silently discarded.
+  if (!/^\s*# Layout-preserved PDF text\b/i.test(source)) return null;
+  const fenced = source.match(/```text\s*([\s\S]*?)```/i);
+  const body = (fenced ? fenced[1] : source)
+    .replace(/^# Layout-preserved PDF text\s*/i, "")
+    .trim();
+  if (!body) return null;
+  const pages = body.split(/\f/).map((text, index) => ({
+    pageNumber: index + 1,
+    markdown: text.trim(),
+  })).filter((page) => page.markdown);
+  if (!pages.length) return null;
+  const chunks = pages.map((page) => ({
+    text: page.markdown,
+    markdown: page.markdown,
+    pageNumber: page.pageNumber,
+    hasTable: /\S\s{2,}\S/.test(page.markdown),
+    hasBold: false,
+  }));
+  return {
+    markdown: pages.map((page) => page.markdown).join("\n\n---\n\n"),
+    chunks,
+    slideImages: [],
+    pageCount: chunks.length,
+    method: "pdftotext",
+  };
+}
+
+async function extractWithNativePdfText(file, onProgress) {
+  const name = String(file?.name || "").toLowerCase();
+  if (!file || (!name.endsWith(".pdf") && file.type !== "application/pdf")) return null;
+  onProgress?.("⚡ Reading the PDF text layer (pdftotext)…");
+  const markdown = await bridgePdf2md(file);
+  const result = normalizeNativePdfText(markdown);
+  if (!result) return null;
+  const quality = result.markdown.replace(/\s+/g, " ").trim().length;
+  // The wrapper only chooses its fast path for healthy text PDFs. Keep a
+  // conservative guard in case a stale bridge returns an empty/scanned deck.
+  if (quality < 100) return null;
+  return result;
+}
+
+/**
  * Run the tiered chain; returns the first provider's normalized result plus `method`.
  * @returns { markdown, chunks, slideImages, pageCount, method }
  * @throws only if every available provider fails.
  */
 export async function runOcrChain(file, opts = {}) {
-  const { onProgress, forceOcr = true, useLlm = false, userId = null } = opts;
+  const { onProgress, forceOcr = true, useLlm = false, userId = null, useNativeText = true } = opts;
   const errors = [];
 
   // 0) Markdown/text upload (e.g. pre-verified marker OCR output) — no OCR needed.
@@ -43,6 +99,19 @@ export async function runOcrChain(file, opts = {}) {
       throw new Error("Markdown/text file is empty or too short (< 100 chars)");
     }
     return normalizeMarkerResult(text, {}, { method: "md-upload" });
+  }
+
+  // Native Poppler text is the highest-fidelity/lowest-cost path for ordinary
+  // lecture PDFs. It preserves exact spelling, symbols, columns, and page
+  // breaks; Marker/Mistral remain fallbacks for scanned or image-only pages.
+  if (useNativeText) {
+    try {
+      const native = await extractWithNativePdfText(file, onProgress);
+      if (native) return native;
+    } catch (e) {
+      console.warn("Native pdftotext bridge failed, falling back:", e);
+      errors.push(`pdftotext: ${e.message}`);
+    }
   }
 
   // 1) Local marker (only if the server answers a fast health probe).

@@ -41,6 +41,7 @@ export function assessTextQuality(text) {
 
 /** Human label for an extraction method, or null when there is nothing to say. */
 export function extractionMethodSuffix(method) {
+  if (method === "pdftotext") return "pdftotext (layout)";
   if (method === "pdfplumber") return "direct extract";
   if (method === "mistral-ocr") return "OCR";
   if (method === "marker-local") return "marker (GPU)";
