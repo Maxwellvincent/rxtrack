@@ -58,6 +58,15 @@ import * as questionStats from "../../../stores/lectureQuestionStats.js";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
+import * as tutorSessionsStore from "../../../stores/tutorSessions.js";
+import {
+  createTutorSession,
+  finishTutorSession,
+  pauseTutorSession,
+  resumeTutorSession,
+  tickTutorSession,
+  tutorSessionSummary,
+} from "../../../engine/tutorSession.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
 import { ModelRepairs } from "./ModelRepairs.jsx";
@@ -385,6 +394,58 @@ export function LectureStudyFlow({
   const [adHocQuiz, setAdHocQuiz] = useState(false);
   const [confirmDeleteLecture, setConfirmDeleteLecture] = useState(false);
   const [deletingLecture, setDeletingLecture] = useState(false);
+
+  // A lecture tutor is a bounded, resumable layer over the existing study surface.
+  // The checkpoint is per lecture so leaving one lecture never loses the place in another.
+  const [tutorSession, setTutorSession] = useState(() => tutorSessionsStore.get(userId, lecture?.id));
+  const tutorSessionRef = useRef(tutorSession);
+  const tutorSessionSummaryValue = useMemo(() => tutorSessionSummary(tutorSession), [tutorSession]);
+  useEffect(() => { tutorSessionRef.current = tutorSession; }, [tutorSession]);
+
+  const saveTutorSession = useCallback((next) => {
+    if (!next) return;
+    tutorSessionRef.current = next;
+    setTutorSession(next);
+    tutorSessionsStore.save(userId, next);
+  }, [userId]);
+
+  const startTutorSession = useCallback((budgetMinutes) => {
+    const next = createTutorSession({
+      lectureId: lecture?.id,
+      budgetMinutes,
+      objectiveIds: lectureObjectives.map((objective) => objective?.id || objective?.code || objective?.objective),
+    });
+    saveTutorSession(next);
+  }, [lecture?.id, lectureObjectives, saveTutorSession]);
+
+  const pauseCurrentTutorSession = useCallback(() => {
+    saveTutorSession(pauseTutorSession(tutorSessionRef.current));
+  }, [saveTutorSession]);
+
+  const resumeCurrentTutorSession = useCallback(() => {
+    saveTutorSession(resumeTutorSession(tutorSessionRef.current));
+  }, [saveTutorSession]);
+
+  const finishCurrentTutorSession = useCallback(() => {
+    saveTutorSession(finishTutorSession(tutorSessionRef.current));
+  }, [saveTutorSession]);
+
+  // Tick only while the tutor is active. Pausing or leaving the lecture therefore really stops
+  // the budget rather than silently consuming time in the background.
+  useEffect(() => {
+    if (tutorSession?.status !== "active") return undefined;
+    const timer = window.setInterval(() => {
+      const current = tutorSessionRef.current;
+      const next = tickTutorSession(current, 1);
+      if (next !== current) saveTutorSession(next);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [tutorSession?.status, saveTutorSession]);
+
+  // Persist the last checkpoint even if the learner navigates away between timer ticks.
+  useEffect(() => () => {
+    if (tutorSessionRef.current) tutorSessionsStore.save(userId, tutorSessionRef.current);
+  }, [userId, lecture?.id]);
 
   // Start both cloud subscriptions as soon as Study opens. Previously the first generation
   // itself started hydration and immediately read an empty fallback, so uploaded Esoft examples
@@ -1224,6 +1285,45 @@ export function LectureStudyFlow({
       </div>
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
+      <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-text-1">Guided tutor</span>
+            {tutorSession && <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-3">{tutorSession.status}</span>}
+          </div>
+          {!tutorSession ? (
+            <p className="mt-1 text-xs text-text-3">Choose a focused block. Your place, objectives, and blockers will be checkpointed per lecture.</p>
+          ) : (
+            <p className="mt-1 text-xs text-text-3">
+              {tutorSessionSummaryValue.objectivesCompleted}/{tutorSessionSummaryValue.objectivesTotal || lectureObjectives.length} objectives · {tutorSessionSummaryValue.blockerCount} blockers · {Math.floor(tutorSessionSummaryValue.elapsedSeconds / 60)}m elapsed
+            </p>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-0 sm:justify-end">
+          {!tutorSession && [30, 45, 60].map((minutes) => (
+            <button key={minutes} onClick={() => startTutorSession(minutes)} className="rounded border border-accent/40 px-2 py-1 font-mono text-[11px] text-accent hover:bg-accent/10">
+              Start {minutes}m
+            </button>
+          ))}
+          {tutorSession && tutorSession.status === "active" && (
+            <>
+              <span className="min-w-[54px] text-center font-mono text-sm font-semibold text-text-1">{Math.floor(tutorSession.remainingSeconds / 60)}:{String(tutorSession.remainingSeconds % 60).padStart(2, "0")}</span>
+              <button onClick={pauseCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent">Pause</button>
+              <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
+            </>
+          )}
+          {tutorSession && (tutorSession.status === "paused" || tutorSession.status === "checkpoint") && (
+            <>
+              <span className="font-mono text-[11px] text-text-3">{Math.floor(tutorSession.remainingSeconds / 60)}m left</span>
+              <button onClick={resumeCurrentTutorSession} className="rounded bg-accent px-2 py-1 font-mono text-[11px] font-semibold text-white hover:bg-accent/90">Resume</button>
+              <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
+            </>
+          )}
+          {tutorSession && tutorSession.status === "finished" && (
+            <button onClick={() => setTutorSession(null)} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start another block</button>
+          )}
+        </div>
+      </div>
       <details className="mt-2 w-fit text-sm text-text-3">
         <summary className="cursor-pointer py-1 hover:text-text-1">Lecture settings</summary>
         <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} /></div>
