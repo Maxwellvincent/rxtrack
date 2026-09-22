@@ -331,7 +331,13 @@ export async function callAIJSON(
     if (bridged !== null) return parseBridgeJSON(bridged);
   } catch (err) {
     options.signal?.throwIfAborted();
+    if (options.bridgeOnly) {
+      throw new Error(`Local bridge returned invalid JSON: ${err?.message || String(err)}`);
+    }
     console.warn("bridge JSON parse failed, using cloud:", err.message);
+  }
+  if (options.bridgeOnly) {
+    throw new Error("Local bridge did not complete. Start Ollama/llm-bridge and retry; cloud fallback is disabled for routine extraction.");
   }
   if (localOnlyRouting()) {
     if (options.throwOnError) throw new Error("Local LLM bridge is unavailable or returned invalid JSON. Cloud fallback is disabled in AI settings.");

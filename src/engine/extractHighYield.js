@@ -67,7 +67,7 @@ Up to 40 atoms per segment. Prefer several precise atoms over one overloaded sum
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {
   const {
     callAIJSON,
-  maxTokens = 6000,
+  maxTokens = 4500,
     timeoutMs = EXTRACTION_TIMEOUT_MS,
     bridgeTimeoutMs = EXTRACTION_BRIDGE_TIMEOUT_MS,
     signal: parentSignal,
@@ -117,6 +117,7 @@ ${text}`;
       // this prevents routine lecture parsing from needlessly burning cloud
       // credits when the local model is healthy.
       bridgeBackend: "ollama",
+      bridgeOnly: true,
       signal,
     });
     return normalizeResponse(result);
@@ -124,7 +125,10 @@ ${text}`;
 
   try {
     return await withDeadline(async (signal) => {
-      const evidenceWindows = buildExtractionWindows(fullText);
+      // Keep ordinary lecture decks in one context window. Multiple local
+      // Ollama generations are much slower than one bounded pass and can
+      // exceed the extraction deadline before the deck is fully covered.
+      const evidenceWindows = buildExtractionWindows(fullText, 8000, 4);
       let atoms = [];
       let firstError = null;
       let firstAttemptCompleted = false;
