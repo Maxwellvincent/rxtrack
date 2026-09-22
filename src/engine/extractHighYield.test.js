@@ -46,7 +46,7 @@ describe("extractTypedHighYield", () => {
     expect(result.error).toContain("usage limit");
     expect(callAIJSON.mock.calls[0][6]).toMatchObject({
       throwOnError: true,
-      bridgeTimeoutMs: 90_000,
+      bridgeTimeoutMs: 300_000,
       signal: expect.any(AbortSignal),
     });
     expect(callAIJSON).toHaveBeenCalledOnce();

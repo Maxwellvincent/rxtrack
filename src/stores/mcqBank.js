@@ -9,6 +9,35 @@ import { applyLocalCap, capMapEntries } from "./capped.js";
 
 export const key = "rxt-mcq-bank";
 const fallback = {};
+let cacheQuotaHandled = false;
+
+// These are rebuildable mirrors/derived indexes. Firestore remains the source
+// of truth, so removing only these explicitly named caches is safe when an old
+// browser profile has filled its localStorage quota.
+function relieveQuota() {
+  if (cacheQuotaHandled || typeof localStorage === "undefined") return;
+  cacheQuotaHandled = true;
+  const derived = [
+    "rxt-mcq-bank",
+    "rxt-question-bank-v2:",
+    "rxt-question-bank-analysis-v1:",
+    "rxt-question-ratings-v1",
+    "rxt-question-style-profile-v1",
+    "rxt-atom-index-",
+    "rxt-atom-progress",
+    "rxt-performance",
+    "rxt-calibration",
+    "rxt-learner-evidence-v1",
+    "rxt-mental-model-impact-v1",
+    "rxt-model-repair-",
+  ];
+  for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+    const storageKey = localStorage.key(index);
+    if (storageKey && derived.some((prefix) => storageKey === prefix || storageKey.startsWith(prefix))) {
+      try { localStorage.removeItem(storageKey); } catch { /* cache cleanup is best effort */ }
+    }
+  }
+}
 
 export function read(userId) {
   return readJson(userId, key, fallback);
@@ -32,8 +61,8 @@ function writeCache(userId, value) {
         return writeJson(userId, key, capMapEntries(capped, limit));
       } catch { /* try a smaller working set */ }
     }
-    try { writeJson(userId, key, {}); } catch { /* quota may be consumed by another cache */ }
-    console.warn("mcq bank: local cache is full; Firestore remains authoritative", error?.message || error);
+    relieveQuota();
+    try { writeJson(userId, key, capMapEntries(capped, 1)); } catch { /* Firestore remains authoritative */ }
     return capped;
   }
 }

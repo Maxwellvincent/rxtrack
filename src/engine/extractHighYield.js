@@ -8,8 +8,11 @@ import { withDeadline } from "../asyncDeadline.js";
 // local bridge normally answers well inside this window; if it does not, the UI
 // can explain the failure and offer a retry instead of displaying a timer for
 // many minutes while cloud fallbacks also exhaust their retries.
-export const EXTRACTION_TIMEOUT_MS = 120_000;
-export const EXTRACTION_BRIDGE_TIMEOUT_MS = 90_000;
+// Local Ollama is deliberately the routine path, but a full lecture can take
+// a few minutes on a laptop. The old 90s client deadline guaranteed a false
+// failure even when the bridge was healthy and still processing the request.
+export const EXTRACTION_TIMEOUT_MS = 360_000;
+export const EXTRACTION_BRIDGE_TIMEOUT_MS = 300_000;
 
 // Preserve the beginning, middle, and end of long slide decks in one request. The old
 // first-or-tail strategy silently dropped clinical features placed in the middle of a lecture.
@@ -67,7 +70,9 @@ Up to 40 atoms per segment. Prefer several precise atoms over one overloaded sum
 export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}) {
   const {
     callAIJSON,
-  maxTokens = 4500,
+    // A bounded response keeps the local 8B model responsive while still
+    // leaving room for the separate detail arrays on each atom.
+    maxTokens = 2500,
     timeoutMs = EXTRACTION_TIMEOUT_MS,
     bridgeTimeoutMs = EXTRACTION_BRIDGE_TIMEOUT_MS,
     signal: parentSignal,
