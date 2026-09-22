@@ -112,6 +112,11 @@ ${text}`;
     const result = await callAIJSON(SYSTEM, user, { atoms: [] }, maxTokens, undefined, undefined, {
       throwOnError: true,
       bridgeTimeoutMs,
+      // Routine extraction should use the local Ollama path first. If Ollama
+      // is unavailable, the bridge's configured fallback order still applies;
+      // this prevents routine lecture parsing from needlessly burning cloud
+      // credits when the local model is healthy.
+      bridgeBackend: "ollama",
       signal,
     });
     return normalizeResponse(result);
