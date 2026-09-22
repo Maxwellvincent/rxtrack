@@ -347,3 +347,67 @@ Product:
 - Preserve authentic school questions and provenance.
 
 This roadmap makes the lecture the spine, the graph the connective tissue, the patient tutor the active teaching loop, and Anki the durable repair/retention layer.
+
+## 15. Existing Medical Journey vault integration
+
+The existing vault at `/Users/louismaxwell/Documents/Itachi/03 Projects/Medical Journey` is a strong companion source and should be included as an optional local knowledge source. Its current organization already maps cleanly onto the hub:
+
+| Vault area | RXTrack use |
+|---|---|
+| `01 Lecture Notes/` | learner-authored lecture explanations and model corrections |
+| `02 Active Recall/` | recall prompts and existing retrieval practice |
+| `03 Cases/` | patient/case seeds for the tutoring sequence |
+| `04 Exam Prep/` | missed-question evidence and exam priorities |
+| `00 Resources/` | reference material and reusable clinical relationships |
+| `Templates/Concept Repair Note.md` | blocker/repair note output template |
+| `Templates/Question Review — {{Topic}}.md` | K/C/R/Q error review format |
+| `Templates/Lec.md` | lecture mental-model and question-exposed-gap format |
+| `05 System/` | workflow and personal study-system instructions |
+
+### Import and linking rules
+
+- Read Markdown, frontmatter, headings, wikilinks, tags, callouts, and tables.
+- Index notes locally for retrieval; do not upload the whole vault to a cloud model by default.
+- Treat the vault as learner-authored context, not automatically verified medical truth.
+- Keep lecture evidence and official objectives above personal notes when they conflict.
+- Preserve source path, heading, and line/section context for every retrieved note.
+- Map notes to RXTrack entities using explicit frontmatter first, then conservative filename/path matching.
+- Never rewrite or reorganize the vault automatically.
+- Keep imports incremental using file hashes and modification times.
+
+### Recommended bidirectional boundary
+
+RXTrack may generate review artifacts into an explicitly approved vault folder, for example:
+
+```text
+04 Exam Prep/Missed Questions/RXTrack/
+02 Active Recall/RXTrack/
+01 Lecture Notes/RXTrack Repairs/
+```
+
+Generated files should use the existing templates and include frontmatter such as:
+
+```yaml
+source: rxtrack
+lectureId:
+objectiveId:
+atomId:
+blockerType: R
+evidence:
+status: draft
+```
+
+The default direction should be **vault → read/index** and **RXTrack → approved artifact export**. Automatic edits to existing personal notes should remain opt-in and diff-reviewed.
+
+### Vault-aware retrieval order
+
+For a live tutor turn, retrieve in this order:
+
+1. Current lecture page evidence.
+2. Current objective and linked atoms.
+3. Related learner-authored lecture/model notes.
+4. Relevant cases and prior question reviews.
+5. Anki relationships and prior blockers.
+6. Curated outside references, clearly labeled.
+
+This uses the learner's existing mental models and language without allowing an old or informal note to silently override the uploaded lecture.
