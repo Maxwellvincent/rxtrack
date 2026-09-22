@@ -1,0 +1,58 @@
+{
+  "lecture": "SGU Lecture 30 — Heme Degradation and Jaundice",
+  "sourcePdf": "/Users/louismaxwell/Downloads/Medical School/Term 2/DM/Lectures/DM+Lecture+30-Heme+degradation+and+Jaundice.pdf",
+  "benchmark": "continuation",
+  "learnerProfile": {
+    "style": ["patient-first", "Socratic", "mechanism-first", "one-question-at-a-time", "prediction"],
+    "avoid": ["restart", "pathway dump", "disease table before mechanism", "re-teach mastered material", "ask whether the learner understands"]
+  },
+  "completed": [
+    "hemoglobin separates into globin and heme",
+    "globin is reused as amino acids",
+    "heme oxygenase converts heme to biliverdin and releases iron/CO",
+    "biliverdin reductase produces unconjugated bilirubin",
+    "unconjugated bilirubin is water-insoluble and albumin-bound",
+    "albumin transports unconjugated bilirubin to the liver",
+    "conjugation makes bilirubin water-soluble",
+    "UDP-glucuronosyl transferase deficiency increases unconjugated bilirubin",
+    "a post-conjugation ABC transporter defect increases conjugated bilirubin"
+  ],
+  "repairedBlockers": [
+    {
+      "type": "C",
+      "concept": "dissolve does not mean destroy",
+      "status": "understood"
+    }
+  ],
+  "shaky": [
+    "conjugated bilirubin is water-soluble and can appear in urine",
+    "unconjugated bilirubin is albumin-bound and does not appear in urine",
+    "downstream bilirubin to urobilinogen, stercobilin, and urobilin",
+    "enzyme-name retrieval"
+  ],
+  "notYetTaught": [
+    "urobilinogen",
+    "stercobilin",
+    "urobilin",
+    "direct versus indirect bilirubin",
+    "Van den Bergh reaction",
+    "prehepatic, hepatic, and posthepatic jaundice patterns",
+    "neonatal jaundice and phototherapy",
+    "Gilbert syndrome",
+    "Crigler-Najjar I and II",
+    "Dubin-Johnson syndrome as a full patient contrast"
+  ],
+  "resume": {
+    "requiredFirstQuestion": "Patient A has mostly unconjugated bilirubin in the blood. Patient B has conjugated bilirubin backing up into the blood. Which patient's bilirubin can appear in urine, and why?",
+    "expectedAnswer": ["patient B", "conjugated", "water-soluble", "filtered"],
+    "mustNot": ["restart bilirubin pathway", "re-explain albumin from scratch", "present a jaundice table first", "answer before learner commits"],
+    "nextConceptAfterRetrieval": "conjugated bilirubin → bile → intestine → urobilinogen"
+  },
+  "qualityChecks": {
+    "preservesState": true,
+    "testsShakyConceptBeforeAdvancing": true,
+    "addsOneMechanismAtATime": true,
+    "usesPatientReasoning": true,
+    "requiresTransferBeforeMastery": true
+  }
+}
