@@ -25,6 +25,8 @@ import { notifyStoreChanged, subscribeToStore, writeJson } from "./base.js";
 
 /** `${userId}:${logicalKey}` -> { value, hydrated, unsub, error } */
 const entries = new Map();
+let localMirrorQuotaFull = false;
+let localMirrorQuotaWarned = false;
 
 // Test seam, mirroring functions/index.js: vi.mock of firebase/firestore does
 // not reliably intercept these calls, so tests swap the backend directly.
@@ -144,13 +146,22 @@ export function isMirrored(logicalKey) {
 }
 
 function mirrorLocally(userId, logicalKey, value) {
-  if (!isMirrored(logicalKey) || value === undefined) return;
+  if (!isMirrored(logicalKey) || value === undefined || localMirrorQuotaFull) return;
   try {
     // silent: the caller announces this change itself, and notifying here too
     // would run every subscriber twice per write.
     writeJson(userId, logicalKey, value, { silent: true });
   } catch (e) {
-    // A full quota must not break the cloud write that already succeeded.
+    // A full quota must not break the cloud write that already succeeded, and
+    // should not produce one console error for every hydrated store.
+    if (/quota|storage/i.test(String(e?.message || e))) {
+      localMirrorQuotaFull = true;
+      if (!localMirrorQuotaWarned) {
+        localMirrorQuotaWarned = true;
+        console.warn("local cache is full; Firestore remains authoritative and local mirroring is paused");
+      }
+      return;
+    }
     console.warn(`store ${logicalKey}: local mirror failed`, e?.message || e);
   }
 }
@@ -258,4 +269,6 @@ export function resetCloudStores() {
     try { entry.unsub?.(); } catch { /* already gone */ }
   }
   entries.clear();
+  localMirrorQuotaFull = false;
+  localMirrorQuotaWarned = false;
 }

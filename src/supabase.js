@@ -770,7 +770,9 @@ export async function pullUserKvFromSupabase(userId) {
     const snap = await getDocs(collection(db, "users", userId, "kv"));
     if (snap.empty) return;
     let count = 0;
+    let quotaFull = false;
     snap.docs.forEach((d) => {
+      if (quotaFull) return;
       const val = d.data()?.data;
       if (val == null) return;
       const key = decodeDocId(d.id);
@@ -781,7 +783,12 @@ export async function pullUserKvFromSupabase(userId) {
         persistLocal(key, applyLocalCap(key, val));
         count++;
       } catch (e) {
-        console.warn("user_kv restore failed for", key, e?.message);
+        if (/quota|storage/i.test(String(e?.message || e))) {
+          quotaFull = true;
+          console.warn("user_kv: local cache is full; remaining data stays in Firestore");
+        } else {
+          console.warn("user_kv restore failed for", key, e?.message);
+        }
       }
     });
     console.log(`user_kv: pulled ${count} keys from Firestore`);

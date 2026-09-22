@@ -70,6 +70,15 @@ export function UserApiKeyModal({ onClose }) {
     setTimeout(onClose, 900);
   };
 
+  const chooseRouting = (next) => {
+    setRouting(next);
+    // Routing is a preference, not an API credential. Persist it immediately
+    // so Local bridge only can be selected and used without inventing a key.
+    localStorage.setItem("rxt-ai-routing", next);
+    window.dispatchEvent(new CustomEvent("rxt-ai-routing-changed", { detail: { routing: next } }));
+    setSaved(true);
+  };
+
   const clear = () => {
     writeUserApiKey(null);
     setKey("");
@@ -93,8 +102,8 @@ export function UserApiKeyModal({ onClose }) {
 
         <div className="mb-4 rounded-lg border border-border p-3">
           <div className="mb-2 text-xs font-bold text-text-1">AI routing</div>
-          <label className="mb-2 flex cursor-pointer items-start gap-2 text-xs text-text-2"><input type="radio" name="routing" checked={routing === "automatic"} onChange={() => setRouting("automatic")} /><span><b>LLM bridge first</b><br /><span className="text-text-3">Free local bridge first, then your selected API key, then shared cloud fallback.</span></span></label>
-          <label className="flex cursor-pointer items-start gap-2 text-xs text-text-2"><input type="radio" name="routing" checked={routing === "local-only"} onChange={() => setRouting("local-only")} /><span><b>Local bridge only</b><br /><span className="text-text-3">Never spend API/cloud credits. AI work pauses if the bridge is unavailable.</span></span></label>
+          <label className="mb-2 flex cursor-pointer items-start gap-2 text-xs text-text-2"><input type="radio" name="routing" checked={routing === "automatic"} onChange={() => chooseRouting("automatic")} /><span><b>LLM bridge first</b><br /><span className="text-text-3">Free local bridge first, then your selected API key, then shared cloud fallback.</span></span></label>
+          <label className="flex cursor-pointer items-start gap-2 text-xs text-text-2"><input type="radio" name="routing" checked={routing === "local-only"} onChange={() => chooseRouting("local-only")} /><span><b>Local bridge only</b><br /><span className="text-text-3">Never spend API/cloud credits. AI work pauses if the bridge is unavailable.</span></span></label>
         </div>
 
         {/* Explanation */}
@@ -184,7 +193,7 @@ export function UserApiKeyModal({ onClose }) {
               disabled={!key.trim() && routing !== "local-only"}
               className="rounded bg-accent px-3 py-1.5 font-mono text-xs font-bold text-bg hover:opacity-90 disabled:opacity-40"
             >
-              {saved ? "Saved ✓" : "Save key"}
+              {saved ? "Saved ✓" : routing === "local-only" ? "Save settings" : "Save key"}
             </button>
           </div>
         </div>
