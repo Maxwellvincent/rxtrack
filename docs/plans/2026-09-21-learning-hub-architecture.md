@@ -172,6 +172,51 @@ hard fallback                      25 sec
 
 Use the local bridge and a fast model for normal turns, stream the answer, prefetch the next likely turn while the learner reads, cache deterministic pathway rules, and use cloud fallback only when necessary. A slow deep explanation should be an explicit “go deeper” action rather than blocking the normal flow.
 
+## 7A. Bounded and resumable lecture work
+
+The tutor must prevent an unfinished lecture from becoming an accidental multi-hour session. A lecture is a persistent work item with a time-boxed run, not a page that stays open until everything feels complete.
+
+Each lecture needs a durable session record containing:
+
+- `lectureId` and `sessionId`
+- selected budget (`30`, `45`, or `60` minutes)
+- start, pause, resume, and end timestamps
+- objectives completed, active, and remaining
+- patient/case sequence position
+- atoms understood, shaky, blocked, and mastered-by-transfer
+- unresolved blockers and next recommended action
+- last checkpoint timestamp
+
+Required behavior:
+
+- Warn at 5 minutes remaining.
+- Stop introducing new material at the budget boundary.
+- End with a compact checkpoint: “learned / unresolved / resume here.”
+- Save automatically after every learner response and phase transition.
+- Make **Pause and resume later** a first-class action.
+- Reopening a lecture resumes from its checkpoint rather than restarting.
+- Leaving a lecture never loses its position.
+- Starting another lecture places the previous one into an unfinished queue.
+
+The Today surface should show an explicit queue:
+
+```text
+Continue — Heme synthesis and porphyrias
+18 min remaining · 2 objectives open · 1 blocker
+
+Start — GI motility
+30-minute session
+```
+
+Queue ranking should consider:
+
+1. A paused lecture with an active blocker.
+2. A lecture whose spaced review is due.
+3. A lecture with an approaching block exam.
+4. A new lecture not yet started.
+
+The learner may override the ranking, but the app should always make unfinished work visible and resumable. Completion should mean objective coverage plus transfer evidence, not simply opening or spending time on a lecture.
+
 ## 8. Verifiable medical tutoring
 
 Every tutor response should be structured and evidence-bearing:
