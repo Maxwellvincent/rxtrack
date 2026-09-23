@@ -181,7 +181,7 @@ describe("ExamContainer", () => {
     unmount();
   });
 
-  it("keeps other-block banks hidden until comprehensive review is requested", () => {
+  it("keeps other-block banks stored but out of the block exam view", () => {
     const questions = [{ id: "q1", stem: "Stem?", choices: { A: "a", B: "b" }, correct: "A" }];
     questionBanksReadMock.mockReturnValue({ "Current.pdf": questions, "Comprehensive.pdf": questions });
     questionBankMetaReadMock.mockReturnValue({
@@ -197,12 +197,8 @@ describe("ExamContainer", () => {
       element.className.includes("truncate") && element.className.includes("text-[13px]")
     );
     expect(bankTitles()).toHaveLength(1);
-    const reveal = Array.from(host.querySelectorAll("button")).find((button) =>
-      button.textContent.includes("Comprehensive / other-block question banks")
-    );
-    expect(reveal).toBeTruthy();
-    act(() => reveal.click());
-    expect(bankTitles()).toHaveLength(2);
+    expect(host.textContent).not.toMatch(/Comprehensive \/ other-block question banks/);
+    expect(host.textContent).not.toMatch(/Comprehensive\.pdf/);
     unmount();
   });
 

@@ -75,7 +75,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
   const [bankCategory, setBankCategory] = useState(null);
-  const [showOtherImportedBanks, setShowOtherImportedBanks] = useState(false);
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
@@ -196,18 +195,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     // Hydration flags deliberately trigger a fresh synchronous store read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision]);
-
-  const allImportedQuestionBanks = useMemo(() => {
-    const banks = questionBanksStore.read(userId) || {};
-    const meta = questionBankMetaStore.read?.(userId) || {};
-    return Object.keys(banks).sort((a, b) => cleanLectureTitle(a).localeCompare(cleanLectureTitle(b), undefined, { numeric: true })).map((filename) => {
-      const entry = Object.values(meta).find((item) => item?.filename === filename);
-      const questions = banks[filename] || [];
-      return { filename, questions, aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "school", expectedQuestions: entry?.expectedQuestions ?? null, analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || questions.find((question) => question?.blockId)?.blockId || null };
-    });
-    // Hydration flags deliberately trigger a fresh synchronous store read.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision]);
 
   useEffect(() => {
     const filenames = Object.keys(questionBanksStore.read(userId) || {});
@@ -361,11 +348,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     });
   }, [blockQuestionBanks]);
   const activeBankCategory = bankGroups.some(([label]) => label === bankCategory) ? bankCategory : bankGroups[0]?.[0];
-  const otherImportedQuestionBanks = useMemo(() => {
-    const currentNames = new Set(blockQuestionBanks.map((bank) => bank.filename));
-    return allImportedQuestionBanks.filter((bank) => !currentNames.has(bank.filename));
-  }, [allImportedQuestionBanks, blockQuestionBanks]);
-
   const statsForBank = (bank) => {
     const names = new Set([bank.filename, ...(bank.aliases || [])]);
     const attempts = bankAttempts.filter((session) => names.has(session.sourceFile)).sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0));
@@ -664,32 +646,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </section>
       )}
 
-      {otherImportedQuestionBanks.length > 0 && (
-        <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
-          <button
-            type="button"
-            aria-expanded={showOtherImportedBanks}
-            onClick={() => setShowOtherImportedBanks((open) => !open)}
-            className="flex w-full items-center justify-between text-left"
-          >
-            <span className="text-sm font-bold text-text-1">
-              {blockQuestionBanks.length ? "Comprehensive / other-block question banks" : "Question banks for comprehensive review"}
-              <span className="ml-2 font-mono text-[11px] font-normal text-text-3">{otherImportedQuestionBanks.length} saved</span>
-            </span>
-            <span className="font-mono text-xs text-text-3">{showOtherImportedBanks ? "Hide" : "Show"}</span>
-          </button>
-          {showOtherImportedBanks && <>
-            <div className="mb-3 mt-2 text-xs text-text-3">These banks are assigned to another block or have no block metadata. They stay available here for semester-wide/comprehensive practice.</div>
-            <div className="space-y-2">{otherImportedQuestionBanks.map((bank) => (
-            <div key={bank.filename} className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-panel px-3 py-2">
-              <div className="min-w-0 flex-1"><div className="truncate text-[13px] text-text-1">{cleanLectureTitle(bank.filename)}</div><div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""}{bank.analysis ? ` · ${bank.analysis.status === "reviewed" ? "analyzed" : "analysis ready"}` : " · analysis pending"}</div>{bank.sourceKind === "clicker" && <div className="mt-1 text-[11px] text-accent-text">Example-only reference bank; not available as a scored quiz.</div>}</div>
-              {bank.sourceKind !== "clicker" && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
-              {bank.sourceKind !== "clicker" && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
-            </div>
-            ))}</div>
-          </>}
-        </section>
-      )}
+      {/* Other-block/comprehensive banks remain in Firestore as generation evidence.
+          They are intentionally not rendered in the block view; showing dozens of
+          unrelated banks here made the current block feel like an archive browser. */}
 
         <ExamDashboard
           blockId={blockId}
