@@ -196,6 +196,26 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision]);
 
+  // IMCQ keys are cross-block style references. Keep them available as one
+  // compact "Other" category, while leaving unrelated ExamSoft/comprehensive
+  // banks archived unless they belong to the active block.
+  const imcqReferenceBanks = useMemo(() => {
+    const banks = questionBanksStore.read(userId) || {};
+    const meta = questionBankMetaStore.read?.(userId) || {};
+    const current = new Set(blockQuestionBanks.map((bank) => bank.filename));
+    return Object.keys(banks).filter((filename) => {
+      if (current.has(filename)) return false;
+      const entry = Object.values(meta).find((item) => item?.filename === filename);
+      const sourceKind = entry?.sourceKind || banks[filename]?.[0]?.sourceKind || "";
+      return sourceKind === "imcq" || /\bimcq\b/i.test(cleanLectureTitle(filename));
+    }).map((filename) => {
+      const entry = Object.values(meta).find((item) => item?.filename === filename);
+      const questions = banks[filename] || [];
+      return { filename, questions, aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "imcq", analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || null };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision, blockQuestionBanks]);
+
   useEffect(() => {
     const filenames = Object.keys(questionBanksStore.read(userId) || {});
     const refresh = () => setBankStoreRevision((value) => value + 1);
@@ -324,19 +344,24 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   };
 
   const bankGroups = useMemo(() => {
-    // The Exam tab is block-scoped. Unassigned/other-block banks are retained
-    // below for semester-wide review, but should not flood every block's page.
-    const source = blockQuestionBanks;
+    // The Exam tab is block-scoped. IMCQ keys are the intentional exception:
+    // they are style references and appear together under Other. Other-block
+    // ExamSoft/comprehensive banks remain archived in Firestore.
+    const source = [...blockQuestionBanks, ...imcqReferenceBanks];
     const groups = {};
     for (const bank of source) {
       const title = cleanLectureTitle(bank.filename);
       const match = title.match(/\bweek\s*(\d+)\b/i);
-      const label = bank.weekNumber != null
+      const isImcq = bank.sourceKind === "imcq" || /\bimcq\b/i.test(title);
+      const isExamSoft = /\b(?:examsoft|esoft)\b/i.test(title);
+      const label = isImcq || isExamSoft
+        ? "Other"
+        : bank.weekNumber != null
         ? `Week ${bank.weekNumber}`
         : match
           ? `Week ${match[1]}`
-        : /\b(?:examsoft|esoft|imcq|exam)\b/i.test(title)
-          ? "Exams"
+        : /\bexam\b/i.test(title)
+          ? "Other"
           : /\b(?:homework|practice questions?|worksheet)\b/i.test(title)
             ? "Homework"
             : "Other";
@@ -346,7 +371,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       const rank = (label) => label.startsWith("Week ") ? Number(label.slice(5)) : label === "Homework" ? 100 : label === "Exams" ? 101 : 102;
       return rank(a) - rank(b);
     });
-  }, [blockQuestionBanks]);
+  }, [blockQuestionBanks, imcqReferenceBanks]);
   const activeBankCategory = bankGroups.some(([label]) => label === bankCategory) ? bankCategory : bankGroups[0]?.[0];
   const statsForBank = (bank) => {
     const names = new Set([bank.filename, ...(bank.aliases || [])]);
