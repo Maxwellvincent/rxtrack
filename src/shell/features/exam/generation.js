@@ -52,7 +52,7 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 /** Two bounded workers, incremental cloud persistence, then atomic assignment
  * at launch. A prepared pool is not an answer history or a mastery claim. */
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
-  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId }, deps = {}) {
+  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "" }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const exemplars = readExemplarsForBlock(userId, blockId);
   const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
@@ -97,6 +97,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       try {
         result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, blockId, lectures, exemplars, atoms,
           studyMode,
+          focusNotes,
           difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {
           ...deps,
           maxTokens: Math.min(8000, Math.max(2000, (requested - obtained) * 1100)),

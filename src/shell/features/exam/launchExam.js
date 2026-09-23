@@ -54,6 +54,7 @@ async function runLaunch(
     prepareOnly = false,
     savedOnly = false,
     studyMode = "balanced",
+    focusNotes = "",
   },
   deps = {}
 ) {
@@ -86,6 +87,7 @@ async function runLaunch(
       userId,
       generationId: sessionId,
       studyMode,
+      focusNotes,
     },
     { ...deps, pool, savedOnly }
   );

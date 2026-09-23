@@ -210,6 +210,7 @@ export function buildQuizConfig({
   userId = null,
   clinicalCorrelateLibrary = null,
   styleProfile = null,
+  focusNotes = "",
 }) {
   const pool = sortWeakestFirst(objectives);
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
@@ -242,6 +243,7 @@ export function buildQuizConfig({
       studyMode,
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
+      focusNotes: String(focusNotes || "").trim(),
     },
     lectureId: lecture?.id ?? selected.map((o) => o?.linkedLecId).find(Boolean) ?? null,
   };

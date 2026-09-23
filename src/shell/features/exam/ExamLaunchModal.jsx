@@ -71,6 +71,7 @@ export function ExamLaunchModal({
   const [contentScope, setContentScope] = useState("block-so-far");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
+  const [focusNotes, setFocusNotes] = useState("");
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
     .sort((a, b) => Number(a) - Number(b));
@@ -118,6 +119,7 @@ export function ExamLaunchModal({
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
       ...scopePayload,
+      ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}),
     });
   };
 
@@ -144,6 +146,12 @@ export function ExamLaunchModal({
               </button>)}
             </div>
             {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">Cycles recognition → mechanism → clinical application → fresh retest. An objective leaves this queue after at least 5 recent answers reach 78%.</p>}
+          </div>
+
+          <div>
+            <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3" htmlFor="exam-focus-notes">Instructor emphasis / blockers</label>
+            <textarea id="exam-focus-notes" value={focusNotes} onChange={(event) => setFocusNotes(event.target.value)} rows={4} placeholder="e.g. All major metabolism pathways; rate-limiting steps; vitamin cofactors; enzymes and metabolic processes; concepts I keep missing…" className="w-full resize-y rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1 placeholder:text-text-3" />
+            <div className="mt-1 font-mono text-[11px] text-text-3">These topics guide allocation and question generation; lecture evidence still controls factual accuracy.</div>
           </div>
           {/* Format */}
           <div>
@@ -269,7 +277,7 @@ export function ExamLaunchModal({
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })}
+          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
         </div>}

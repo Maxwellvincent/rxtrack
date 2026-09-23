@@ -471,7 +471,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "" } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -502,6 +502,9 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   const clinicalSection = clinicalCorrelateLibrary?.length
     ? `\n\nRECURRENT CLINICAL CORRELATES FROM THE LECTURE AND UPLOADED QUESTIONS:\n${renderClinicalCorrelateLibrary(clinicalCorrelateLibrary)}\nUse these recurring signals as optional clue-to-mechanism practice when the numbered atom supports them. Do not force a signal into every item, do not make the signal itself the answer unless the atom supports that relationship, and do not add facts that are absent from the supplied atoms/objectives.\n`
     : "";
+  const focusSection = String(focusNotes || "").trim()
+    ? `\n\nINSTRUCTOR/LEARNER EMPHASIS (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nDistribute questions across these requested topics when the supplied lecture facts/objectives support them. Give extra attention to stated blockers, rate-limiting steps, cofactors, enzyme reactions, and regulatory consequences. Do not invent unsupported facts.\n`
+    : "";
 
   const v2Blueprint = generationVersion === "v2" ?
     `V2 SGU/EXAMSOFT BLUEPRINT:\n- Objectives define WHAT is tested; lecture facts establish the medically correct key; examples define HOW the item is written and are never factual authority.\n- Write concise SGU-style clinical or anatomic application items, normally one or two reasoning steps, not long UWorld-style diagnostic puzzles.\n- Across a batch target 20% direct foundational application, 60% standard clinical/anatomic application, and 20% harder integration.\n- Every distractor must be the same semantic category as the key and plausible for the exact task.\n- Vary patient framing, tested relationship, lead-in, and clue-to-answer route across the batch. Never add generic patient details that do no diagnostic work.\n\n` : "";
@@ -522,7 +525,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `FACTS TO TEST (from "${subject}"):\n${factList}` +
     `\n\nLECTURE OBJECTIVES (source data):\n${objectives.map(o => `[${o.id}] ${o.code || ""} ${o.objective || o.text || ""}`).join("\n") || "No objectives available; do not claim objective coverage."}\n` +
     `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
-    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + feedbackSection + avoidSection +
+    examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     `\n\nReturn ONLY valid JSON:\n` +
     `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
@@ -853,7 +856,7 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "" } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
@@ -889,6 +892,9 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
   const clinicalSection = clinicalCorrelateLibrary?.length
     ? `\n\nRECURRENT CLINICAL CORRELATES FROM THE LECTURE AND UPLOADED QUESTIONS:\n${renderClinicalCorrelateLibrary(clinicalCorrelateLibrary)}\nUse these as optional, curriculum-grounded clue patterns. Distribute them across the batch only when the supplied lecture facts support the relationship; never force one into an item, turn a cue into an unsupported diagnosis, or import outside facts. If a correlate conflicts with the lecture evidence, ignore it.\n`
     : "";
+  const focusSection = String(focusNotes || "").trim()
+    ? `\n\nINSTRUCTOR/LEARNER EMPHASIS (high-priority targeting guidance, not a substitute for lecture evidence):\n${String(focusNotes).trim()}\nDistribute questions across these requested topics when the supplied lecture facts/objectives support them. Give extra attention to stated blockers, rate-limiting steps, cofactors, enzyme reactions, and regulatory consequences. Do not invent unsupported facts.\n`
+    : "";
   const feedbackSection = feedback?.sampleSize
     ? `\n\nLEARNED FEEDBACK FROM PRIOR QUESTIONS (${feedback.sampleSize} ratings): recurring issue codes ${JSON.stringify(feedback.issueCounts || {})}; fairness misses ${feedback.fairNo}; ExamSoft-style misses ${feedback.examStyleNo}. Correct these patterns in every new question.\n`
     : "";
@@ -913,7 +919,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     WHY_WRONG_RULE +
     (studyMode === "repair" ? `\nFOCUSED REPAIR: prioritize the weakest objectives in their supplied order. Cycle item types: recognition, mechanism, clinical-application, fresh-retest, then repeat. Fresh-retest items must use a new clinical presentation and clue-to-answer route. Return taskType on every item.\n` : "") +
     examplesSection + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) +
-    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection + objectiveModalitySection(objectives) + comparisonSection +
+    schoolEvidencePrompt(styleExamples, objectives, atoms) + objectivesSection + objectiveModalitySection(objectives) + comparisonSection + focusSection +
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
