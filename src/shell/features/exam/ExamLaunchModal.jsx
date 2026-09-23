@@ -182,7 +182,7 @@ export function ExamLaunchModal({
 
           <div>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Content scope</label>
-            <select value={contentScope} onChange={(event) => setContentScope(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
+            <select aria-label="Content scope" value={contentScope} onChange={(event) => setContentScope(event.target.value)} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1">
               {[
                 ["current-week", "This week · ends Friday"],
                 ["past-two-weeks", "Past 2 weeks · Friday cutoff"],
@@ -192,6 +192,9 @@ export function ExamLaunchModal({
                 ...availableWeeks.map((week) => [String(week), `Week ${week}`]),
               ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
+            <button type="button" onClick={() => setContentScope("custom-dates")} className="mt-2 rounded border border-accent px-2.5 py-1.5 font-mono text-[12px] font-semibold text-accent">
+              Use exact start/end dates
+            </button>
             {contentScope === "custom-dates" && <div className="mt-2 grid grid-cols-2 gap-2">
               <label className="font-mono text-[11px] text-text-3">From<input aria-label="Scope start date" type="date" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} className="mt-1 w-full rounded border border-border bg-bg-elevated px-2 py-1 text-sm text-text-1" /></label>
               <label className="font-mono text-[11px] text-text-3">Through<input aria-label="Scope end date" type="date" value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} className="mt-1 w-full rounded border border-border bg-bg-elevated px-2 py-1 text-sm text-text-1" /></label>
