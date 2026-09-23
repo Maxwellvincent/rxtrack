@@ -22,4 +22,8 @@ describe("Friday study-week scopes", () => {
     expect(filterLecturesByScope(lectures, "past-two-weeks", now).map((item) => item.id)).toEqual(["old", "current"]);
     expect(filterLecturesByScope(lectures, "block-so-far", now).map((item) => item.id)).toEqual(["old", "current"]);
   });
+
+  it("filters an explicit inclusive date range", () => {
+    expect(filterLecturesByScope(lectures, "date-range:2026-09-05:2026-09-12").map((item) => item.id)).toEqual(["current"]);
+  });
 });

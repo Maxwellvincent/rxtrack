@@ -69,10 +69,15 @@ export function ExamLaunchModal({
   );
   const [durationTouched, setDurationTouched] = useState(false);
   const [contentScope, setContentScope] = useState("block-so-far");
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState("");
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
     .sort((a, b) => Number(a) - Number(b));
-  const scopedLectures = filterLecturesByScope(eligibleLectures, contentScope);
+  const effectiveScope = contentScope === "custom-dates" && rangeStart && rangeEnd
+    ? `date-range:${rangeStart}:${rangeEnd}`
+    : contentScope;
+  const scopedLectures = filterLecturesByScope(eligibleLectures, effectiveScope);
 
   const noLectures = !scopedLectures || scopedLectures.length === 0;
 
@@ -80,7 +85,8 @@ export function ExamLaunchModal({
   const parsedDuration = parseFloat(duration);
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
-  const canLaunch = !noLectures && durationValid;
+  const datesValid = contentScope !== "custom-dates" || (rangeStart && rangeEnd && rangeStart <= rangeEnd);
+  const canLaunch = !noLectures && durationValid && datesValid;
   const blueprint = examBlueprint(scopedLectures, parsedCount);
 
   const handleCountChange = (e) => {
@@ -101,11 +107,11 @@ export function ExamLaunchModal({
 
   const handleLaunch = () => {
     if (!canLaunch) return;
-    const scopePayload = contentScope === "block-so-far"
+    const scopePayload = effectiveScope === "block-so-far"
       ? {}
-      : /^\d+$/.test(String(contentScope))
-        ? { weekNumber: contentScope }
-        : { contentScope };
+      : /^\d+$/.test(String(effectiveScope))
+        ? { weekNumber: effectiveScope }
+        : { contentScope: effectiveScope };
     onLaunch({
       format,
       ...(studyMode === "repair" ? { studyMode } : {}),
@@ -182,10 +188,15 @@ export function ExamLaunchModal({
                 ["past-two-weeks", "Past 2 weeks · Friday cutoff"],
                 ["block-so-far", "Block so far"],
                 ["entire-block", "Entire block"],
+                ["custom-dates", "Choose exact dates…"],
                 ...availableWeeks.map((week) => [String(week), `Week ${week}`]),
               ].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
-            <div className="mt-1 font-mono text-[11px] text-text-3">{scopeLabel(contentScope)} · {scopedLectures.length} lecture{scopedLectures.length === 1 ? "" : "s"} with objectives</div>
+            {contentScope === "custom-dates" && <div className="mt-2 grid grid-cols-2 gap-2">
+              <label className="font-mono text-[11px] text-text-3">From<input aria-label="Scope start date" type="date" value={rangeStart} onChange={(event) => setRangeStart(event.target.value)} className="mt-1 w-full rounded border border-border bg-bg-elevated px-2 py-1 text-sm text-text-1" /></label>
+              <label className="font-mono text-[11px] text-text-3">Through<input aria-label="Scope end date" type="date" value={rangeEnd} onChange={(event) => setRangeEnd(event.target.value)} className="mt-1 w-full rounded border border-border bg-bg-elevated px-2 py-1 text-sm text-text-1" /></label>
+            </div>}
+            <div className="mt-1 font-mono text-[11px] text-text-3">{scopeLabel(effectiveScope)} · {scopedLectures.length} lecture{scopedLectures.length === 1 ? "" : "s"} with objectives</div>
           </div>
 
           {/* Question count */}
@@ -255,7 +266,7 @@ export function ExamLaunchModal({
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(contentScope === "block-so-far" ? {} : /^\d+$/.test(String(contentScope)) ? { weekNumber: contentScope } : { contentScope }) })}
+          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
         </div>}
