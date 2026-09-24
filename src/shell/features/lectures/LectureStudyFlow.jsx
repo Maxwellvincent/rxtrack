@@ -566,6 +566,7 @@ export function LectureStudyFlow({
     : (normalizedTutorStep === "delayed_retrieval"
       ? tutorPrompt.prompt
       : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt));
+  const tutorHasCurrentCase = Boolean(tutorSession?.delayedReview || tutorSession?.patientCase);
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
     const response = tutorResponse.trim();
@@ -1600,34 +1601,38 @@ export function LectureStudyFlow({
               {latestTutorTurn.confidenceNote && <p className="mt-2 border-t border-border pt-2 text-xs leading-5 text-text-2">{latestTutorTurn.confidenceNote}</p>}
             </div>
           )}
-          <p className="mt-4 text-sm font-semibold leading-6 text-text-1">{currentTutorQuestion || tutorPrompt.prompt}</p>
-          <p className="mt-1 text-xs text-text-3">{tutorPrompt.scaffold}</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Confidence before feedback">
-            <span className="text-xs text-text-3">How sure are you?</span>
-            {["low", "medium", "high"].map((level) => (
-              <button
-                key={level}
-                type="button"
-                aria-pressed={tutorConfidence === level}
-                disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading}
-                onClick={() => setTutorConfidence(level)}
-                className={`rounded border px-2 py-1 text-xs capitalize disabled:opacity-50 ${tutorConfidence === level ? "border-accent bg-accent/10 text-accent" : "border-border text-text-3 hover:text-text-1"}`}
-              >{level}</button>
-            ))}
-          </div>
-          <textarea
-            value={tutorResponse}
-            onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
-            placeholder="First name the syndrome or disease family, then explain your reasoning…"
-            disabled={tutorSession.status !== "active"}
-            rows={3}
-            className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
-          />
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
-            <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent disabled:cursor-wait disabled:opacity-50">Give me one hint</button>
-            {tutorNotice && <span className="text-xs text-text-3" role="status">{tutorNotice}</span>}
-          </div>
+          {tutorHasCurrentCase && (
+            <>
+              <p className="mt-4 text-sm font-semibold leading-6 text-text-1">{currentTutorQuestion || tutorPrompt.prompt}</p>
+              <p className="mt-1 text-xs text-text-3">{tutorPrompt.scaffold}</p>
+              <div className="mt-3 flex flex-wrap items-center gap-2" role="group" aria-label="Confidence before feedback">
+                <span className="text-xs text-text-3">How sure are you?</span>
+                {["low", "medium", "high"].map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    aria-pressed={tutorConfidence === level}
+                    disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading}
+                    onClick={() => setTutorConfidence(level)}
+                    className={`rounded border px-2 py-1 text-xs capitalize disabled:opacity-50 ${tutorConfidence === level ? "border-accent bg-accent/10 text-accent" : "border-border text-text-3 hover:text-text-1"}`}
+                  >{level}</button>
+                ))}
+              </div>
+              <textarea
+                value={tutorResponse}
+                onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
+                placeholder="First name the syndrome or disease family, then explain your reasoning…"
+                disabled={tutorSession.status !== "active" || tutorLoading}
+                rows={3}
+                className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
+              />
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
+                <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent disabled:cursor-wait disabled:opacity-50">Give me one hint</button>
+                {tutorNotice && <span className="text-xs text-text-3" role="status">{tutorNotice}</span>}
+              </div>
+            </>
+          )}
         </section>
       )}
       <details className="mt-2 w-fit text-sm text-text-3">
