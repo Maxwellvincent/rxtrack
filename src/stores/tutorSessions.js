@@ -23,6 +23,25 @@ export function get(userId, lectureId) {
   return read(userId)[lectureId] || null;
 }
 
+export function getLearnerProfile(userId) {
+  const profiles = Object.values(read(userId)).map((session) => session?.learnerProfile).filter(Boolean);
+  const collect = (key, limit) => [...new Map(profiles.flatMap((profile) => profile[key] || [])
+    .map((entry) => [JSON.stringify(entry), entry])).values()]
+    .sort((a, b) => (a.at || 0) - (b.at || 0))
+    .slice(-limit);
+  const reasoningSkillEvidence = collect("reasoningSkillEvidence", 40);
+  const stableReasoningSkills = [...new Set(reasoningSkillEvidence
+    .filter((entry) => reasoningSkillEvidence.some((other) => other.skill === entry.skill && other.objectiveId !== entry.objectiveId))
+    .map((entry) => entry.skill))];
+  return {
+    confirmedAnchors: collect("confirmedAnchors", 16),
+    recentMisses: collect("recentMisses", 16),
+    confidenceEvents: collect("confidenceEvents", 32),
+    reasoningSkillEvidence,
+    stableReasoningSkills,
+  };
+}
+
 export function save(userId, state) {
   if (!state?.lectureId) return read(userId);
   const next = { ...read(userId), [state.lectureId]: state };

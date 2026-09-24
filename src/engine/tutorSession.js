@@ -36,7 +36,7 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
   };
 }
 
-export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], now = Date.now() } = {}) {
+export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], learnerProfile = null, retrievalQueue = [], now = Date.now() } = {}) {
   const budget = BUDGETS.has(Number(budgetMinutes)) ? Number(budgetMinutes) : 30;
   const ids = [...new Set((objectiveIds || []).map(String).filter(Boolean))];
   return {
@@ -59,9 +59,10 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     nextAction: ids.length ? "retrieve_previous_state" : "build_patient_case",
     openingModel: null,
     patientCase: null,
-    retrievalQueue: [],
+    retrievalQueue: [...(retrievalQueue || [])],
     delayedReview: null,
     resumeObjectiveId: null,
+    learnerProfile: learnerProfile || { confirmedAnchors: [], recentMisses: [], confidenceEvents: [], reasoningSkillEvidence: [], stableReasoningSkills: [] },
   };
 }
 
@@ -77,6 +78,64 @@ export function attachTutorCase(state, patientCase, now = Date.now(), openingMod
 
 function checkpoint(state, patch = {}, now = Date.now()) {
   return { ...state, ...patch, lastCheckpointAt: now };
+}
+
+function updateLearnerProfile(state, turn, objectiveId, now) {
+  const prior = state.learnerProfile || {};
+  const confirmedAnchors = [...(prior.confirmedAnchors || [])];
+  const recentMisses = [...(prior.recentMisses || [])];
+  const confidenceEvents = [...(prior.confidenceEvents || [])];
+  const reasoningSkillEvidence = [...(prior.reasoningSkillEvidence || [])];
+  if (turn?.stepResolved && turn.response) {
+    confirmedAnchors.push({
+      objectiveId,
+      step: turn.reviewedStep || state.currentStep,
+      response: turn.response,
+      at: now,
+    });
+  }
+  if (turn?.stepResolved) {
+    for (let index = recentMisses.length - 1; index >= 0; index -= 1) {
+      const miss = recentMisses[index];
+      if (String(miss.objectiveId) === String(objectiveId) && miss.step === (turn.reviewedStep || state.currentStep) && miss.status !== "resolved") {
+        recentMisses[index] = { ...miss, status: "resolved", resolvedAt: now };
+      }
+    }
+  }
+  if (!turn?.stepResolved && turn?.missType) {
+    recentMisses.push({
+      objectiveId,
+      step: turn.reviewedStep || state.currentStep,
+      missType: turn.missType,
+      repairLink: turn.repairLink || "",
+      status: "open",
+      at: now,
+    });
+  }
+  if (turn?.confidence) {
+    confidenceEvents.push({
+      objectiveId,
+      confidence: turn.confidence,
+      assessment: turn.assessment || "unknown",
+      confidenceNote: turn.confidenceNote || "",
+      step: turn.reviewedStep || state.currentStep,
+      at: now,
+    });
+  }
+  if (turn?.stepResolved && turn.reasoningSkill) {
+    reasoningSkillEvidence.push({ objectiveId, skill: turn.reasoningSkill, at: now });
+  }
+  const recentSkillEvidence = reasoningSkillEvidence.slice(-40);
+  const stableReasoningSkills = [...new Set(recentSkillEvidence
+    .filter((entry) => recentSkillEvidence.some((other) => other.skill === entry.skill && other.objectiveId !== entry.objectiveId))
+    .map((entry) => entry.skill))];
+  return {
+    confirmedAnchors: confirmedAnchors.slice(-16),
+    recentMisses: recentMisses.slice(-16),
+    confidenceEvents: confidenceEvents.slice(-32),
+    reasoningSkillEvidence: recentSkillEvidence,
+    stableReasoningSkills,
+  };
 }
 
 export function recordTutorTurn(state, turn, now = Date.now()) {
@@ -98,15 +157,20 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
       : blocker
   ));
   if (turn?.blocker) blockers.push({ ...turn.blocker, objectiveId, at: now });
+  const learnerProfile = updateLearnerProfile(state, turn, objectiveId, now);
   if (reviewingEarlierCase) {
     const reviewComplete = turn?.delayedReviewComplete === true;
     const resumedObjectiveId = state.resumeObjectiveId;
+    const reviewCompletedObjectives = reviewComplete
+      ? [...new Set([...completed, String(state.delayedReview.objectiveId)])]
+      : completed;
     const allObjectivesDone = !resumedObjectiveId
-      && (state.objectiveIds || []).every((id) => completed.includes(id));
+      && (state.objectiveIds || []).every((id) => reviewCompletedObjectives.includes(id));
     return checkpoint(state, {
       turns: nextTurns,
-      completedObjectiveIds: completed,
+      completedObjectiveIds: reviewCompletedObjectives,
       blockers,
+      learnerProfile,
       delayedReview: reviewComplete ? null : state.delayedReview,
       activeObjectiveId: resumedObjectiveId || state.delayedReview.objectiveId,
       resumeObjectiveId: reviewComplete ? null : resumedObjectiveId,
@@ -121,7 +185,7 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
         : "retrieve_earlier_case",
     }, now);
   }
-  const nextObjectiveId = turn?.objectiveComplete
+  let nextObjectiveId = turn?.objectiveComplete
     ? (state.objectiveIds || []).find((id) => !completed.includes(id)) || null
     : objectiveId || state.activeObjectiveId;
   let retrievalQueue = [...(state.retrievalQueue || [])];
@@ -136,13 +200,16 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
       expectedDiagnosis: state.patientCase.diagnosisCategory || "",
       mechanismTarget: state.patientCase.mechanismTarget || "",
       keyClues: state.patientCase.keyClues || [],
+      dueAt: now + (24 * 60 * 60 * 1000),
     }];
   }
   if (turn?.objectiveComplete) {
-    const dueIndex = retrievalQueue.findIndex((item) => item.dueAfterCompletedObjectives <= completed.length);
+    const dueIndex = retrievalQueue.findIndex((item) => item.dueAfterCompletedObjectives <= completed.length || (item.dueAt && item.dueAt <= now));
     if (dueIndex >= 0) {
       [delayedReview] = retrievalQueue.splice(dueIndex, 1);
-      resumeObjectiveId = nextObjectiveId;
+      resumeObjectiveId = (state.objectiveIds || []).find((id) => (
+        id !== String(delayedReview.objectiveId) && !completed.includes(id)
+      )) || null;
     }
   }
   const finishedAllObjectives = Boolean(turn?.objectiveComplete && !nextObjectiveId && !delayedReview);
@@ -156,6 +223,7 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
     delayedReview,
     resumeObjectiveId,
     blockers,
+    learnerProfile,
     status: finishedAllObjectives ? "finished" : state.status,
     phase: finishedAllObjectives ? "summary" : state.phase,
     nextAction: finishedAllObjectives
@@ -190,7 +258,19 @@ export function resumeTutorSession(state, now = Date.now()) {
 
 export function finishTutorSession(state, now = Date.now()) {
   if (!state || state.status === "finished") return state;
-  return checkpoint(state, { status: "finished", phase: "summary", nextAction: "review_checkpoint" }, now);
+  let retrievalQueue = [...(state.retrievalQueue || [])];
+  const unfinishedCase = state.delayedReview || (state.patientCase && !state.completedObjectiveIds?.includes(state.activeObjectiveId) ? state.patientCase : null);
+  if (unfinishedCase && !retrievalQueue.some((entry) => entry.objectiveId === (unfinishedCase.objectiveId || state.activeObjectiveId))) {
+    retrievalQueue.push({
+      ...unfinishedCase,
+      objectiveId: unfinishedCase.objectiveId || state.activeObjectiveId,
+      expectedDiagnosis: unfinishedCase.expectedDiagnosis || unfinishedCase.diagnosisCategory || "",
+      mechanismTarget: unfinishedCase.mechanismTarget || "",
+      dueAt: now + (24 * 60 * 60 * 1000),
+      dueAfterCompletedObjectives: Number.MAX_SAFE_INTEGER,
+    });
+  }
+  return checkpoint(state, { status: "finished", phase: "summary", retrievalQueue, delayedReview: null, nextAction: "review_checkpoint" }, now);
 }
 
 export function tutorSessionSummary(state) {
