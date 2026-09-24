@@ -14,16 +14,24 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
     retrieval: `Without looking at your notes, what do you already remember about ${objectiveText}? Start with the patient problem or syndrome.`,
     patient_case: `What is the most likely diagnosis or disease family? Name the syndrome first if you are not yet certain.`,
     diagnosis: `What is the most likely diagnosis or disease family? Name the syndrome first if you are not yet certain.`,
+    delayed_retrieval: "Without looking at the earlier feedback, retrieve the diagnosis and explain the key mechanism in your own words.",
     mechanism: `Explain ${objectiveText} as a causal chain. What starts the process, what tissue or pathway is affected, and how does that produce the findings?`,
     consequence: `Given ${objectiveText}, what should happen next: a lab finding, symptom, complication, or treatment response? Explain why.`,
     contrast: `What is the closest mimic of ${objectiveText}, and what single finding would separate the two?`,
+  };
+  const scaffoldByStep = {
+    diagnosis: "Start with the organ system, time course, and the clue that best localizes the problem.",
+    delayed_retrieval: "Try from memory first. Name the pattern, then connect it to the mechanism.",
+    mechanism: "Trace cause → affected tissue or pathway → physiologic change.",
+    consequence: "Use the mechanism to predict one finding, complication, or treatment response.",
+    contrast: "Name the closest mimic, then identify one finding that separates them.",
   };
   return {
     step,
     label: step.replace(/_/g, " "),
     prompt: prompts[step] || prompts.retrieval,
     terms,
-    scaffold: terms ? `Useful lecture terms to connect: ${terms}.` : "Use the lecture objective and your own causal reasoning.",
+    scaffold: scaffoldByStep[step] || (terms ? `Useful lecture terms to connect: ${terms}.` : "Use the lecture objective and your own causal reasoning."),
     nextStep: STEP_ORDER[Math.min(Math.max(STEP_ORDER.indexOf(step), 0) + 1, STEP_ORDER.length - 1)] || "diagnosis",
   };
 }
@@ -51,6 +59,9 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     nextAction: ids.length ? "retrieve_previous_state" : "build_patient_case",
     openingModel: null,
     patientCase: null,
+    retrievalQueue: [],
+    delayedReview: null,
+    resumeObjectiveId: null,
   };
 }
 
@@ -71,23 +82,79 @@ function checkpoint(state, patch = {}, now = Date.now()) {
 export function recordTutorTurn(state, turn, now = Date.now()) {
   if (!state || state.status !== "active") return state;
   const nextTurns = [...(state.turns || []), { ...turn, at: now }];
-  const objectiveId = turn?.objectiveId ? String(turn.objectiveId) : state.activeObjectiveId;
+  const reviewingEarlierCase = state.currentStep === "delayed_retrieval" && state.delayedReview;
+  const objectiveId = turn?.objectiveId
+    ? String(turn.objectiveId)
+    : (reviewingEarlierCase?.objectiveId || state.activeObjectiveId);
   const completed = turn?.objectiveComplete && objectiveId
     ? [...new Set([...(state.completedObjectiveIds || []), objectiveId])]
     : state.completedObjectiveIds || [];
-  const blockers = turn?.blocker
-    ? [...(state.blockers || []), { ...turn.blocker, objectiveId, at: now }]
-    : state.blockers || [];
+  const blockers = (state.blockers || []).map((blocker) => (
+    turn?.stepResolved
+      && String(blocker.objectiveId) === String(objectiveId)
+      && blocker.step === turn.reviewedStep
+      && blocker.status !== "resolved"
+      ? { ...blocker, status: "resolved", resolvedAt: now }
+      : blocker
+  ));
+  if (turn?.blocker) blockers.push({ ...turn.blocker, objectiveId, at: now });
+  if (reviewingEarlierCase) {
+    const reviewComplete = turn?.delayedReviewComplete === true;
+    const resumedObjectiveId = state.resumeObjectiveId;
+    const allObjectivesDone = !resumedObjectiveId
+      && (state.objectiveIds || []).every((id) => completed.includes(id));
+    return checkpoint(state, {
+      turns: nextTurns,
+      completedObjectiveIds: completed,
+      blockers,
+      delayedReview: reviewComplete ? null : state.delayedReview,
+      activeObjectiveId: resumedObjectiveId || state.delayedReview.objectiveId,
+      resumeObjectiveId: reviewComplete ? null : resumedObjectiveId,
+      currentStep: reviewComplete ? (resumedObjectiveId ? "retrieval" : "contrast") : "delayed_retrieval",
+      patientCase: reviewComplete
+        ? (resumedObjectiveId ? null : state.delayedReview)
+        : state.patientCase,
+      status: reviewComplete && allObjectivesDone ? "finished" : state.status,
+      phase: reviewComplete && allObjectivesDone ? "summary" : state.phase,
+      nextAction: reviewComplete
+        ? (allObjectivesDone ? "review_checkpoint" : "build_patient_case")
+        : "retrieve_earlier_case",
+    }, now);
+  }
   const nextObjectiveId = turn?.objectiveComplete
     ? (state.objectiveIds || []).find((id) => !completed.includes(id)) || null
     : objectiveId || state.activeObjectiveId;
-  const finishedAllObjectives = Boolean(turn?.objectiveComplete && !nextObjectiveId);
+  let retrievalQueue = [...(state.retrievalQueue || [])];
+  let delayedReview = null;
+  let resumeObjectiveId = null;
+  if (turn?.objectiveComplete && state.patientCase) {
+    retrievalQueue = [...retrievalQueue, {
+      objectiveId,
+      dueAfterCompletedObjectives: completed.length + 1,
+      caseTitle: state.patientCase.caseTitle,
+      stem: state.patientCase.stem,
+      expectedDiagnosis: state.patientCase.diagnosisCategory || "",
+      mechanismTarget: state.patientCase.mechanismTarget || "",
+      keyClues: state.patientCase.keyClues || [],
+    }];
+  }
+  if (turn?.objectiveComplete) {
+    const dueIndex = retrievalQueue.findIndex((item) => item.dueAfterCompletedObjectives <= completed.length);
+    if (dueIndex >= 0) {
+      [delayedReview] = retrievalQueue.splice(dueIndex, 1);
+      resumeObjectiveId = nextObjectiveId;
+    }
+  }
+  const finishedAllObjectives = Boolean(turn?.objectiveComplete && !nextObjectiveId && !delayedReview);
   return checkpoint(state, {
     turns: nextTurns,
     completedObjectiveIds: completed,
-    activeObjectiveId: nextObjectiveId || objectiveId || state.activeObjectiveId,
-    currentStep: nextObjectiveId !== objectiveId ? "retrieval" : (turn?.nextStep || state.currentStep),
-    patientCase: nextObjectiveId !== objectiveId ? null : state.patientCase,
+    activeObjectiveId: delayedReview?.objectiveId || nextObjectiveId || objectiveId || state.activeObjectiveId,
+    currentStep: delayedReview ? "delayed_retrieval" : (nextObjectiveId !== objectiveId ? "retrieval" : (turn?.nextStep || state.currentStep)),
+    patientCase: delayedReview || nextObjectiveId !== objectiveId ? null : state.patientCase,
+    retrievalQueue,
+    delayedReview,
+    resumeObjectiveId,
     blockers,
     status: finishedAllObjectives ? "finished" : state.status,
     phase: finishedAllObjectives ? "summary" : state.phase,

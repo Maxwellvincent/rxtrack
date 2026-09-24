@@ -421,7 +421,7 @@ export function LectureStudyFlow({
   }, [userId]);
 
   const generateTutorCase = useCallback(async () => {
-    if (!tutorSessionRef.current || tutorSessionRef.current.patientCase || tutorCaseGenerationRef.current) return;
+    if (!tutorSessionRef.current || tutorSessionRef.current.patientCase || tutorSessionRef.current.delayedReview || tutorCaseGenerationRef.current) return;
     const sessionId = tutorSessionRef.current.sessionId;
     const activeObjectiveId = tutorSessionRef.current.activeObjectiveId;
     tutorCaseGenerationRef.current = lecture?.id || "lecture";
@@ -430,11 +430,16 @@ export function LectureStudyFlow({
       || lectureObjectives[0];
     const objectiveText = objective?.objective || objective?.text || title;
     const source = String(text || atoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 9000);
+    const knownAnchors = (tutorSessionRef.current.turns || [])
+      .filter((turn) => turn.stepResolved && turn.response)
+      .slice(-4)
+      .map((turn) => turn.response)
+      .join("\n");
     try {
       const generated = await callAIJSON(
-        "You are a warm, precise medical-school tutor. Start with an orienting mental model before teaching details: explain the organizing rule for this lecture, its most useful exception or pivot, and the metabolic/clinical job that fails when the relevant cofactor or pathway is lost. Then write the first patient case for the active objective. Keep the diagnosis hidden from the case and all intro text. Stay tightly grounded in lecture material. Return valid JSON only.",
-        `Lecture: ${title}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLecture material:\n${source}\n\nReturn {"openingModel":"2-4 short sentences that orient the student before the case; include an exception/pivot only when supported","caseTitle":"short label such as Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one diagnosis-first question","keyClues":["2-4 concise clues"],"diagnosisCategory":"private tutor reference: likely diagnosis family, never display before the student answers","mechanismTarget":"private tutor reference"}.`,
-        { openingModel: "Start with the lecture’s organizing model, then ask what clinical job breaks when a pathway or cofactor is missing.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture model to identify the syndrome before naming the disease.`, task: "What is the presenting syndrome or most likely diagnosis? Which clue points you there?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
+        "You are a warm, precise medical-school tutor. Start with an orienting mental model before teaching details: explain the organizing rule for this lecture, its most useful exception or pivot, and the clinical or physiologic job that fails when the relevant process is disrupted. Connect new ideas to the learner's established anchors when relevant, and briefly define unfamiliar terms in plain language. Then write one patient case for the active objective. Keep the diagnosis hidden from the case and all intro text. Stay tightly grounded in lecture material. Return valid JSON only.",
+        `Lecture: ${title}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"2-4 short sentences that orient the student before the case; include an exception/pivot only when supported","caseTitle":"short label such as Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one diagnosis-first question","keyClues":["2-4 concise clues"],"diagnosisCategory":"private tutor reference: likely diagnosis family, never display before the student answers","mechanismTarget":"private tutor reference"}.`,
+        { openingModel: "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture model to identify the syndrome before naming the disease.`, task: "What is the presenting syndrome or most likely diagnosis? Which clue points you there?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
         2200
       );
       const patientCase = {
@@ -450,7 +455,7 @@ export function LectureStudyFlow({
           tutorSessionRef.current,
           patientCase,
           Date.now(),
-          mentalModel?.bigPicture || generated?.openingModel || "Start with the lecture’s organizing model, then ask what clinical job breaks when a pathway or cofactor is missing."
+          mentalModel?.bigPicture || generated?.openingModel || "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted."
         ));
       }
     } catch (error) {
@@ -462,18 +467,26 @@ export function LectureStudyFlow({
   }, [atoms, lecture?.id, lectureObjectives, mentalModel?.bigPicture, saveTutorSession, text, title]);
 
   const startTutorSession = useCallback((budgetMinutes) => {
+    const objectiveIds = lectureObjectives
+      .map((objective) => objective?.id || objective?.code || objective?.objective)
+      .filter(Boolean)
+      .map(String);
+    for (let index = objectiveIds.length - 1; index > 0; index -= 1) {
+      const swapIndex = Math.floor(Math.random() * (index + 1));
+      [objectiveIds[index], objectiveIds[swapIndex]] = [objectiveIds[swapIndex], objectiveIds[index]];
+    }
     const next = createTutorSession({
       lectureId: lecture?.id,
       budgetMinutes,
-      objectiveIds: lectureObjectives.map((objective) => objective?.id || objective?.code || objective?.objective),
+      objectiveIds,
     });
     saveTutorSession(next);
   }, [lecture?.id, lectureObjectives, saveTutorSession]);
 
   useEffect(() => {
-    if (tutorSession?.status !== "active" || tutorSession.patientCase || (!text && !atoms.length)) return;
+    if (tutorSession?.status !== "active" || tutorSession.patientCase || tutorSession.delayedReview || (!text && !atoms.length)) return;
     generateTutorCase();
-  }, [atoms.length, generateTutorCase, text, tutorSession?.patientCase, tutorSession?.status]);
+  }, [atoms.length, generateTutorCase, text, tutorSession?.delayedReview, tutorSession?.patientCase, tutorSession?.status]);
 
   const pauseCurrentTutorSession = useCallback(() => {
     saveTutorSession(pauseTutorSession(tutorSessionRef.current));
@@ -488,13 +501,13 @@ export function LectureStudyFlow({
   }, [saveTutorSession]);
 
   const activeTutorObjective = useMemo(() => {
-    const activeId = tutorSession?.activeObjectiveId;
+    const activeId = tutorSession?.delayedReview?.objectiveId || tutorSession?.activeObjectiveId;
     return lectureObjectives.find((objective) => String(objective?.id || objective?.code || objective?.objective) === String(activeId))
       || lectureObjectives[0]
       || null;
-  }, [lectureObjectives, tutorSession?.activeObjectiveId]);
+  }, [lectureObjectives, tutorSession?.activeObjectiveId, tutorSession?.delayedReview?.objectiveId]);
   const activeTutorAtoms = useMemo(() => {
-    const activeId = tutorSession?.activeObjectiveId;
+    const activeId = tutorSession?.delayedReview?.objectiveId || tutorSession?.activeObjectiveId;
     const matched = activeId
       ? atoms.filter((atom) => {
         const links = atom.objectiveIds || atom.objectives || [];
@@ -503,21 +516,24 @@ export function LectureStudyFlow({
       })
       : [];
     return (matched.length ? matched : atoms).slice(0, 4);
-  }, [atoms, tutorSession?.activeObjectiveId]);
+  }, [atoms, tutorSession?.activeObjectiveId, tutorSession?.delayedReview?.objectiveId]);
   const tutorPrompt = useMemo(() => tutorStepPrompt({
     step: tutorSession?.currentStep,
     objectiveText: activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective",
     atomTerms: activeTutorAtoms.map((atom) => atom.term || atom.name || atom.label),
   }), [activeTutorAtoms, activeTutorObjective, tutorSession?.currentStep]);
-  const tutorObjectiveIndex = Math.max(0, lectureObjectives.findIndex((objective) => String(objective?.id || objective?.code || objective?.objective) === String(tutorSession?.activeObjectiveId)));
+  const tutorObjectiveIndex = Math.max(0, (tutorSession?.objectiveIds || []).indexOf(String(tutorSession?.activeObjectiveId)));
   const latestTutorTurn = tutorSession?.turns?.[tutorSession.turns.length - 1] || null;
+  const displayedTutorCase = tutorSession?.delayedReview || tutorSession?.patientCase;
   const normalizedTutorStep = tutorSession?.currentStep === "patient_case" ? "diagnosis" : tutorSession?.currentStep;
   const latestTurnMatchesStep = latestTutorTurn
     && String(latestTutorTurn.objectiveId) === String(tutorSession?.activeObjectiveId)
     && latestTutorTurn.reviewedStep === normalizedTutorStep;
   const currentTutorQuestion = latestTurnMatchesStep && latestTutorTurn.followUp
     ? latestTutorTurn.followUp
-    : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt);
+    : (normalizedTutorStep === "delayed_retrieval"
+      ? tutorPrompt.prompt
+      : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt));
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
     const response = tutorResponse.trim();
@@ -529,9 +545,16 @@ export function LectureStudyFlow({
     if (!current || current.status !== "active" || tutorReviewing) return;
     const isBlocked = kind === "stuck";
     const reviewedStep = current.currentStep === "patient_case" ? "diagnosis" : current.currentStep;
+    const reviewCase = current.delayedReview || current.patientCase;
+    const reviewObjectiveId = current.delayedReview?.objectiveId || current.activeObjectiveId;
     const objectiveText = activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective";
-    const caseText = current.patientCase?.stem || "No generated case is available.";
+    const caseText = reviewCase?.stem || "No generated case is available.";
     const source = String(text || activeTutorAtoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 6500);
+    const knownAnchors = (current.turns || [])
+      .filter((turn) => turn.stepResolved && turn.response)
+      .slice(-4)
+      .map((turn) => turn.response)
+      .join("\n");
     const fallback = {
       assessment: isBlocked ? "needs_repair" : "unreviewed",
       feedback: isBlocked
@@ -540,36 +563,45 @@ export function LectureStudyFlow({
       followUp: isBlocked
         ? "Which single finding best localizes the process?"
         : "What downstream finding should follow if your reasoning is correct?",
-      readyToAdvance: !isBlocked,
+      readyToAdvance: false,
     };
     setTutorReviewing(true);
     setTutorNotice(isBlocked ? "Building a focused hint…" : "Checking your reasoning against the lecture…");
     try {
       const review = await callAIJSON(
         "You are a Socratic medical-school tutor. Evaluate only the learner's current reasoning step. The lecture objective defines tested scope and the lecture material defines correctness. Do not dump the full solution when the learner is incomplete or stuck. Give one precise correction or confirmation, then one question that makes the learner perform the next reasoning move. Return valid JSON only.",
-        `Lecture: ${title}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","readyToAdvance":boolean}. Set readyToAdvance true only if the learner adequately completed the current step. If the learner asked for a hint, reveal one clue but not the answer and set readyToAdvance false.`,
+        `Lecture: ${title}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\n${reviewedStep === "delayed_retrieval" ? `Private answer anchors (do not reveal before evaluating): diagnosis=${current.delayedReview?.expectedDiagnosis || "not recorded"}; mechanism=${current.delayedReview?.mechanismTarget || "not recorded"}.` : ""}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","missType":"recognition|mechanism|application|execution|null","repairLink":"the single missing or inaccurate link, or empty","readyToAdvance":boolean}. Let the learner commit before revealing the diagnosis. If their answer is incomplete, confirm what is right, repair only the missing link using lecture evidence, define an unfamiliar term in plain language, then ask one application question. Do not immediately ask them to repeat a newly taught association. If they asked for a hint, reveal one clue but not the answer and set readyToAdvance false. For delayed retrieval, compare to the private answer anchors and do not show them until the learner has attempted recall.`,
         fallback,
         1000
       );
       const latest = tutorSessionRef.current;
       if (!latest || latest.sessionId !== current.sessionId || latest.activeObjectiveId !== current.activeObjectiveId || latest.currentStep !== current.currentStep) return;
       const readyToAdvance = !isBlocked && review?.readyToAdvance === true;
+      const delayedReviewComplete = reviewedStep === "delayed_retrieval" && readyToAdvance;
       const objectiveComplete = readyToAdvance && reviewedStep === "contrast";
       const next = recordTutorTurn(latest, {
-        objectiveId: latest.activeObjectiveId,
+        objectiveId: reviewObjectiveId,
         response: response || "Student requested a hint.",
         reviewedStep,
         assessment: review?.assessment || fallback.assessment,
+        missType: review?.missType || null,
+        repairLink: review?.repairLink || "",
+        stepResolved: readyToAdvance,
         feedback: review?.feedback || fallback.feedback,
         followUp: review?.followUp || fallback.followUp,
         objectiveComplete,
+        delayedReviewComplete,
         nextStep: readyToAdvance ? tutorPrompt.nextStep : latest.currentStep,
         nextAction: objectiveComplete ? "advance_objective" : (readyToAdvance ? "continue_reasoning" : "retry_reasoning"),
-        blocker: isBlocked ? { type: reviewedStep, concept: objectiveText, status: "open" } : null,
+        blocker: !readyToAdvance && (isBlocked || (review?.missType && review.missType !== "execution"))
+          ? { type: isBlocked ? reviewedStep : review.missType, step: reviewedStep, concept: review?.repairLink || objectiveText, status: "open" }
+          : null,
       });
       saveTutorSession(next);
       setTutorResponse("");
-      setTutorNotice(objectiveComplete
+      setTutorNotice(delayedReviewComplete
+        ? (next.status === "finished" ? "Delayed retrieval complete. Review your checkpoints." : "Good retrieval. Returning to the current objective.")
+        : objectiveComplete
         ? (next.status === "finished" ? "Walkthrough complete. Review your checkpoints." : "Objective complete. Building the next patient case…")
         : (readyToAdvance ? "Good—moving to the next reasoning step." : "Stay on this step and use the tutor's follow-up."));
     } catch (error) {
@@ -1492,24 +1524,24 @@ export function LectureStudyFlow({
             <summary className="cursor-pointer hover:text-text-1">Show lecture objective</summary>
             <p className="mt-1 leading-5">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
           </details>
-          {tutorSession.openingModel && (
+          {tutorSession.openingModel && !tutorSession.delayedReview && (
             <div className="mt-4 rounded border border-good/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Start with the model</p>
               <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.openingModel}</p>
-              <p className="mt-2 text-xs text-text-3">The case asks which clinical job breaks when this pathway or cofactor is lost.</p>
+              <p className="mt-2 text-xs text-text-3">The case asks what clinical job breaks when the process is disrupted.</p>
             </div>
           )}
-          {tutorLoading && !tutorSession.patientCase ? (
+          {tutorSession.delayedReview ? (
+            <div className="mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Earlier patient · delayed retrieval</p>
+              <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.delayedReview.stem}</p>
+            </div>
+          ) : tutorLoading && !tutorSession.patientCase ? (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">Building a patient case from this lecture and its objectives…</div>
           ) : tutorSession.patientCase ? (
             <div className="mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{tutorSession.patientCase.caseTitle || "Patient case"}</p>
-              <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.patientCase.stem}</p>
-              {tutorSession.patientCase.keyClues?.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {tutorSession.patientCase.keyClues.map((clue) => <span key={clue} className="rounded bg-accent/10 px-2 py-1 text-xs text-text-2">{clue}</span>)}
-                </div>
-              )}
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{displayedTutorCase.caseTitle || "Patient case"}</p>
+              <p className="mt-2 text-sm leading-6 text-text-1">{displayedTutorCase.stem}</p>
             </div>
           ) : (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">
