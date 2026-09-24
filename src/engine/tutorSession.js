@@ -22,9 +22,9 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
   const scaffoldByStep = {
     diagnosis: "Start with the organ system, time course, and the clue that best localizes the problem.",
     delayed_retrieval: "Try from memory first. Name the pattern, then connect it to the mechanism.",
-    mechanism: "Trace cause → affected tissue or pathway → physiologic change.",
-    consequence: "Use the mechanism to predict one finding, complication, or treatment response.",
-    contrast: "Name the closest mimic, then identify one finding that separates them.",
+    mechanism: `Trace cause → affected tissue or pathway → physiologic change.${terms ? ` Useful lecture terms: ${terms}.` : ""}`,
+    consequence: `Use the mechanism to predict one finding, complication, or treatment response.${terms ? ` Useful lecture terms: ${terms}.` : ""}`,
+    contrast: `Name the closest mimic, then identify one finding that separates them.${terms ? ` Useful lecture terms: ${terms}.` : ""}`,
   };
   return {
     step,
