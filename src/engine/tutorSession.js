@@ -6,6 +6,27 @@
 
 const BUDGETS = new Set([30, 45, 60]);
 
+const STEP_ORDER = ["retrieval", "patient_case", "mechanism", "consequence", "contrast"];
+
+export function tutorStepPrompt({ step = "retrieval", objectiveText = "this objective", atomTerms = [] } = {}) {
+  const terms = atomTerms.filter(Boolean).slice(0, 4).join(", ");
+  const prompts = {
+    retrieval: `Without looking at your notes, what do you already remember about ${objectiveText}? Start with the patient problem or syndrome.`,
+    patient_case: `Build the patient anchor for ${objectiveText}: who presents, what is the time course, and what are the two most useful clues?`,
+    mechanism: `Explain ${objectiveText} as a causal chain. What starts the process, what tissue or pathway is affected, and how does that produce the findings?`,
+    consequence: `Given ${objectiveText}, what should happen next: a lab finding, symptom, complication, or treatment response? Explain why.`,
+    contrast: `What is the closest mimic of ${objectiveText}, and what single finding would separate the two?`,
+  };
+  return {
+    step,
+    label: step.replace(/_/g, " "),
+    prompt: prompts[step] || prompts.retrieval,
+    terms,
+    scaffold: terms ? `Useful lecture terms to connect: ${terms}.` : "Use the lecture objective and your own causal reasoning.",
+    nextStep: STEP_ORDER[Math.min(STEP_ORDER.indexOf(step) + 1, STEP_ORDER.length - 1)] || "patient_case",
+  };
+}
+
 export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], now = Date.now() } = {}) {
   const budget = BUDGETS.has(Number(budgetMinutes)) ? Number(budgetMinutes) : 30;
   const ids = [...new Set((objectiveIds || []).map(String).filter(Boolean))];

@@ -7,9 +7,23 @@ import {
   resumeTutorSession,
   tickTutorSession,
   tutorSessionSummary,
+  tutorStepPrompt,
 } from "./tutorSession.js";
 
 describe("bounded tutor sessions", () => {
+  it("builds a diagnosis-first prompt for the active reasoning step", () => {
+    expect(tutorStepPrompt({
+      step: "mechanism",
+      objectiveText: "acute kidney injury",
+      atomTerms: ["afferent arteriole", "GFR"],
+    })).toMatchObject({
+      label: "mechanism",
+      prompt: expect.stringContaining("acute kidney injury"),
+      scaffold: expect.stringContaining("afferent arteriole"),
+      nextStep: "consequence",
+    });
+  });
+
   it("creates a resumable session with a bounded budget", () => {
     const state = createTutorSession({ lectureId: "lec30", budgetMinutes: 45, objectiveIds: ["o1", "o1", "o2"], now: 100 });
     expect(state).toMatchObject({ lectureId: "lec30", budgetMinutes: 45, remainingSeconds: 2700, status: "active", activeObjectiveId: "o1" });

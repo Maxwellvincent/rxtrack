@@ -66,6 +66,8 @@ import {
   resumeTutorSession,
   tickTutorSession,
   tutorSessionSummary,
+  tutorStepPrompt,
+  recordTutorTurn,
 } from "../../../engine/tutorSession.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
@@ -398,6 +400,8 @@ export function LectureStudyFlow({
   // A lecture tutor is a bounded, resumable layer over the existing study surface.
   // The checkpoint is per lecture so leaving one lecture never loses the place in another.
   const [tutorSession, setTutorSession] = useState(() => tutorSessionsStore.get(userId, lecture?.id));
+  const [tutorResponse, setTutorResponse] = useState("");
+  const [tutorNotice, setTutorNotice] = useState("");
   const tutorSessionRef = useRef(tutorSession);
   const tutorSessionSummaryValue = useMemo(() => tutorSessionSummary(tutorSession), [tutorSession]);
   useEffect(() => { tutorSessionRef.current = tutorSession; }, [tutorSession]);
@@ -429,6 +433,50 @@ export function LectureStudyFlow({
   const finishCurrentTutorSession = useCallback(() => {
     saveTutorSession(finishTutorSession(tutorSessionRef.current));
   }, [saveTutorSession]);
+
+  const activeTutorObjective = useMemo(() => {
+    const activeId = tutorSession?.activeObjectiveId;
+    return lectureObjectives.find((objective) => String(objective?.id || objective?.code || objective?.objective) === String(activeId))
+      || lectureObjectives[0]
+      || null;
+  }, [lectureObjectives, tutorSession?.activeObjectiveId]);
+  const activeTutorAtoms = useMemo(() => {
+    const activeId = tutorSession?.activeObjectiveId;
+    const matched = activeId
+      ? atoms.filter((atom) => {
+        const links = atom.objectiveIds || atom.objectives || [];
+        const ids = Array.isArray(links) ? links : [links];
+        return ids.map(String).includes(String(activeId));
+      })
+      : [];
+    return (matched.length ? matched : atoms).slice(0, 4);
+  }, [atoms, tutorSession?.activeObjectiveId]);
+  const tutorPrompt = useMemo(() => tutorStepPrompt({
+    step: tutorSession?.currentStep,
+    objectiveText: activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective",
+    atomTerms: activeTutorAtoms.map((atom) => atom.term || atom.name || atom.label),
+  }), [activeTutorAtoms, activeTutorObjective, tutorSession?.currentStep]);
+
+  const submitTutorTurn = useCallback((kind = "response") => {
+    const response = tutorResponse.trim();
+    if (kind === "response" && response.length < 3) {
+      setTutorNotice("Write a short explanation first, even if it is incomplete.");
+      return;
+    }
+    const current = tutorSessionRef.current;
+    if (!current || current.status !== "active") return;
+    const isBlocked = kind === "stuck";
+    const next = recordTutorTurn(current, {
+      objectiveId: current.activeObjectiveId,
+      response: response || "Student marked a blocker.",
+      nextStep: isBlocked ? "mechanism" : tutorPrompt.nextStep,
+      nextAction: isBlocked ? "repair_mechanism" : "continue_reasoning",
+      blocker: isBlocked ? { type: "recognition", concept: activeTutorObjective?.objective || activeTutorObjective?.text || "lecture objective", status: "open" } : null,
+    });
+    saveTutorSession(next);
+    setTutorResponse("");
+    setTutorNotice(isBlocked ? "Blocker saved. Use the mechanism scaffold, then try the prompt again." : "Checkpoint saved. Continue to the next reasoning step.");
+  }, [activeTutorObjective, saveTutorSession, tutorPrompt.nextStep, tutorResponse]);
 
   // Tick only while the tutor is active. Pausing or leaving the lecture therefore really stops
   // the budget rather than silently consuming time in the background.
@@ -1324,6 +1372,31 @@ export function LectureStudyFlow({
           )}
         </div>
       </div>
+      {tutorSession && tutorSession.status === "active" && (
+        <section className="mt-3 rounded-lg border border-good/30 bg-good/5 p-3" data-testid="guided-tutor-workspace">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Guided reasoning · {tutorPrompt.label}</p>
+              <h3 className="mt-1 font-semibold text-text-1">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case"}</h3>
+            </div>
+            <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Diagnosis → mechanism → consequence</span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-text-1">{tutorPrompt.prompt}</p>
+          <p className="mt-1 text-xs text-text-3">{tutorPrompt.scaffold}</p>
+          <textarea
+            value={tutorResponse}
+            onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
+            placeholder="Write your reasoning in 1–3 sentences…"
+            rows={3}
+            className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90">Save reasoning</button>
+            <button onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent">I’m stuck — save blocker</button>
+            {tutorNotice && <span className="text-xs text-text-3" role="status">{tutorNotice}</span>}
+          </div>
+        </section>
+      )}
       <details className="mt-2 w-fit text-sm text-text-3">
         <summary className="cursor-pointer py-1 hover:text-text-1">Lecture settings</summary>
         <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} /></div>
