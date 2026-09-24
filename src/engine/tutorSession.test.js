@@ -27,7 +27,8 @@ describe("bounded tutor sessions", () => {
 
   it("attaches a patient case and moves the session into diagnosis", () => {
     const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 10 });
-    expect(attachTutorCase(state, { caseTitle: "Case", stem: "A patient presents." }, 20)).toMatchObject({
+    expect(attachTutorCase(state, { caseTitle: "Case", stem: "A patient presents." }, 20, "Start with a model.")).toMatchObject({
+      openingModel: "Start with a model.",
       patientCase: { caseTitle: "Case" },
       currentStep: "diagnosis",
       nextAction: "identify_diagnosis",

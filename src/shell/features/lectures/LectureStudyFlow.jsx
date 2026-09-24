@@ -407,6 +407,8 @@ export function LectureStudyFlow({
   const [tutorLoading, setTutorLoading] = useState(false);
   const [tutorReviewing, setTutorReviewing] = useState(false);
   const tutorCaseGenerationRef = useRef(null);
+  const [mentalModel, setMentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
+  const [generatingModel, setGeneratingModel] = useState(false);
   const tutorSessionRef = useRef(tutorSession);
   const tutorSessionSummaryValue = useMemo(() => tutorSessionSummary(tutorSession), [tutorSession]);
   useEffect(() => { tutorSessionRef.current = tutorSession; }, [tutorSession]);
@@ -430,10 +432,10 @@ export function LectureStudyFlow({
     const source = String(text || atoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 9000);
     try {
       const generated = await callAIJSON(
-        "You are a medical school clinical reasoning tutor. Return only valid JSON. Build one concise, medically coherent patient case grounded in the provided lecture material and objective. Do not reveal the diagnosis in the case.",
-        `Lecture: ${title}\nObjective: ${objectiveText}\nLecture material:\n${source}\n\nReturn JSON with: caseTitle, stem, task, keyClues (array of 2-4 clues), diagnosisCategory (syndrome or disease family, not the final answer), and mechanismTarget. Keep the stem to 3-5 sentences.`,
-        { caseTitle: "Patient case", stem: `A patient presents with findings relevant to ${objectiveText}. Identify the syndrome before naming the disease.`, task: "What is the most likely diagnosis or disease family?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
-        1600
+        "You are a warm, precise medical-school tutor. Start with an orienting mental model before teaching details: explain the organizing rule for this lecture, its most useful exception or pivot, and the metabolic/clinical job that fails when the relevant cofactor or pathway is lost. Then write the first patient case for the active objective. Keep the diagnosis hidden from the case and all intro text. Stay tightly grounded in lecture material. Return valid JSON only.",
+        `Lecture: ${title}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLecture material:\n${source}\n\nReturn {"openingModel":"2-4 short sentences that orient the student before the case; include an exception/pivot only when supported","caseTitle":"short label such as Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one diagnosis-first question","keyClues":["2-4 concise clues"],"diagnosisCategory":"private tutor reference: likely diagnosis family, never display before the student answers","mechanismTarget":"private tutor reference"}.`,
+        { openingModel: "Start with the lecture’s organizing model, then ask what clinical job breaks when a pathway or cofactor is missing.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture model to identify the syndrome before naming the disease.`, task: "What is the presenting syndrome or most likely diagnosis? Which clue points you there?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
+        2200
       );
       const patientCase = {
         caseTitle: generated?.caseTitle || "Patient case",
@@ -444,7 +446,12 @@ export function LectureStudyFlow({
         mechanismTarget: generated?.mechanismTarget || "",
       };
       if (tutorSessionRef.current?.sessionId === sessionId) {
-        saveTutorSession(attachTutorCase(tutorSessionRef.current, patientCase));
+        saveTutorSession(attachTutorCase(
+          tutorSessionRef.current,
+          patientCase,
+          Date.now(),
+          mentalModel?.bigPicture || generated?.openingModel || "Start with the lecture’s organizing model, then ask what clinical job breaks when a pathway or cofactor is missing."
+        ));
       }
     } catch (error) {
       setTutorNotice(`Case generation failed: ${error?.message || "use the objective scaffold below"}`);
@@ -452,7 +459,7 @@ export function LectureStudyFlow({
       setTutorLoading(false);
       tutorCaseGenerationRef.current = null;
     }
-  }, [atoms, lecture?.id, lectureObjectives, saveTutorSession, text, title]);
+  }, [atoms, lecture?.id, lectureObjectives, mentalModel?.bigPicture, saveTutorSession, text, title]);
 
   const startTutorSession = useCallback((budgetMinutes) => {
     const next = createTutorSession({
@@ -540,7 +547,7 @@ export function LectureStudyFlow({
     try {
       const review = await callAIJSON(
         "You are a Socratic medical-school tutor. Evaluate only the learner's current reasoning step. The lecture objective defines tested scope and the lecture material defines correctness. Do not dump the full solution when the learner is incomplete or stuck. Give one precise correction or confirmation, then one question that makes the learner perform the next reasoning move. Return valid JSON only.",
-        `Lecture: ${title}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","readyToAdvance":boolean}. Set readyToAdvance true only if the learner adequately completed the current step. If the learner asked for a hint, reveal one clue but not the answer and set readyToAdvance false.`,
+        `Lecture: ${title}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","readyToAdvance":boolean}. Set readyToAdvance true only if the learner adequately completed the current step. If the learner asked for a hint, reveal one clue but not the answer and set readyToAdvance false.`,
         fallback,
         1000
       );
@@ -570,7 +577,7 @@ export function LectureStudyFlow({
     } finally {
       setTutorReviewing(false);
     }
-  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing]);
+  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing, mentalModel?.bigPicture]);
 
   // Tick only while the tutor is active. Pausing or leaving the lecture therefore really stops
   // the budget rather than silently consuming time in the background.
@@ -628,8 +635,6 @@ export function LectureStudyFlow({
 
   // Mental model — the reasoning framework built from this lecture's atoms. Built on demand
   // (not auto, like the study guide) since it costs more tokens per call; cached per lecture.
-  const [mentalModel, setMentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
-  const [generatingModel, setGeneratingModel] = useState(false);
   const [impactEntry, setImpactEntry] = useState(() => mentalModelImpactStore.read(userId)[lecture?.id] || null);
 
   useEffect(() => {
@@ -1464,8 +1469,18 @@ export function LectureStudyFlow({
           )}
         </div>
       </div>
-      {tutorSession && tutorSession.status === "active" && (
+      {tutorSession && (
         <section className="mt-3 rounded-lg border border-good/30 bg-good/5 p-3" data-testid="guided-tutor-workspace">
+          {tutorSession.status !== "active" && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-accent/30 bg-bg-elevated px-3 py-2">
+              <p className="text-sm text-text-2">
+                {tutorSession.status === "finished" ? "Walkthrough finished. Your case and checkpoints are here to review." : "Tutor paused. Take your time with the case and feedback; your place is saved."}
+              </p>
+              {(tutorSession.status === "paused" || tutorSession.status === "checkpoint") && (
+                <button onClick={resumeCurrentTutorSession} className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-white hover:bg-accent/90">Resume timer</button>
+              )}
+            </div>
+          )}
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Guided case walkthrough · step {tutorSession.turns?.length + 1 || 1}</p>
@@ -1477,6 +1492,13 @@ export function LectureStudyFlow({
             <summary className="cursor-pointer hover:text-text-1">Show lecture objective</summary>
             <p className="mt-1 leading-5">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
           </details>
+          {tutorSession.openingModel && (
+            <div className="mt-4 rounded border border-good/30 bg-bg-elevated p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Start with the model</p>
+              <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.openingModel}</p>
+              <p className="mt-2 text-xs text-text-3">The case asks which clinical job breaks when this pathway or cofactor is lost.</p>
+            </div>
+          )}
           {tutorLoading && !tutorSession.patientCase ? (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">Building a patient case from this lecture and its objectives…</div>
           ) : tutorSession.patientCase ? (
@@ -1507,12 +1529,13 @@ export function LectureStudyFlow({
             value={tutorResponse}
             onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
             placeholder="First name the syndrome or disease family, then explain your reasoning…"
+            disabled={tutorSession.status !== "active"}
             rows={3}
-            className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
+            className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
           />
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button disabled={tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
-            <button disabled={tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent disabled:cursor-wait disabled:opacity-50">Give me one hint</button>
+            <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
+            <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent disabled:cursor-wait disabled:opacity-50">Give me one hint</button>
             {tutorNotice && <span className="text-xs text-text-3" role="status">{tutorNotice}</span>}
           </div>
         </section>

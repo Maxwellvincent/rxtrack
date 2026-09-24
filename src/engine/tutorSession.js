@@ -49,13 +49,15 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     blockers: [],
     turns: [],
     nextAction: ids.length ? "retrieve_previous_state" : "build_patient_case",
+    openingModel: null,
     patientCase: null,
   };
 }
 
-export function attachTutorCase(state, patientCase, now = Date.now()) {
+export function attachTutorCase(state, patientCase, now = Date.now(), openingModel = null) {
   if (!state || !patientCase) return state;
   return checkpoint(state, {
+    ...(openingModel ? { openingModel } : {}),
     patientCase,
     currentStep: "diagnosis",
     nextAction: "identify_diagnosis",
