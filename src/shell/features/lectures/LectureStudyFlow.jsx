@@ -68,6 +68,7 @@ import {
   tutorSessionSummary,
   tutorStepPrompt,
   recordTutorTurn,
+  attachTutorCase,
 } from "../../../engine/tutorSession.js";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { RenameLecture } from "./RenameLecture.jsx";
@@ -363,6 +364,7 @@ export function LectureStudyFlow({
     const all = selectBlockObjectives(objectiveResource.data, blockId);
     return all.filter((o) => o?.linkedLecId === lecture?.id);
   }, [objectiveResource.data, blockId, lecture?.id]);
+  const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
   const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const objectivePractice = useMemo(
     () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
@@ -402,6 +404,9 @@ export function LectureStudyFlow({
   const [tutorSession, setTutorSession] = useState(() => tutorSessionsStore.get(userId, lecture?.id));
   const [tutorResponse, setTutorResponse] = useState("");
   const [tutorNotice, setTutorNotice] = useState("");
+  const [tutorLoading, setTutorLoading] = useState(false);
+  const [tutorReviewing, setTutorReviewing] = useState(false);
+  const tutorCaseGenerationRef = useRef(null);
   const tutorSessionRef = useRef(tutorSession);
   const tutorSessionSummaryValue = useMemo(() => tutorSessionSummary(tutorSession), [tutorSession]);
   useEffect(() => { tutorSessionRef.current = tutorSession; }, [tutorSession]);
@@ -413,6 +418,42 @@ export function LectureStudyFlow({
     tutorSessionsStore.save(userId, next);
   }, [userId]);
 
+  const generateTutorCase = useCallback(async () => {
+    if (!tutorSessionRef.current || tutorSessionRef.current.patientCase || tutorCaseGenerationRef.current) return;
+    const sessionId = tutorSessionRef.current.sessionId;
+    const activeObjectiveId = tutorSessionRef.current.activeObjectiveId;
+    tutorCaseGenerationRef.current = lecture?.id || "lecture";
+    setTutorLoading(true);
+    const objective = lectureObjectives.find((candidate) => String(candidate?.id || candidate?.code || candidate?.objective) === String(activeObjectiveId))
+      || lectureObjectives[0];
+    const objectiveText = objective?.objective || objective?.text || title;
+    const source = String(text || atoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 9000);
+    try {
+      const generated = await callAIJSON(
+        "You are a medical school clinical reasoning tutor. Return only valid JSON. Build one concise, medically coherent patient case grounded in the provided lecture material and objective. Do not reveal the diagnosis in the case.",
+        `Lecture: ${title}\nObjective: ${objectiveText}\nLecture material:\n${source}\n\nReturn JSON with: caseTitle, stem, task, keyClues (array of 2-4 clues), diagnosisCategory (syndrome or disease family, not the final answer), and mechanismTarget. Keep the stem to 3-5 sentences.`,
+        { caseTitle: "Patient case", stem: `A patient presents with findings relevant to ${objectiveText}. Identify the syndrome before naming the disease.`, task: "What is the most likely diagnosis or disease family?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
+        1600
+      );
+      const patientCase = {
+        caseTitle: generated?.caseTitle || "Patient case",
+        stem: generated?.stem || "Start by identifying the presenting syndrome.",
+        task: generated?.task || "What is the most likely diagnosis or disease family?",
+        keyClues: Array.isArray(generated?.keyClues) ? generated.keyClues.slice(0, 4) : [],
+        diagnosisCategory: generated?.diagnosisCategory || "",
+        mechanismTarget: generated?.mechanismTarget || "",
+      };
+      if (tutorSessionRef.current?.sessionId === sessionId) {
+        saveTutorSession(attachTutorCase(tutorSessionRef.current, patientCase));
+      }
+    } catch (error) {
+      setTutorNotice(`Case generation failed: ${error?.message || "use the objective scaffold below"}`);
+    } finally {
+      setTutorLoading(false);
+      tutorCaseGenerationRef.current = null;
+    }
+  }, [atoms, lecture?.id, lectureObjectives, saveTutorSession, text, title]);
+
   const startTutorSession = useCallback((budgetMinutes) => {
     const next = createTutorSession({
       lectureId: lecture?.id,
@@ -421,6 +462,11 @@ export function LectureStudyFlow({
     });
     saveTutorSession(next);
   }, [lecture?.id, lectureObjectives, saveTutorSession]);
+
+  useEffect(() => {
+    if (tutorSession?.status !== "active" || tutorSession.patientCase || (!text && !atoms.length)) return;
+    generateTutorCase();
+  }, [atoms.length, generateTutorCase, text, tutorSession?.patientCase, tutorSession?.status]);
 
   const pauseCurrentTutorSession = useCallback(() => {
     saveTutorSession(pauseTutorSession(tutorSessionRef.current));
@@ -456,27 +502,75 @@ export function LectureStudyFlow({
     objectiveText: activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective",
     atomTerms: activeTutorAtoms.map((atom) => atom.term || atom.name || atom.label),
   }), [activeTutorAtoms, activeTutorObjective, tutorSession?.currentStep]);
+  const tutorObjectiveIndex = Math.max(0, lectureObjectives.findIndex((objective) => String(objective?.id || objective?.code || objective?.objective) === String(tutorSession?.activeObjectiveId)));
+  const latestTutorTurn = tutorSession?.turns?.[tutorSession.turns.length - 1] || null;
+  const normalizedTutorStep = tutorSession?.currentStep === "patient_case" ? "diagnosis" : tutorSession?.currentStep;
+  const latestTurnMatchesStep = latestTutorTurn
+    && String(latestTutorTurn.objectiveId) === String(tutorSession?.activeObjectiveId)
+    && latestTutorTurn.reviewedStep === normalizedTutorStep;
+  const currentTutorQuestion = latestTurnMatchesStep && latestTutorTurn.followUp
+    ? latestTutorTurn.followUp
+    : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt);
 
-  const submitTutorTurn = useCallback((kind = "response") => {
+  const submitTutorTurn = useCallback(async (kind = "response") => {
     const response = tutorResponse.trim();
     if (kind === "response" && response.length < 3) {
       setTutorNotice("Write a short explanation first, even if it is incomplete.");
       return;
     }
     const current = tutorSessionRef.current;
-    if (!current || current.status !== "active") return;
+    if (!current || current.status !== "active" || tutorReviewing) return;
     const isBlocked = kind === "stuck";
-    const next = recordTutorTurn(current, {
-      objectiveId: current.activeObjectiveId,
-      response: response || "Student marked a blocker.",
-      nextStep: isBlocked ? "mechanism" : tutorPrompt.nextStep,
-      nextAction: isBlocked ? "repair_mechanism" : "continue_reasoning",
-      blocker: isBlocked ? { type: "recognition", concept: activeTutorObjective?.objective || activeTutorObjective?.text || "lecture objective", status: "open" } : null,
-    });
-    saveTutorSession(next);
-    setTutorResponse("");
-    setTutorNotice(isBlocked ? "Blocker saved. Use the mechanism scaffold, then try the prompt again." : "Checkpoint saved. Continue to the next reasoning step.");
-  }, [activeTutorObjective, saveTutorSession, tutorPrompt.nextStep, tutorResponse]);
+    const reviewedStep = current.currentStep === "patient_case" ? "diagnosis" : current.currentStep;
+    const objectiveText = activeTutorObjective?.objective || activeTutorObjective?.text || "this lecture objective";
+    const caseText = current.patientCase?.stem || "No generated case is available.";
+    const source = String(text || activeTutorAtoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 6500);
+    const fallback = {
+      assessment: isBlocked ? "needs_repair" : "unreviewed",
+      feedback: isBlocked
+        ? "Start with the organ system, time course, and the finding that is hardest to explain."
+        : "Your checkpoint was saved, but live tutor feedback was unavailable. Continue the reasoning chain and verify this step against the lecture.",
+      followUp: isBlocked
+        ? "Which single finding best localizes the process?"
+        : "What downstream finding should follow if your reasoning is correct?",
+      readyToAdvance: !isBlocked,
+    };
+    setTutorReviewing(true);
+    setTutorNotice(isBlocked ? "Building a focused hint…" : "Checking your reasoning against the lecture…");
+    try {
+      const review = await callAIJSON(
+        "You are a Socratic medical-school tutor. Evaluate only the learner's current reasoning step. The lecture objective defines tested scope and the lecture material defines correctness. Do not dump the full solution when the learner is incomplete or stuck. Give one precise correction or confirmation, then one question that makes the learner perform the next reasoning move. Return valid JSON only.",
+        `Lecture: ${title}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","readyToAdvance":boolean}. Set readyToAdvance true only if the learner adequately completed the current step. If the learner asked for a hint, reveal one clue but not the answer and set readyToAdvance false.`,
+        fallback,
+        1000
+      );
+      const latest = tutorSessionRef.current;
+      if (!latest || latest.sessionId !== current.sessionId || latest.activeObjectiveId !== current.activeObjectiveId || latest.currentStep !== current.currentStep) return;
+      const readyToAdvance = !isBlocked && review?.readyToAdvance === true;
+      const objectiveComplete = readyToAdvance && reviewedStep === "contrast";
+      const next = recordTutorTurn(latest, {
+        objectiveId: latest.activeObjectiveId,
+        response: response || "Student requested a hint.",
+        reviewedStep,
+        assessment: review?.assessment || fallback.assessment,
+        feedback: review?.feedback || fallback.feedback,
+        followUp: review?.followUp || fallback.followUp,
+        objectiveComplete,
+        nextStep: readyToAdvance ? tutorPrompt.nextStep : latest.currentStep,
+        nextAction: objectiveComplete ? "advance_objective" : (readyToAdvance ? "continue_reasoning" : "retry_reasoning"),
+        blocker: isBlocked ? { type: reviewedStep, concept: objectiveText, status: "open" } : null,
+      });
+      saveTutorSession(next);
+      setTutorResponse("");
+      setTutorNotice(objectiveComplete
+        ? (next.status === "finished" ? "Walkthrough complete. Review your checkpoints." : "Objective complete. Building the next patient case…")
+        : (readyToAdvance ? "Good—moving to the next reasoning step." : "Stay on this step and use the tutor's follow-up."));
+    } catch (error) {
+      setTutorNotice(`Tutor review failed: ${error?.message || "save your response and retry"}`);
+    } finally {
+      setTutorReviewing(false);
+    }
+  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing]);
 
   // Tick only while the tutor is active. Pausing or leaving the lecture therefore really stops
   // the budget rather than silently consuming time in the background.
@@ -562,8 +656,6 @@ export function LectureStudyFlow({
     const t = setTimeout(() => setReviewAtomKey(null), 3000);
     return () => clearTimeout(t);
   }, [reviewAtomKey, questions]);
-
-  const title = lecture?.lectureTitle || lecture?.title || lecture?.fileName || "Lecture";
 
   const generateGuide = useCallback(async (currentAtoms, currentObjectives) => {
     setGeneratingGuide(true);
@@ -1376,23 +1468,51 @@ export function LectureStudyFlow({
         <section className="mt-3 rounded-lg border border-good/30 bg-good/5 p-3" data-testid="guided-tutor-workspace">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Guided reasoning · {tutorPrompt.label}</p>
-              <h3 className="mt-1 font-semibold text-text-1">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case"}</h3>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Guided case walkthrough · step {tutorSession.turns?.length + 1 || 1}</p>
+              <h3 className="mt-1 font-semibold text-text-1">Objective {tutorObjectiveIndex + 1} of {lectureObjectives.length || 1}</h3>
             </div>
-            <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Diagnosis → mechanism → consequence</span>
+            <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Patient → diagnosis → mechanism → consequence</span>
           </div>
-          <p className="mt-3 text-sm leading-6 text-text-1">{tutorPrompt.prompt}</p>
+          <details className="mt-2 text-xs text-text-3">
+            <summary className="cursor-pointer hover:text-text-1">Show lecture objective</summary>
+            <p className="mt-1 leading-5">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
+          </details>
+          {tutorLoading && !tutorSession.patientCase ? (
+            <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">Building a patient case from this lecture and its objectives…</div>
+          ) : tutorSession.patientCase ? (
+            <div className="mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{tutorSession.patientCase.caseTitle || "Patient case"}</p>
+              <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.patientCase.stem}</p>
+              {tutorSession.patientCase.keyClues?.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {tutorSession.patientCase.keyClues.map((clue) => <span key={clue} className="rounded bg-accent/10 px-2 py-1 text-xs text-text-2">{clue}</span>)}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">
+              <p>No case was generated yet.</p>
+              <button type="button" onClick={generateTutorCase} className="mt-2 rounded border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10">Build patient case</button>
+            </div>
+          )}
+          {latestTutorTurn && String(latestTutorTurn.objectiveId) === String(tutorSession.activeObjectiveId) && latestTutorTurn.feedback && (
+            <div className={`mt-3 rounded border p-3 ${latestTutorTurn.assessment === "correct" ? "border-good/30 bg-good/5" : "border-warn/30 bg-warn/5"}`}>
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-3">Tutor feedback · {latestTutorTurn.assessment?.replace(/_/g, " ") || "review"}</p>
+              <p className="mt-1 text-sm leading-6 text-text-1">{latestTutorTurn.feedback}</p>
+            </div>
+          )}
+          <p className="mt-4 text-sm font-semibold leading-6 text-text-1">{currentTutorQuestion || tutorPrompt.prompt}</p>
           <p className="mt-1 text-xs text-text-3">{tutorPrompt.scaffold}</p>
           <textarea
             value={tutorResponse}
             onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
-            placeholder="Write your reasoning in 1–3 sentences…"
+            placeholder="First name the syndrome or disease family, then explain your reasoning…"
             rows={3}
             className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent"
           />
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90">Save reasoning</button>
-            <button onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent">I’m stuck — save blocker</button>
+            <button disabled={tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
+            <button disabled={tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("stuck")} className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:border-accent disabled:cursor-wait disabled:opacity-50">Give me one hint</button>
             {tutorNotice && <span className="text-xs text-text-3" role="status">{tutorNotice}</span>}
           </div>
         </section>

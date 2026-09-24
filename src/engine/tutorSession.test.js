@@ -8,6 +8,7 @@ import {
   tickTutorSession,
   tutorSessionSummary,
   tutorStepPrompt,
+  attachTutorCase,
 } from "./tutorSession.js";
 
 describe("bounded tutor sessions", () => {
@@ -24,6 +25,15 @@ describe("bounded tutor sessions", () => {
     });
   });
 
+  it("attaches a patient case and moves the session into diagnosis", () => {
+    const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 10 });
+    expect(attachTutorCase(state, { caseTitle: "Case", stem: "A patient presents." }, 20)).toMatchObject({
+      patientCase: { caseTitle: "Case" },
+      currentStep: "diagnosis",
+      nextAction: "identify_diagnosis",
+    });
+  });
+
   it("creates a resumable session with a bounded budget", () => {
     const state = createTutorSession({ lectureId: "lec30", budgetMinutes: 45, objectiveIds: ["o1", "o1", "o2"], now: 100 });
     expect(state).toMatchObject({ lectureId: "lec30", budgetMinutes: 45, remainingSeconds: 2700, status: "active", activeObjectiveId: "o1" });
@@ -33,10 +43,17 @@ describe("bounded tutor sessions", () => {
   it("persists a blocker and objective progress without restarting", () => {
     let state = createTutorSession({ lectureId: "lec30", objectiveIds: ["o1", "o2"], now: 100 });
     state = recordTutorTurn(state, { objectiveId: "o1", blocker: { type: "R", concept: "urine bilirubin", status: "open" }, nextStep: "repair" }, 200);
+    state = attachTutorCase(state, { caseTitle: "Case" }, 250);
     state = recordTutorTurn(state, { objectiveId: "o1", objectiveComplete: true, nextStep: "contrast" }, 300);
     expect(state.completedObjectiveIds).toEqual(["o1"]);
     expect(state.blockers).toHaveLength(1);
-    expect(state.currentStep).toBe("contrast");
+    expect(state).toMatchObject({ activeObjectiveId: "o2", currentStep: "retrieval", patientCase: null, nextAction: "build_patient_case" });
+  });
+
+  it("finishes after the final objective reasoning chain", () => {
+    let state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 100 });
+    state = recordTutorTurn(state, { objectiveId: "o1", objectiveComplete: true }, 200);
+    expect(state).toMatchObject({ status: "finished", phase: "summary", activeObjectiveId: "o1", nextAction: "review_checkpoint" });
   });
 
   it("checkpoints at the time boundary and resumes from the same state", () => {

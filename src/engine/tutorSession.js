@@ -6,13 +6,14 @@
 
 const BUDGETS = new Set([30, 45, 60]);
 
-const STEP_ORDER = ["retrieval", "patient_case", "mechanism", "consequence", "contrast"];
+const STEP_ORDER = ["diagnosis", "mechanism", "consequence", "contrast"];
 
 export function tutorStepPrompt({ step = "retrieval", objectiveText = "this objective", atomTerms = [] } = {}) {
   const terms = atomTerms.filter(Boolean).slice(0, 4).join(", ");
   const prompts = {
     retrieval: `Without looking at your notes, what do you already remember about ${objectiveText}? Start with the patient problem or syndrome.`,
-    patient_case: `Build the patient anchor for ${objectiveText}: who presents, what is the time course, and what are the two most useful clues?`,
+    patient_case: `What is the most likely diagnosis or disease family? Name the syndrome first if you are not yet certain.`,
+    diagnosis: `What is the most likely diagnosis or disease family? Name the syndrome first if you are not yet certain.`,
     mechanism: `Explain ${objectiveText} as a causal chain. What starts the process, what tissue or pathway is affected, and how does that produce the findings?`,
     consequence: `Given ${objectiveText}, what should happen next: a lab finding, symptom, complication, or treatment response? Explain why.`,
     contrast: `What is the closest mimic of ${objectiveText}, and what single finding would separate the two?`,
@@ -23,7 +24,7 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
     prompt: prompts[step] || prompts.retrieval,
     terms,
     scaffold: terms ? `Useful lecture terms to connect: ${terms}.` : "Use the lecture objective and your own causal reasoning.",
-    nextStep: STEP_ORDER[Math.min(STEP_ORDER.indexOf(step) + 1, STEP_ORDER.length - 1)] || "patient_case",
+    nextStep: STEP_ORDER[Math.min(Math.max(STEP_ORDER.indexOf(step), 0) + 1, STEP_ORDER.length - 1)] || "diagnosis",
   };
 }
 
@@ -48,7 +49,17 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     blockers: [],
     turns: [],
     nextAction: ids.length ? "retrieve_previous_state" : "build_patient_case",
+    patientCase: null,
   };
+}
+
+export function attachTutorCase(state, patientCase, now = Date.now()) {
+  if (!state || !patientCase) return state;
+  return checkpoint(state, {
+    patientCase,
+    currentStep: "diagnosis",
+    nextAction: "identify_diagnosis",
+  }, now);
 }
 
 function checkpoint(state, patch = {}, now = Date.now()) {
@@ -65,13 +76,22 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
   const blockers = turn?.blocker
     ? [...(state.blockers || []), { ...turn.blocker, objectiveId, at: now }]
     : state.blockers || [];
+  const nextObjectiveId = turn?.objectiveComplete
+    ? (state.objectiveIds || []).find((id) => !completed.includes(id)) || null
+    : objectiveId || state.activeObjectiveId;
+  const finishedAllObjectives = Boolean(turn?.objectiveComplete && !nextObjectiveId);
   return checkpoint(state, {
     turns: nextTurns,
     completedObjectiveIds: completed,
-    activeObjectiveId: objectiveId || state.activeObjectiveId,
-    currentStep: turn?.nextStep || state.currentStep,
+    activeObjectiveId: nextObjectiveId || objectiveId || state.activeObjectiveId,
+    currentStep: nextObjectiveId !== objectiveId ? "retrieval" : (turn?.nextStep || state.currentStep),
+    patientCase: nextObjectiveId !== objectiveId ? null : state.patientCase,
     blockers,
-    nextAction: turn?.nextAction || state.nextAction,
+    status: finishedAllObjectives ? "finished" : state.status,
+    phase: finishedAllObjectives ? "summary" : state.phase,
+    nextAction: finishedAllObjectives
+      ? "review_checkpoint"
+      : (nextObjectiveId !== objectiveId ? "build_patient_case" : (turn?.nextAction || state.nextAction)),
   }, now);
 }
 
