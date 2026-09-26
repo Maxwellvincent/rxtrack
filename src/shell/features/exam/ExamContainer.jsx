@@ -71,6 +71,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launchProgress, setLaunchProgress] = useState(null);
   const [bankLaunching, setBankLaunching] = useState(null);
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
+  const [preparedSet, setPreparedSet] = useState(null);
   const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
@@ -415,7 +416,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         if (!result.ok) throw new Error(result.error);
         setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
-        return `${result.prepared}/${config.questionCount} questions saved in Firestore. Start an exam when ready.${result.generationErrors?.length ? " Some slots still need generation." : ""}`;
+        setPreparedSet({ config: { ...config }, prepared: result.prepared || 0 });
+        return `${result.prepared}/${config.questionCount} questions saved. Use the “Ready to start” panel on this page to launch this set.${result.generationErrors?.length ? " Some slots still need generation; the launcher will report and fill any shortfall." : ""}`;
       },
     });
   };
@@ -595,6 +597,23 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </div>
           <Button onClick={() => setActiveSessionId(session.sessionId)}>Resume</Button>
         </div>)}</div>
+      </section>}
+
+      {preparedSet && <section aria-label="Prepared quiz ready to start" role="status" className="mb-4 rounded-xl border border-accent bg-bg-elevated p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-bold text-text-1">Ready to start: {preparedSet.config.examName?.trim() || (preparedSet.config.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
+            <p className="mt-1 text-sm text-text-2">{preparedSet.prepared} saved · {preparedSet.config.questionCount} requested · {preparedSet.config.contentScope || "block-so-far"}. This uses the same scope and name you chose.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={launching} onClick={() => {
+              const { config } = preparedSet;
+              setPreparedSet(null);
+              handleLaunch({ ...config, startWhilePreparing: true });
+            }}>Start this saved {preparedSet.config.questionCount}-question {preparedSet.config.format === "exam" ? "quiz" : "practice set"}</Button>
+            <Button variant="outline" onClick={() => setPreparedSet(null)}>Dismiss</Button>
+          </div>
+        </div>
       </section>}
 
       <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">

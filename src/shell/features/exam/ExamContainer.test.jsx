@@ -73,7 +73,7 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
-  ExamLaunchModal: ({ onLaunch, onStartSaved, savedQuestionCount, onCancel, launching, error }) => (
+  ExamLaunchModal: ({ onLaunch, onPrepare, onStartSaved, savedQuestionCount, onCancel, launching, error }) => (
     <div data-testid="launch-modal" data-launching={launching ? "true" : "false"}>
       {error && <div role="alert">{error}</div>}
       <button
@@ -83,6 +83,7 @@ vi.mock("./ExamLaunchModal.jsx", () => ({
       >
         launch
       </button>
+      <button data-testid="prepare-exam" onClick={() => onPrepare({ format: "exam", questionCount: 30, durationMinutes: 45, contentScope: "date-range:2026-09-20:2026-09-23", examName: "Sep date-range quiz" })}>prepare</button>
       <button data-testid="cancel-launch" onClick={onCancel}>cancel</button>
       {savedQuestionCount > 0 && <button data-testid="start-scoped-saved" onClick={() => onStartSaved({ format: "exam", questionCount: 12, durationMinutes: 18, contentScope: "date-range:2026-09-20:2026-09-23" })}>saved scoped run</button>}
     </div>
@@ -137,6 +138,30 @@ beforeEach(() => {
 });
 
 describe("ExamContainer", () => {
+  it("shows a direct start action after a named, scoped quiz is prepared", async () => {
+    launchExamSessionMock
+      .mockResolvedValueOnce({ ok: true, prepared: 30 })
+      .mockResolvedValueOnce({ ok: true, sessionId: "prepared-quiz-session" });
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    const start = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start Integrated Exam"));
+    act(() => start.click());
+    await act(async () => host.querySelector('[data-testid="prepare-exam"]').click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+
+    expect(host.textContent).toMatch(/Ready to start: Sep date-range quiz/);
+    expect(host.textContent).toMatch(/30 saved · 30 requested/);
+    const startPrepared = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start this saved 30-question quiz"));
+    expect(startPrepared).toBeTruthy();
+    await act(async () => startPrepared.click());
+    await flush();
+    expect(launchExamSessionMock.mock.calls[1][0]).toMatchObject({
+      examName: "Sep date-range quiz", questionCount: 30, durationMinutes: 45,
+      contentScope: "date-range:2026-09-20:2026-09-23", startWhilePreparing: true,
+    });
+    expect(host.textContent).toMatch(/prepared-quiz-session/);
+    unmount();
+  });
+
   it("starts directly from the prepared reserve without requesting new AI questions", async () => {
     launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "saved-session" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
