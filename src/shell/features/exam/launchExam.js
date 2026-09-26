@@ -99,7 +99,9 @@ async function runLaunch(
   if (!questions || questions.length === 0) {
     return {
       ok: false,
-      error: "Could not generate any questions — try again or reduce the question count.",
+      error: savedOnly
+        ? "No saved questions match this block's current exam scope. Choose a broader block-so-far scope or prepare questions first."
+        : "Could not generate any questions — try again or reduce the question count.",
     };
   }
 

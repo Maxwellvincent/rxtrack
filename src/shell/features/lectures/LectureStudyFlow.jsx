@@ -15,7 +15,6 @@ import {
   saveLectureAtoms,
   saveLectureImages,
   uploadLectureImages,
-  overwriteObjectivesInCloud,
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
@@ -440,8 +439,8 @@ export function LectureStudyFlow({
       .join("\n");
     try {
       const generated = await callAIJSON(
-        "You are a warm, precise medical-school tutor. Start with an orienting mental model before teaching details: explain the organizing rule for this lecture, its most useful exception or pivot, and the clinical or physiologic job that fails when the relevant process is disrupted. Connect new ideas to the learner's established anchors when relevant, but never disclose the target diagnosis or mechanism before the learner attempts retrieval. Briefly define unfamiliar terms in plain language. Write one patient case for the active objective, with one task only. For overlapping presentations, make the decisive separator available in the case rather than relying on a shared symptom. Stay tightly grounded in lecture material. Do not narrate the tutoring strategy or promise future review. Return valid JSON only.",
-        `Lecture: ${title}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"2-4 short sentences that orient the student before the case; include an exception/pivot only when supported, without naming the target diagnosis","caseTitle":"short label such as Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one diagnosis-first question","keyClues":["2-4 private clues for feedback; do not display separately"],"diagnosisCategory":"private tutor reference: likely diagnosis family, never display before the student answers","mechanismTarget":"private tutor reference"}.`,
+        "You are a warm, precise medical-school tutor. Assume a first-pass learner unless the learner has demonstrated mastery. Before testing, teach the smallest usable causal model needed for the case: deficiency or defect -> affected enzyme/transport step -> physiologic consequence -> clinical/lab finding. The openingModel must teach a case-relevant fact, not give generic encouragement. Then write one patient case with one answerable task that uses only the model just taught or facts explicitly present in the case. Do not test an unintroduced association. Keep caseTitle neutral (Patient 1); never place a diagnosis in a heading. Hide the target diagnosis until the learner attempts retrieval. For overlapping presentations, include the decisive separator. Stay grounded in the lecture; mark external facts as outside-scope in feedback. Return valid JSON only.",
+        `Lecture: ${title}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"2-4 concise sentences that teach the specific mechanism/lab rule needed to reason through this case without naming its target diagnosis","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question answerable using the openingModel and explicit case clues; begin with system/pattern or one causal consequence, not an unexplained fact-recall demand","keyClues":["2-4 private clues for feedback; do not display separately"],"diagnosisCategory":"private expected diagnosis family; never display before learner attempts","mechanismTarget":"private expected mechanism; never display before learner attempts","acceptedAnswers":["private acceptable diagnosis aliases grounded in lecture"]}.`,
         { openingModel: "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture model to identify the syndrome before naming the disease.`, task: "What is the presenting syndrome or most likely diagnosis? Which clue points you there?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
         2200,
         undefined,
@@ -454,12 +453,14 @@ export function LectureStudyFlow({
         throw new Error("The tutor returned an incomplete case; retry to keep the walkthrough grounded in this lecture.");
       }
       const patientCase = {
-        caseTitle: generated?.caseTitle || "Patient case",
+        // Never trust model-generated headings to be reveal-safe.
+        caseTitle: "Patient 1",
         stem: generated?.stem || "Start by identifying the presenting syndrome.",
         task: generated?.task || "What is the most likely diagnosis or disease family?",
         keyClues: Array.isArray(generated?.keyClues) ? generated.keyClues.slice(0, 4) : [],
         diagnosisCategory: generated?.diagnosisCategory || "",
         mechanismTarget: generated?.mechanismTarget || "",
+        acceptedAnswers: Array.isArray(generated?.acceptedAnswers) ? generated.acceptedAnswers.slice(0, 6) : [],
       };
       if (tutorSessionRef.current?.sessionId === sessionId) {
         saveTutorSession(attachTutorCase(
@@ -510,6 +511,7 @@ export function LectureStudyFlow({
       next.delayedReview = delayedReview;
       next.resumeObjectiveId = objectiveIds.find((id) => id !== String(delayedReview.objectiveId)) || objectiveIds[0] || null;
       next.nextAction = "retrieve_earlier_case";
+      next.status = "active";
     }
     next.retrievalQueue = retrievalQueue;
     saveTutorSession(next);
@@ -615,7 +617,7 @@ export function LectureStudyFlow({
     try {
       const review = await callAIJSON(
         "You are a Socratic medical-school tutor. Evaluate only the learner's current reasoning step. The lecture objective defines tested scope and the lecture material defines correctness. Do not dump the full solution when the learner is incomplete or stuck. Give one precise correction or confirmation, then one question that makes the learner perform the next reasoning move. Do not put questions in the feedback field; ask only one question in followUp. Set readyToAdvance true only when the learner independently completed this step. Return valid JSON only.",
-        `Lecture: ${title}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded yet."}\nStable reasoning skills demonstrated across topics: ${stableReasoningSkills.join(", ") || "none recorded"}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nConfidence before feedback: ${tutorConfidence || "not recorded"}\n${reviewedStep === "delayed_retrieval" ? `Private answer anchors (do not reveal before evaluating): diagnosis=${current.delayedReview?.expectedDiagnosis || "not recorded"}; mechanism=${current.delayedReview?.mechanismTarget || "not recorded"}.` : ""}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","missType":"recognition|mechanism|application|execution|null","repairLink":"the single missing or inaccurate link, or empty","reasoningSkill":"one concise skill label such as causal-chain, localization, discriminator, or pathway-link; empty if not demonstrated","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","readyToAdvance":boolean}. Let the learner commit before revealing the diagnosis. If their answer is incomplete, affirm the correct part, repair only the missing link using lecture evidence, define unfamiliar terms in plain language, then ask one novel application question. Do not immediately ask them to repeat a newly taught association. Skip basic versions of stable reasoning skills and test transfer instead. If they asked for a hint, reveal one clue but not the answer and set readyToAdvance false. For delayed retrieval, compare to the private answer anchors and do not show them until the learner has attempted recall. Keep feedback direct; do not narrate the study strategy or promise future review.`,
+        `Lecture: ${title}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded yet."}\nStable reasoning skills demonstrated across topics: ${stableReasoningSkills.join(", ") || "none recorded"}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nPrivate expected answer (never reveal before evaluating): diagnosis=${current.patientCase?.diagnosisCategory || "not recorded"}; accepted aliases=${(current.patientCase?.acceptedAnswers || []).join(", ") || "none recorded"}; mechanism=${current.patientCase?.mechanismTarget || "not recorded"}.\nConfidence before feedback: ${tutorConfidence || "not recorded"}\n${reviewedStep === "delayed_retrieval" ? `Earlier-case answer anchors: diagnosis=${current.delayedReview?.expectedDiagnosis || "not recorded"}; mechanism=${current.delayedReview?.mechanismTarget || "not recorded"}.` : ""}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","missType":"recognition|mechanism|application|execution|null","repairLink":"the single missing or inaccurate link, or empty","reasoningSkill":"one concise skill label such as causal-chain, localization, discriminator, or pathway-link; empty if not demonstrated","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","readyToAdvance":boolean}. Grade against the private expected answer and lecture evidence, not a guessed alternative. Never call a high ferritin/high transferrin-saturation pattern iron deficiency; first preserve each correct proposition, then correct only the first wrong link. Do not invent a diagnosis that contradicts the expected answer or laboratory pattern. Let the learner commit before revealing the diagnosis. If incomplete, repair only the missing link using lecture evidence, define unfamiliar terms plainly, and ask one novel application question answerable from what has been taught. Do not immediately ask them to repeat a new association. If they ask for a hint, reveal one clue but not the answer and set readyToAdvance false. Keep feedback direct; do not narrate the study strategy or promise future review.`,
         fallback,
         1000
       );
@@ -659,14 +661,14 @@ export function LectureStudyFlow({
   // Tick only while the tutor is active. Pausing or leaving the lecture therefore really stops
   // the budget rather than silently consuming time in the background.
   useEffect(() => {
-    if (tutorSession?.status !== "active") return undefined;
+    if (tutorSession?.status !== "active" || (!tutorSession.patientCase && !tutorSession.delayedReview)) return undefined;
     const timer = window.setInterval(() => {
       const current = tutorSessionRef.current;
       const next = tickTutorSession(current, 1);
       if (next !== current) saveTutorSession(next);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [tutorSession?.status, saveTutorSession]);
+  }, [tutorSession?.status, tutorSession?.patientCase, tutorSession?.delayedReview, saveTutorSession]);
 
   // Persist the last checkpoint even if the learner navigates away between timer ticks.
   useEffect(() => () => {
@@ -811,11 +813,7 @@ export function LectureStudyFlow({
       notify: () => window.dispatchEvent(new CustomEvent("rxt-objectives-updated")),
     });
     commands.replaceLectureObjectives(blockId, lecture?.id, found);
-    if (userId) {
-      const saved = await overwriteObjectivesInCloud(userId, { [blockId]: objectivesStore.read(userId)?.[blockId] });
-      if (saved.errors?.length) throw new Error("Objectives recovered locally, but cloud saving failed. Please retry when connected.");
-    }
-    setObjectiveNotice(`${found.length} lecture objectives recovered and linked.`);
+    setObjectiveNotice(`${found.length} lecture objectives recovered and linked; cloud sync is queued.`);
     return found;
   }, [lecture, blockId, userId, objectiveResource.loading]);
 
@@ -828,8 +826,10 @@ export function LectureStudyFlow({
       } catch (e) {
         setError(`Objective recovery: ${e?.message || String(e)}`);
       }
+      // Defer persistence until after objective tagging so this extraction
+      // writes the lecture's atom document only once.
       const r = await extractAtoms(lecture, sourceText, {
-        callAIJSON, saveAtoms: saveLectureAtoms, userId, objectives: objectivesForTagging,
+        callAIJSON, userId, objectives: objectivesForTagging,
       });
       if (r.error) {
         const suffix = /timed out/i.test(r.error)
@@ -843,13 +843,12 @@ export function LectureStudyFlow({
         setBusy("Matching atoms to lecture objectives…");
         const tagged = await tagAtomsWithObjectives(r.atoms, objectivesForTagging, { callAIJSON });
         finalAtoms = tagged.atoms || r.atoms;
-        try { await saveLectureAtoms(userId, lecture.id, finalAtoms); }
-        catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || e}`); }
         if (tagged.error) setError(`Atoms extracted; some objective links still need review: ${tagged.error}`);
       }
-      // A save failure is worth saying out loud — the atoms work this session but
-      // will need re-extracting next time.
-      if (r.saveError) setError(`Atoms ready, but saving them failed: ${r.saveError}`);
+      // Save once, after tagging. If it fails, keep the in-session atoms but
+      // make the persistence failure visible so this can be retried.
+      try { await saveLectureAtoms(userId, lecture?.id, finalAtoms); }
+      catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || String(e)}`); }
       setAtoms(finalAtoms);
       setStage("quiz");
       // Update cross-lecture atom index (non-blocking, non-critical)
@@ -1198,6 +1197,25 @@ export function LectureStudyFlow({
     setQuizPreparation(null);
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
 
+  const savedQuizQuestions = lecture?.id
+    ? locallyValidClinicalQuestions(generatedQuestionsStore.questionsForLecture(userId, lecture.id))
+    : [];
+  const runSavedQuiz = useCallback((count) => {
+    const saved = locallyValidClinicalQuestions(
+      lecture?.id ? generatedQuestionsStore.questionsForLecture(userId, lecture.id) : []
+    );
+    if (!saved.length) {
+      setError("No saved clinical questions are ready for this lecture yet. Choose Generate new questions to prepare a set.");
+      return;
+    }
+    const selected = [...saved]
+      .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0))
+      .slice(0, Math.min(Math.max(1, Number(count) || saved.length), saved.length));
+    setError("");
+    setAdHocQuiz(true);
+    startQuizSession(selected);
+  }, [lecture?.id, startQuizSession, userId]);
+
   // An external "Quiz" click (Today/Lectures/ObjectiveTracker) opens the same picker the
   // in-page button opens — once per mount, so revisiting Study later for the same lecture
   // doesn't keep re-triggering it.
@@ -1511,13 +1529,15 @@ export function LectureStudyFlow({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-text-1">Guided tutor</span>
-            {tutorSession && <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-3">{tutorSession.status}</span>}
+            {tutorSession && <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-3">{tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview ? "preparing" : tutorSession.status}</span>}
           </div>
           {!tutorSession ? (
             <p className="mt-1 text-xs text-text-3">Choose a focused block. Your place, objectives, and blockers will be checkpointed per lecture.</p>
           ) : (
             <p className="mt-1 text-xs text-text-3">
-              {tutorSessionSummaryValue.objectivesCompleted}/{tutorSessionSummaryValue.objectivesTotal || lectureObjectives.length} objectives · {tutorSessionSummaryValue.blockerCount} blockers · {Math.floor(tutorSessionSummaryValue.elapsedSeconds / 60)}m elapsed
+              {tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview
+                ? "Building your first patient case · study timer starts when it is ready"
+                : `${tutorSessionSummaryValue.objectivesCompleted}/${tutorSessionSummaryValue.objectivesTotal || lectureObjectives.length} objectives · ${tutorSessionSummaryValue.blockerCount} blockers · ${Math.floor(tutorSessionSummaryValue.elapsedSeconds / 60)}m elapsed`}
             </p>
           )}
         </div>
@@ -1527,12 +1547,15 @@ export function LectureStudyFlow({
               Start {minutes}m
             </button>
           ))}
-          {tutorSession && tutorSession.status === "active" && (
+          {tutorSession && tutorSession.status === "active" && (tutorSession.patientCase || tutorSession.delayedReview) && (
             <>
               <span className="min-w-[54px] text-center font-mono text-sm font-semibold text-text-1">{Math.floor(tutorSession.remainingSeconds / 60)}:{String(tutorSession.remainingSeconds % 60).padStart(2, "0")}</span>
               <button onClick={pauseCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent">Pause</button>
               <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
             </>
+          )}
+          {tutorSession && tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview && (
+            <span className="font-mono text-[11px] text-text-3" role="status">{tutorLoading ? "Preparing case…" : "Case not ready · retry below"}</span>
           )}
           {tutorSession && (tutorSession.status === "paused" || tutorSession.status === "checkpoint") && (
             <>
@@ -1898,7 +1921,20 @@ export function LectureStudyFlow({
                 ))}
                 <span className="text-[12px] text-text-3">V2 is the active generator for every new quiz.</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                {savedQuizQuestions.length > 0 && (
+                  <Button
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() => {
+                      const count = quizPicker.count;
+                      setQuizPicker(null);
+                      runSavedQuiz(count);
+                    }}
+                  >
+                    Start saved set ({Math.min(quizPicker.count, savedQuizQuestions.length)})
+                  </Button>
+                )}
                 <Button
                   onClick={() => {
                     const { count, difficulty } = quizPicker;
@@ -1907,7 +1943,7 @@ export function LectureStudyFlow({
                   }}
                   disabled={!!busy}
                 >
-                  {busyLabel || `Start ${quizPicker.count}-question quiz`}
+                  {busyLabel || `Generate new ${quizPicker.count}-question quiz`}
                 </Button>
                 <button onClick={() => setQuizPicker(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
                   cancel

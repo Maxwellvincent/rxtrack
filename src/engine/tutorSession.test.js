@@ -41,6 +41,13 @@ describe("bounded tutor sessions", () => {
     expect(state.objectiveIds).toEqual(["o1", "o2"]);
   });
 
+  it("does not consume the study budget until a patient case or delayed-retrieval case exists", () => {
+    const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 100 });
+    expect(tickTutorSession(state, 30, 130)).toBe(state);
+    const ready = attachTutorCase(state, { caseTitle: "Patient 1", stem: "A patient presents." }, 140);
+    expect(tickTutorSession(ready, 1, 141)).toMatchObject({ elapsedSeconds: 1, remainingSeconds: 1799 });
+  });
+
   it("persists a blocker and objective progress without restarting", () => {
     let state = createTutorSession({ lectureId: "lec30", objectiveIds: ["o1", "o2"], now: 100 });
     state = recordTutorTurn(state, { objectiveId: "o1", blocker: { type: "R", concept: "urine bilirubin", status: "open" }, nextStep: "repair" }, 200);
@@ -59,6 +66,7 @@ describe("bounded tutor sessions", () => {
 
   it("checkpoints at the time boundary and resumes from the same state", () => {
     let state = createTutorSession({ lectureId: "lec30", budgetMinutes: 30, now: 100 });
+    state = attachTutorCase(state, { caseTitle: "Patient 1", stem: "A patient presents." }, 150);
     state = recordTutorTurn(state, { objectiveId: "o1", nextStep: "bile" }, 200);
     state = tickTutorSession(state, 1800, 300);
     expect(state).toMatchObject({ status: "checkpoint", phase: "checkpoint", remainingSeconds: 0, currentStep: "bile" });

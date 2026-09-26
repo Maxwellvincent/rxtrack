@@ -17,6 +17,7 @@ import { encodeDocId, decodeDocId } from "./idCodec";
 import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
 import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
+import { stripLectureBodyForLocalCache } from "./shell/logic/lectureMetaCache.js";
 
 // SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
 // ALREADY merged by this module's own merge fns — whose argument order differs
@@ -25,8 +26,19 @@ import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./exam
 // and namespacing lands with the hooks in T0.4 (docs/sp1/T0.3-spec.md §4).
 function persistLocal(key, value) {
   const store = storeForKey(key);
-  if (store) store.write(null, value);
-  else localStorage.setItem(key, JSON.stringify(value));
+  try {
+    if (store) store.write(null, value);
+    else localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    // Firestore is authoritative for these cloud-backed stores. A full browser
+    // cache must not abort the rest of an account pull (especially objective
+    // hydration) after the cloud data has already been fetched.
+    if (/quota|storage/i.test(String(error?.message || error)) && (key === "rxt-lec-meta" || key === "rxt-block-objectives")) {
+      console.warn(`${key}: local cache is full; cloud data remains authoritative`);
+      return;
+    }
+    throw error;
+  }
 }
 
 // Auth (and data) gate on Firebase config — name preserved for callers that
@@ -686,21 +698,19 @@ export async function pullAllDataFromSupabase(userId) {
     persistLocal("rxt-terms", mergedTerms);
   }
 
-  // Lectures: cloud adds to local, local stubs preserved.
-  // Heavy per-page `chunks` are hydrated into localStorage ONLY for the active
-  // (most recent) term — older terms stay chunk-light so localStorage doesn't
-  // blow the ~5MB quota. Their chunks live in Firestore, fetched on demand.
+  // Lectures: cloud adds to local, local stubs preserved. All slide text stays
+  // in Firestore and is fetched on demand by Study; the list store is metadata
+  // only so a large active block cannot exhaust the browser storage quota.
   if (!lecsSnap.empty) {
-    const termsArr = (() => { try { return JSON.parse(localStorage.getItem("rxt-terms") || "[]"); } catch { return []; } })();
-    const activeTerm = termsArr[termsArr.length - 1];
-    const activeBlockIds = new Set((activeTerm?.blocks || []).map((b) => b.id));
     // Belt and braces with the tombstone deletes on push: a doc this device
     // already buried must not walk back in from a stale cloud copy.
     const buried = readLectureTombstoneIds();
     const fromCloud = lecsSnap.docs.filter((d) => !buried.has(decodeDocId(d.id))).map((d) => {
       const v = d.data();
-      const lec = { ...(v.data || {}), id: decodeDocId(d.id) };
-      lec.chunks = activeBlockIds.has(lec.blockId) ? (v.chunks || []) : [];
+      const lec = stripLectureBodyForLocalCache({ ...(v.data || {}), id: decodeDocId(d.id) });
+      // Full slide text is fetched from the lecture document when Study opens.
+      // Keeping every active-term deck's chunks in this metadata array exhausted
+      // localStorage for large blocks and prevented the following objective pull.
       return lec;
     });
     const local = JSON.parse(localStorage.getItem("rxt-lec-meta") || "[]");

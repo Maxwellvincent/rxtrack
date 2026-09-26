@@ -140,7 +140,7 @@ describe("ExamContainer", () => {
     launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "saved-session" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
     await flush();
-    const saved = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start saved exam");
+    const saved = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Start saved timed exam"));
     expect(saved).toBeTruthy();
     await act(async () => saved.click());
     await flush();

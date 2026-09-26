@@ -11,7 +11,11 @@ function makeSessionId() {
 
 function validBankQuestion(question) {
   const letters = Object.keys(question?.choices || {});
-  return !!question?.stem && letters.length >= 2 && letters.includes(question?.correct);
+  const choiceLetters = letters.filter((letter) => /^[A-H]$/i.test(letter)).map((letter) => letter.toUpperCase()).sort();
+  const choicesContiguous = !choiceLetters.length || choiceLetters.every((letter, index) => letter === String.fromCharCode(65 + index));
+  const needsImage = !!(question?.hasImage || question?.imageDependent);
+  const hasImage = !!(question?.sourceImageUrl || question?.sourceImageDataUrl || question?.image?.url || typeof question?.image === "string");
+  return !!question?.stem && letters.length >= 2 && choicesContiguous && letters.includes(question?.correct) && (!needsImage || hasImage);
 }
 
 export function prepareQuestionBankQuestions(questions, { blockId, filename }) {
@@ -38,7 +42,7 @@ export async function launchQuestionBankSession(
   if (invalidCount) {
     return {
       ok: false,
-      error: `Cannot start: ${invalidCount} question${invalidCount === 1 ? " is" : "s are"} missing a stem, choices, or keyed answer. Re-import and verify the bank first.`,
+      error: `Cannot start: ${invalidCount} question${invalidCount === 1 ? " is" : "s are"} incomplete (stem, contiguous choices, keyed answer, or required figure missing). Re-import and verify the original before using this bank.`,
     };
   }
 

@@ -25,12 +25,30 @@ const CONFIDENCE = [
 ];
 
 const SORT_LABELS = { repairs: "most model repairs", urgency: "priority", date: "date", type: "activity type", lecture: "lecture no.", coverage: "coverage", recent: "recent" };
-const SORT_STORAGE_KEY = "rxt-lecture-list-sort";
+const FILTERS_STORAGE_KEY = "rxt-lecture-list-prefs";
 
-function readStoredSort() {
-  if (typeof localStorage === "undefined") return "urgency";
-  const stored = localStorage.getItem(SORT_STORAGE_KEY);
-  return stored && SORT_LABELS[stored] ? stored : "urgency";
+function filterPrefsKey(blockId) { return `${FILTERS_STORAGE_KEY}:${blockId || "default"}`; }
+
+function readFilterPrefs(blockId) {
+  const defaults = { filter: "active", activityType: "all", search: "", sort: "urgency" };
+  try {
+    if (typeof localStorage === "undefined") return defaults;
+    const saved = JSON.parse(localStorage.getItem(filterPrefsKey(blockId)) || "{}");
+    return {
+      filter: FILTERS.includes(saved.filter) ? saved.filter : defaults.filter,
+      activityType: ACTIVITY_TYPES.includes(saved.activityType) ? saved.activityType : defaults.activityType,
+      search: typeof saved.search === "string" ? saved.search : defaults.search,
+      sort: SORT_LABELS[saved.sort] ? saved.sort : defaults.sort,
+    };
+  } catch { return defaults; }
+}
+
+function saveFilterPrefs(blockId, patch) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const current = readFilterPrefs(blockId);
+    localStorage.setItem(filterPrefsKey(blockId), JSON.stringify({ ...current, ...patch }));
+  } catch { /* filters remain usable even when browser storage is full */ }
 }
 
 function DateEdit({ row, onUpdateDate }) {
@@ -255,10 +273,10 @@ export function LectureList({
   const { context, logActivity, logPreRead, objectivesForTask } = useToday(blockId, userId);
   const questionStats = useLectureQuestionStats(userId);
   const repairProgress = useStoreResource(atomProgressStore, userId);
-  const [filter, setFilter] = useState("active");
-  const [activityType, setActivityType] = useState("all");
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState(readStoredSort);
+  const [filter, setFilter] = useState(() => readFilterPrefs(blockId).filter);
+  const [activityType, setActivityType] = useState(() => readFilterPrefs(blockId).activityType);
+  const [search, setSearch] = useState(() => readFilterPrefs(blockId).search);
+  const [sort, setSort] = useState(() => readFilterPrefs(blockId).sort);
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
   const [visibleCount, setVisibleCount] = useState(30);
@@ -381,7 +399,7 @@ export function LectureList({
         {FILTERS.map((f) => (
           <button
             key={f}
-            onClick={() => { setFilter(f); if (f === "repairs") setSort("repairs"); }}
+            onClick={() => { setFilter(f); saveFilterPrefs(blockId, { filter: f, ...(f === "repairs" ? { sort: "repairs" } : {}) }); if (f === "repairs") setSort("repairs"); }}
             aria-pressed={filter === f}
             className={
               "rounded border px-3 py-2 text-sm " +
@@ -398,7 +416,7 @@ export function LectureList({
         {ACTIVITY_TYPES.filter((type) => type === "all" || typeCounts[type] > 0).map((type) => (
           <button
             key={type}
-            onClick={() => setActivityType(type)}
+            onClick={() => { setActivityType(type); saveFilterPrefs(blockId, { activityType: type }); }}
             className={"rounded-lg px-3 py-2 text-sm " + (activityType === type ? "bg-accent text-bg" : "text-text-3 hover:bg-panel hover:text-text-1")}
           >
             {type === "all" ? "All types" : type} ({typeCounts[type]})
@@ -406,7 +424,7 @@ export function LectureList({
         ))}
         <input
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); saveFilterPrefs(blockId, { search: e.target.value }); }}
           placeholder="Search lectures"
           aria-label="Search lectures"
           className="ml-auto min-h-11 min-w-52 rounded-lg border border-border bg-panel px-3 text-sm text-text-1"
@@ -415,7 +433,7 @@ export function LectureList({
           value={sort}
           onChange={(e) => {
             setSort(e.target.value);
-            if (typeof localStorage !== "undefined") localStorage.setItem(SORT_STORAGE_KEY, e.target.value);
+            saveFilterPrefs(blockId, { sort: e.target.value });
           }}
           aria-label="Sort lectures"
           className="min-h-11 rounded-lg border border-border bg-panel px-3 text-sm text-text-2"

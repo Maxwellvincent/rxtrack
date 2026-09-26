@@ -3,7 +3,7 @@ import { useState } from "react";
 export function SchoolQuestionFigure({ question }) {
   const [failedUrl, setFailedUrl] = useState(null);
   if (!question?.hasImage) return null;
-  const url = question.sourceImageUrl;
+  const url = question.sourceImageUrl || question.sourceImageDataUrl || (typeof question.image === "string" ? question.image : question.image?.url);
   if (!url || failedUrl === url) return (
     <p role="status" className="mb-3 rounded-lg border border-border p-3 text-sm text-text-2">
       This question needs its original figure. It could not be loaded; do not answer from incomplete information.

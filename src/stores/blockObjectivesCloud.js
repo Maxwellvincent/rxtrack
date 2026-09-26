@@ -96,6 +96,8 @@ const state = {
 };
 
 let backend = null;
+let localMirrorQuotaFull = false;
+let localMirrorQuotaWarned = false;
 export function __setObjectivesBackendForTests(fake) {
   backend = fake;
   resetObjectivesStore();
@@ -113,6 +115,8 @@ export function resetObjectivesStore() {
   state.error = null;
   state.unsub = null;
   state.hot = [];
+  localMirrorQuotaFull = false;
+  localMirrorQuotaWarned = false;
 }
 
 /** Mark a block as being worked in, so it keeps a local copy for App. */
@@ -127,14 +131,23 @@ export function hotBlocks() {
 
 /** What localStorage should hold: the hot blocks only. */
 function mirrorHot() {
-  if (!state.userId) return;
+  if (!state.userId || localMirrorQuotaFull) return;
   const out = {};
   for (const blockId of state.hot) {
     if (state.blocks.has(blockId)) out[blockId] = state.blocks.get(blockId);
   }
   try {
     writeJson(state.userId, key, out, { silent: true });
+    localMirrorQuotaFull = false;
   } catch (e) {
+    if (/quota|storage/i.test(String(e?.message || e))) {
+      localMirrorQuotaFull = true;
+      if (!localMirrorQuotaWarned) {
+        localMirrorQuotaWarned = true;
+        console.warn("block objectives: local cache is full; Firestore remains authoritative and local mirroring is paused");
+      }
+      return;
+    }
     console.warn("block objectives: local mirror failed", e?.message || e);
   }
 }

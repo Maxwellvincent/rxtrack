@@ -233,7 +233,7 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
 }
 
 export function tickTutorSession(state, seconds, now = Date.now()) {
-  if (!state || state.status !== "active") return state;
+  if (!state || state.status !== "active" || (!state.patientCase && !state.delayedReview)) return state;
   const elapsed = Math.max(0, Number(seconds) || 0);
   const remaining = Math.max(0, state.remainingSeconds - elapsed);
   const next = checkpoint(state, {

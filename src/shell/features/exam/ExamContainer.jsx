@@ -207,7 +207,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       if (current.has(filename)) return false;
       const entry = Object.values(meta).find((item) => item?.filename === filename);
       const sourceKind = entry?.sourceKind || banks[filename]?.[0]?.sourceKind || "";
-      return sourceKind === "imcq" || /\bimcq\b/i.test(cleanLectureTitle(filename));
+      // School-bank practice is block-scoped by default. Cross-block IMCQ
+      // decks belong in a separately requested comprehensive review, not in
+      // every current block's exam center.
+      return entry?.blockId === blockId && (sourceKind === "imcq" || /\bimcq\b/i.test(cleanLectureTitle(filename)));
     }).map((filename) => {
       const entry = Object.values(meta).find((item) => item?.filename === filename);
       const questions = banks[filename] || [];
@@ -595,9 +598,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
       <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>
-          <div className="text-sm font-bold text-text-1">Prepared question reserve</div>
+          <div className="text-sm font-bold text-text-1">Saved reserve · timed exam</div>
           <p className="mt-1 text-sm text-text-2">
-            Generate while credits are available. Saved questions stay private in Firestore and can be used later without regenerating them.
+            {questionReserve.ready} saved questions available for a timed integrated exam. This starts only matching prepared questions; it does not generate replacements.
           </p>
         </div>
         <div className="rounded-lg border border-border bg-panel px-4 py-3 text-center">
@@ -609,7 +612,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               questionCount: Math.min(100, questionReserve.ready),
               durationMinutes: examDurationMinutes(Math.min(100, questionReserve.ready)),
               savedOnly: true,
-            })}>Start saved exam</Button>
+            })}>Start saved timed exam ({Math.min(100, questionReserve.ready)} questions)</Button>
           )}
         </div>
       </section>

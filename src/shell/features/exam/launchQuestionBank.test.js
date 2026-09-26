@@ -66,6 +66,22 @@ describe("launchQuestionBankSession", () => {
     expect(createExamSession).not.toHaveBeenCalled();
   });
 
+  it("blocks incomplete answer choices and image-dependent questions without a figure", async () => {
+    const createExamSession = vi.fn();
+    const gaps = await launchQuestionBankSession(
+      { userId: "u1", blockId: "b1", filename: "bad.pdf", questions: [{ ...QUESTIONS[0], choices: { A: "a", B: "b", D: "d" } }] },
+      { createExamSession }
+    );
+    const missingFigure = await launchQuestionBankSession(
+      { userId: "u1", blockId: "b1", filename: "bad.pdf", questions: [{ ...QUESTIONS[0], hasImage: true }] },
+      { createExamSession }
+    );
+    expect(gaps.ok).toBe(false);
+    expect(missingFigure.ok).toBe(false);
+    expect(missingFigure.error).toMatch(/required figure missing/);
+    expect(createExamSession).not.toHaveBeenCalled();
+  });
+
   it("gives duplicate source ids unique stable session question ids", () => {
     const prepared = prepareQuestionBankQuestions(
       [{ ...QUESTIONS[0], id: "q1" }, { ...QUESTIONS[1], id: "q1" }],
