@@ -29,28 +29,48 @@ export function isSemanticDuplicate(question, existing = [], threshold = 0.6) {
 
 function features(question) {
   const stem = String(question?.stem || "");
+  const ending = stem.split(/(?<=[.!?])\s+/).at(-1) || stem;
   return {
     words: stem.trim().split(/\s+/).filter(Boolean).length,
+    sentences: stem.split(/[.!?]+/).filter(Boolean).length,
     options: Object.keys(question?.choices || {}).length,
     clinical: /\b(year-old|patient|presents|comes to|history of|physical examination)\b/i.test(stem),
     data: /\b(laboratory|serum|blood pressure|mm hg|imaging|biopsy|photomicrograph|ultrasound|mri|x-ray)\b/i.test(stem),
+    ending: /\b(mechanism|explain|cause|why)\b/i.test(ending) ? "mechanism"
+      : /\b(expected|finding|change|concentration|level|result)\b/i.test(ending) ? "prediction"
+        : /\b(diagnosis|disorder|condition)\b/i.test(ending) ? "diagnosis"
+          : /\b(enzyme|structure|nerve|vessel|hormone|pathway|receptor)\b/i.test(ending) ? "identification" : "other",
   };
 }
 
-/** Structural similarity only: style/format, never factual correctness. */
+/** Aggregate structural fit to the whole verified bank, not a best-match single exemplar. */
 export function schoolStyleSimilarity(question, exemplars = []) {
   const refs = (exemplars || []).filter((q) => q?.stem && Object.keys(q?.choices || {}).length >= 2);
   if (!refs.length) return null;
   const target = features(question);
-  const scores = refs.map((ref) => {
-    const sample = features(ref);
-    const wordScore = 1 - Math.min(1, Math.abs(target.words - sample.words) / Math.max(sample.words, 20));
-    const optionScore = Math.max(0, 1 - Math.abs(target.options - sample.options) / 3);
-    const clinicalScore = target.clinical === sample.clinical ? 1 : 0;
-    const dataScore = target.data === sample.data ? 1 : 0;
-    return wordScore * 0.35 + optionScore * 0.3 + clinicalScore * 0.2 + dataScore * 0.15;
-  });
-  return Math.round(Math.max(...scores) * 100);
+  const samples = refs.map(features);
+  const median = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)] || 0;
+  };
+  const wordTarget = median(samples.map((s) => s.words));
+  const sentenceTarget = median(samples.map((s) => s.sentences));
+  const optionRate = samples.filter((s) => s.options === target.options).length / samples.length;
+  const binaryRate = (key) => {
+    const rate = samples.filter((s) => s[key]).length / samples.length;
+    return 1 - Math.abs(Number(target[key]) - rate);
+  };
+  const endingRate = samples.filter((s) => s.ending === target.ending).length / samples.length;
+  const closeness = (actual, expected) => 1 - Math.min(1, Math.abs(actual - expected) / Math.max(expected, 8));
+  const score = closeness(target.words, wordTarget) * 0.28
+    + closeness(target.sentences, sentenceTarget) * 0.17
+    + optionRate * 0.25
+    + binaryRate("clinical") * 0.12
+    + binaryRate("data") * 0.08
+    + endingRate * 0.10;
+  // It's a transparent heuristic, never a certification of equivalence.
+  const sampleConfidence = 0.55 + 0.45 * Math.min(1, samples.length / 12);
+  return Math.min(95, Math.round(score * sampleConfidence * 100));
 }
 
 const normalize = value => {

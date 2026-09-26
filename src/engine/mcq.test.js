@@ -52,12 +52,17 @@ describe("styleProfilePrompt", () => {
     const prompt = styleProfilePrompt({
       sampleSize: 30,
       optionCounts: { 4: 2, 5: 16, 6: 10, 7: 1, 8: 1 },
+      officialStyle: { sampleSize: 30, optionCountDistribution: [{ options: 4, count: 2 }, { options: 5, count: 16 }, { options: 6, count: 10 }, { options: 7, count: 1 }, { options: 8, count: 1 }], medianStemWords: 82, medianSentences: 4 },
       reportOutcomePerformance: [{ label: "Gross Anatomy & Embryology", attempts: 4, correct: 1, accuracy: 25 }],
-    });
+    }, 30);
     expect(prompt).toContain('"5":16');
     expect(prompt).toContain("Gross Anatomy & Embryology");
     expect(prompt).toContain("these only when they map to the requested lecture objectives");
-    expect(prompt).toContain("preserve source option count");
+    expect(prompt).toContain("Do not default every item to five choices");
+    expect(prompt).toContain("scaled verified ExamSoft option-count quota");
+    expect(prompt).toContain('[{"options":4,"count":2},{"options":5,"count":16},{"options":6,"count":10},{"options":7,"count":1},{"options":8,"count":1}]');
+    expect(prompt).toContain("aggregate stem length and sentence-count profile");
+    expect(prompt).toContain("plausible homogeneous distractors");
   });
 });
 
@@ -177,6 +182,8 @@ describe("question ending analysis", () => {
     ]);
     expect(fingerprint.endingFamilies.map(({ family }) => family)).toEqual(expect.arrayContaining(["mechanism", "prediction", "identification"]));
     expect(fingerprint.secondOrderRate).toBeGreaterThanOrEqual(2 / 3);
+    expect(fingerprint.medianStemWords).toBeGreaterThan(0);
+    expect(fingerprint.medianSentences).toBeGreaterThan(0);
   });
 
   it("records the bank's data-format signals without treating them as factual authority", () => {

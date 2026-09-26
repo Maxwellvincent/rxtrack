@@ -33,7 +33,7 @@ export function buildStyleProfile(examples = [], { now = Date.now() } = {}) {
   );
   const official = usable.filter((question) => {
     const tier = exemplarSourceTier(question);
-    return tier !== "homework" && tier !== "clicker" && !question.hasImage;
+    return tier !== "homework" && tier !== "clicker";
   });
   const sourceCounts = {};
   const optionCounts = {};

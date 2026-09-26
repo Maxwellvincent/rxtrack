@@ -87,8 +87,8 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
       {!objectiveCount && <span className="max-w-full rounded border border-border px-1.5 py-0.5">Objective: not linked yet</span>}
       {question?.source && <span className="rounded border border-border px-1.5 py-0.5">{question.source}</span>}
       {Number.isFinite(question?.schoolStyleScore) && (
-        <span className="rounded border border-border px-1.5 py-0.5" title="Structural similarity to your uploaded school questions">
-          school style {question.schoolStyleScore}%
+        <span className="rounded border border-border px-1.5 py-0.5" title="Estimated structural fit against the aggregate shape of uploaded school questions; not a correctness or equivalence score">
+          format fit (est.) {question.schoolStyleScore}%
         </span>
       )}
     </div>

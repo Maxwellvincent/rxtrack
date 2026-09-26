@@ -22,14 +22,34 @@ const REPAIR_SYSTEM = "You are a medical exam-question repair editor. Rewrite re
 export const STYLE_FINGERPRINT_LIMIT = 50;
 export const STYLE_PROMPT_EXEMPLAR_LIMIT = 12;
 
-export function styleProfilePrompt(profile) {
+export function styleProfilePrompt(profile, questionCount = null) {
   if (!profile?.sampleSize) return "";
   const reportOutcomes = profile.reportOutcomePerformance || [];
   const weakOutcomes = reportOutcomes.filter((entry) => entry.attempts >= 2 && entry.accuracy < 60).slice(0, 8);
   const weakness = weakOutcomes.length
     ? `\nREPORT-DERIVED LEARNER GAPS (the learner previously missed items tagged to these school outcomes): ${JSON.stringify(weakOutcomes)}. Prioritize these only when they map to the requested lecture objectives and supplied lecture evidence supports the tested relationship; do not expand scope or copy source questions.\n`
     : "";
-  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(profile)}\nUse observed answer-option distribution and task-family mix as calibration, not rigid quotas; preserve source option count when examples for the requested objective support it. Objectives define scope and lecture evidence defines medical correctness.${weakness}`;
+  const official = profile.officialStyle || {};
+  const optionDistribution = official.optionCountDistribution || [];
+  let scaledOptionCounts = [];
+  if (optionDistribution.length && Number.isFinite(Number(questionCount)) && Number(questionCount) > 0) {
+    const total = optionDistribution.reduce((sum, row) => sum + Number(row.count || 0), 0);
+    const exact = optionDistribution.map((row) => ({
+      options: Number(row.options),
+      exact: Number(questionCount) * Number(row.count || 0) / Math.max(1, total),
+    }));
+    scaledOptionCounts = exact.map((row) => ({ options: row.options, count: Math.floor(row.exact), remainder: row.exact - Math.floor(row.exact) }));
+    let remaining = Number(questionCount) - scaledOptionCounts.reduce((sum, row) => sum + row.count, 0);
+    [...scaledOptionCounts].sort((a, b) => b.remainder - a.remainder).slice(0, remaining).forEach((row) => { row.count++; });
+    scaledOptionCounts = scaledOptionCounts.filter((row) => row.count > 0).map(({ options, count }) => ({ options, count }));
+  }
+  const optionRule = optionDistribution.length
+    ? `For this ${questionCount || "requested-size"}-item quiz, use this scaled verified ExamSoft option-count quota: ${JSON.stringify(scaledOptionCounts)}. Assign exactly these counts across the batch, shuffle their order, and label each item's complete choices consecutively from A (e.g. 6 choices = A-F). Do not default every item to five choices.`
+    : `Use the option counts present in the supplied school exemplars; otherwise use five choices.`;
+  const shapeRule = official.sampleSize >= 5
+    ? `Match the source bank's aggregate stem length and sentence-count profile (not one convenient exemplar): target about ${official.medianStemWords || official.averageStemWords || "the observed"} words and ${official.medianSentences || official.averageSentences || "the observed"} sentences, with natural variation inside the observed range. Match its clinical-case, laboratory/data, image/table, and task-ending proportions where the requested objectives and available assets support them.`
+    : `The style sample is small; follow the supplied verified exemplars closely and do not infer a precise bank-wide distribution.`;
+  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(profile)}\nSTYLE-MATCHING CONTRACT: ${shapeRule} ${optionRule} Match the source's construction and reasoning demand, not merely its topic: preserve relevant demographics/context, discriminating findings, a focused single-best-answer lead-in, and plausible homogeneous distractors of comparable specificity and length. Use varied, medically plausible distractors; no throwaway choices, joke options, duplicated choices, or answer-length giveaway. Objectives define scope and lecture evidence defines medical correctness.${weakness}`;
 }
 
 export function exemplarSourceTier(question) {
@@ -105,6 +125,16 @@ export function buildStyleFingerprint(examples = []) {
   if (!usable.length) return { sampleSize: 0 };
   const stems = usable.map((q) => String(q.stem).trim());
   const avg = (values) => Math.round(values.reduce((a, b) => a + b, 0) / Math.max(1, values.length));
+  const median = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0;
+  };
+  const wordCounts = stems.map((s) => s.split(/\s+/).filter(Boolean).length);
+  const sentenceCounts = stems.map((s) => s.split(/[.!?]+/).filter(Boolean).length);
+  const optionWordCounts = usable.flatMap((q) => Object.values(q.choices || {}).map((choice) => {
+    const value = choice && typeof choice === "object" ? Object.values(choice).join(" ") : choice;
+    return String(value || "").split(/\s+/).filter(Boolean).length;
+  }));
   const leadIns = stems.flatMap((s) => [...s.matchAll(/(?:Which of the following|What is|The most likely|Which structure|Which nerve|Which vessel)/gi)].map((m) => m[0].toLowerCase()));
   const endingCounts = taskFamilyCounts(stems);
   const scenarioTypes = ["surgery", "trauma", "imaging", "ultrasound", "x-ray", "laboratory", "histology", "procedure", "newborn", "symptoms"]
@@ -120,7 +150,13 @@ export function buildStyleFingerprint(examples = []) {
   return {
     sampleSize: usable.length,
     averageStemCharacters: avg(stems.map((s) => s.length)),
-    averageSentences: Math.round((stems.map((s) => s.split(/[.!?]+/).filter(Boolean).length).reduce((a, b) => a + b, 0) / usable.length) * 10) / 10,
+    averageStemWords: avg(wordCounts),
+    medianStemWords: median(wordCounts),
+    minStemWords: Math.min(...wordCounts),
+    maxStemWords: Math.max(...wordCounts),
+    averageSentences: Math.round((sentenceCounts.reduce((a, b) => a + b, 0) / usable.length) * 10) / 10,
+    medianSentences: median(sentenceCounts),
+    averageOptionWords: avg(optionWordCounts),
     optionCounts: [...new Set(usable.map((q) => Object.keys(q.choices).length))].sort((a, b) => a - b),
     optionCountDistribution: Object.entries(usable.reduce((counts, q) => {
       const count = Object.keys(q.choices).length;
@@ -523,7 +559,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + styleProfilePrompt(styleProfile) + orderSection + taskSection +
+    v2Blueprint + styleProfilePrompt(styleProfile, atoms.length) + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
     `Each question must test that specific fact (not adjacent trivia). Respect the hierarchy: anchor/core atoms establish the big picture; supporting atoms explain the mechanism; discriminator atoms supply the small exam-defining clue. For a discriminator, name its parent concept and test the distinction. For comparison atoms, explicitly contrast the parent entities using the supplied characteristic rather than asking an isolated definition. Use the supplied clinical correlate, cues, buzzwords, testable details, exceptions, quantitative details, or inheritance pattern when present so the learner practices recognizing the lecturer's exact discriminators. Preserve qualifiers such as only/except/first/rate-limiting, timing, thresholds, laterality, anatomic level, cell type, compartment, sequence, and direction of change; these small details are often the tested distinction. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
     `Do not write direct-definition prompts such as "which concept matches," do not mention a lecture or learning objective, and do not repeat the answer term or its defining sentence in the stem. Use an ExamSoft + STEP 1 hybrid: clinical-application items should include a meaningful timeline plus the relevant exam, laboratory, imaging, or physiologic finding, usually 3–5 sentences; recognition/mechanism items may remain shorter and use 1–2 reasoning steps when the objective is genuinely narrow. ` +
@@ -921,7 +957,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + styleProfilePrompt(styleProfile) + orderSection + taskSection +
+    v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette. The final sentence should ask for the mechanism, downstream consequence, structure, pathway, or best comparison—not simply repeat the diagnosis already made obvious by the stem.\n` +

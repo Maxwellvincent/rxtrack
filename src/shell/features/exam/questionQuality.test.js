@@ -14,5 +14,6 @@ describe("question quality", () => {
     const styled = { ...exemplar, stem: exemplar.stem.replace("fatigue", "cold intolerance") };
     const recall = { stem: "What is TSH?", choices: { A: "a", B: "b" } };
     expect(schoolStyleSimilarity(styled, [exemplar])).toBeGreaterThan(schoolStyleSimilarity(recall, [exemplar]));
+    expect(schoolStyleSimilarity(styled, [exemplar])).toBeLessThan(95); // One example cannot certify bank-wide equivalence.
   });
 });
