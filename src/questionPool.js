@@ -71,6 +71,18 @@ export function createQuestionPool(userId, blockId, database = db) {
       const snap = await getDocsFromServer(query(records, where("bucket", "==", bucket), limit(100)));
       return snap.docs.map(d => ({ ...d.data().question, poolId: d.id, poolBucket: bucket })).filter(isValidPoolQuestion);
     },
+    async readyForLectures(lectureIds = []) {
+      // A reserve is broader than the current difficulty/objective bucket. For
+      // an explicit saved-only launch, select from ready rows in the chosen
+      // lecture scope, regardless of which generation bucket created them.
+      const allowed = new Set((lectureIds || []).map(String));
+      if (!allowed.size) return [];
+      const snap = await getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500)));
+      return snap.docs
+        .filter(d => d.data().status === "ready" && allowed.has(String(d.data().lectureId)))
+        .map(d => ({ ...d.data().question, poolId: d.id, poolBucket: d.data().bucket }))
+        .filter(isValidPoolQuestion);
+    },
     async save(question, bucket, generationId) {
       const id = await contentHash({ blockId, stem: question.stem.toLowerCase().replace(/\s+/g, " ").trim() });
       const ref = doc(records, id);

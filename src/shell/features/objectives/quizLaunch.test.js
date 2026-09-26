@@ -67,6 +67,20 @@ describe("quiz launch decisions", () => {
     expect(lectureId).toBe("lec1");
   });
 
+  it("uses an exact lecture id hint instead of an ambiguous matching title", () => {
+    const target = { id: "lec-target", blockId: "b1", lectureTitle: "Brachial Plexus and Upper Limb II", chunks: [{ markdown: "TARGET SOURCE " + LECTURE_BODY }] };
+    const { config, lectureId } = buildQuizConfig({
+      objectives: [{ id: "o-target", linkedLecId: "lec-target", objective: "Target objective." }],
+      lectureTitle: "Brachial Plexus and Upper Limb",
+      lectureIdHint: "lec-target",
+      blockId: "b1",
+      lectures: [lectures[0], target],
+      questionCount: 1,
+    });
+    expect(lectureId).toBe("lec-target");
+    expect(config.lectureText).toContain("TARGET SOURCE");
+  });
+
   it("refuses to launch with no objectives", () => {
     expect(buildQuizConfig({ objectives: [], blockId: "b1" }).error).toBeTruthy();
   });

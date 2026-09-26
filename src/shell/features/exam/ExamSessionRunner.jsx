@@ -37,7 +37,7 @@ function sessionLabel(session) {
 }
 
 function SessionTitle({ session }) {
-  if (session.sourceType !== "question-bank") return null;
+  if (session.sourceType !== "question-bank") return session.title ? <h2 className="text-lg font-semibold text-text-1">{session.title}</h2> : null;
   return <h2 className="text-lg font-semibold text-text-1">{String(session.sourceFile || "School homework").replace(/\.(pdf|md|txt)$/i, "").replace(/[+_]+/g, " ")}</h2>;
 }
 

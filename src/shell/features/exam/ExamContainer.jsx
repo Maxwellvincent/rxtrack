@@ -573,7 +573,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           progress={launchProgress}
           error={launchError}
           partialLaunch={partialLaunch}
-          onStartSaved={() => handleLaunch({ ...partialLaunch.config, savedOnly: true })}
+          savedQuestionCount={questionReserve.ready}
+          onStartSaved={(config) => handleLaunch({ ...config, savedOnly: true })}
           onPrepare={prepareQuestions}
         />
       )}
@@ -598,21 +599,16 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
       <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>
-          <div className="text-sm font-bold text-text-1">Saved reserve · timed exam</div>
+          <div className="text-sm font-bold text-text-1">Prepared question reserve</div>
           <p className="mt-1 text-sm text-text-2">
-            {questionReserve.ready} saved questions available for a timed integrated exam. This starts only matching prepared questions; it does not generate replacements.
+            {questionReserve.ready} ready questions in the block-wide reserve. Choose your dates, name, and count before starting; prepared questions are reused when their lecture scope matches.
           </p>
         </div>
         <div className="rounded-lg border border-border bg-panel px-4 py-3 text-center">
           <div className="text-2xl font-bold text-text-1">{questionReserve.loading ? "…" : questionReserve.ready}</div>
           <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">ready questions</div>
           {!questionReserve.loading && questionReserve.ready > 0 && (
-            <Button className="mt-2" disabled={launching} onClick={() => handleLaunch({
-              format: "exam",
-              questionCount: Math.min(100, questionReserve.ready),
-              durationMinutes: examDurationMinutes(Math.min(100, questionReserve.ready)),
-              savedOnly: true,
-            })}>Start saved timed exam ({Math.min(100, questionReserve.ready)} questions)</Button>
+            <Button className="mt-2" disabled={launching} onClick={() => { setLaunchError(null); setShowLaunchModal(true); }}>Choose scope, name & count</Button>
           )}
         </div>
       </section>

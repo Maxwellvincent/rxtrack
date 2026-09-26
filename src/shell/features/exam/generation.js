@@ -81,7 +81,10 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     let obtained = 0, attempt = 0, errorMessage = null;
     if (deps.pool) {
       progress(`Checking saved questions: ${lectureTitle}`);
-      for (const q of await deps.pool.ready(bucket)) {
+      const savedQuestions = deps.savedOnly && deps.pool.readyForLectures
+        ? await deps.pool.readyForLectures([lectureId])
+        : await deps.pool.ready(bucket);
+      for (const q of savedQuestions) {
         if (obtained >= requested) break;
         if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length) continue;
         const cached = { ...q, objectiveIds: resolveQuestionObjectiveIds(q, objectives) };
@@ -95,7 +98,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Generating: ${lectureTitle}${attempt > 1 ? ` · retry ${attempt - 1}` : ""} · up to 2 lectures at once`);
       let result;
       try {
-        result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, blockId, lectures, exemplars, atoms,
+        result = await withDeadline(signal => startObjectiveQuiz({ objectives, lectureTitle, lectureIdHint: lectureId, blockId, lectures, exemplars, atoms,
           studyMode,
           focusNotes,
           difficulty, userId, clinicalCorrelateLibrary, avoidStems: [...history, ...accepted].map(q => q.stem).filter(Boolean).slice(-100), questionCount: requested - obtained }, {

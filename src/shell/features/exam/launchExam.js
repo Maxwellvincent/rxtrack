@@ -55,6 +55,8 @@ async function runLaunch(
     savedOnly = false,
     studyMode = "balanced",
     focusNotes = "",
+    examName = "Integrated exam",
+    contentScope = "block-so-far",
   },
   deps = {}
 ) {
@@ -62,7 +64,7 @@ async function runLaunch(
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly });
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope });
   const startedGenerationAt = Date.now();
   try {
 
@@ -106,13 +108,15 @@ async function runLaunch(
   }
 
   if (prepareOnly) return { ok: true, prepared: questions.length, cacheHits, generationErrors, coverage };
-  if (format === "exam" && questions.length < questionCount && !savedOnly) {
+  if (format === "exam" && questions.length < questionCount) {
     return {
       ok: false,
       readyCount: questions.length,
       canStartSaved: questions.length > 0,
       coverage,
-      error: `${questions.length}/${questionCount} questions are saved and ready. The timed exam has not started. You can start with the saved questions now or retry later to fill the remaining slots. ${generationErrors[0]?.message || ""}`,
+      error: savedOnly
+        ? `${questions.length}/${questionCount} saved questions match this scope. Nothing was generated and the timer has not started; broaden the date scope or prepare more questions.`
+        : `${questions.length}/${questionCount} questions are saved and ready. The timed exam has not started. You can start with the saved questions now or retry later to fill the remaining slots. ${generationErrors[0]?.message || ""}`,
     };
   }
 
@@ -129,6 +133,7 @@ async function runLaunch(
     blockId,
     lectureIds,
     format,
+    title: examName,
     questions,
     startedAt,
     deadline,

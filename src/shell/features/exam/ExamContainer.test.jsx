@@ -73,7 +73,7 @@ vi.mock("../../../stores/questionBankMeta.js", () => ({
 }));
 
 vi.mock("./ExamLaunchModal.jsx", () => ({
-  ExamLaunchModal: ({ onLaunch, onCancel, launching, error }) => (
+  ExamLaunchModal: ({ onLaunch, onStartSaved, savedQuestionCount, onCancel, launching, error }) => (
     <div data-testid="launch-modal" data-launching={launching ? "true" : "false"}>
       {error && <div role="alert">{error}</div>}
       <button
@@ -84,6 +84,7 @@ vi.mock("./ExamLaunchModal.jsx", () => ({
         launch
       </button>
       <button data-testid="cancel-launch" onClick={onCancel}>cancel</button>
+      {savedQuestionCount > 0 && <button data-testid="start-scoped-saved" onClick={() => onStartSaved({ format: "exam", questionCount: 12, durationMinutes: 18, contentScope: "date-range:2026-09-20:2026-09-23" })}>saved scoped run</button>}
     </div>
   ),
 }));
@@ -140,12 +141,16 @@ describe("ExamContainer", () => {
     launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "saved-session" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
     await flush();
-    const saved = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Start saved timed exam"));
+    const choose = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Choose scope, name & count"));
+    expect(choose).toBeTruthy();
+    await act(async () => choose.click());
+    await flush();
+    const saved = host.querySelector('[data-testid="start-scoped-saved"]');
     expect(saved).toBeTruthy();
     await act(async () => saved.click());
     await flush();
     expect(launchExamSessionMock.mock.calls[0][0]).toMatchObject({
-      format: "exam", questionCount: 12, durationMinutes: 18, savedOnly: true,
+      format: "exam", questionCount: 12, durationMinutes: 18, contentScope: "date-range:2026-09-20:2026-09-23", savedOnly: true,
     });
     expect(host.textContent).toMatch(/saved-session/);
     unmount();

@@ -199,6 +199,7 @@ export function readClinicalAnalysesForBlock(userId = null, blockId = null) {
 export function buildQuizConfig({
   objectives,
   lectureTitle,
+  lectureIdHint = null,
   blockId,
   lectures = [],
   exemplars = [],
@@ -217,7 +218,10 @@ export function buildQuizConfig({
 
   // When no objectives, fall through to atom/text-based generation
   const selected = pool.slice(0, Math.min(count, pool.length));
-  const lecture = findLectureForQuiz(lectures, blockId, lectureTitle);
+  const lecture = (lectureIdHint && (lectures || []).find((item) => item?.id === lectureIdHint))
+    || (pool.map((objective) => objective?.linkedLecId).find(Boolean)
+      ? (lectures || []).find((item) => item?.id === pool.map((objective) => objective?.linkedLecId).find(Boolean))
+      : findLectureForQuiz(lectures, blockId, lectureTitle));
   const lectureText = lecture ? getLecText(lecture) : "";
   const recurringClinicalCorrelates = clinicalCorrelateLibrary || buildClinicalCorrelateLibrary({
     atoms,

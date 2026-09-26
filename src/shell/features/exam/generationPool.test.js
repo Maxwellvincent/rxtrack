@@ -33,6 +33,17 @@ describe("parallel generation with durable reuse", () => {
     expect(result.cacheHits).toBe(1);
     expect(result.questions).toHaveLength(2);
   });
+  it("saved-only launches reuse ready questions across generation buckets for the scoped lecture", async () => {
+    const storage = pool();
+    storage.readyForLectures = vi.fn(async () => [
+      { ...q("Saved from another bucket"), poolId: "saved-1", poolBucket: "old-bucket", lectureId: "l1" },
+    ]);
+    const result = await generateExamQuestions({ ...args, allocation: { l1: 1 } }, { pool: storage, savedOnly: true });
+    expect(storage.readyForLectures).toHaveBeenCalledWith(["l1"]);
+    expect(storage.ready).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+    expect(result.questions.map(question => question.stem)).toEqual(["Saved from another bucket"]);
+  });
   it("adds the sole lecture objective to older prepared questions without tags", async () => {
     const storage = pool();
     storage.ready.mockResolvedValueOnce([{ ...q("Stored"), poolId: "saved", lectureId: "l1" }]);

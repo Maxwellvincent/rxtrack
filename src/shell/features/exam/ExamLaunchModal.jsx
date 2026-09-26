@@ -50,6 +50,7 @@ export function ExamLaunchModal({
   onPrepare,
   partialLaunch = null,
   onStartSaved,
+  savedQuestionCount = 0,
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -72,6 +73,7 @@ export function ExamLaunchModal({
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [focusNotes, setFocusNotes] = useState("");
+  const [examName, setExamName] = useState("Integrated exam");
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
     .sort((a, b) => Number(a) - Number(b));
@@ -84,6 +86,7 @@ export function ExamLaunchModal({
 
   const parsedCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(count, 10) || 1));
   const parsedDuration = parseFloat(duration);
+  const namePayload = examName.trim() && examName.trim() !== "Integrated exam" ? { examName: examName.trim() } : {};
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
   const datesValid = contentScope !== "custom-dates" || (rangeStart && rangeEnd && rangeStart <= rangeEnd);
@@ -115,6 +118,7 @@ export function ExamLaunchModal({
         : { contentScope: effectiveScope };
     onLaunch({
       format,
+      ...namePayload,
       ...(studyMode === "repair" ? { studyMode } : {}),
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
@@ -153,6 +157,12 @@ export function ExamLaunchModal({
             <textarea id="exam-focus-notes" value={focusNotes} onChange={(event) => setFocusNotes(event.target.value)} rows={4} placeholder="e.g. All major metabolism pathways; rate-limiting steps; vitamin cofactors; enzymes and metabolic processes; concepts I keep missing…" className="w-full resize-y rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1 placeholder:text-text-3" />
             <div className="mt-1 font-mono text-[11px] text-text-3">These topics guide allocation and question generation; lecture evidence still controls factual accuracy.</div>
           </div>
+          {/* Format */}
+          <div>
+            <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3" htmlFor="exam-name">Quiz / exam name</label>
+            <input id="exam-name" aria-label="Quiz or exam name" value={examName} onChange={(event) => setExamName(event.target.value)} maxLength={80} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1" placeholder="e.g. Metabolism · Sep 20–23" />
+          </div>
+
           {/* Format */}
           <div>
             <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Format</div>
@@ -271,13 +281,19 @@ export function ExamLaunchModal({
         {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
 
         {!launching && partialLaunch?.readyCount > 0 && (
-          <button type="button" onClick={onStartSaved} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
+          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, questionCount: partialLaunch.readyCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
             Start {partialLaunch.readyCount}-question exam from saved reserve
           </button>
         )}
 
+        {!launching && savedQuestionCount > 0 && (
+          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-bold text-accent">
+            Try saved questions for this scope · requested {parsedCount} · no new questions generated
+          </button>
+        )}
+
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-          <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
+      <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
         </div>}

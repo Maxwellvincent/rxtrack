@@ -1074,8 +1074,6 @@ export function LectureStudyFlow({
     const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
 
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
-    const reserveObjectiveIds = new Set();
-    const reserveConcepts = new Set();
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v2") === generationVersion)
@@ -1083,14 +1081,6 @@ export function LectureStudyFlow({
       .filter((question) => (Number(question.timesAnswered) || 0) === 0)
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
-      .filter((question) => {
-        const ids = [...new Set((question?.objectiveIds || []).map(String).filter(Boolean))];
-        const concept = normAtomKey(question?.atomKey || question?.topic || "");
-        if (ids.some((id) => reserveObjectiveIds.has(id)) || (concept && reserveConcepts.has(concept))) return false;
-        ids.forEach((id) => reserveObjectiveIds.add(id));
-        if (concept) reserveConcepts.add(concept);
-        return true;
-      })
       .slice(0, count);
     const missing = Math.max(0, count - reserve.length);
     if (!missing) {
@@ -1121,6 +1111,7 @@ export function LectureStudyFlow({
       {
         objectives: orderedObjectives,
         lectureTitle: title,
+        lectureIdHint: lecture?.id,
         blockId,
         atoms,
         difficulty,
