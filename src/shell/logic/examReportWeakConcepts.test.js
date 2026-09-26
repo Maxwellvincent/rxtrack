@@ -5,6 +5,7 @@ import {
   normalizeCategoryScores,
   isWeakCategory,
   matchCategoryToLecture,
+  matchCategoryToObjectives,
   buildWeakConceptEntriesFromReport,
   mergeExamReportConcepts,
   analyzeExamReportWeakConcepts,
@@ -121,8 +122,23 @@ describe("matchCategoryToLecture", () => {
   });
 });
 
+describe("matchCategoryToObjectives", () => {
+  it("links report weaknesses to strong same-lecture objective overlaps", () => {
+    const lectures = [{ id: "lec1", lectureTitle: "Nutrition and Aging" }, { id: "lec2", lectureTitle: "Thyroid" }];
+    const objectives = [
+      { id: "obj1", linkedLecId: "lec1", objective: "Explain nutrition and aging changes" },
+      { id: "obj2", linkedLecId: "lec2", objective: "Describe thyroid hormone synthesis" },
+    ];
+    const lectureMatch = matchCategoryToLecture("Nutrition and aging", lectures);
+    expect(matchCategoryToObjectives("Nutrition and aging", objectives, lectures, lectureMatch)).toEqual([
+      { id: "obj1", label: "Explain nutrition and aging changes", score: expect.any(Number) },
+    ]);
+  });
+});
+
 describe("buildWeakConceptEntriesFromReport", () => {
   const lectures = [{ id: "lec1", lectureTitle: "Nutrition and Aging" }];
+  const objectives = [{ id: "o1", linkedLecId: "lec1", objective: "Explain nutrition and aging" }];
   const categories = normalizeCategoryScores({
     categories: [
       { category: "Nutrition and aging", myScore: 0, average: 39.49, correct: 0, total: 2 },
@@ -131,10 +147,11 @@ describe("buildWeakConceptEntriesFromReport", () => {
   });
 
   it("builds one entry per weak category, matched to its lecture", () => {
-    const entries = buildWeakConceptEntriesFromReport({ categories, lectures, blockId: "block1", now: "2026-08-22T00:00:00.000Z" });
+    const entries = buildWeakConceptEntriesFromReport({ categories, lectures, objectives, blockId: "block1", now: "2026-08-22T00:00:00.000Z" });
     expect(entries).toHaveLength(1);
     expect(entries[0].concept).toBe("Nutrition and aging");
     expect(entries[0].linkedLecIds).toEqual(["lec1"]);
+    expect(entries[0]).toMatchObject({ objectiveIds: ["o1"], objectiveMapping: "candidate-category-overlap", objectiveLabels: ["Explain nutrition and aging"] });
     expect(entries[0].masteryLevel).toBe("struggling");
     expect(entries[0].tags).toContain("exam-report");
     expect(entries[0]).toMatchObject({ reportScore: 0, reportClassAverage: 39.49, reportSampleSize: 2, reportGap: 39.49 });

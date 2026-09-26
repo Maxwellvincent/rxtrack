@@ -331,7 +331,7 @@ export async function processQuestionBankFiles({
       if (blockId && userId) {
         update(`${index + 1}/${files.length} · checking ${file.name} for score-report weaknesses…`);
         const { entries, categories } = await analyzeExamReportWeakConcepts(
-          { text: parsed?.fullText, lectures, blockId, blockName },
+          { text: parsed?.fullText, lectures, objectives, blockId, blockName },
           { callAIJSON }
         );
         if (entries.length) {

@@ -23,6 +23,18 @@ describe("focused repair", () => {
     expect(scope.objectivesByLecture.l1[0].repairPriority).toBeGreaterThan(scope.objectivesByLecture.l2[0].repairPriority);
   });
 
+  it("turns persisted ExamSoft category-to-objective matches into a direct repair priority", () => {
+    const scope = buildFocusedRepairScope({
+      eligibleLectures: lectures,
+      objectivesByLecture,
+      blockId: "b1",
+      weakConcepts: { b1: [{ concept: "GI normal processes", source: "exam-report", objectiveIds: ["o1"], linkedLecIds: ["l1"], objectiveMapping: "candidate-category-overlap" }] },
+      learnerEvidence: { objectives: {} },
+    });
+    expect(scope.objectivesByLecture.l1[0]).toMatchObject({ id: "o1", repairPriority: expect.any(Number) });
+    expect(scope.objectivesByLecture.l1[0].repairPriority).toBeGreaterThan(scope.objectivesByLecture.l2[0].repairPriority);
+  });
+
   it("clears an objective only after five fresh answers meet the 78 percent target", () => {
     expect(objectiveRepairEvidence({ recent: [true, true, true, true] }).cleared).toBe(false);
     expect(objectiveRepairEvidence({ recent: [true, true, true, true, false] }).cleared).toBe(true);

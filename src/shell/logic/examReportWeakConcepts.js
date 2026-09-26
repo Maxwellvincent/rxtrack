@@ -128,6 +128,26 @@ export function matchCategoryToLecture(category, lectures, threshold = 0.3) {
   return match ? { lecture: match.item, score: match.score } : null;
 }
 
+/** Conservatively map a report category to the best objective(s) in its matched lecture. */
+export function matchCategoryToObjectives(category, objectives = [], lectures = [], lectureMatch = null, threshold = 0.36) {
+  const candidates = lectureMatch?.lecture?.id
+    ? objectives.filter((objective) => objective?.linkedLecId === lectureMatch.lecture.id || objective?.lectureId === lectureMatch.lecture.id)
+    : objectives;
+  const matches = candidates.map((objective) => {
+    const objectiveText = [objective?.objective, objective?.text, objective?.content, objective?.code].filter(Boolean).join(" ");
+    const lecture = lectures.find((item) => item?.id && item.id === (objective?.linkedLecId || objective?.lectureId));
+    const match = matchTextToCandidates(category, [objective], (item) => `${objectiveText} ${lecture?.lectureTitle || lecture?.fileName || ""}`, threshold);
+    return match ? { objective, score: match.score } : null;
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
+  if (!matches.length) return [];
+  const best = matches[0].score;
+  return matches.filter((match) => match.score >= threshold && best - match.score <= 0.08).slice(0, 3).map(({ objective, score }) => ({
+    id: objective.id || objective.code,
+    label: objective.objective || objective.text || objective.content || objective.code || objective.id,
+    score: Math.round(score * 100) / 100,
+  }));
+}
+
 function slug(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
@@ -145,6 +165,7 @@ function slug(s) {
 export function buildWeakConceptEntriesFromReport({
   categories = [],
   lectures = [],
+  objectives = [],
   blockId,
   blockName = "",
   now = new Date().toISOString(),
@@ -155,6 +176,7 @@ export function buildWeakConceptEntriesFromReport({
   for (const c of categories) {
     if (!isWeakCategory(c, { gapThreshold })) continue;
     const match = matchCategoryToLecture(c.category, lectures, matchThreshold);
+    const objectiveMatches = matchCategoryToObjectives(c.category, objectives, lectures, match);
     entries.push({
       id: `examcat-${blockId}-${slug(c.category)}`,
       concept: c.category,
@@ -164,7 +186,10 @@ export function buildWeakConceptEntriesFromReport({
       blockName,
       linkedLecIds: match ? [match.lecture.id].filter(Boolean) : [],
       lectureLabels: match ? [match.lecture.lectureTitle || match.lecture.fileName || c.category].filter(Boolean) : [],
-      objectiveIds: [],
+      objectiveIds: objectiveMatches.map((item) => item.id).filter(Boolean),
+      objectiveLabels: objectiveMatches.map((item) => item.label),
+      objectiveMapping: objectiveMatches.length ? "candidate-category-overlap" : null,
+      objectiveMappingScores: objectiveMatches.map(({ id, score }) => ({ id, score })),
       missCount: Math.max(c.total - c.correct, 1),
       reportScore: c.myScore,
       reportClassAverage: c.average,
@@ -198,7 +223,7 @@ export function mergeExamReportConcepts(existing, newEntries) {
 
 /** Full pipeline: raw report text + this block's lectures -> weak-concept entries. */
 export async function analyzeExamReportWeakConcepts(
-  { text, lectures = [], blockId, blockName = "", now, gapThreshold, matchThreshold } = {},
+  { text, lectures = [], objectives = [], blockId, blockName = "", now, gapThreshold, matchThreshold } = {},
   deps = {}
 ) {
   const { callAIJSON } = deps;
@@ -211,7 +236,7 @@ export async function analyzeExamReportWeakConcepts(
       3000
     );
     const categories = normalizeCategoryScores(raw);
-    const entries = buildWeakConceptEntriesFromReport({ categories, lectures, blockId, blockName, now, gapThreshold, matchThreshold });
+    const entries = buildWeakConceptEntriesFromReport({ categories, lectures, objectives, blockId, blockName, now, gapThreshold, matchThreshold });
     return { entries, categories, skipped: false };
   } catch (e) {
     return { entries: [], categories: [], error: e?.message || String(e), skipped: false };
