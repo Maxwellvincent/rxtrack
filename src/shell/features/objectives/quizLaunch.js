@@ -20,7 +20,7 @@ import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
-import { buildStyleProfile } from "../../../engine/styleProfile.js";
+import { buildStyleProfile, STYLE_PROFILE_VERSION } from "../../../engine/styleProfile.js";
 
 // Rich clinical stems plus five per-choice explanations are large JSON
 // objects. Asking for ten in one response routinely truncates otherwise good
@@ -233,6 +233,11 @@ export function buildQuizConfig({
     return { error: "No objectives, lecture facts, or lecture text are available to quiz." };
   }
 
+  const storedStyleProfile = questionStyleProfileStore.read(userId);
+  const currentStyleProfile = styleProfile || (storedStyleProfile?.version === STYLE_PROFILE_VERSION
+    ? storedStyleProfile
+    : buildStyleProfile(exemplars));
+
   return {
     config: {
       subject: lectureTitle || "these objectives",
@@ -240,7 +245,7 @@ export function buildQuizConfig({
       atoms,
       lectureText,
       examples: exemplars,
-      styleProfile: styleProfile || questionStyleProfileStore.read(userId) || buildStyleProfile(exemplars),
+      styleProfile: currentStyleProfile,
       avoidStems,
       difficulty,
       count,

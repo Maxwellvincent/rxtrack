@@ -31,7 +31,7 @@ describe("buildStyleProfile", () => {
       { ...question("Correct", "ESoftQuiz2-DM-Report.pdf"), sourceAttemptCorrect: true, schoolLearningOutcomes: "GI System" },
     ];
     const profile = buildStyleProfile(questions);
-    expect(profile.version).toBe(2);
+    expect(profile.version).toBe(3);
     expect(profile.optionCounts[5]).toBe(2);
     expect(profile.reportOutcomePerformance).toContainEqual({ label: "Anatomy of the Gastrointestinal System", attempts: 2, correct: 0, accuracy: 0 });
     expect(profile.reportOutcomePerformance.find((entry) => entry.label === "GI System")).toMatchObject({ attempts: 3, correct: 1, accuracy: 33 });
