@@ -104,7 +104,8 @@ describe("ExamSessionRunner", () => {
     controllerMock.mockReturnValue(controller);
     const {host, unmount} = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
     expect(host.textContent).toContain('Homework saved and graded');
-    expect(host.textContent).toContain('Needs repair');
+    expect(host.textContent).toContain('Incorrect');
+    expect(host.textContent).not.toContain('Needs repair');
     unmount();
   });
   it("format exam: renders a countdown timer, a submit button, and no per-question reveal", () => {
@@ -118,6 +119,20 @@ describe("ExamSessionRunner", () => {
     expect(host.textContent).not.toMatch(/Because reasons\./);
     expect(host.querySelector('[data-testid="practice-reveal"]')).toBeFalsy();
 
+    unmount();
+  });
+
+  it("shows the linked lecture and objective instead of a generic repair label", () => {
+    const controller = baseController();
+    controller.session.questions[0].objectiveIds = ["obj-1"];
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner
+      sessionId="s1" userId="u1"
+      lectureLabelsByLectureId={{ "lec-1": "Glycolysis and the PPP" }}
+      objectivesById={{ "obj-1": { id: "obj-1", code: "BIO.1", objective: "Explain pathway regulation." } }}
+    />);
+    expect(host.textContent).toContain("Lecture: Glycolysis and the PPP");
+    expect(host.textContent).toContain("Objective: BIO.1 · Explain pathway regulation.");
     unmount();
   });
 

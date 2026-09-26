@@ -69,12 +69,22 @@ function pickedFor(session, questionId) {
   return session?.answers?.find((a) => a.questionId === questionId)?.value ?? null;
 }
 
-function QuestionMeta({ question }) {
+function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId = {} }) {
   const objectiveCount = question?.objectiveIds?.length || 0;
+  const lectureId = question?.lectureId || question?.lectureIds?.[0];
+  const lectureLabel = question?.lectureLabel || lectureLabelsByLectureId[lectureId];
+  const objectiveLabels = (question?.objectiveIds || []).map((id) => {
+    const objective = objectivesById[id];
+    const code = objective?.code || objective?.objectiveCode;
+    const text = objective?.objective || objective?.text || objective?.content;
+    return [code, text].filter(Boolean).join(" · ") || id;
+  });
   return (
     <div className="mb-2 flex flex-wrap gap-1.5 font-mono text-[11px] text-text-3">
       {question?.difficulty && <span className="rounded border border-border px-1.5 py-0.5">{question.difficulty}</span>}
-      {objectiveCount > 0 && <span className="rounded border border-border px-1.5 py-0.5">{objectiveCount} objective{objectiveCount === 1 ? "" : "s"}</span>}
+      <span className="max-w-full rounded border border-border px-1.5 py-0.5">Lecture: {lectureLabel || lectureId || "not linked"}</span>
+      {objectiveLabels.map((label, index) => <span key={`${question.questionId}-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title={label}>Objective: {label}</span>)}
+      {!objectiveCount && <span className="max-w-full rounded border border-border px-1.5 py-0.5">Objective: not linked yet</span>}
       {question?.source && <span className="rounded border border-border px-1.5 py-0.5">{question.source}</span>}
       {Number.isFinite(question?.schoolStyleScore) && (
         <span className="rounded border border-border px-1.5 py-0.5" title="Structural similarity to your uploaded school questions">
@@ -210,7 +220,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
   );
 }
 
-function ExamFormat({ controller, submitOpts }) {
+function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId }) {
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
     controller;
   const questions = session.questions || [];
@@ -261,7 +271,7 @@ function ExamFormat({ controller, submitOpts }) {
 
       {q && (
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
-          <QuestionMeta question={q} />
+          <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
           <LeadInCue stem={q.stem} />
           <QuestionStem text={q.stem} questionId={q.questionId} />
           <SchoolQuestionFigure question={q} />
@@ -313,7 +323,7 @@ function ExamFormat({ controller, submitOpts }) {
 // "Finish" button, reachable once the last question is answered/revealed,
 // calls the same `submit()` the controller already exposes for format
 // "exam" — same function, now reachable from practice's UI too.
-function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId }) {
+function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, userId, objectivesById, lectureLabelsByLectureId }) {
   const { session, currentIndex, setCurrentIndex, answerQuestion, submit, submitting } = controller;
   const questions = session.questions || [];
   const q = questions[currentIndex];
@@ -334,7 +344,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
       </div>
 
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
-        <QuestionMeta question={q} />
+        <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
         <LeadInCue stem={q.stem} />
         <QuestionStem text={q.stem} questionId={q.questionId} />
         <SchoolQuestionFigure question={q} />
@@ -396,7 +406,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 // all. Now this always renders for a submitted format-"exam" session;
 // `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
 // it, which is the actual preference-gated piece.
-function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
+function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId }) {
   const questions = session.questions || [];
   const [filter, setFilter] = useState("incorrect");
   const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
@@ -422,15 +432,22 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId }) {
         {[["Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], ["Unused", questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
       </div>
       <div className="flex flex-wrap gap-2">
-        {[["incorrect", `Needs repair (${incorrectCount})`], ["correct", `Correct (${correctCount})`], ["unused", `Unused (${questions.length - answered.length})`], ["all", `All (${questions.length})`]].map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg border-2 px-3 py-2 text-xs font-bold ${filter === value ? "border-accent bg-accent/15 ring-2 ring-accent/30" : "border-border"}`}>{filter === value ? "✓ " : ""}{label}</button>)}
+        {[["incorrect", `Incorrect (${incorrectCount})`], ["correct", `Correct (${correctCount})`], ["unused", `Unused (${questions.length - answered.length})`], ["all", `All (${questions.length})`]].map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg border-2 px-3 py-2 text-xs font-bold ${filter === value ? "border-accent bg-accent/15 ring-2 ring-accent/30" : "border-border"}`}>{filter === value ? "✓ " : ""}{label}</button>)}
       </div>
       {visible.map((q, index) => {
         const picked = pickedFor(session, q.questionId);
+        const lectureId = q.lectureId || q.lectureIds?.[0];
+        const lectureLabel = q.lectureLabel || lectureLabelsByLectureId?.[lectureId];
+        const objectiveLabel = (q.objectiveIds || []).map((id) => {
+          const objective = objectivesById?.[id];
+          return objective?.objective || objective?.text || objective?.code || objective?.objectiveCode || id;
+        }).filter(Boolean).join("; ");
+        const context = [lectureLabel, objectiveLabel].filter(Boolean).join(" · ");
         return (
           <details key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3" open={filter === "incorrect" && index === 0}>
-            <summary className="cursor-pointer text-sm font-bold text-text-1">{picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Needs repair"} · {extractLeadIn(q.stem)}</summary>
+            <summary className="cursor-pointer text-sm font-bold text-text-1">{picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Incorrect"}{context ? ` · ${context}` : ""} · {extractLeadIn(q.stem)}</summary>
             <div className="mt-3">
-            <QuestionMeta question={q} />
+            <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
             <LeadInCue stem={q.stem} />
             <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
             <SchoolQuestionFigure question={q} />
@@ -460,6 +477,7 @@ export function ExamSessionRunner({
   blockId,
   blockName = "",
   lectureLabelsByLectureId = {},
+  objectivesById = {},
   onExit,
   tutorModeEnabled = false,
   callAI,
@@ -517,7 +535,7 @@ export function ExamSessionRunner({
         <SessionTitle session={session} />
         <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. {sessionLabel(session)} saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
         {(session.format === "exam" || session.sourceType === "question-bank") && (
-          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} />
+          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
         )}
       </div>
     );
@@ -550,7 +568,7 @@ export function ExamSessionRunner({
       {session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || "…"} questions ready. You can start answering now; missing questions are generating. {session.format === "exam" ? "The timer starts when the requested set is ready." : ""} Keep this tab open until preparation finishes.</div>}
       {session.fillStatus === "partial" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions ready. {session.fillError ? `The remaining questions could not be prepared: ${session.fillError}` : "The requested set could not be fully prepared."} You can continue with what is ready.</div>}
       {session.format === "exam" ? (
-        <ExamFormat controller={controller} submitOpts={submitOpts} />
+        <ExamFormat controller={controller} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (
         <PracticeFormat
           controller={controller}
@@ -558,6 +576,8 @@ export function ExamSessionRunner({
           submitOpts={submitOpts}
           callAI={callAI}
           userId={userId}
+          objectivesById={objectivesById}
+          lectureLabelsByLectureId={lectureLabelsByLectureId}
         />
       )}
       <div className="flex items-center justify-between">

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText, parseExamSoftReportQuestions } from "./examParser.js";
 
 describe("Q-numbered question banks", () => {
   it("normalizes Q-numbered question headings", () => {
@@ -363,6 +363,18 @@ D. Aldose reductase - CORRECT ANSWER - Forms the accumulated sugar alcohol.`;
     const text = [1, 2, 3].map((number) => `${number}. Image-based clinical question ${number} has enough detail to parse?\n![](figure-${number}.jpg)\nA. Alpha\nB. Beta\nC. Gamma`).join("\n\n") + "\nAnswer Key: 1 A, 2 B, 3 C";
     const file = new File([text], "Image bank.md", { type: "text/markdown" });
     await expect(parseExamPDF(file, null, { requireSourceKeys: true })).rejects.toThrow(/Upload the original PDF/i);
+  });
+});
+
+describe("ExamSoft answer report questions", () => {
+  it("extracts original stems, all keyed options, rationales, outcomes, scores, and page links", () => {
+    const report = `BPM2 ExamSoft Report\nQuestions: 2\n[PAGE_BREAK:4]\nANAT.1001 Midgut drainage\n1 A patient with a hepatic flexure tumor has a clinical finding. Which nodes receive metastases? 0/1\nX A: Internal iliac\n> B: Superior mesenteric\nX C: Celiac\nRationale: Midgut drainage follows the superior mesenteric vessels.\nLearning Outcomes: Gross anatomy; Gastrointestinal system\n[PAGE_BREAK:5]\nBIO.2001 Fasting metabolism\n2 A patient has fasted for 18 hours. Which enzyme is activated? 1/1\nX A: Pyruvate dehydrogenase\n> B: Pyruvate carboxylase\nX C: Acetyl-CoA carboxylase\nRationale: Acetyl-CoA activates pyruvate carboxylase.\nLearning Outcomes: Gluconeogenesis; Regulation`;
+    const questions = parseExamSoftReportQuestions(report, "ESoft Quiz");
+    expect(questions).toHaveLength(2);
+    expect(questions[0]).toMatchObject({ num: 1, correct: "B", sourceScore: "0/1", sourceAttemptCorrect: false, sourcePage: 4, topic: "ANAT.1001 Midgut drainage", schoolLearningOutcomes: expect.stringContaining("Gastrointestinal system") });
+    expect(questions[0].choices).toEqual({ A: "Internal iliac", B: "Superior mesenteric", C: "Celiac" });
+    expect(questions[0].explanation).toContain("superior mesenteric vessels");
+    expect(questions[1]).toMatchObject({ correct: "B", sourceScore: "1/1", sourceAttemptCorrect: true, sourcePage: 5 });
   });
 });
 

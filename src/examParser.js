@@ -738,6 +738,90 @@ export function expectedQuestionCountFromAnswerKey(fullText) {
     : bestCount(0);
 }
 
+/** Extract the original keyed items embedded in an ExamSoft answer report.
+ * The red X marks in these reports can indicate the learner's selected wrong
+ * option, so only the `>` marker is treated as the authoritative answer key.
+ */
+export function parseExamSoftReportQuestions(fullText, examTitle = "") {
+  const source = String(fullText || "").replace(/\r/g, "");
+  const parts = source.split(/\[PAGE_BREAK:(\d+)\]/g);
+  const pages = [];
+  let pageNumber = 1;
+  for (let index = 0; index < parts.length; index++) {
+    if (index % 2 === 1) pageNumber = Number(parts[index]) || pageNumber + 1;
+    else pages.push({ num: pageNumber, text: parts[index] });
+  }
+  const questions = [];
+  const heading = /^\s*(\d{1,2})\s+(.*?)\s+([01])\s*\/\s*1\s*$/;
+  const answerChoice = /^\s*([X>])\s*([A-H])\s*:\s*(.*)$/i;
+  for (const page of pages) {
+    const lines = page.text.split("\n");
+    const starts = [];
+    lines.forEach((line, index) => {
+      const match = line.match(heading);
+      if (match && Number(match[1]) === questions.length + starts.length + 1) {
+        starts.push({ index, number: Number(match[1]), stemStart: match[2].trim(), score: Number(match[3]) });
+      }
+    });
+    for (const [startIndex, start] of starts.entries()) {
+      const end = starts[startIndex + 1]?.index ?? lines.length;
+      const bodyLines = lines.slice(start.index + 1, end);
+      const stemLines = start.stemStart ? [start.stemStart] : [];
+      const choices = {};
+      let correct = null;
+      let rationale = [];
+      let outcomes = [];
+      let section = "stem";
+      for (const raw of bodyLines) {
+        const line = raw.trim();
+        if (!line) continue;
+        const choice = line.match(answerChoice);
+        if (choice) {
+          section = "choices";
+          const letter = choice[2].toUpperCase();
+          choices[letter] = choice[3].trim();
+          if (choice[1] === ">") correct = letter;
+          continue;
+        }
+        if (/^Rationale\s*:/i.test(line)) {
+          section = "rationale";
+          rationale.push(line.replace(/^Rationale\s*:\s*/i, ""));
+          continue;
+        }
+        if (/^Learning Outcomes\s*:/i.test(line)) {
+          section = "outcomes";
+          outcomes.push(line.replace(/^Learning Outcomes\s*:\s*/i, ""));
+          continue;
+        }
+        if (section === "stem") stemLines.push(line);
+        else if (section === "rationale") rationale.push(line);
+        else if (section === "outcomes") outcomes.push(line);
+      }
+      if (!correct || !choices[correct] || Object.keys(choices).length < 2) continue;
+      const stem = stemLines.join(" ").replace(/\s+/g, " ").trim();
+      const priorTitle = lines.slice(0, start.index).map((line) => line.trim()).filter(Boolean).at(-1) || examTitle;
+      // Only flag an actual embedded visual/data exhibit. A clinical mention
+      // of an imaging modality alone is not a figure and should not trigger a
+      // page capture from a scored answer report.
+      const hasImage = /\b(?:attached image|shown by the arrow|attached micrograph|shown in the (?:figure|image|graph|chart|table)|following (?:figure|image|graph|chart|table)|Test Patient value)\b/i.test(stem);
+      const schoolLearningOutcomes = [...new Set(outcomes.join(" ").replace(/\s+/g, " ").trim()
+        .split(/,\s*(?=CATEGORIES\/)/)
+        .map((entry) => entry.replace(/^CATEGORIES\/SCHOOL OF MEDICINE\/?/i, "").split("/").at(-1).trim())
+        .filter(Boolean))].join(" · ") || null;
+      questions.push({
+        id: `q${start.number}`, num: start.number, type: "clinicalVignette",
+        subject: "ExamSoft", topic: priorTitle || examTitle || "ExamSoft question",
+        schoolQuestionTopic: priorTitle || null,
+        stem, choices, correct, explanation: rationale.join(" ").replace(/\s+/g, " ").trim() || null,
+        schoolLearningOutcomes,
+        sourceScore: `${start.score}/1`, sourceAttemptCorrect: start.score === 1,
+        sourceKeyStatus: "present", hasImage, imageQuestion: hasImage, sourcePage: page.num,
+      });
+    }
+  }
+  return questions;
+}
+
 /**
  * Extraction prompt for the standard/AI parse path.
  *
@@ -1387,6 +1471,9 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     report: "Exam performance report",
   };
   onProgress?.("🔍 Detected: " + (formatLabels[format] || format));
+  const reportExpectedQuestionCount = format === "report"
+    ? Number(fullText.match(/\bQuestions?\s*:\s*(\d+)/i)?.[1]) || null
+    : null;
 
   const examTitle = cleanLectureTitle(file.name);
   let questions = [];
@@ -1417,8 +1504,13 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     }
     onProgress?.(`✓ Parsed ${questions.length} Mad Cow question/explanation sets locally`);
   } else if (format === "report") {
-    onProgress?.("✓ Detected score report; saving grade and category evidence");
-    questions = [];
+    questions = parseExamSoftReportQuestions(fullText, examTitle);
+    if (questions.length && reportExpectedQuestionCount && questions.length !== reportExpectedQuestionCount) {
+      throw new Error(`ExamSoft report contains ${reportExpectedQuestionCount} questions, but only ${questions.length} complete keyed items were extracted. No partial question bank was imported.`);
+    }
+    onProgress?.(questions.length
+      ? `✓ Extracted all ${questions.length} original ExamSoft questions with their answer keys and rationales`
+      : "✓ Detected score report; saving grade and category evidence");
   } else if (!opts?.forcePairedKey && !opts?.useLlm && deterministic.length >= 3) {
     onProgress?.(`✓ Parsed ${deterministic.length} questions locally — no AI used`);
     questions = deterministic;
@@ -1440,7 +1532,50 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
 
   questions = attachImagesToExamQuestions(questions, slideImages);
 
-  if (pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
+  if (format === "report" && pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
+    // ExamSoft answer reports include the correct option and rationale below
+    // each stem. Never attach a complete report page to a practice question.
+    // Isolate only the prompt region (stem + any embedded figure/table), ending
+    // immediately before the first answer choice. Fail closed if boundaries
+    // cannot be identified rather than leaking the answer key.
+    for (const question of questions) {
+      if (!question.hasImage || !question.sourcePage || question.sourceImageUrl) continue;
+      const page = await pdf.getPage(question.sourcePage);
+      const viewport = page.getViewport({ scale: 1.35 });
+      const textContent = await page.getTextContent();
+      const positioned = (textContent.items || []).filter((item) => String(item?.str || "").trim()).map((item, index) => ({
+        text: String(item.str).trim(), x: Number(item?.transform?.[4]), y: Number(item?.transform?.[5]),
+        size: Math.abs(Number(item?.transform?.[0])) || 10, index,
+      }));
+      const lines = [];
+      for (const item of positioned.sort((a, b) => b.y - a.y || a.x - b.x || a.index - b.index)) {
+        let line = lines.find((candidate) => Math.abs(candidate.y - item.y) <= Math.max(item.size, ...candidate.items.map((run) => run.size)) * 0.55);
+        if (!line) { line = { y: item.y, items: [] }; lines.push(line); }
+        line.items.push(item);
+      }
+      const rows = lines.sort((a, b) => b.y - a.y).map((line) => ({
+        y: line.y,
+        text: line.items.sort((a, b) => a.x - b.x).map((item) => item.text).join(" ").replace(/\s+/g, " ").trim(),
+      }));
+      const questionIndex = rows.findIndex((row) => new RegExp(`^${question.num}\\s+`).test(row.text));
+      const optionIndex = rows.findIndex((row, index) => index > questionIndex && /^[X>]\s*[A-H]\s*:/i.test(row.text));
+      if (questionIndex < 0 || optionIndex <= questionIndex) {
+        throw new Error(`Could not safely isolate the figure/table for ExamSoft question ${question.num}. The report was not imported with a full-page image, to protect its answer key.`);
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      const top = Math.max(0, Math.floor(viewport.convertToViewportPoint(0, rows[questionIndex].y + 18)[1]));
+      const bottom = Math.min(canvas.height, Math.ceil(viewport.convertToViewportPoint(0, rows[optionIndex].y + 9)[1]));
+      if (bottom <= top) throw new Error(`Could not safely crop the source exhibit for ExamSoft question ${question.num}.`);
+      const crop = document.createElement("canvas");
+      crop.width = canvas.width;
+      crop.height = bottom - top;
+      crop.getContext("2d").drawImage(canvas, 0, top, canvas.width, crop.height, 0, 0, crop.width, crop.height);
+      question.sourceImageDataUrl = crop.toDataURL("image/jpeg", 0.9);
+    }
+  } else if (format !== "report" && pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
     const pageData = new Map();
     for (const question of questions) {
       if (!question.hasImage || !question.sourcePage || question.sourceImageUrl) continue;
@@ -1483,7 +1618,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     questions,
     examTitle,
     totalQuestions: questions.length,
-    expectedQuestions: expectedFromKey,
+    expectedQuestions: expectedFromKey || (questions.length ? reportExpectedQuestionCount : null),
     format,
     fullText,
     chunks,

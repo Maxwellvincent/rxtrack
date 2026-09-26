@@ -60,13 +60,18 @@ function lectureSupport(question, lectures = [], linkedObjectives = []) {
 export function buildQuestionBankAnalysis({ questions = [], objectives = [], lectures = [], sourceKind = "school", filename = "", expectedQuestions = null, extractionMethod = null } = {}) {
   const list = Array.isArray(questions) ? questions : [];
   const keyed = list.filter((question) => question?.sourceKeyStatus === "present" || (question?.correct && question?.choices?.[question.correct])).length;
-  const alignments = alignSchoolQuestions(list, objectives, lectures.flatMap((lecture) => lecture?.atoms || []));
+  const analysisQuestions = list.map((question) => ({
+    ...question,
+    topic: [question.topic, question.schoolQuestionTopic, question.schoolLearningOutcomes].filter(Boolean).join(" "),
+  }));
+  const alignments = alignSchoolQuestions(analysisQuestions, objectives, lectures.flatMap((lecture) => lecture?.atoms || []));
   const byQuestion = new Map(alignments.map((entry) => [entry.question.id || entry.question.num, entry]));
   const items = list.map((question, index) => {
-    const focus = classifyQuestionFocus(question);
+    const evidenceQuestion = analysisQuestions[index] || question;
+    const focus = classifyQuestionFocus(evidenceQuestion);
     const direct = byQuestion.get(question.id || question.num);
     const directObjectiveLinks = direct?.links?.filter((link) => link.kind === "objective").slice(0, 2) || [];
-    const candidateObjectives = directObjectiveLinks.length ? directObjectiveLinks : candidateObjectiveLinks(question, objectives).map(({ objective, shared }) => ({ targetId: objective.id || objective.code, targetText: textOfObjective(objective), basis: "candidate-overlap", evidence: shared.slice(0, 6), score: shared.length }));
+    const candidateObjectives = directObjectiveLinks.length ? directObjectiveLinks : candidateObjectiveLinks(evidenceQuestion, objectives).map(({ objective, shared }) => ({ targetId: objective.id || objective.code, targetText: textOfObjective(objective), basis: "candidate-overlap", evidence: shared.slice(0, 6), score: shared.length }));
     const objectiveIds = candidateObjectives.map((link) => link.targetId).filter(Boolean).slice(0, 2);
     const supports = lectureSupport(question, lectures, candidateObjectives.map((link) => ({ objective: objectives.find((item) => (item.id || item.code) === link.targetId) })).filter((item) => item.objective));
     const critique = [];
@@ -81,10 +86,19 @@ export function buildQuestionBankAnalysis({ questions = [], objectives = [], lec
       clinical: focus.clinical,
       clinicalCues: focus.cues,
       objectiveIds,
+      objectiveLinks: candidateObjectives.map((link) => ({
+        id: link.targetId || link.objective?.id || link.objective?.code || null,
+        label: link.targetText || textOfObjective(link.objective) || link.targetId || null,
+        basis: link.basis || "direct-evidence",
+      })),
       objectiveBasis: candidateObjectives[0]?.basis || "unmapped",
       lectureIds: supports.map(({ lecture }) => lecture.id).filter(Boolean),
+      lectureLinks: supports.map(({ lecture }) => ({ id: lecture.id, label: lecture.lectureTitle || lecture.fileName || lecture.filename || lecture.id })),
       clinicalCorrelates: supports.flatMap(({ map }) => [map.clinicalHook, ...(map.sections || []).map((section) => section.clinicalRelevance)]).filter(Boolean).slice(0, 3),
       sourcePage: question.sourcePage || null,
+      sourceScore: question.sourceScore || null,
+      sourceAttemptCorrect: typeof question.sourceAttemptCorrect === "boolean" ? question.sourceAttemptCorrect : null,
+      schoolLearningOutcomes: question.schoolLearningOutcomes || null,
       sourceKeyStatus: question.sourceKeyStatus || (question.correct && question.choices?.[question.correct] ? "present" : "missing"),
       correctnessStatus: question.correct && question.choices?.[question.correct] ? "source-key-present-not-medically-audited" : "needs-review",
       critique: critique.length ? critique : ["Source key is present. Compare the rationale and lecture support before treating this as medically confirmed."],
@@ -92,6 +106,7 @@ export function buildQuestionBankAnalysis({ questions = [], objectives = [], lec
   });
   const focusCounts = {};
   const cueCounts = {};
+  const sourcePerformanceQuestions = list.filter((question) => typeof question?.sourceAttemptCorrect === "boolean");
   for (const item of items) {
     focusCounts[item.focus] = (focusCounts[item.focus] || 0) + 1;
     for (const cue of item.clinicalCues) cueCounts[cue] = (cueCounts[cue] || 0) + 1;
@@ -111,6 +126,12 @@ export function buildQuestionBankAnalysis({ questions = [], objectives = [], lec
     cueCounts,
     objectiveCount: items.filter((item) => item.objectiveIds.length).length,
     clinicalQuestionCount: items.filter((item) => item.clinical).length,
+    sourcePerformance: sourcePerformanceQuestions.length ? {
+      count: sourcePerformanceQuestions.length,
+      correct: sourcePerformanceQuestions.filter((question) => question.sourceAttemptCorrect).length,
+      incorrect: sourcePerformanceQuestions.filter((question) => !question.sourceAttemptCorrect).length,
+      accuracy: Math.round(sourcePerformanceQuestions.filter((question) => question.sourceAttemptCorrect).length / sourcePerformanceQuestions.length * 100),
+    } : null,
     items,
     updatedAt: Date.now(),
   };

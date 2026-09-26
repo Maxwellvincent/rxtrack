@@ -43,4 +43,17 @@ describe("question bank analysis", () => {
     expect(merged.items[0].correctnessStatus).toBe("needs-review");
     expect(question.correct).toBe("A");
   });
+
+  it("retains per-question prior performance and aggregates it separately from the answer key", () => {
+    const analysis = buildQuestionBankAnalysis({
+      questions: [
+        { ...question, sourceAttemptCorrect: false, sourceScore: "0/1", schoolLearningOutcomes: "Gastrointestinal system" },
+        { ...question, id: "q2", num: 2, sourceAttemptCorrect: true, sourceScore: "1/1" },
+      ],
+      filename: "ESoftQuiz2-DM-Report.pdf",
+      expectedQuestions: 2,
+    });
+    expect(analysis.sourcePerformance).toEqual({ count: 2, correct: 1, incorrect: 1, accuracy: 50 });
+    expect(analysis.items[0]).toMatchObject({ sourceAttemptCorrect: false, sourceScore: "0/1", schoolLearningOutcomes: "Gastrointestinal system" });
+  });
 });
