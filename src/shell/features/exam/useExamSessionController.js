@@ -82,6 +82,29 @@ export function useExamSessionController(sessionId, userId) {
     }
   }, [userId, sessionId]);
 
+  // A short prepared reserve is extended while the learner is already in the
+  // session. Poll only during that bounded fill window; Firestore remains the
+  // source of truth and normal sessions keep the existing one-fetch behavior.
+  useEffect(() => {
+    if (session?.fillStatus !== "generating") return undefined;
+    const poll = async () => {
+      try {
+        const remote = await getExamSession(userId, sessionId);
+        if (!remote || !mountedRef.current) return;
+        setSession(current => {
+          if (!current) return remote;
+          const questions = new Map((current.questions || []).map(question => [question.questionId, question]));
+          (remote.questions || []).forEach(question => questions.set(question.questionId, question));
+          const answers = (current.answers || []).reduce((merged, answer) => mergeAnswer(merged, answer), remote.answers || []);
+          return { ...remote, questions: [...questions.values()], answers };
+        });
+      } catch { /* Keep the visible session; the next bounded poll can recover. */ }
+    };
+    const id = setInterval(poll, 1000);
+    poll();
+    return () => clearInterval(id);
+  }, [session?.fillStatus, sessionId, userId]);
+
   useEffect(() => {
     mountedRef.current = true;
     autoSubmitTriggeredRef.current = false;
@@ -191,7 +214,7 @@ export function useExamSessionController(sessionId, userId) {
     (questionId, value) => {
       if (!session) return false;
       if (session.status !== "in_progress") return false;
-      if (session.format === "exam" && (remainingMs == null || remainingMs <= 0)) return false;
+      if (session.format === "exam" && remainingMs != null && remainingMs <= 0) return false;
       // Once a prior autosave was vetoed (the server-side session moved past
       // "in_progress" — e.g. a finalize race), further picks can never
       // persist. Refuse honestly instead of painting a selection that will

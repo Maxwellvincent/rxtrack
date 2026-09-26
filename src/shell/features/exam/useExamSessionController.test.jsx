@@ -324,6 +324,20 @@ describe("useExamSessionController", () => {
   });
 
   describe("answerQuestion", () => {
+    it("allows answering saved questions while the rest of the timed set is generating and clock is paused", async () => {
+      const session = makeSession({ deadline: null, startedAt: null, fillStatus: "generating", targetQuestionCount: 5 });
+      getExamSessionMock.mockResolvedValue(session);
+      updateExamSessionTransactionMock.mockImplementation(async (_userId, _sessionId, updateFn) => updateFn(session));
+      const probe = mountController(SESSION_ID, USER);
+      await probe.render();
+      let accepted;
+      await act(async () => { accepted = probe.get().answerQuestion("q1", "A"); });
+      expect(accepted).toBe(true);
+      expect(probe.get().session.answers).toEqual([expect.objectContaining({ questionId: "q1", value: "A" })]);
+      expect(probe.get().remainingMs).toBeNull();
+      await probe.unmount();
+    });
+
     it("updates local state optimistically and CAS-merges via the Firestore transaction", async () => {
       const session = makeSession();
       getExamSessionMock.mockResolvedValue(session);

@@ -40,13 +40,13 @@ const ELIGIBLE = [
 beforeEach(() => installDomStorage());
 
 describe("ExamLaunchModal", () => {
-  it("offers a saved-only start after a provider shortfall", () => {
+  it("offers an immediate start that will fill the remaining questions after a provider shortfall", () => {
     const onStartSaved = vi.fn();
     const { host, unmount } = render(
       <ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE} defaultQuestionCount={30}
         onLaunch={vi.fn()} onCancel={vi.fn()} error="28/30 ready" partialLaunch={{ readyCount: 28 }} onStartSaved={onStartSaved} />
     );
-    const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent.includes("Start 28-question exam"));
+    const button = Array.from(host.querySelectorAll("button")).find((item) => item.textContent.includes("Start with 28 saved questions"));
     expect(button).toBeTruthy();
     act(() => button.click());
     expect(onStartSaved).toHaveBeenCalledTimes(1);
@@ -107,7 +107,7 @@ describe("ExamLaunchModal", () => {
     );
 
     expect(host.textContent).toMatch(/No lectures in this block have objectives yet/);
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     expect(startBtn.disabled).toBe(true);
 
     act(() => startBtn.click());
@@ -132,10 +132,10 @@ describe("ExamLaunchModal", () => {
     const practiceBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Practice");
     act(() => practiceBtn.click());
 
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     act(() => startBtn.click());
 
-    expect(onLaunch).toHaveBeenCalledWith({ format: "practice", questionCount: 15, durationMinutes: null });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "practice", questionCount: 15, durationMinutes: null, startWhilePreparing: true });
 
     unmount();
   });
@@ -156,10 +156,10 @@ describe("ExamLaunchModal", () => {
     const durationInput = host.querySelectorAll('input[type="number"]')[1];
     expect(durationInput.value).toBe("30"); // 20 * 1.5
 
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     expect(startBtn.disabled).toBe(false);
     act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 20, durationMinutes: 30 });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 20, durationMinutes: 30, startWhilePreparing: true });
 
     unmount();
   });
@@ -173,7 +173,7 @@ describe("ExamLaunchModal", () => {
     expect(host.textContent).toContain("fresh retest");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", studyMode: "repair", questionCount: 10, durationMinutes: 15 });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", studyMode: "repair", questionCount: 10, durationMinutes: 15, startWhilePreparing: true });
     unmount();
   });
 
@@ -218,9 +218,9 @@ describe("ExamLaunchModal", () => {
     );
     const durationInput = host.querySelectorAll('input[type="number"]')[1];
     expect(durationInput.value).toBe("22.5");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start exam");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 22.5 });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 22.5, startWhilePreparing: true });
     unmount();
   });
 
@@ -239,9 +239,9 @@ describe("ExamLaunchModal", () => {
     const inputs = host.querySelectorAll('input[type="number"]');
     expect(inputs[0].value).toBe("100");
     expect(inputs[1].value).toBe("150");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start exam");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 100, durationMinutes: 150 });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 100, durationMinutes: 150, startWhilePreparing: true });
     unmount();
   });
 
@@ -261,7 +261,7 @@ describe("ExamLaunchModal", () => {
     const durationInput = host.querySelectorAll('input[type="number"]')[1];
     act(() => setInputValue(durationInput, ""));
 
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start exam");
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     expect(startBtn.disabled).toBe(true);
     act(() => startBtn.click());
     expect(onLaunch).not.toHaveBeenCalled();
@@ -269,7 +269,7 @@ describe("ExamLaunchModal", () => {
     act(() => setInputValue(durationInput, "60"));
     expect(startBtn.disabled).toBe(false);
     act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 60 });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 60, startWhilePreparing: true });
 
     unmount();
   });
@@ -309,9 +309,9 @@ describe("ExamLaunchModal", () => {
     const scope = host.querySelector("select");
     act(() => setInputValue(scope, "2"));
     expect(host.textContent).toContain("7 objectives across 1 lectures");
-    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start exam");
+    const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 10, durationMinutes: 15, weekNumber: "2" });
+    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 10, durationMinutes: 15, weekNumber: "2", startWhilePreparing: true });
     unmount();
   });
 
@@ -330,7 +330,7 @@ describe("ExamLaunchModal", () => {
       />
     );
 
-    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent.includes("Starting"));
+    const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent.includes("Opening"));
     const cancelBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Cancel");
     expect(startBtn).toBeTruthy();
     expect(startBtn.disabled).toBe(true);

@@ -89,6 +89,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length) continue;
         const cached = { ...q, objectiveIds: resolveQuestionObjectiveIds(q, objectives) };
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
+        await deps.onQuestionReady?.(cached);
       }
       progress(`Loaded saved questions: ${lectureTitle}`);
     }
@@ -129,6 +130,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const saved = deps.pool ? await deps.pool.save(stamped, bucket, generationId) : stamped;
         if (!saved) continue;
         questions.push(saved); obtained++;
+        await deps.onQuestionReady?.(saved);
         progress(`Saved ${questions.length}/${total} questions · ${cacheHits} from your prepared pool`);
       }
     }

@@ -150,7 +150,7 @@ describe("ExamContainer", () => {
     await act(async () => saved.click());
     await flush();
     expect(launchExamSessionMock.mock.calls[0][0]).toMatchObject({
-      format: "exam", questionCount: 12, durationMinutes: 18, contentScope: "date-range:2026-09-20:2026-09-23", savedOnly: true,
+      format: "exam", questionCount: 12, durationMinutes: 18, contentScope: "date-range:2026-09-20:2026-09-23", startWhilePreparing: true,
     });
     expect(host.textContent).toMatch(/saved-session/);
     unmount();

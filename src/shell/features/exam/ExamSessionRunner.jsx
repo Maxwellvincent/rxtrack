@@ -257,6 +257,8 @@ function ExamFormat({ controller, submitOpts }) {
         })}
       </div>
 
+      {!q && session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing the first questions for this scope…</div>}
+
       {q && (
         <div className="rounded-lg border border-border bg-bg-elevated p-3">
           <QuestionMeta question={q} />
@@ -295,9 +297,9 @@ function ExamFormat({ controller, submitOpts }) {
       </div>
       <div className="flex flex-col gap-2 rounded-lg border-2 border-border-strong bg-panel p-3 sm:flex-row sm:items-center sm:justify-between">
         <div><div className="text-xs font-bold text-text-1">Finished reviewing?</div><div className="font-mono text-[11px] text-text-3">{answeredCount} answered · {questions.length - answeredCount} {session.sourceType === "question-bank" ? "unanswered · remain available in this set" : "return to reserve"}</div></div>
-        <Button variant="outline" onClick={() => {
+        <Button variant="outline" disabled={submitting || session.fillStatus === "generating"} onClick={() => {
           if (window.confirm(`Submit ${answeredCount} answered questions for grading? ${questions.length - answeredCount} unanswered questions will not count against you.`)) submit(submitOpts);
-        }} disabled={submitting}>{submitting ? "Grading answered questions…" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
+        }}>{submitting ? "Grading answered questions…" : `Submit ${sessionLabel(session).toLowerCase()} · finish & grade`}</Button>
       </div>
     </div>
   );
@@ -319,7 +321,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const revealed = picked != null;
   const [draftChoice, setDraftChoice] = useState(picked);
   useEffect(() => setDraftChoice(picked), [q?.questionId, picked]);
-  if (!q) return null;
+  if (!q) return session.fillStatus === "generating" ? <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing questions for this scope…</div> : null;
   const isCorrect = revealed && picked === q.correct;
 
   return (
@@ -365,7 +367,9 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
             )}
             <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
-            {currentIndex + 1 >= questions.length ? (
+            {currentIndex + 1 >= questions.length && session.fillStatus === "generating" ? (
+              <div role="status" className="text-sm text-text-3">Your next question is being prepared…</div>
+            ) : currentIndex + 1 >= questions.length ? (
               <Button onClick={() => submit(submitOpts)} disabled={submitting}>
                 {submitting ? "Submitting…" : "Finish"}
               </Button>
@@ -528,9 +532,23 @@ export function ExamSessionRunner({
     );
   }
 
+  if (session.fillStatus === "partial" && !(session.questions || []).length) {
+    return (
+      <div className="space-y-3">
+        <SessionTitle session={session} />
+        <div role="alert" className="rounded-lg border border-bad/40 bg-bg-elevated p-4 text-sm text-text-2">
+          No questions could be prepared for this scope.{session.fillError ? ` ${session.fillError}` : ""}
+        </div>
+        {onExit && <Button onClick={async () => { await controller.abandon(); onExit(); }}>Back to exam center</Button>}
+      </div>
+    );
+  }
+
   return (
     <div className="mb-5 space-y-3">
       <SessionTitle session={session} />
+      {session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || "…"} questions ready. You can start answering now; missing questions are generating. {session.format === "exam" ? "The timer starts when the requested set is ready." : ""} Keep this tab open until preparation finishes.</div>}
+      {session.fillStatus === "partial" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions ready. {session.fillError ? `The remaining questions could not be prepared: ${session.fillError}` : "The requested set could not be fully prepared."} You can continue with what is ready.</div>}
       {session.format === "exam" ? (
         <ExamFormat controller={controller} submitOpts={submitOpts} />
       ) : (

@@ -7,9 +7,13 @@ const allocateQuestionsMock = vi.fn();
 const generateExamQuestionsMock = vi.fn();
 const createExamSessionMock = vi.fn();
 const checkExamAccessMock = vi.fn();
+const appendPoolQuestionMock = vi.fn();
+const finishPoolFillMock = vi.fn();
 vi.mock("../../../questionPool.js", () => ({ createQuestionPool: userId => ({
   begin: async () => {}, finish: async () => {},
   commit: session => createExamSessionMock(userId, session),
+  appendToSession: (...args) => appendPoolQuestionMock(...args),
+  finishSessionFill: (...args) => finishPoolFillMock(...args),
 }) }));
 
 vi.mock("./allocation.js", () => ({
@@ -60,6 +64,10 @@ beforeEach(() => {
   generateExamQuestionsMock.mockReset();
   createExamSessionMock.mockReset();
   checkExamAccessMock.mockReset();
+  appendPoolQuestionMock.mockReset();
+  appendPoolQuestionMock.mockResolvedValue({ ok: true });
+  finishPoolFillMock.mockReset();
+  finishPoolFillMock.mockResolvedValue({});
 
   allocateQuestionsMock.mockReturnValue({ "lec-1": 10 });
 });
@@ -184,5 +192,29 @@ describe("launchExamSession", () => {
     expect(result).toMatchObject({ ok: true, prepared: 1 });
     expect(result.sessionId).toBeUndefined();
     expect(createExamSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("opens immediately with saved questions and fills missing slots asynchronously", async () => {
+    const saved = { ...makeQuestion("saved", "lec-1"), poolId: "pool-saved", poolBucket: "old" };
+    const fresh = { ...makeQuestion("fresh", "lec-1"), poolId: "pool-fresh", poolBucket: "new" };
+    generateExamQuestionsMock
+      .mockResolvedValueOnce({ questions: [saved], cacheHits: 1, errors: [] })
+      .mockImplementationOnce(async (_args, deps) => {
+        await deps.onQuestionReady(fresh);
+        return { questions: [fresh], cacheHits: 0, errors: [] };
+      });
+    createExamSessionMock.mockResolvedValue({ ok: true });
+
+    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 2, startWhilePreparing: true });
+    expect(result).toMatchObject({ ok: true, sessionId: expect.any(String) });
+    const [, session] = createExamSessionMock.mock.calls[0];
+    expect(session.questions.map(question => question.questionId)).toEqual(["saved"]);
+    expect(session.fillStatus).toBe("generating");
+    expect(session.deadline).toBeNull();
+    expect(generateExamQuestionsMock.mock.calls[0][1]).toMatchObject({ savedOnly: true });
+    expect(generateExamQuestionsMock.mock.calls[1][1]).toMatchObject({ savedOnly: false });
+    expect(appendPoolQuestionMock).toHaveBeenCalledWith(result.sessionId, fresh, expect.objectContaining({ requestedCount: 2 }));
+    await Promise.resolve();
+    expect(finishPoolFillMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ requestedCount: 2 }));
   });
 });

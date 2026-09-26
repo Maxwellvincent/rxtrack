@@ -112,6 +112,62 @@ export function createQuestionPool(userId, blockId, database = db) {
         return { ok: true };
       });
     },
+    async appendToSession(sessionId, question, { requestedCount, durationMinutes, generationDone = false } = {}) {
+      if (!question?.poolId) return { ok: false, reason: "missing-pool-id" };
+      const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
+      const questionRef = doc(records, question.poolId);
+      return runTransaction(db, async tx => {
+        const [sessionSnap, questionSnap] = await Promise.all([tx.get(sessionRef), tx.get(questionRef)]);
+        if (!sessionSnap.exists() || !questionSnap.exists()) return { ok: false, reason: "missing-record" };
+        const session = sessionSnap.data();
+        const row = questionSnap.data();
+        if (session.status !== "in_progress" || row.status !== "ready") return { ok: false, reason: "no-longer-available" };
+        const existing = session.questions || [];
+        const alreadyIncluded = existing.some(item => item.poolId === question.poolId || item.questionId === question.questionId);
+        const nextQuestions = alreadyIncluded ? existing : [...existing, question];
+        tx.update(questionRef, { status: "assigned", bucket: `assigned:${row.bucket}`, sessionId, assignedAt: Date.now() });
+        const isFilled = Number.isFinite(requestedCount) && nextQuestions.length >= requestedCount;
+        const isDone = generationDone || isFilled;
+        const now = Date.now();
+        const next = {
+          ...session,
+          questions: nextQuestions,
+          fillStatus: isDone ? (isFilled ? "complete" : "partial") : "generating",
+          ...(isDone && session.format === "exam" && session.startedAt == null ? {
+            startedAt: now,
+            deadline: now + Math.max(1, Number(durationMinutes) || Number(session.durationMinutes) || 1) * 60_000,
+          } : {}),
+          updatedAt: now,
+          rev: (session.rev || 0) + 1,
+        };
+        tx.set(sessionRef, next);
+        return { ok: true, session: next };
+      });
+    },
+    async finishSessionFill(sessionId, { requestedCount, durationMinutes, error = "" } = {}) {
+      const sessionRef = doc(db, "users", userId, "examSessions", sessionId);
+      return runTransaction(db, async tx => {
+        const snap = await tx.get(sessionRef);
+        if (!snap.exists()) return null;
+        const session = snap.data();
+        if (session.status !== "in_progress" || session.fillStatus !== "generating") return session;
+        const now = Date.now();
+        const filled = (session.questions || []).length >= requestedCount;
+        const next = {
+          ...session,
+          fillStatus: filled ? "complete" : "partial",
+          ...(error ? { fillError: error } : {}),
+          ...(session.format === "exam" && session.startedAt == null ? {
+            startedAt: now,
+            deadline: now + Math.max(1, Number(durationMinutes) || Number(session.durationMinutes) || 1) * 60_000,
+          } : {}),
+          updatedAt: now,
+          rev: (session.rev || 0) + 1,
+        };
+        tx.set(sessionRef, next);
+        return next;
+      });
+    },
   };
 }
 

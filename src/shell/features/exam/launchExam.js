@@ -53,6 +53,7 @@ async function runLaunch(
     learnerEvidence,
     prepareOnly = false,
     savedOnly = false,
+    startWhilePreparing = false,
     studyMode = "balanced",
     focusNotes = "",
     examName = "Integrated exam",
@@ -76,6 +77,63 @@ async function runLaunch(
     blockId,
     sessionId,
   });
+
+  if (startWhilePreparing && !prepareOnly && !savedOnly) {
+    const savedResult = await generateExamQuestions(
+      { allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
+        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, focusNotes },
+      { ...deps, pool, savedOnly: true }
+    );
+    const savedQuestions = savedResult.questions || [];
+    const savedCounts = savedQuestions.reduce((counts, question) => {
+      if (question.lectureId) counts[question.lectureId] = (counts[question.lectureId] || 0) + 1;
+      return counts;
+    }, {});
+    const missingAllocation = Object.fromEntries(Object.entries(allocation)
+      .map(([lectureId, count]) => [lectureId, Math.max(0, count - (savedCounts[lectureId] || 0))])
+      .filter(([, count]) => count > 0));
+    const session = createSessionShape({
+      sessionId,
+      blockId,
+      lectureIds: [...new Set([...savedQuestions.map(q => q.lectureId), ...Object.keys(missingAllocation)])],
+      format,
+      title: examName,
+      questions: savedQuestions,
+      startedAt: null,
+      deadline: null,
+      studyMode,
+      fillStatus: "generating",
+      targetQuestionCount: questionCount,
+      durationMinutes: format === "exam" ? durationMinutes : null,
+    });
+    deps.onProgress?.({ message: `Opening with ${savedQuestions.length}/${questionCount} saved questions · generating the rest`, completed: savedQuestions.length, total: questionCount });
+    const committed = await pool.commit(session);
+    if (!committed.ok) return { ok: false, error: committed.error };
+
+    void (async () => {
+      let result = { questions: [], errors: [] };
+      let fillError = "";
+      try {
+        if (Object.keys(missingAllocation).length) {
+          result = await generateExamQuestions(
+            { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
+              blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
+              studyMode, focusNotes },
+            { ...deps, pool, savedOnly: false,
+              onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
+          );
+          if (result.errors?.length) fillError = result.errors.map(item => item.message).join(" ");
+        }
+      } catch (error) {
+        fillError = error?.message || String(error);
+      }
+      await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError }).catch(() => {});
+      await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
+        readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
+        durationMs: Date.now() - startedGenerationAt }).catch(() => {});
+    })();
+    return { ok: true, sessionId, generationErrors: [], cacheHits: savedResult.cacheHits || 0 };
+  }
 
   const { questions, errors: generationErrors, cacheHits = 0, coverage = null } = await generateExamQuestions(
     {

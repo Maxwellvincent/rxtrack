@@ -122,6 +122,7 @@ export function ExamLaunchModal({
       ...(studyMode === "repair" ? { studyMode } : {}),
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
+      startWhilePreparing: true,
       ...scopePayload,
       ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}),
     });
@@ -161,6 +162,7 @@ export function ExamLaunchModal({
           <div>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3" htmlFor="exam-name">Quiz / exam name</label>
             <input id="exam-name" aria-label="Quiz or exam name" value={examName} onChange={(event) => setExamName(event.target.value)} maxLength={80} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1" placeholder="e.g. Metabolism · Sep 20–23" />
+            <p className="mt-1 text-xs text-text-3">The session opens with saved questions in this scope. Missing slots generate in the background; for exam conditions, the clock starts when the requested set is ready.</p>
           </div>
 
           {/* Format */}
@@ -282,20 +284,20 @@ export function ExamLaunchModal({
 
         {!launching && partialLaunch?.readyCount > 0 && (
           <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, questionCount: partialLaunch.readyCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
-            Start {partialLaunch.readyCount}-question exam from saved reserve
+            Start with {partialLaunch.readyCount} saved questions and fill the rest
           </button>
         )}
 
         {!launching && savedQuestionCount > 0 && (
           <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-bold text-accent">
-            Try saved questions for this scope · requested {parsedCount} · no new questions generated
+            Start now · reuse saved questions and generate any missing for this scope
           </button>
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
       <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
-          <p className="mt-2 text-xs">Saves unused questions privately in Firestore. You can switch tabs within RXtrack while it runs; keep the website open. No exam timer or score is started.</p>
+          <p className="mt-2 text-xs">Saves unused questions privately in Firestore. No timer or score starts in this mode.</p>
         </div>}
         <div className="mt-5 flex justify-end gap-2">
           <button
@@ -310,7 +312,7 @@ export function ExamLaunchModal({
             disabled={!canLaunch || launching}
             className="rounded bg-accent px-3 py-1.5 font-mono text-xs font-bold text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {launching ? "Starting…" : studyMode === "repair" ? "Start focused repair" : "Start exam"}
+            {launching ? "Opening…" : studyMode === "repair" ? "Start focused repair" : "Start quiz / exam now"}
           </button>
         </div>
       </div>

@@ -574,7 +574,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           error={launchError}
           partialLaunch={partialLaunch}
           savedQuestionCount={questionReserve.ready}
-          onStartSaved={(config) => handleLaunch({ ...config, savedOnly: true })}
+          onStartSaved={(config) => handleLaunch({ ...config, startWhilePreparing: true })}
           onPrepare={prepareQuestions}
         />
       )}
@@ -590,8 +590,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <p className="mt-1 text-sm text-text-2">Answers are saved after every selection. Timed-exam clocks continue while you are away.</p>
         <div className="mt-3 space-y-2">{resumableSessions.map(session => <div key={session.sessionId} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
           <div>
-            <div className="font-semibold text-text-1">{session.format === "exam" ? "Timed exam" : "Practice session"}</div>
-            <div className="text-sm text-text-3">{session.answers?.length || 0}/{session.questions?.length || 0} answered</div>
+            <div className="font-semibold text-text-1">{session.title || (session.format === "exam" ? "Timed exam" : "Practice session")}</div>
+            <div className="text-sm text-text-3">{session.answers?.length || 0}/{session.questions?.length || 0} answered{session.fillStatus === "generating" ? ` · preparing to ${session.targetQuestionCount}` : ""}</div>
           </div>
           <Button onClick={() => setActiveSessionId(session.sessionId)}>Resume</Button>
         </div>)}</div>
