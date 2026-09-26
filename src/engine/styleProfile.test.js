@@ -23,4 +23,17 @@ describe("buildStyleProfile", () => {
     expect(profile.officialStyle.sampleSize).toBe(60);
     expect(profile.updatedAt).toBe(123);
   });
+
+  it("keeps ExamSoft option mix and report-derived weak outcomes for generation context", () => {
+    const questions = [
+      { ...question("Miss one", "ESoftQuiz2-DM-Report.pdf"), choices: { A: "a", B: "b", C: "c", D: "d", E: "e" }, sourceAttemptCorrect: false, schoolLearningOutcomes: "GI System · Anatomy of the Gastrointestinal System" },
+      { ...question("Miss two", "ESoftQuiz2-DM-Report.pdf"), choices: { A: "a", B: "b", C: "c", D: "d", E: "e" }, sourceAttemptCorrect: false, schoolLearningOutcomes: "GI System · Anatomy of the Gastrointestinal System" },
+      { ...question("Correct", "ESoftQuiz2-DM-Report.pdf"), sourceAttemptCorrect: true, schoolLearningOutcomes: "GI System" },
+    ];
+    const profile = buildStyleProfile(questions);
+    expect(profile.version).toBe(2);
+    expect(profile.optionCounts[5]).toBe(2);
+    expect(profile.reportOutcomePerformance).toContainEqual({ label: "Anatomy of the Gastrointestinal System", attempts: 2, correct: 0, accuracy: 0 });
+    expect(profile.reportOutcomePerformance.find((entry) => entry.label === "GI System")).toMatchObject({ attempts: 3, correct: 1, accuracy: 33 });
+  });
 });

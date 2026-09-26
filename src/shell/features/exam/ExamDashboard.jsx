@@ -22,7 +22,6 @@ import { useStoreResource } from '../../hooks/useStoreResource.js';
 import * as modelImpactStore from '../../../stores/mentalModelImpact.js';
 import * as atomProgressStore from '../../../stores/atomProgress.js';
 import {ConfidenceCalibration} from './ConfidenceCalibration.jsx';
-import { buildQuizBenchmark, formatOptionMix } from "./quizBenchmark.js";
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -158,7 +157,7 @@ export function computePacingMetrics(sessions = []) {
   };
 }
 
-export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], schoolBanks = [], generationCoverage = null, onNavigateToLecture, onReviewSession }) {
+export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], generationCoverage = null, onNavigateToLecture, onReviewSession }) {
   const [queueNow,setQueueNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setQueueNow(Date.now()),60000);return ()=>clearInterval(timer);},[]);
   const [loading, setLoading] = useState(true);
@@ -225,9 +224,6 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
   );
   const readiness = useMemo(() => computeObjectiveReadiness(integratedSessions, objectives), [integratedSessions, objectives]);
   const pacing = useMemo(() => computePacingMetrics(integratedSessions), [integratedSessions]);
-  const benchmarkBank = useMemo(() => schoolBanks.filter((bank) => bank?.sourceKind === "school" && /examsoft|esoft/i.test(bank.filename || "")).at(-1) || null, [schoolBanks]);
-  const latestGeneratedSession = useMemo(() => [...integratedSessions].sort((a, b) => (b.submittedAt || b.startedAt || 0) - (a.submittedAt || a.startedAt || 0))[0] || null, [integratedSessions]);
-  const quizBenchmark = useMemo(() => buildQuizBenchmark(benchmarkBank, latestGeneratedSession, objectives), [benchmarkBank, latestGeneratedSession, objectives]);
   const process = learnerProfile?.testTaking || {};
   const reasonRows = useMemo(() =>
     ERROR_REASONS
@@ -288,31 +284,6 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           {!!generationCoverage.untested?.length && <p className="mt-1 text-sm text-status-purple">Untested objective IDs: {generationCoverage.untested.join(", ")}</p>}
         </section>
       )}
-      {quizBenchmark && <section className="mb-4 rounded-xl border border-accent/40 bg-panel p-4" aria-label="ExamSoft and RXTrack quiz benchmark">
-        <div className="font-mono text-[12px] uppercase tracking-wider text-text-3">ExamSoft ↔ RXTrack quiz benchmark</div>
-        <div className="mt-2 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-border bg-bg-elevated p-3">
-            <div className="font-semibold text-text-1">{quizBenchmark.bankTitle}</div>
-            <div className="mt-1 text-sm text-text-2">{quizBenchmark.sourcePerformance ? `Prior report: ${quizBenchmark.sourcePerformance.correct}/${quizBenchmark.sourcePerformance.count} correct · ${quizBenchmark.sourcePerformance.accuracy}%` : `${quizBenchmark.sourceMetrics.count} source questions`}</div>
-            <div className="mt-1 text-xs text-text-3">Answer options: {formatOptionMix(quizBenchmark.sourceMetrics.optionCounts)}</div>
-            <div className="text-xs text-text-3">Data/figure cues: {quizBenchmark.sourceMetrics.dataCueCount} · figure-backed: {quizBenchmark.sourceMetrics.visualCount}</div>
-          </div>
-          <div className="rounded-lg border border-border bg-bg-elevated p-3">
-            <div className="font-semibold text-text-1">{quizBenchmark.sessionTitle}</div>
-            <div className="mt-1 text-sm text-text-2">Your attempt: {quizBenchmark.appPerformance.correct}/{quizBenchmark.appPerformance.count} correct · {quizBenchmark.appPerformance.accuracy ?? "—"}%</div>
-            <div className="mt-1 text-xs text-text-3">Answer options: {formatOptionMix(quizBenchmark.appMetrics.optionCounts)}</div>
-            <div className="text-xs text-text-3">Data/figure cues: {quizBenchmark.appMetrics.dataCueCount} · figure-backed: {quizBenchmark.appMetrics.visualCount}</div>
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-text-3">These are different question sets, so the scores are performance snapshots, not a direct difficulty comparison. Objective-level rows appear only where both sets have a supported objective link ({quizBenchmark.objectiveCrosswalkBasis}).</p>
-        {quizBenchmark.sharedObjectives.length > 0 && <div className="mt-3 overflow-x-auto">
-          <table className="w-full min-w-[34rem] text-left text-xs">
-            <thead><tr className="border-b border-border text-text-3"><th className="py-2 pr-3">Shared objective</th><th className="py-2 pr-3">ExamSoft report</th><th className="py-2">RXTrack quiz</th></tr></thead>
-            <tbody>{quizBenchmark.sharedObjectives.slice(0, 10).map((row) => <tr key={row.id} className="border-b border-border/60"><td className="py-2 pr-3 text-text-1">{row.label}</td><td className="py-2 pr-3 text-text-2">{row.source.correct}/{row.source.attempts} · {Math.round(row.source.correct / row.source.attempts * 100)}%</td><td className="py-2 text-text-2">{row.app.correct}/{row.app.attempts} · {Math.round(row.app.correct / row.app.attempts * 100)}%</td></tr>)}</tbody>
-          </table>
-          {quizBenchmark.sharedObjectives.length > 10 && <div className="mt-1 text-xs text-text-3">Showing 10 of {quizBenchmark.sharedObjectives.length} shared objectives.</div>}
-        </div>}
-      </section>}
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
         Integrated Exam performance
       </div>

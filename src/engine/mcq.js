@@ -24,7 +24,12 @@ export const STYLE_PROMPT_EXEMPLAR_LIMIT = 12;
 
 export function styleProfilePrompt(profile) {
   if (!profile?.sampleSize) return "";
-  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(profile)}\n`;
+  const reportOutcomes = profile.reportOutcomePerformance || [];
+  const weakOutcomes = reportOutcomes.filter((entry) => entry.attempts >= 2 && entry.accuracy < 60).slice(0, 8);
+  const weakness = weakOutcomes.length
+    ? `\nREPORT-DERIVED LEARNER GAPS (the learner previously missed items tagged to these school outcomes): ${JSON.stringify(weakOutcomes)}. Prioritize these only when they map to the requested lecture objectives and supplied lecture evidence supports the tested relationship; do not expand scope or copy source questions.\n`
+    : "";
+  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(profile)}\nUse observed answer-option distribution and task-family mix as calibration, not rigid quotas; preserve source option count when examples for the requested objective support it. Objectives define scope and lecture evidence defines medical correctness.${weakness}`;
 }
 
 export function exemplarSourceTier(question) {
@@ -117,6 +122,11 @@ export function buildStyleFingerprint(examples = []) {
     averageStemCharacters: avg(stems.map((s) => s.length)),
     averageSentences: Math.round((stems.map((s) => s.split(/[.!?]+/).filter(Boolean).length).reduce((a, b) => a + b, 0) / usable.length) * 10) / 10,
     optionCounts: [...new Set(usable.map((q) => Object.keys(q.choices).length))].sort((a, b) => a - b),
+    optionCountDistribution: Object.entries(usable.reduce((counts, q) => {
+      const count = Object.keys(q.choices).length;
+      counts[count] = (counts[count] || 0) + 1;
+      return counts;
+    }, {})).sort(([a], [b]) => Number(a) - Number(b)).map(([options, count]) => ({ options: Number(options), count })),
     commonLeadIns: [...new Set(leadIns)].slice(0, 6),
     endingFamilies: Object.entries(endingCounts).sort((a, b) => b[1] - a[1]).map(([family, count]) => ({ family, label: TASK_FAMILY_LABELS[family], count })),
     secondOrderRate: stems.filter(isSecondOrderStem).length / stems.length,

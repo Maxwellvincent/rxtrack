@@ -660,7 +660,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
-                    {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""}{analysis.sourcePerformance ? ` · prior ExamSoft result ${analysis.sourcePerformance.correct}/${analysis.sourcePerformance.count} (${analysis.sourcePerformance.accuracy}%)` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
+                    {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
                     {stats.attempts > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Attempt history · {stats.attempts}</summary>
@@ -673,11 +673,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                       <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => <div key={item.id} className="rounded border border-border px-2 py-1.5">
                         <div className="font-mono text-[11px] text-text-3">Q{item.num} · {item.focus} · {item.correctnessStatus}</div>
                         <div>{item.critique?.[0] || "Lecture support reviewed."}</div>
-                        {item.sourceAttemptCorrect != null && <div className="font-semibold">Prior ExamSoft result: {item.sourceAttemptCorrect ? "Correct" : "Incorrect"} ({item.sourceScore || "scored"})</div>}
                         {(item.clinicalCues?.length || item.buzzwords?.length) > 0 && <div className="text-text-3">Cues: {[...(item.clinicalCues || []), ...(item.buzzwords || [])].join(" · ")}</div>}
                         {item.objectiveLinks?.length > 0 && <div className="text-text-3">Objective match ({item.objectiveBasis || "candidate"}): {item.objectiveLinks.map((link) => link.label || link.id).join(" · ")}</div>}
                         {item.lectureLinks?.length > 0 && <div className="text-text-3">Lecture match: {item.lectureLinks.map((link) => link.label).join(" · ")}</div>}
-                        {item.schoolLearningOutcomes && <div className="text-text-3">ExamSoft learning outcomes: {item.schoolLearningOutcomes}</div>}
                         {item.clinicalCorrelates?.length > 0 && <div className="text-text-3">Lecture support: {item.clinicalCorrelates[0]}</div>}
                       </div>)}</div>
                       {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see their source-keyed rationales.</div>}
@@ -706,7 +704,6 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           userId={userId}
           lecturesById={lecturesById}
           objectives={objectives}
-          schoolBanks={blockQuestionBanks}
           generationCoverage={generationCoverage}
           onNavigateToLecture={onNavigateToLecture}
           onReviewSession={setActiveSessionId}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -44,6 +44,20 @@ describe("normalizeQuestions", () => {
       whyWrong: { A: "Tempting, but not correct here.", B: "Correct — this is the keyed mechanism." },
     }]);
     expect(question.choices[question.correct]).toBe("Glucagon");
+  });
+});
+
+describe("styleProfilePrompt", () => {
+  it("passes source option patterns and objective-constrained report weaknesses to generation", () => {
+    const prompt = styleProfilePrompt({
+      sampleSize: 30,
+      optionCounts: { 4: 2, 5: 16, 6: 10, 7: 1, 8: 1 },
+      reportOutcomePerformance: [{ label: "Gross Anatomy & Embryology", attempts: 4, correct: 1, accuracy: 25 }],
+    });
+    expect(prompt).toContain('"5":16');
+    expect(prompt).toContain("Gross Anatomy & Embryology");
+    expect(prompt).toContain("these only when they map to the requested lecture objectives");
+    expect(prompt).toContain("preserve source option count");
   });
 });
 
