@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { advanceOnEnter } from "../ui/nextQuestion.js";
 import { highlightRanges, sameHighlight } from "../ui/highlightRanges.js";
@@ -109,14 +109,14 @@ const GAP = {
 // Calibrated quiz over atom-generated questions: pick → rate confidence → reveal
 // gap. Confidence logs to the block's calibration record; session ends with the
 // accuracy-by-confidence curve + landmine list.
-export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, expectedCount = null, preparing = false }) {
-  const [i, setI] = useState(0);
-  const [picked, setPicked] = useState(null);
-  const [confidence, setConfidence] = useState(null);
-  const [records, setRecords] = useState([]);
+export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "", lectureTitle = "", lectureNumber = null, lectureId = null, userId, onDone, onExit, onReviewAtom, onAnswer, onCheckpoint, initialState = null, expectedCount = null, preparing = false }) {
+  const [i, setI] = useState(() => Math.max(0, Number(initialState?.i) || 0));
+  const [picked, setPicked] = useState(() => initialState?.picked ?? null);
+  const [confidence, setConfidence] = useState(() => initialState?.confidence ?? null);
+  const [records, setRecords] = useState(() => Array.isArray(initialState?.records) ? initialState.records : []);
   const [done, setDone] = useState(false);
-  const [crossed, setCrossed] = useState(new Set()); // letters eliminated by user
-  const [errorReason, setErrorReason] = useState(null);
+  const [crossed, setCrossed] = useState(() => new Set(initialState?.crossed || [])); // letters eliminated by user
+  const [errorReason, setErrorReason] = useState(() => initialState?.errorReason ?? null);
   const questionStartedAtRef = useRef(null);
   const evidenceSessionId = useId();
   const evidenceSessionKeyRef = useRef(`quiz:${lectureId || blockId}:${evidenceSessionId}`);
@@ -126,7 +126,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   // the stem to mark it, like underlining on a real exam. Seeded from
   // this quiz session only. New quizzes should not silently reopen old marks;
   // newly made marks are still saved for later reference.
-  const [highlights, setHighlights] = useState({});
+  const [highlights, setHighlights] = useState(() => initialState?.highlights || {});
+  const checkpoint = useMemo(() => ({ i, picked, confidence, records, crossed: [...crossed], errorReason, highlights }), [i, picked, confidence, records, crossed, errorReason, highlights]);
+  const checkpointRef = useRef(checkpoint);
+  useEffect(() => { checkpointRef.current = checkpoint; onCheckpoint?.(checkpoint); }, [checkpoint, onCheckpoint]);
+  useEffect(() => () => onCheckpoint?.(checkpointRef.current), [onCheckpoint]);
 
   useFocusHudSignal("questions", questions[currentIndex]?.topic ?? null, { enabled: !done });
 
@@ -255,7 +259,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
           {q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}
           {q.orderLevel && <span className="ml-2 text-text-3">· {QUESTION_ORDER_LABELS[q.orderLevel]}</span>}
         </span>
-        <span className="flex-shrink-0 text-text-3">{currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}</span>
+        <span className="flex flex-shrink-0 items-center gap-2 text-text-3">
+          {onExit && <button type="button" onClick={() => { onCheckpoint?.(checkpointRef.current); onExit(); }} className="rounded border border-border px-2 py-1 normal-case tracking-normal hover:border-accent hover:text-text-1">Save & leave</button>}
+          {currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}
+        </span>
       </div>
       <div
         className="h-1.5 overflow-hidden rounded-full bg-panel"

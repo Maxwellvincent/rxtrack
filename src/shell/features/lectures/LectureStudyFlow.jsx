@@ -58,6 +58,7 @@ import * as atomProgressStore from "../../../stores/atomProgress.js";
 import * as generatedQuestionsStore from "../../../stores/generatedQuestions.js";
 import * as questionRatingsStore from "../../../stores/questionRatings.js";
 import * as tutorSessionsStore from "../../../stores/tutorSessions.js";
+import * as lectureQuizSessionsStore from "../../../stores/lectureQuizSessions.js";
 import {
   createTutorSession,
   finishTutorSession,
@@ -366,6 +367,9 @@ export function LectureStudyFlow({
   const quizSessionCounter = useRef(0);
   const loggedQuizActivityRef = useRef(null);
   const [quizSessionId, setQuizSessionId] = useState(0);
+  const [quizResumeState, setQuizResumeState] = useState(null);
+  const [savedLectureQuizzes, setSavedLectureQuizzes] = useState(() => lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
+  const quizMetaRef = useRef(null);
   const [completedQuizSessionId, setCompletedQuizSessionId] = useState(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -408,6 +412,13 @@ export function LectureStudyFlow({
   // for these (there is no "next round" to resume into) but still updates atom/objective
   // mastery exactly the same way. One runner, two ways in.
   const [adHocQuiz, setAdHocQuiz] = useState(false);
+  useEffect(() => {
+    const refresh = () => setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
+    refresh();
+    const unsubscribe = lectureQuizSessionsStore.subscribe(userId, refresh);
+    lectureQuizSessionsStore.hydrate(userId).then(refresh).catch(refresh);
+    return unsubscribe;
+  }, [userId, lecture?.id, blockId]);
   const [confirmDeleteLecture, setConfirmDeleteLecture] = useState(false);
   const [deletingLecture, setDeletingLecture] = useState(false);
 
@@ -761,12 +772,51 @@ export function LectureStudyFlow({
   );
   const schoolExamplesLoading = questionBanksRes.loading || questionBankMetaRes.loading;
 
-  const startQuizSession = useCallback((nextQuestions) => {
+  const checkpointLectureQuiz = useCallback((progress) => {
+    const current = quizMetaRef.current;
+    if (!current) return;
+    const session = { ...current, progress };
+    lectureQuizSessionsStore.save(userId, session);
+    setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
+  }, [blockId, lecture?.id, userId]);
+
+  const startQuizSession = useCallback((nextQuestions, options = {}) => {
     const nextId = quizSessionCounter.current + 1;
     quizSessionCounter.current = nextId;
     setQuizSessionId(nextId);
     setCompletedQuizSessionId(null);
+    setQuizResumeState(null);
+    const id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `lecture-quiz-${Date.now()}-${nextId}`;
+    const session = {
+      id,
+      lectureId: lecture?.id,
+      blockId,
+      lectureTitle: renamedTitle || title,
+      blockName,
+      questions: nextQuestions,
+      progress: { i: 0, picked: null, confidence: null, records: [], crossed: [], errorReason: null, highlights: {} },
+      isAdHoc: options.isAdHoc ?? true,
+      roundIndex: options.roundIndex ?? round,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    quizMetaRef.current = session;
+    lectureQuizSessionsStore.save(userId, session);
+    setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
     setQuestions(nextQuestions);
+  }, [blockId, blockName, lecture?.id, renamedTitle, round, title, userId]);
+
+  const resumeLectureQuiz = useCallback((session) => {
+    if (!session?.questions?.length) return;
+    quizMetaRef.current = session;
+    setQuizResumeState(session.progress || null);
+    setQuestions(session.questions);
+    setAdHocQuiz(session.isAdHoc !== false);
+    setRound(Number.isInteger(session.roundIndex) ? session.roundIndex : 0);
+    const nextId = quizSessionCounter.current + 1;
+    quizSessionCounter.current = nextId;
+    setQuizSessionId(nextId);
+    setCompletedQuizSessionId(null);
   }, []);
 
   // Atom key to scroll to + pulse-highlight once the atoms list is back on screen — set by a
@@ -1103,7 +1153,7 @@ export function LectureStudyFlow({
 
     setRound(index);
     setAdHocQuiz(false);
-    startQuizSession(questions);
+    startQuizSession(questions, { isAdHoc: false, roundIndex: index });
   }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
 
   /**
@@ -1386,6 +1436,7 @@ export function LectureStudyFlow({
         <AtomQuiz
           key={quizSessionId}
           questions={questions}
+          initialState={quizResumeState}
           blockId={blockId}
           lectureId={lecture?.id ?? null}
           lectureTitle={renamedTitle || title}
@@ -1394,7 +1445,8 @@ export function LectureStudyFlow({
           userId={userId}
           expectedCount={quizPreparation?.requested || questions.length}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
-          onExit={() => setQuestions(null)}
+          onCheckpoint={checkpointLectureQuiz}
+          onExit={() => { setQuestions(null); setQuizResumeState(null); }}
           onAnswer={() => {
             // Opening or abandoning a quiz is not study activity. Record the
             // lecture only after the learner actually submits an answer, once
@@ -1403,9 +1455,11 @@ export function LectureStudyFlow({
             loggedQuizActivityRef.current = quizSessionId;
             logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
-          onReviewAtom={(atomKey) => { setQuestions(null); setReviewAtomKey(atomKey); }}
+          onReviewAtom={(atomKey) => { setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             setCompletedQuizSessionId(quizSessionId);
+            lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);
+            quizMetaRef.current = null;
             // An ad-hoc quiz doesn't advance the round-resume bookmark — there is no sequence
             // for it to be a position in — but it's always its own "last round" for the
             // objective-status update below, since there's no next one coming.
@@ -1598,6 +1652,21 @@ export function LectureStudyFlow({
               <p className="mt-0.5 text-xs text-text-3">{miss.title}{miss.submittedAt ? ` · ${new Date(miss.submittedAt).toLocaleDateString()}` : ""}</p>
             </article>)}</div>
           </details>}
+        </section>
+      )}
+      {savedLectureQuizzes.length > 0 && !questions && (
+        <section aria-label="Unfinished lecture quizzes" className="mt-4 rounded-lg border border-accent/40 bg-accent/5 p-3">
+          <h3 className="font-semibold text-text-1">Continue an unfinished lecture quiz</h3>
+          <p className="mt-1 text-xs text-text-3">Your question set, current question, selected answer, confidence, and completed responses are saved to your account.</p>
+          <ul className="mt-2 space-y-2">{[...savedLectureQuizzes].sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0)).map((session) => (
+            <li key={session.id} className="flex flex-wrap items-center justify-between gap-2 rounded border border-border bg-panel p-2">
+              <span className="text-sm text-text-2">{session.questions?.length || 0} questions · {session.progress?.records?.length || 0} completed · {new Date(session.updatedAt || session.createdAt || Date.now()).toLocaleString()}</span>
+              <span className="flex gap-2">
+                <Button onClick={() => resumeLectureQuiz(session)}>Resume quiz</Button>
+                <button type="button" className="px-2 text-xs text-text-3 underline" onClick={() => { lectureQuizSessionsStore.remove(userId, session.id); setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId).filter((item) => item.id !== session.id)); }}>Discard</button>
+              </span>
+            </li>
+          ))}</ul>
         </section>
       )}
       <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">

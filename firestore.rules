@@ -16,6 +16,7 @@ service cloud.firestore {
       match /mcq/{id}            { allow read, write: if owner(uid); }
       match /dlSessions/{id}     { allow read, write: if owner(uid); } // paused DeepLearn sessions: one doc each, they blow the single-kv-doc limit together
       match /tutorSessions/{lectureId} { allow read, write: if owner(uid); } // private resumable tutor checkpoints, sharded one document per lecture
+      match /lectureQuizSessions/{sessionId} { allow read, write: if owner(uid); } // resumable independent lecture quizzes, one checkpoint per quiz
       match /tutorHistory/{sessionId} { allow read, write: if owner(uid); } // append-only prior Guided Tutor sessions for learner-history retrieval
       match /examSessions/{sessionId} { allow read, write: if owner(uid); } // block-wide timed mini-exam / practice sessions, one doc each
       match /questionPool/{questionId} { allow read, write: if owner(uid); } // private prepared questions
