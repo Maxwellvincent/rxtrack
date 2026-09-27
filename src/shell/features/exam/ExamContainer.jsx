@@ -72,6 +72,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [bankLaunching, setBankLaunching] = useState(null);
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
   const [preparedSets, setPreparedSets] = useState([]);
+  const [confirmDeleteSetId, setConfirmDeleteSetId] = useState(null);
+  const [deleteSetError, setDeleteSetError] = useState(null);
+  const [deletingSet, setDeletingSet] = useState(false);
   const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
@@ -264,6 +267,22 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     if (!userId || !blockId) return;
     try { setPreparedSets(await createQuestionPool(userId, blockId).preparedSets()); }
     catch { setPreparedSets([]); }
+  };
+
+  const deletePreparedSet = async (set) => {
+    if (!set?.id || deletingSet) return;
+    setDeletingSet(true);
+    setDeleteSetError(null);
+    try {
+      const result = await createQuestionPool(userId, blockId).deletePreparedSet(set.id);
+      if (!result?.ok) throw new Error(result?.error || "Could not delete this prepared set.");
+      setConfirmDeleteSetId(null);
+      await Promise.all([refreshPreparedSets(), refreshQuestionReserve()]);
+    } catch (error) {
+      setDeleteSetError(error?.message || "Could not delete this prepared set.");
+    } finally {
+      setDeletingSet(false);
+    }
   };
 
   useEffect(() => {
@@ -652,6 +671,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           <h2 className="text-sm font-bold text-text-1">Prepared exams · start later</h2>
           <span className="text-xs text-text-3">{preparedSets.length} saved set{preparedSets.length === 1 ? "" : "s"}</span>
         </div>
+        {deleteSetError && <div role="alert" className="mt-3 rounded border border-bad/40 px-3 py-2 text-sm text-bad">{deleteSetError}</div>}
         {preparedSets.length ? <ul className="mt-3 space-y-2">{preparedSets.map((set) => {
           const requested = Number(set.requestedCount) || set.questions.length;
           const available = set.questions.length;
@@ -660,7 +680,15 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
               <div className="text-sm text-text-2">{available}/{requested} saved questions available · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
               {!!set.preparedQuestionIds?.length && available < requested && <div className="text-xs text-warn">{requested - available} question{requested - available === 1 ? "" : "s"} short; missing questions will be generated when started.</div>}
+              {confirmDeleteSetId === set.id && <div className="mt-2 rounded border border-bad/40 bg-bg-elevated p-2 text-sm text-text-2">
+                Remove this saved set and its {available} still-unused question{available === 1 ? "" : "s"}? Questions already assigned to an exam will be kept.
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" disabled={deletingSet} onClick={() => deletePreparedSet(set)} className="rounded bg-bad px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50">{deletingSet ? "Deleting…" : "Confirm delete"}</button>
+                  <button type="button" disabled={deletingSet} onClick={() => setConfirmDeleteSetId(null)} className="rounded border border-border px-3 py-1.5 text-xs font-semibold text-text-2">Keep set</button>
+                </div>
+              </div>}
             </div>
+            <div className="flex flex-wrap gap-2">
             <Button disabled={launching || !available} onClick={() => handleLaunch({
               format: set.format || "exam",
               questionCount: requested,
@@ -675,6 +703,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
               startWhilePreparing: true,
             })}>Start this {requested}-question set</Button>
+            <button type="button" disabled={deletingSet} onClick={() => { setDeleteSetError(null); setConfirmDeleteSetId(confirmDeleteSetId === set.id ? null : set.id); }} className="rounded-lg border border-bad/40 px-3 py-2 text-sm font-semibold text-bad hover:bg-bad/5 disabled:opacity-50">Delete</button>
+            </div>
           </li>;
         })}</ul> : <p className="mt-2 text-sm text-text-3">No named sets prepared yet. Use the single “Start Integrated Exam” button above and choose Prepare for later.</p>}
       </section>

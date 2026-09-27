@@ -15,6 +15,7 @@ const launchQuestionBankSessionMock = vi.fn();
 const questionBanksReadMock = vi.fn(() => ({}));
 const questionBankMetaReadMock = vi.fn(() => ({}));
 const poolPreparedSetsMock = vi.fn(async () => []);
+const deletePreparedSetMock = vi.fn(async () => ({ ok: true, removed: 3, preserved: 0 }));
 vi.mock("./launchExam.js", () => ({
   launchExamSession: (...args) => launchExamSessionMock(...args),
 }));
@@ -22,7 +23,7 @@ vi.mock("./launchQuestionBank.js", () => ({
   launchQuestionBankSession: (...args) => launchQuestionBankSessionMock(...args),
 }));
 vi.mock("../../../questionPool.js", () => ({
-  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock() }),
+  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock(), deletePreparedSet: (...args) => deletePreparedSetMock(...args) }),
 }));
 vi.mock("../../../supabase.js", () => ({ listExamSessions: async () => [] }));
 
@@ -135,12 +136,31 @@ beforeEach(() => {
   questionBankMetaReadMock.mockReturnValue({});
   poolPreparedSetsMock.mockReset();
   poolPreparedSetsMock.mockResolvedValue([]);
+  deletePreparedSetMock.mockReset();
+  deletePreparedSetMock.mockResolvedValue({ ok: true, removed: 3, preserved: 0 });
   readTutorModeEnabledMock.mockReset();
   readTutorModeEnabledMock.mockReturnValue(false);
   writeTutorModeEnabledMock.mockReset();
 });
 
 describe("ExamContainer", () => {
+  it("requires confirmation and deletes a selected prepared set", async () => {
+    poolPreparedSetsMock.mockResolvedValue([{
+      id: "generation-delete", prepareOnly: true, examName: "Old practice set", format: "practice",
+      requestedCount: 3, questions: [{ poolId: "q1" }, { poolId: "q2" }, { poolId: "q3" }],
+    }]);
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    await flush();
+    const remove = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Delete");
+    expect(remove).toBeTruthy();
+    act(() => remove.click());
+    expect(host.textContent).toMatch(/Remove this saved set and its 3 still-unused questions/);
+    const confirm = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Confirm delete");
+    await act(async () => confirm.click());
+    expect(deletePreparedSetMock).toHaveBeenCalledWith("generation-delete");
+    unmount();
+  });
+
   it("keeps a named prepared set discoverable after reload and starts that exact set", async () => {
     const preparedQuestionIds = Array.from({ length: 30 }, (_, index) => `pool-${index}`);
     poolPreparedSetsMock.mockResolvedValue([{

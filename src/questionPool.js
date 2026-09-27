@@ -95,6 +95,27 @@ export function createQuestionPool(userId, blockId, database = db) {
       const questionRows = questions.docs.map(item => ({ id: item.id, ...item.data() }));
       return summarizePreparedSets(generationRows, questionRows);
     },
+    async deletePreparedSet(generationId) {
+      if (!generationId) return { ok: false, error: "Missing prepared-set ID." };
+      const generationRef = runRef(generationId);
+      const questionSnap = await getDocsFromServer(query(records, where("generationId", "==", generationId), limit(500)));
+      const refs = questionSnap.docs.map(item => item.ref);
+      return runTransaction(db, async tx => {
+        const [generation, ...questions] = await Promise.all([tx.get(generationRef), ...refs.map(ref => tx.get(ref))]);
+        if (!generation.exists() || generation.data().blockId !== blockId || !generation.data().prepareOnly) {
+          return { ok: false, error: "This prepared set is no longer available." };
+        }
+        let removed = 0, preserved = 0;
+        questions.forEach((question, index) => {
+          if (question.exists() && question.data().status === "ready" && question.data().generationId === generationId) {
+            tx.delete(refs[index]);
+            removed++;
+          } else if (question.exists()) preserved++;
+        });
+        tx.delete(generationRef);
+        return { ok: true, removed, preserved };
+      });
+    },
     async readyForGeneration(generationId, lectureId, questionIds = []) {
       const snap = await getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500)));
       return snap.docs.filter(item => {
