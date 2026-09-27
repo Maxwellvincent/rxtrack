@@ -412,7 +412,9 @@ export function LectureStudyFlow({
 
   // A lecture tutor is a bounded, resumable layer over the existing study surface.
   // The checkpoint is per lecture so leaving one lecture never loses the place in another.
-  const [tutorSession, setTutorSession] = useState(() => tutorSessionsStore.get(userId, lecture?.id));
+  const [tutorSession, setTutorSession] = useState(() => userId ? null : tutorSessionsStore.get(userId, lecture?.id));
+  const [tutorStoreHydrated, setTutorStoreHydrated] = useState(() => tutorSessionsStore.isHydrated(userId));
+  const [tutorCloudStatus, setTutorCloudStatus] = useState(() => tutorSessionsStore.syncStatus(userId, lecture?.id));
   const [tutorResponse, setTutorResponse] = useState("");
   const [tutorConfidence, setTutorConfidence] = useState("");
   const [tutorNotice, setTutorNotice] = useState("");
@@ -430,13 +432,37 @@ export function LectureStudyFlow({
     if (!next) return;
     tutorSessionRef.current = next;
     setTutorSession(next);
-    try {
-      return Boolean(tutorSessionsStore.save(userId, next));
-    } catch (error) {
-      console.warn("Tutor checkpoint could not be saved locally", error);
-      return false;
+    const saved = tutorSessionsStore.save(userId, next);
+    if (saved && typeof saved.then === "function") {
+      saved.then((ok) => {
+        if (!ok) setTutorNotice("Cloud save failed. Your tutor progress remains in this tab; keep RXTrack open and retry when connected.");
+      });
+      return true;
     }
+    if (!saved) setTutorNotice("This tutor checkpoint could not be saved.");
+    return Boolean(saved);
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      setTutorStoreHydrated(true);
+      return undefined;
+    }
+    let mounted = true;
+    const refreshFromCloud = () => {
+      if (!mounted) return;
+      const hydrated = tutorSessionsStore.isHydrated(userId);
+      setTutorCloudStatus(tutorSessionsStore.syncStatus(userId, lecture?.id));
+      if (!hydrated) return;
+      const stored = tutorSessionsStore.get(userId, lecture?.id);
+      tutorSessionRef.current = stored;
+      setTutorSession(stored);
+      setTutorStoreHydrated(true);
+    };
+    const unsubscribe = tutorSessionsStore.subscribe(userId, refreshFromCloud);
+    tutorSessionsStore.hydrate(userId).then(refreshFromCloud).catch(refreshFromCloud);
+    return () => { mounted = false; unsubscribe(); };
+  }, [lecture?.id, userId]);
 
   const generateTutorCase = useCallback(async () => {
     if (!tutorSessionRef.current || tutorSessionRef.current.patientCase || tutorSessionRef.current.delayedReview || tutorCaseGenerationRef.current) return;
@@ -701,11 +727,10 @@ export function LectureStudyFlow({
         saveTutorSession(next);
       } else if (next.elapsedSeconds - lastPersistedElapsed >= 30) {
         lastPersistedElapsed = next.elapsedSeconds;
-        try {
-          if (!tutorSessionsStore.save(userId, next)) setTutorNotice("Browser storage is full; this timer checkpoint may not persist if you leave the page.");
-        } catch {
-          setTutorNotice("Browser storage is full; this timer checkpoint may not persist if you leave the page.");
-        }
+        const saving = tutorSessionsStore.save(userId, next);
+        saving?.then?.((saved) => {
+          if (!saved) setTutorNotice("Cloud save failed. Your timer checkpoint remains in this tab; keep RXTrack open and retry when connected.");
+        });
       }
     }, 1000);
     return () => window.clearInterval(timer);
@@ -1562,9 +1587,10 @@ export function LectureStudyFlow({
           <div className="flex items-center gap-2">
             <span className="font-semibold text-text-1">Guided tutor</span>
             {tutorSession && <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-3">{tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview ? "preparing" : tutorSession.status}</span>}
+            {userId && <span className={`rounded border border-border px-1.5 py-0.5 font-mono text-[10px] ${tutorCloudStatus === "error" ? "text-bad" : "text-text-3"}`} role="status">{!tutorStoreHydrated ? "loading cloud history" : tutorCloudStatus === "syncing" ? "saving to cloud…" : tutorCloudStatus === "error" ? "cloud save needs retry" : "saved in cloud"}</span>}
           </div>
           {!tutorSession ? (
-            <p className="mt-1 text-xs text-text-3">Choose a focused block. Your place, objectives, and blockers will be checkpointed per lecture.</p>
+            <p className="mt-1 text-xs text-text-3">{!tutorStoreHydrated ? "Loading your saved tutor history from Firestore…" : "Choose a focused block. Your place, objectives, and blockers are saved by lecture."}</p>
           ) : (
             <p className="mt-1 text-xs text-text-3">
               {tutorSession.status === "active" && !tutorSession.patientCase && !tutorSession.delayedReview
@@ -1579,7 +1605,7 @@ export function LectureStudyFlow({
             { minutes: 45, label: "Balanced walkthrough" },
             { minutes: 60, label: "Deep dive" },
           ].map(({ minutes, label }) => (
-            <button key={minutes} onClick={() => startTutorSession(minutes)} className="rounded border border-accent/40 px-2 py-1 font-mono text-[11px] text-accent hover:bg-accent/10">
+            <button key={minutes} disabled={!tutorStoreHydrated} onClick={() => startTutorSession(minutes)} className="rounded border border-accent/40 px-2 py-1 font-mono text-[11px] text-accent hover:bg-accent/10 disabled:cursor-wait disabled:opacity-50">
               {label} · {minutes}m
             </button>
           ))}
@@ -1609,6 +1635,9 @@ export function LectureStudyFlow({
           )}
           {tutorSession && tutorSession.status === "finished" && (
             <button onClick={() => setTutorSession(null)} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start another block</button>
+          )}
+          {tutorSession && tutorCloudStatus === "error" && (
+            <button onClick={() => saveTutorSession(tutorSessionRef.current)} className="rounded border border-bad/40 px-2 py-1 font-mono text-[11px] text-bad hover:bg-bad/5">Retry cloud save</button>
           )}
         </div>
       </div>
