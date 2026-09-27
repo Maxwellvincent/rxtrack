@@ -18,5 +18,15 @@ service firebase.storage {
         && request.resource.contentType.matches('image/(png|jpeg|jpg|webp)');
       allow delete: if request.auth != null && request.auth.uid == uid;
     }
+
+    // Original school-question and score-report PDFs. The browser uploads them
+    // once; routine quiz use loads only the parsed Firestore questions.
+    match /exam-sources/{uid}/{allPaths=**} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.size < 50 * 1024 * 1024
+        && request.resource.contentType == 'application/pdf';
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
   }
 }

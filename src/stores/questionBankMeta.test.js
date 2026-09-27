@@ -28,6 +28,19 @@ describe("questionBankMeta store", () => {
     expect(Object.values(pending).map((entry) => entry.filename).sort()).toEqual(["week4.pdf", "week5.pdf"]);
   });
 
+  it("keeps an uploaded exam's Storage path as durable source provenance", () => {
+    const pending = questionBankMeta.withRecordedUpload({}, {
+      filename: "DM ExamSoft.pdf",
+      blockId: "dm-week-4",
+      sourceStoragePath: "exam-sources/u1/dm-week-4/original.pdf",
+    });
+
+    expect(Object.values(pending)[0]).toMatchObject({
+      filename: "DM ExamSoft.pdf",
+      sourceStoragePath: "exam-sources/u1/dm-week-4/original.pdf",
+    });
+  });
+
   beforeEach(() => {
     installDomStorage();
     backend = fakeBackend();

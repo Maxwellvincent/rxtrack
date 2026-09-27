@@ -7,7 +7,7 @@ import * as weakConceptsStore from "../../stores/weakConcepts.js";
 import { extractPairedAnswerKey, isQuestionBankImage, pairQuestionBankFiles, selectQuestionBankFiles, summarizeBankUpload, tagBankQuestions } from "./questionBankIngest.js";
 import { analyzeExamReportWeakConcepts, mergeExamReportConcepts, parseExamReportSummary } from "./examReportWeakConcepts.js";
 import { cleanLectureTitle } from "../../lectureTitle.js";
-import { uploadQuestionBankPage } from "../../supabase.js";
+import { uploadQuestionBankPage, uploadQuestionBankSource } from "../../supabase.js";
 import { buildQuestionBankAnalysis, buildQuestionBankCritiquePrompt, mergeQuestionBankCritique } from "./questionBankAnalysis.js";
 import * as questionBankAnalysisStore from "../../stores/questionBankAnalysis.js";
 import * as questionStyleProfileStore from "../../stores/questionStyleProfile.js";
@@ -276,6 +276,14 @@ export async function processQuestionBankFiles({
         parsed.questions = sourceQuestions.map((question, questionIndex) => ({ ...question, correct: imcqKeys[questionIndex] }));
       }
 
+      // Keep the exact uploaded source in Storage so later app practice can
+      // refer back to its figures/layout without embedding a PDF in Firestore
+      // or localStorage. Parsed questions remain independently usable.
+      const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+      const sourceStoragePath = userId && isPdf
+        ? await uploadQuestionBankSource(userId, blockId, file)
+        : null;
+
       const pageUrls = new Map();
       const withDurableImages = [];
       for (const question of parsed?.questions || []) {
@@ -313,6 +321,7 @@ export async function processQuestionBankFiles({
           expectedQuestions: parsed.expectedQuestions,
           extractionMethod: "exam-parser",
           analysisStatus: "ready",
+          sourceStoragePath,
         });
         banksChanged = true;
       }

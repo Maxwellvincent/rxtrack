@@ -763,8 +763,9 @@ export async function pullAllDataFromSupabase(userId) {
   // Pull user_kv in background — non-blocking
   pullUserKvFromSupabase(userId).catch(() => {});
 
-  // Pull MCQ bank in background — non-blocking
-  pullMcqBankFromSupabase(userId).catch(() => {});
+  // Do not bulk-pull the legacy MCQ collection into browser storage on sign-in.
+  // Generated questions are served by the per-lecture Firestore store; the old
+  // collection remains available for explicit recovery/migration only.
 
   console.log("Pull complete");
   return true;
@@ -1082,6 +1083,27 @@ export async function uploadQuestionBankPage(userId, bankTitle, pageNumber, data
   const blob = await response.blob();
   const path = `question-images/${userId}/banks/${encodeDocId(bankTitle)}/page-${pageNumber}.jpg`;
   await uploadBytes(storageRef(storage, path), blob, { contentType: blob.type || "image/jpeg" });
+  return getDownloadURL(storageRef(storage, path));
+}
+
+/** Archive the original uploaded school exam/report in Storage, not browser storage. */
+export async function uploadQuestionBankSource(userId, blockId, file) {
+  if (!userId || !file) return null;
+  const name = String(file.name || "source.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-140);
+  const id = typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const path = `exam-sources/${userId}/${encodeDocId(blockId || "unassigned")}/${id}-${name}`;
+  await uploadBytes(storageRef(storage, path), file, {
+    contentType: file.type || "application/pdf",
+    customMetadata: { originalName: String(file.name || "source.pdf"), blockId: String(blockId || "") },
+  });
+  return path;
+}
+
+/** Resolve an archived source exam only when the user opens its source view. */
+export async function fetchQuestionBankSourceUrl(path) {
+  if (!path || !String(path).startsWith(`exam-sources/${auth.currentUser?.uid}/`)) return null;
   return getDownloadURL(storageRef(storage, path));
 }
 
