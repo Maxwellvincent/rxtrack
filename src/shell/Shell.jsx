@@ -67,6 +67,8 @@ class StudyViewErrorBoundary extends Component {
     console.error("Study view render failed", error, info);
   }
 
+  retry = () => this.setState({ error: null });
+
   componentDidUpdate(previousProps) {
     if (previousProps.resetKey !== this.props.resetKey && this.state.error) {
       this.setState({ error: null });
@@ -79,11 +81,18 @@ class StudyViewErrorBoundary extends Component {
       <div className="mx-auto max-w-xl p-8">
         <div className="rounded-lg border border-bad bg-bg-elevated p-4">
           <div className="font-semibold text-text-1">This study page could not be displayed.</div>
-          <p className="mt-1 text-sm text-text-2">Your saved lecture and quiz data are still intact. Return to Today and reopen the page.</p>
+          <p className="mt-1 text-sm text-text-2">Your saved study data is still intact. This view hit a display error; retry it or return to Today.</p>
+          <button
+            type="button"
+            onClick={this.retry}
+            className="mt-3 rounded border border-border px-3 py-2 text-sm text-text-1 hover:border-border-strong"
+          >
+            Retry this page
+          </button>
           <button
             type="button"
             onClick={this.props.onReset}
-            className="mt-3 rounded border border-border px-3 py-2 text-sm text-text-1 hover:border-border-strong"
+            className="ml-2 mt-3 rounded border border-border px-3 py-2 text-sm text-text-1 hover:border-border-strong"
           >
             Return to Today
           </button>

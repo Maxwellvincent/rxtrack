@@ -73,14 +73,18 @@ export async function finalizeExamSession(
     try {
       // Authentic uploaded banks are not reliably linked to one RXtrack
       // lecture. Keep their score/timing in the session without creating a
-      // fake "undefined" lecture statistic or weak-concept entry.
+      // fake lecture statistic. Objective evidence is independent of that
+      // optional lecture link: a valid objective tag must still flow through
+      // to the lecture's readiness model.
       if (question?.sourceType !== "question-bank" && question?.lectureId) {
         await recordAnswerAwait(userId, question.lectureId, wasCorrect);
+      }
+      if (question?.sourceType !== "question-bank" && (question?.lectureId || question?.objectiveIds?.length)) {
         await recordEvidenceAwait(userId, {
           source: "integrated-exam",
           sessionKey: session.sessionId,
           blockId: session.blockId,
-          lectureId: question.lectureId,
+          lectureId: question.lectureId || null,
           objectiveIds: question?.objectiveIds || [],
           atomKey: question?.atomKey || null,
           correct: wasCorrect,

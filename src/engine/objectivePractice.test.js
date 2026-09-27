@@ -41,4 +41,15 @@ describe("objective practice planning", () => {
     expect(plan).toMatchObject({ worked: 1, ready: 1, minimumRemaining: 0 });
     expect(plan.rows[0].sources).toEqual({ quiz: 2, "integrated-exam": 1 });
   });
+
+  it("counts one correct exam answer as worked, but not as mastered", () => {
+    const plan = objectivePracticePlan(
+      [{ id: "o1", code: "DM.1", objective: "Apply insulin physiology" }],
+      { objectives: { o1: {
+        attempts: 1, correct: 1, recent: [true], sessions: ["exam-1"],
+        taskTypes: { mechanism: 1 }, sources: { "integrated-exam": 1 },
+      } } }
+    );
+    expect(plan).toMatchObject({ worked: 1, ready: 0, developing: 1, untested: 0 });
+  });
 });

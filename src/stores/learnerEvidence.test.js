@@ -22,6 +22,18 @@ describe("learner evidence", () => {
     expect(model.orderLevels["third-order"].attempts).toBe(1);
   });
 
+  it("keeps integrated-exam objective evidence usable without a lecture link", () => {
+    const model = applyEvidence(null, {
+      source: "integrated-exam", sessionKey: "exam-1", blockId: "block-1",
+      objectiveIds: ["o1"], correct: true, taskType: "mechanism", at: 10,
+    });
+    expect(model.objectives.o1).toMatchObject({
+      attempts: 1, correct: 1, sessions: ["exam-1"],
+      taskTypes: { mechanism: 1 }, sources: { "integrated-exam": 1 },
+    });
+    expect(Object.keys(model.lectures)).toEqual([]);
+  });
+
   it("tracks response time, answer changes, and self-classified process errors", () => {
     const timed = applyEvidence(null, { correct: false, responseMs: 90000, answerChanges: 1, at: 10 });
     const reflected = applyReflection(timed, "misread-lead-in");
