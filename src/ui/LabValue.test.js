@@ -52,6 +52,20 @@ describe("parseText — natural sentence phrasing (real exam vignette style)", (
   });
 });
 
+describe("parseText — common vital signs", () => {
+  it("recognizes temperature, pulse, respiratory rate, and leukocyte values", () => {
+    const parts = labParts("Temperature is 38.7°C, pulse is 118/min, respiratory rate is 26/min, and leukocyte count is 16,500/mm³.");
+    expect(parts.map((part) => [part.lab.name, part.value])).toEqual([
+      ["Body temperature", 38.7], ["Heart rate", 118], ["Respiratory rate", 26], ["WBC", 16500],
+    ]);
+  });
+
+  it("uses Fahrenheit-specific temperature ranges when the stem gives °F", () => {
+    const [part] = labParts("Temperature is 101.3°F.");
+    expect(part.lab).toMatchObject({ low: 97, high: 99.5, unit: "°F" });
+  });
+});
+
 describe("applyHighlights", () => {
   it("splits a plain-text part on a highlighted phrase", () => {
     const parts = applyHighlights([{ type: "text", content: "A patient with severe headache." }], ["severe headache"]);

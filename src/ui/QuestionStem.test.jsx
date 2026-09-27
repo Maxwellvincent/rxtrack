@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { installDomStorage } from '../stores/testEnv.js';
 const current = vi.hoisted(() => ({ props: null }));
-vi.mock('./LabValue.jsx', () => ({ LabAnnotatedText: props => { current.props = props; return null; } }));
+vi.mock('./LabValue.jsx', () => ({
+  LabAnnotatedText: props => { current.props = props; return null; },
+  parseText: text => [{ type: "text", content: text }],
+}));
 import { QuestionStem } from './QuestionStem.jsx';
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 it('isolates annotations even for identical stems, and restores them only on returning to that question', () => {

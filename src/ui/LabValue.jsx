@@ -4,6 +4,10 @@ import { applyRangeHighlights } from "./highlightRanges.js";
 // Normal ranges — [low, high, unit, display name]
 // Sex-specific labs use male/female midpoints; flag as approximate where relevant.
 const LAB_REF = [
+  // Common adult vital signs. These are approximate teaching ranges; age and measurement method matter.
+  { terms: ["temperature", "temp"], name: "Body temperature", low: 36.1, high: 37.2, unit: "°C", note: "Approximate adult range; measurement site matters" },
+  { terms: ["pulse", "heart rate"], name: "Heart rate", low: 60, high: 100, unit: "/min", note: "Resting adult range" },
+  { terms: ["respiratory rate", "respirations"], name: "Respiratory rate", low: 12, high: 20, unit: "/min", note: "Resting adult range" },
   // Electrolytes / BMP
   { terms: ["sodium", "na\\+", "serum na"], name: "Sodium (Na+)", low: 136, high: 145, unit: "mEq/L" },
   { terms: ["potassium", "k\\+", "serum k"], name: "Potassium (K+)", low: 3.5, high: 5.0, unit: "mEq/L" },
@@ -89,7 +93,7 @@ const LAB_REF = [
   { terms: ["anion gap"], name: "Anion Gap", low: 8, high: 12, unit: "mEq/L" },
 ];
 
-const UNIT_PAT = "(?:mEq\\/L|mmol\\/L|mg\\/dL|g\\/dL|μg\\/dL|ng\\/dL|ng\\/mL|pg\\/mL|U\\/L|IU\\/L|mIU\\/L|mmHg|mm\\/hr|mg\\/L|fL|mOsm(?:ol)?\\/kg(?:\\s*H2O)?|μIU\\/mL|ng\\/mL\\/hr|cells\\/μL|%|sec|/μL)?";
+const UNIT_PAT = "(?:mEq\\/L|mmol\\/L|mg\\/dL|g\\/dL|μg\\/dL|ng\\/dL|ng\\/mL|pg\\/mL|U\\/L|IU\\/L|mIU\\/L|mmHg|mm\\/hr|mg\\/L|fL|mOsm(?:ol)?\\/kg(?:\\s*H2O)?|μIU\\/mL|ng\\/mL\\/hr|cells\\/μL|%|sec|°C|°F|/min|/mm(?:3|³)|/μL)?";
 const NUM_PAT = "[\\d,]+(?:\\.\\d+)?";
 // A vignette states a value as a report line ("Sodium: 107"), a bare space
 // ("Potassium 2.4"), or natural prose ("sodium of 126", "glucose is 20", "was
@@ -128,7 +132,7 @@ export function parseText(text) {
 
   while ((match = re.exec(text)) !== null) {
     const [full, term, numStr] = match;
-    const lab = findLab(term.trim());
+    let lab = findLab(term.trim());
     if (!lab) continue;
 
     if (match.index > last) {
@@ -136,6 +140,9 @@ export function parseText(text) {
     }
     const rawNum = numStr.replace(/,/g, "");
     let value = parseFloat(rawNum);
+    if (lab.name === "Body temperature" && /°F/i.test(full)) {
+      lab = { ...lab, low: 97, high: 99.5, unit: "°F" };
+    }
     // Some labs reported in thousands (WBC 15 = 15,000)
     if (lab.scale && value < 1000) value = value * lab.scale;
 

@@ -30,6 +30,7 @@ import { TutorPanel } from "./TutorPanel.jsx";
 import { useTutorExplanation } from "./useTutorExplanation.js";
 import { ERROR_REASONS, extractLeadIn } from "./questionReading.js";
 import { orderedChoiceEntries } from "./choiceOrder.js";
+import { printQuestionWorksheet } from "./questionWorksheet.js";
 import { recordReflection } from "../../../stores/learnerEvidence.js";
 
 function sessionLabel(session) {
@@ -410,6 +411,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId }) {
   const questions = session.questions || [];
   const [filter, setFilter] = useState("incorrect");
+  const [worksheetError, setWorksheetError] = useState("");
   const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
   const correctCount = answered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
   const incorrectCount = answered.length - correctCount;
@@ -421,6 +423,25 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
     if (filter === "unused") return picked == null;
     return true;
   });
+  const exportMissedQuestions = () => {
+    const missed = questions.filter((q) => {
+      const picked = pickedFor(session, q.questionId);
+      return picked != null && picked !== q.correct;
+    }).map((question) => ({
+      ...question,
+      lectureLabel: question.lectureLabel || lectureLabelsByLectureId?.[question.lectureId || question.lectureIds?.[0]],
+      objectiveLabels: (question.objectiveIds || []).map((id) => {
+        const objective = objectivesById?.[id];
+        const code = objective?.code || objective?.objectiveCode;
+        const text = objective?.objective || objective?.text || objective?.content;
+        return [code, text].filter(Boolean).join(" · ") || id;
+      }),
+    }));
+    const result = printQuestionWorksheet(missed, {
+      title: session.title || session.sourceFile?.replace(/\.(pdf|md|txt)$/i, "") || "Missed-question practice",
+    });
+    setWorksheetError(result.ok ? "" : result.error);
+  };
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -429,6 +450,14 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
           {correctCount}/{answered.length} correct · {percent}%
         </div>
       </div>
+      {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-text-1">Take your missed questions to Goodnotes</div>
+          <Button variant="outline" onClick={exportMissedQuestions}>Print / save worksheet as PDF</Button>
+        </div>
+        <p className="mt-1 text-xs text-text-3">Exports {incorrectCount} missed questions with their figures and full choices, plus space to reason. Answers are left out.</p>
+        {worksheetError && <p role="alert" className="mt-2 text-xs text-bad">{worksheetError}</p>}
+      </div>}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[["Score", `${percent}%`], ["Correct", correctCount], ["Incorrect", incorrectCount], ["Unused", questions.length - answered.length]].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-panel p-3"><div className="font-mono text-[10px] uppercase text-text-3">{label}</div><div className="text-lg font-bold text-text-1">{value}</div></div>)}
       </div>
@@ -450,7 +479,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <div className="mt-3">
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
             <LeadInCue stem={q.stem} />
-            <div className="mb-2 whitespace-pre-line text-sm text-text-1">{q.stem}</div>
+            <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
