@@ -48,6 +48,7 @@ export function buildScheduleContext({
   examDates = {},
   reviewedLectures = {},
   weakConcepts = {},
+  learnerEvidence = {},
   now = new Date(),
 }) {
   const blockLectures = (lectures || []).filter((l) => l?.blockId === blockId);
@@ -79,6 +80,7 @@ export function buildScheduleContext({
     completion,
     reviewedLectures,
     weakConcepts,
+    learnerEvidence,
     studyModeByLecture,
   };
 }

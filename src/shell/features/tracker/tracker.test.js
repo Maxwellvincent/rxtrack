@@ -203,6 +203,14 @@ describe("scoreLectures", () => {
     expect(scores[0].studyMode).toEqual({ mode: "physiology" });
   });
 
+  it("moves an answered objective out of untested using learner evidence without granting mastery", () => {
+    const scores = scoreLectures(context({
+      objectives: [{ id: "o1", linkedLecId: "lec1", status: "untested" }],
+      learnerEvidence: { objectives: { o1: { attempts: 1, correct: 1, recent: [true] } } },
+    }));
+    expect(scores[0]).toMatchObject({ mastered: 0, inprogress: 1, struggling: 0, untested: 0, total: 1 });
+  });
+
   it("still scores when the exam has passed — the list must not empty out", () => {
     // This is the bug it exists to fix: generateDailySchedule returns nothing
     // for a finished block, which made the lecture list show zero lectures.

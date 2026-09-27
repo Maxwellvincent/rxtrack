@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as completionStore from "../../../stores/completion.js";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useCompletion } from "../../hooks/useCompletion.js";
 import { useExamDates } from "../../hooks/useExamDates.js";
@@ -15,6 +16,7 @@ import { useObjectives } from "../../hooks/useObjectives.js";
 import { usePerformance } from "../../hooks/usePerformance.js";
 import { useTerms } from "../../hooks/useTerms.js";
 import { useWeakConcepts } from "../../hooks/useWeakConcepts.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { appendActivity, localDateString } from "../../logic/completionLog.js";
 import { appendPreRead } from "../../logic/preReadLog.js";
 import { buildStudySchedule, generateDailySchedule, objectivesForLecture } from "../../logic/schedule.js";
@@ -100,6 +102,7 @@ export function useToday(blockId, userId, { now } = {}) {
   const completion = useCompletion(userId);
   const examDates = useExamDates(userId);
   const weakConcepts = useWeakConcepts(null, userId);
+  const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
 
   const context = useMemo(
     () =>
@@ -112,9 +115,10 @@ export function useToday(blockId, userId, { now } = {}) {
         completion: completion.data,
         examDates: examDates.data,
         weakConcepts: weakConcepts.data,
+        learnerEvidence: learnerEvidence.data,
         now: nowValue,
       }),
-    [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, nowValue]
+    [blockId, terms.data, lectures.data, objectives.data, performance.data, completion.data, examDates.data, weakConcepts.data, learnerEvidence.data, nowValue]
   );
 
   const daily = useMemo(() => buildTodaySchedule(context), [context]);

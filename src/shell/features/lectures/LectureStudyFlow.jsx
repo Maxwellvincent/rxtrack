@@ -1251,8 +1251,30 @@ export function LectureStudyFlow({
       (progress) => setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready })
     );
     setBusy("");
+    const attachObjectiveTexts = (items) => items.map((question) => ({
+      ...question,
+      objectiveTexts: question.objectiveTexts?.length
+        ? question.objectiveTexts
+        : (question.objectiveIds || []).map((id) => objectiveById.get(id)).filter(Boolean).map((objective) => ({
+          id: objective.id,
+          code: objective.code || "",
+          text: objective.objective || objective.text || objective.title || "",
+        })).filter((objective) => objective.text),
+    }));
+    const launchPartialQuiz = (items, detail) => {
+      const partial = attachObjectiveTexts(items);
+      if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, partial);
+      setObjectiveNotice(`Starting a ${partial.length}-question quiz; ${Math.max(0, count - partial.length)} of ${count} requested questions could not be prepared. ${detail || "You can retry later for more."}`);
+      setAdHocQuiz(true);
+      startQuizSession(partial);
+      setQuizPreparation(null);
+    };
     if (result.error) {
       setQuizPreparation(null);
+      if (progressiveQuestions.length) {
+        launchPartialQuiz(progressiveQuestions, result.error);
+        return;
+      }
       // Saved questions are an offline/error fallback, never the default path. Reusing them
       // before generation made a requested harder round repeat the exact prior quiz.
       const matching = priorQuestions.filter((q) =>
@@ -1284,26 +1306,21 @@ export function LectureStudyFlow({
       return;
     }
     if (result.incomplete || progressiveQuestions.length < count) {
-      setQuizPreparation(null);
-      setError(`Only ${progressiveQuestions.length}/${count} questions could be prepared. Retry to generate the remaining questions.`);
+      if (progressiveQuestions.length) {
+        launchPartialQuiz(progressiveQuestions, "Retry later to add questions for the missing objectives.");
+      } else {
+        setQuizPreparation(null);
+        setError(`No questions could be prepared for this ${count}-question quiz. Retry after the source is available.`);
+      }
       return;
     }
     if (result.warning) setObjectiveNotice(result.warning);
-    const questionsWithObjectiveText = [...reserve, ...(result.questions || [])].slice(0, count).map((question) => ({
-      ...question,
-      objectiveTexts: question.objectiveTexts?.length
-        ? question.objectiveTexts
-        : (question.objectiveIds || []).map((id) => objectiveById.get(id)).filter(Boolean).map((objective) => ({
-          id: objective.id,
-          code: objective.code || "",
-          text: objective.objective || objective.text || objective.title || "",
-        })).filter((objective) => objective.text),
-    }));
+    const questionsWithObjectiveText = attachObjectiveTexts([...reserve, ...(result.questions || [])].slice(0, count));
     if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questionsWithObjectiveText);
     setAdHocQuiz(true);
     startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById]);
 
   const savedQuizQuestions = lecture?.id
     ? locallyValidClinicalQuestions(generatedQuestionsStore.questionsForLecture(userId, lecture.id))
@@ -1395,6 +1412,7 @@ export function LectureStudyFlow({
     const hasNext = !adHocQuiz && round + 1 < rounds.length;
     return (
       <div className="p-5">
+        {objectiveNotice && <div role="status" className="mb-3 rounded-lg border border-accent bg-bg-elevated p-3 text-sm text-text-2">{objectiveNotice}</div>}
         <div className="mb-3 flex items-center justify-between gap-3">
           <button
             onClick={() => {
