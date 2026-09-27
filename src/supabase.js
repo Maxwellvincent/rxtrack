@@ -187,6 +187,22 @@ export async function fetchLectureContent(userId, lecId) {
   return { chunks: v.chunks || [], atoms: v.atoms || [], images: v.images || [], meta: v.data || {} };
 }
 
+/** Archive the original lecture PDF; extracted text stays in Firestore for fast, small reads. */
+export async function uploadLectureSource(userId, lecId, file) {
+  if (!userId || !lecId || !file) return null;
+  const path = `lecture-sources/${userId}/${encodeDocId(lecId)}/${String(file.name || "lecture.pdf").replace(/[^a-zA-Z0-9._-]+/g, "-").slice(-140)}`;
+  await uploadBytes(storageRef(storage, path), file, {
+    contentType: file.type || "application/pdf",
+    customMetadata: { originalName: String(file.name || "lecture.pdf") },
+  });
+  return path;
+}
+
+export async function fetchLectureSourceUrl(path) {
+  if (!path || !String(path).startsWith(`lecture-sources/${auth.currentUser?.uid}/`)) return null;
+  return getDownloadURL(storageRef(storage, path));
+}
+
 /**
  * Write one lecture's doc, chunks included.
  *

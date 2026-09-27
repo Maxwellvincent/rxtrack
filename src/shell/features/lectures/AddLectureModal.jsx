@@ -18,6 +18,7 @@ import {
   overwriteObjectivesInCloud,
   saveLectureAtoms,
   saveLectureToCloud,
+  uploadLectureSource,
 } from "../../../supabase.js";
 import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
@@ -111,6 +112,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       });
       setPreview({
         lecture: built.lecture,
+        sourceFile: file,
         action,
         filledId,
         fillsDate: merged?.lectureDate ?? null,
@@ -288,10 +290,13 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       const { lectures, lecture: merged, action } = upsertLecture(current, incoming, {
         targetId: targetLecture?.id || null,
       });
-      const lecture = merged || incoming;
+      let lecture = merged || incoming;
 
       setProgress("Saving the full lecture…");
       if (userId) {
+        if (preview.sourceFile && (preview.sourceFile.type === "application/pdf" || /\.pdf$/i.test(preview.sourceFile.name || ""))) {
+          lecture = { ...lecture, sourceStoragePath: await uploadLectureSource(userId, lecture.id, preview.sourceFile) };
+        }
         const cloudResult = await saveLectureToCloud(userId, lecture);
         if (!cloudResult?.saved) throw new Error(
           cloudResult?.reason === "oversized"
@@ -304,7 +309,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       // the button press, before any enrichment could begin.
       lecturesStore.write(
         userId,
-        lectures.map((row) => row.id === lecture.id && userId ? toLocalRow(row) : row)
+        lectures.map((row) => row.id === lecture.id && userId ? toLocalRow({ ...row, sourceStoragePath: lecture.sourceStoragePath }) : row)
       );
 
       setDone(

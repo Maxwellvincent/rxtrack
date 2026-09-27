@@ -13,7 +13,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as lecturesStore from "../../../stores/lectures.js";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
-import { overwriteObjectivesInCloud, saveLectureAtoms, saveLectureToCloud } from "../../../supabase.js";
+import { overwriteObjectivesInCloud, saveLectureAtoms, saveLectureToCloud, uploadLectureSource } from "../../../supabase.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { analyzeLecture } from "../../../ingest/teachingMap.js";
@@ -124,11 +124,14 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
       // Today plans from, and its id is what objectives and sessions point at.
       const current = lecturesStore.read(userId) || [];
       const { lectures, lecture: merged, action } = applyToLectures(current, built.lecture);
-      const lecture = merged || built.lecture;
-      lecturesStore.write(userId, lectures.map((l) => (l.id === lecture.id ? toLocalRow(l) : l)));
-
-      // Text to the cloud, chunk-light row locally.
-      if (userId) await saveLectureToCloud(userId, lecture);
+      let lecture = merged || built.lecture;
+      if (userId) {
+        if (isPdf) lecture = { ...lecture, sourceStoragePath: await uploadLectureSource(userId, lecture.id, entry.file) };
+        const saved = await saveLectureToCloud(userId, lecture);
+        if (!saved?.saved) throw new Error(`Lecture cloud save failed (${saved?.reason || "unknown reason"}).`);
+      }
+      // Cloud is authoritative; only a chunk-light lecture row is cached locally.
+      lecturesStore.write(userId, lectures.map((l) => (l.id === lecture.id ? toLocalRow({ ...l, sourceStoragePath: lecture.sourceStoragePath }) : l)));
       setRow(entry.filename, { note: action === "filled" ? "filled the scheduled lecture" : "" });
 
       const commands = createObjectiveCommands({
