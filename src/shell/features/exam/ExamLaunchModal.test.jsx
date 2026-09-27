@@ -177,6 +177,22 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("passes an explicit medium difficulty to the launch and prepare actions", () => {
+    const onLaunch = vi.fn();
+    const onPrepare = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
+      defaultQuestionCount={10} onLaunch={onLaunch} onPrepare={onPrepare} onCancel={vi.fn()} />);
+    const medium = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Build fluency"));
+    act(() => medium.click());
+    const prepare = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Prepare questions for later"));
+    act(() => prepare.click());
+    expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ difficultyOverride: "medium", questionCount: 10 }));
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ difficultyOverride: "medium", questionCount: 10 }));
+    unmount();
+  });
+
   it("duration auto-recalculates as question count changes, until the user edits it directly", () => {
     const { host, unmount } = render(
       <ExamLaunchModal

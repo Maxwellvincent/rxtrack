@@ -96,6 +96,18 @@ describe("generateExamQuestions", () => {
     expect(ids.size).toBe(3);
   });
 
+  it("honors a selected difficulty override instead of the adaptive lecture level", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [mcq("Medium-level question")] });
+    const result = await generateExamQuestions({
+      allocation: { lec1: 1 }, lecturesById, objectivesByLecture, atomsByLecture: {},
+      blockId: "b1", lectures, weakConceptAccuracyByLecture: { lec1: 0.99 },
+      userId: null, difficultyOverride: "medium",
+    }, { callAIJSON, skipQuestionAudit: true });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].difficulty).toBe("medium");
+    expect(JSON.stringify(callAIJSON.mock.calls[0])).toContain("medium");
+  });
+
   it("preserves table-shaped choice questions for the table renderer", async () => {
     const callAIJSON = vi.fn().mockResolvedValueOnce({
       questions: [mcq("Good question"), tableMcq("Bad table question")],

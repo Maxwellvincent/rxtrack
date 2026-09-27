@@ -658,7 +658,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           return <li key={set.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
             <div>
               <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
-              <div className="text-sm text-text-2">{available}/{requested} saved questions available · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              <div className="text-sm text-text-2">{available}/{requested} saved questions available · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
               {!!set.preparedQuestionIds?.length && available < requested && <div className="text-xs text-warn">{requested - available} question{requested - available === 1 ? "" : "s"} short; missing questions will be generated when started.</div>}
             </div>
             <Button disabled={launching || !available} onClick={() => handleLaunch({
@@ -667,6 +667,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               durationMinutes: Number(set.durationMinutes) || 45,
               contentScope: set.contentScope || "block-so-far",
               studyMode: set.studyMode || "balanced",
+              difficultyOverride: set.difficultyOverride || null,
               focusNotes: set.focusNotes || "",
               weekNumber: set.weekNumber ?? null,
               examName: set.examName || "Integrated exam",

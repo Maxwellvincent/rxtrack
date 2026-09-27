@@ -52,7 +52,7 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 /** Two bounded workers, incremental cloud persistence, then atomic assignment
  * at launch. A prepared pool is not an answer history or a mastery claim. */
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
-  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
+  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", difficultyOverride = null, preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const exemplars = readExemplarsForBlock(userId, blockId);
   const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
@@ -75,7 +75,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const atoms = atomsByLecture?.[lectureId] || [];
     const lecture = lecturesById?.[lectureId];
     const lectureTitle = lecture?.lectureTitle || lecture?.fileName || lectureId;
-    const difficulty = resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
+    const difficulty = ["medium", "hard", "expert"].includes(difficultyOverride)
+      ? difficultyOverride
+      : resolveDefaultDifficulty(weakConceptAccuracyByLecture?.[lectureId]);
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
     const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode }) : null;
     let obtained = 0, attempt = 0, errorMessage = null;
@@ -83,7 +85,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       progress(`Checking saved questions: ${lectureTitle}`);
       const savedQuestions = preparedGenerationId && deps.pool.readyForGeneration
         ? await deps.pool.readyForGeneration(preparedGenerationId, lectureId, preparedQuestionIds)
-        : deps.savedOnly && deps.pool.readyForLectures
+        : deps.savedOnly && !difficultyOverride && deps.pool.readyForLectures
         ? await deps.pool.readyForLectures([lectureId])
         : await deps.pool.ready(bucket);
       for (const q of savedQuestions) {

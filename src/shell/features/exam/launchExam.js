@@ -55,6 +55,7 @@ async function runLaunch(
     savedOnly = false,
     startWhilePreparing = false,
     studyMode = "balanced",
+    difficultyOverride = null,
     focusNotes = "",
     examName = "Integrated exam",
     contentScope = "block-so-far",
@@ -69,7 +70,7 @@ async function runLaunch(
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, focusNotes, weekNumber });
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, difficultyOverride, focusNotes, weekNumber });
   const startedGenerationAt = Date.now();
   try {
 
@@ -85,7 +86,7 @@ async function runLaunch(
   if (startWhilePreparing && !prepareOnly && !savedOnly) {
     const savedResult = await generateExamQuestions(
       { allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
-        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, focusNotes, preparedGenerationId, preparedQuestionIds },
+        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes, preparedGenerationId, preparedQuestionIds },
       { ...deps, pool, savedOnly: true }
     );
     const savedQuestions = savedResult.questions || [];
@@ -123,7 +124,7 @@ async function runLaunch(
           result = await generateExamQuestions(
             { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
               blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
-              studyMode, focusNotes },
+              studyMode, difficultyOverride, focusNotes },
             { ...deps, pool, savedOnly: false,
               onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
           );
@@ -152,6 +153,7 @@ async function runLaunch(
       userId,
       generationId: sessionId,
       studyMode,
+      difficultyOverride,
       focusNotes,
     },
     { ...deps, pool, savedOnly }

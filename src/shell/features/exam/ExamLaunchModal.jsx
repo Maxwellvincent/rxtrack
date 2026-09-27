@@ -61,6 +61,7 @@ export function ExamLaunchModal({
   }, [launching]);
   const [format, setFormat] = useState("exam");
   const [studyMode, setStudyMode] = useState("balanced");
+  const [difficulty, setDifficulty] = useState("adaptive");
   const [count, setCount] = useState(String(defaultQuestionCount || 20));
   // Auto-calculated from question count (1.5 min/question, matching real
   // exam pacing) until the user types into the duration field themselves —
@@ -120,6 +121,7 @@ export function ExamLaunchModal({
       format,
       ...namePayload,
       ...(studyMode === "repair" ? { studyMode } : {}),
+      ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}),
       questionCount: parsedCount,
       durationMinutes: format === "exam" ? parsedDuration : null,
       startWhilePreparing: true,
@@ -151,6 +153,20 @@ export function ExamLaunchModal({
               </button>)}
             </div>
             {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">Cycles recognition → mechanism → clinical application → fresh retest. An objective leaves this queue after at least 5 recent answers reach 78%.</p>}
+          </div>
+
+          <div>
+            <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Question difficulty</div>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: "adaptive", label: "Adaptive", note: "Adjusts to your lecture performance" },
+                { value: "medium", label: "Medium", note: "Build fluency before harder cases" },
+                { value: "hard", label: "Hard", note: "More steps and closer distractors" },
+                { value: "expert", label: "Expert", note: "Most demanding, school-style challenge" },
+              ].map((option) => <button type="button" key={option.value} aria-pressed={difficulty === option.value} onClick={() => setDifficulty(option.value)} className={`rounded-lg border p-2 text-left ${difficulty === option.value ? "border-accent bg-panel" : "border-border"}`}>
+                <span className="block text-sm font-semibold text-text-1">{option.label}</span><span className="block text-xs text-text-3">{option.note}</span>
+              </button>)}
+            </div>
           </div>
 
           <div>
@@ -283,19 +299,19 @@ export function ExamLaunchModal({
         {!launching && error && <div role="alert" className="mt-4 rounded-lg border border-bad p-3 text-sm text-text-1">{error}</div>}
 
         {!launching && partialLaunch?.readyCount > 0 && (
-          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, questionCount: partialLaunch.readyCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
+          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: partialLaunch.readyCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-bold text-white">
             Start with {partialLaunch.readyCount} saved questions and fill the rest
           </button>
         )}
 
         {!launching && savedQuestionCount > 0 && (
-          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-bold text-accent">
+          <button type="button" onClick={() => onStartSaved?.({ format, ...namePayload, ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }) })} className="mt-3 min-h-11 w-full rounded-lg border border-accent px-4 py-2.5 text-sm font-bold text-accent">
             Start now · reuse saved questions and generate any missing for this scope
           </button>
         )}
 
         {onPrepare && <div className="mt-4 border-t border-border pt-3 text-sm text-text-2">
-      <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
+      <button type="button" disabled={!canLaunch || launching} onClick={() => onPrepare({ format, ...namePayload, ...(studyMode === "repair" ? { studyMode } : {}), ...(difficulty !== "adaptive" ? { difficultyOverride: difficulty } : {}), questionCount: parsedCount, durationMinutes: format === "exam" ? parsedDuration : null, ...(effectiveScope === "block-so-far" ? {} : /^\d+$/.test(String(effectiveScope)) ? { weekNumber: effectiveScope } : { contentScope: effectiveScope }), ...(focusNotes.trim() ? { focusNotes: focusNotes.trim() } : {}) })}
             className="rounded border border-border px-3 py-2 font-semibold text-text-1 disabled:opacity-40">Prepare questions for later</button>
           <p className="mt-2 text-xs">Saves unused questions privately in Firestore. No timer or score starts in this mode.</p>
         </div>}
