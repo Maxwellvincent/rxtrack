@@ -29,6 +29,7 @@ import { useExamSessionController } from "./useExamSessionController.js";
 import { TutorPanel } from "./TutorPanel.jsx";
 import { useTutorExplanation } from "./useTutorExplanation.js";
 import { ERROR_REASONS, extractLeadIn } from "./questionReading.js";
+import { orderedChoiceEntries } from "./choiceOrder.js";
 import { recordReflection } from "../../../stores/learnerEvidence.js";
 
 function sessionLabel(session) {
@@ -175,7 +176,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
   useEffect(() => setCrossed(new Set()), [questionId]);
   return (
     <div className="flex flex-col gap-1.5">
-      {Object.entries(choices || {}).map(([letter, text]) => {
+      {orderedChoiceEntries(choices).map(([letter, text]) => {
         const isPicked = picked === letter;
         const isCrossed = !revealed && crossed.has(letter);
         const borderCls = !revealed
