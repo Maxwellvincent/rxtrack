@@ -58,14 +58,16 @@ async function runLaunch(
     focusNotes = "",
     examName = "Integrated exam",
     contentScope = "block-so-far",
+    weekNumber = null,
   },
   deps = {}
 ) {
   const sessionId = makeSessionId();
+  const resolvedContentScope = weekNumber != null ? `week-number:${weekNumber}` : contentScope;
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope });
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope });
   const startedGenerationAt = Date.now();
   try {
 
@@ -98,6 +100,7 @@ async function runLaunch(
       lectureIds: [...new Set([...savedQuestions.map(q => q.lectureId), ...Object.keys(missingAllocation)])],
       format,
       title: examName,
+      contentScope: resolvedContentScope,
       questions: savedQuestions,
       startedAt: null,
       deadline: null,
@@ -192,6 +195,7 @@ async function runLaunch(
     lectureIds,
     format,
     title: examName,
+    contentScope: resolvedContentScope,
     questions,
     startedAt,
     deadline,

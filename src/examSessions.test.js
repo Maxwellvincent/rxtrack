@@ -86,6 +86,14 @@ describe("createSessionShape", () => {
   it("exports the size guard constant", () => {
     expect(MAX_EXAM_SESSION_BYTES).toBe(900_000);
   });
+
+  it("persists the chosen quiz name and content scope for history", () => {
+    const session = createSessionShape({
+      sessionId: "s2", blockId: "b1", lectureIds: ["l1"], format: "exam", title: "Week 4 Quiz",
+      contentScope: "date-range:2026-09-01:2026-09-07", questions: [],
+    });
+    expect(session).toMatchObject({ title: "Week 4 Quiz", contentScope: "date-range:2026-09-01:2026-09-07" });
+  });
 });
 
 describe("mergeAnswer", () => {

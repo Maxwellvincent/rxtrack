@@ -28,7 +28,7 @@ import { examDurationMinutes } from "./examTiming.js";
 import { callAI, callAIJSON } from "../../../aiClient.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { listExamSessions } from "../../../supabase.js";
-import { cleanLectureTitle } from "../../../lectureTitle.js";
+import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { buildFocusedRepairScope } from "./focusedRepair.js";
 import { sourceLabel } from "../../logic/questionBankAnalysis.js";
@@ -76,6 +76,12 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
   const [bankCategory, setBankCategory] = useState(null);
+  const [examPageSection, setExamPageSection] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`rxt-exam-page:${blockId}`);
+      return ["start", "banks", "results"].includes(saved) ? saved : "start";
+    } catch { return "start"; }
+  });
   const [bankStoreRevision, setBankStoreRevision] = useState(0);
   // I4 fix — `launchExamSession`'s `generationErrors` (a per-lecture
   // generation shortfall after retries) was computed and returned but never
@@ -83,6 +89,11 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   // the session, rather than silently dropped.
   const [launchWarning, setLaunchWarning] = useState(null);
   const [generationCoverage, setGenerationCoverage] = useState(null);
+
+  const selectExamPageSection = (section) => {
+    setExamPageSection(section);
+    try { localStorage.setItem(`rxt-exam-page:${blockId}`, section); } catch { /* optional preference */ }
+  };
 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
@@ -109,7 +120,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const lectureLabelsByLectureId = useMemo(() => {
     const map = {};
     for (const [id, lec] of Object.entries(lecturesById)) {
-      map[id] = lec?.lectureTitle || lec?.fileName || id;
+      map[id] = formatLectureLabel(lec);
     }
     return map;
   }, [lecturesById]);
@@ -159,7 +170,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         .filter((lec) => lec?.id && (objectivesByLecture[lec.id]?.length || 0) > 0)
         .map((lec) => ({
           lectureId: lec.id,
-          lectureLabel: lec.lectureTitle || lec.fileName || lec.id,
+          lectureLabel: formatLectureLabel(lec),
           objectiveCount: objectivesByLecture[lec.id].length,
           ...(lec.lectureDate || lec.date ? { lectureDate: lec.lectureDate || lec.date } : {}),
           ...(lec.weekNumber != null ? { weekNumber: lec.weekNumber } : {}),
@@ -568,6 +579,16 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       </div>
 
+      <nav className="mb-5 flex flex-wrap gap-2 border-b border-border pb-3" aria-label="Exam center sections">
+        {[["start", "Start & continue"], ["banks", `Question banks${blockQuestionBanks.length ? ` · ${blockQuestionBanks.length}` : ""}`], ["results", "Results & weak lectures"]].map(([id, label]) => (
+          <button key={id} type="button" aria-current={examPageSection === id ? "page" : undefined}
+            onClick={() => selectExamPageSection(id)}
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold ${examPageSection === id ? "border-accent bg-accent/10 text-accent-text" : "border-border text-text-2 hover:bg-panel"}`}>
+            {label}
+          </button>
+        ))}
+      </nav>
+
       {showLaunchModal && (
         <ExamLaunchModal
           blockId={blockId}
@@ -592,6 +613,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>
       )}
 
+      {examPageSection === "start" && <>
       {resumableSessions.length > 0 && <section className="mb-4 rounded-xl border border-accent bg-bg-elevated p-4">
         <div className="text-sm font-bold text-text-1">Continue an unfinished session</div>
         <p className="mt-1 text-sm text-text-2">Answers are saved after every selection. Timed-exam clocks continue while you are away.</p>
@@ -636,8 +658,9 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           )}
         </div>
       </section>
+      </>}
 
-      {blockQuestionBanks.length > 0 && (
+      {examPageSection === "banks" && blockQuestionBanks.length > 0 && (
         <section className="mb-4 rounded-xl border border-border bg-bg-elevated p-3">
           <div className="mb-1 text-sm font-bold text-text-1">Original question banks · ExamSoft, IMCQ, homework & clicker examples</div>
           <div className="mb-3 font-mono text-[11px] text-text-3">
@@ -699,7 +722,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           They are intentionally not rendered in the block view; showing dozens of
           unrelated banks here made the current block feel like an archive browser. */}
 
-        <ExamDashboard
+        {examPageSection === "results" && <ExamDashboard
           blockId={blockId}
           userId={userId}
           lecturesById={lecturesById}
@@ -707,7 +730,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           generationCoverage={generationCoverage}
           onNavigateToLecture={onNavigateToLecture}
           onReviewSession={setActiveSessionId}
-        />
+        />}
     </div>
   );
 }

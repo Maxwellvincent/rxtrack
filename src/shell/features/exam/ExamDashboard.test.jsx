@@ -91,8 +91,8 @@ async function flush() {
 const USER = "u1";
 const BLOCK = "b1";
 const LECTURES = {
-  "lec-1": { lectureTitle: "Lecture One" },
-  "lec-2": { lectureTitle: "Lecture Two" },
+  "lec-1": { lectureType: "LEC", lectureNumber: 1, lectureTitle: "Lecture One" },
+  "lec-2": { lectureType: "LEC", lectureNumber: 2, lectureTitle: "Lecture Two" },
 };
 
 function makeSession({ id, blockId = BLOCK, questions, answers }) {
@@ -128,12 +128,14 @@ afterEach(() => {
 describe("ExamDashboard", () => {
   it('moves a lecture practiced today below untouched exam weaknesses',async()=>{
     activityMock.data={'lec-1':{attempts:[{at:Date.now(),correct:true}]}};
-    listExamSessionsMock.mockResolvedValue([{...makeSession({id:'s',questions:[q('a','lec-1'),q('b','lec-2')],answers:[a('a','B'),a('b','B')]}),submittedAt:Date.now()-86400000}]);
+    listExamSessionsMock.mockResolvedValue([{...makeSession({id:'s',questions:[q('a','lec-1'),q('b','lec-2')],answers:[a('a','B'),a('b','B')]}),title:"Week 4 Quiz",format:"exam",submittedAt:Date.now()-86400000}]);
     const {host,unmount}=render(<ExamDashboard blockId={BLOCK} userId={USER} lecturesById={LECTURES}/>);await flush();
     const section=[...host.querySelectorAll('details')].find(d=>d.textContent.includes('Weakest lectures first'));
     expect(section.textContent.indexOf('Lecture Two')).toBeLessThan(section.textContent.indexOf('Lecture One'));
     expect(section.textContent).toContain('✓ Worked today');
     expect(section.textContent).toContain('0%');
+    expect(section.textContent).toContain('LEC 1 · Lecture One');
+    expect(section.textContent).toContain('Week 4 Quiz');
     unmount();activityMock.data={};
   });
   it("shows school homework in the 1000-question goal without mixing exam analytics", async () => {
@@ -238,10 +240,10 @@ describe("ExamDashboard", () => {
     await flush();
 
     const lecOneRow = Array.from(host.querySelectorAll("div")).find(
-      (el) => el.textContent.startsWith("Lecture One")
+      (el) => el.textContent.startsWith("LEC 1 · Lecture One")
     );
     const lecTwoRow = Array.from(host.querySelectorAll("div")).find(
-      (el) => el.textContent.startsWith("Lecture Two")
+      (el) => el.textContent.startsWith("LEC 2 · Lecture Two")
     );
     expect(lecOneRow.querySelector("button")).toBeTruthy();
     expect(lecTwoRow.querySelector("button")).toBeTruthy();

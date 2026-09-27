@@ -22,6 +22,8 @@ import { useStoreResource } from '../../hooks/useStoreResource.js';
 import * as modelImpactStore from '../../../stores/mentalModelImpact.js';
 import * as atomProgressStore from '../../../stores/atomProgress.js';
 import {ConfidenceCalibration} from './ConfidenceCalibration.jsx';
+import { formatLectureLabel } from "../../../lectureTitle.js";
+import { scopeLabel } from "../../logic/weekScope.js";
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -40,15 +42,25 @@ function computeLectureStats(sessions) {
   for (const lectureId of lectureIds) {
     let totalQuestions = 0;
     let totalMisses = 0;
+    const attempts = [];
     for (const session of sessions) {
       const { questionCount, misses } = evaluateSessionForLecture(session, lectureId);
       totalQuestions += questionCount;
       totalMisses += misses;
+      if (questionCount) attempts.push({
+        title: session.title || (session.format === "exam" ? "Timed quiz" : "Practice quiz"),
+        format: session.format,
+        date: session.submittedAt || session.startedAt || null,
+        questionCount,
+        correct: questionCount - misses,
+        accuracy: questionCount ? 1 - misses / questionCount : null,
+      });
     }
     stats[lectureId] = {
       totalQuestions,
       totalMisses,
       accuracy: totalQuestions ? 1 - totalMisses / totalQuestions : null,
+      attempts: attempts.sort((a, b) => (b.date || 0) - (a.date || 0)),
     };
   }
   return stats;
@@ -214,7 +226,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
       Object.entries(lectureStats)
         .map(([lectureId, stat]) => ({
           lectureId,
-          label: lecturesById?.[lectureId]?.lectureTitle || lectureId,
+          label: formatLectureLabel(lecturesById?.[lectureId] || { id: lectureId }),
           ...stat,
           weak: weakLectureIds.has(lectureId),
           ...repairActivity(lectureId,integratedSessions,modelActivity.data,atomActivity.data,queueNow),
@@ -354,7 +366,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
           No Integrated Exam attempts yet for this block.
         </div>
       ) : (
-        <details className="rounded-lg border border-border px-3" open>
+        <details className="rounded-lg border border-border px-3">
           <summary className="cursor-pointer py-3 font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Weakest lectures first · mental-model repair</summary>
           <p className="mb-3 text-sm text-text-2">Today’s follow-up practice moves a lecture below topics not yet worked on. Exam percentages remain historical; worked today does not mean mastered.</p>
           {rows.map((row) => (
@@ -376,13 +388,25 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
                   </button>
                 )}
               </span>
-              <span className="font-mono text-[12px] text-text-3">
-                Exam: {row.totalQuestions} question{row.totalQuestions === 1 ? "" : "s"}
+              <div className="text-right font-mono text-[12px] text-text-3">
+                {row.totalQuestions} question{row.totalQuestions === 1 ? "" : "s"} total
                 {" · "}
                 <span className={accuracyClass(row.accuracy)}>
                   {row.accuracy === null ? "—" : `${Math.round(row.accuracy * 100)}%`}
                 </span>
-              </span>
+                {row.attempts?.[0] && <div className="mt-1 max-w-[34rem] truncate text-left text-[11px] text-text-2" title={`Latest: ${row.attempts[0].title}`}>
+                  Latest: {row.attempts[0].title} · {row.attempts[0].questionCount} q · {Math.round(row.attempts[0].accuracy * 100)}%
+                </div>}
+                {row.attempts?.length > 0 && <details className="mt-1 text-left">
+                  <summary className="cursor-pointer text-[11px]">View {row.attempts.length} exam breakdown{row.attempts.length === 1 ? "" : "s"}</summary>
+                  <div className="mt-1 space-y-1">
+                    {row.attempts.map((attempt, index) => <div key={`${row.lectureId}-${attempt.title}-${attempt.date || index}`}>
+                      <span className="text-text-2">{attempt.title}</span> · {attempt.questionCount} q · {attempt.correct}/{attempt.questionCount} ({Math.round(attempt.accuracy * 100)}%)
+                      {attempt.date ? ` · ${new Date(attempt.date).toLocaleDateString()}` : ""}
+                    </div>)}
+                  </div>
+                </details>}
+              </div>
             </div>
           ))}
         </details>
@@ -392,7 +416,12 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         const answered = (session.answers || []).length;
         const correct = (session.questions || []).filter(q => (session.answers || []).find(a => a.questionId === q.questionId)?.value === q.correct).length;
         const score = answered ? Math.round(correct / answered * 100) : 0;
-        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div><div className="text-sm font-bold text-text-1">{session.title ? `${session.title} · ` : ""}{score}% · {correct}/{answered} answered correctly</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()} · {(session.questions || []).length - answered} unused</div></div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>Review</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
+        const lectureLabels = (session.lectureIds || []).map(id => formatLectureLabel(lecturesById?.[id] || { id }));
+        const formatLabel = session.format === "exam" ? "Timed quiz" : "Practice quiz";
+        const sessionName = session.title || formatLabel;
+        const duration = Number.isFinite(session.startedAt) && Number.isFinite(session.submittedAt)
+          ? `${Math.max(1, Math.round((session.submittedAt - session.startedAt) / 60_000))} min` : null;
+        return <div key={session.sessionId || session.id} className="flex flex-wrap items-center justify-between gap-2 rounded bg-panel p-3"><div className="min-w-0"><div className="text-sm font-bold text-text-1">{sessionName}</div><div className="mt-0.5 text-xs text-text-2">{formatLabel} · {session.questions?.length || 0} questions · {score}% ({correct}/{answered} correct)</div><div className="font-mono text-[11px] text-text-3">{new Date(session.submittedAt || Date.now()).toLocaleString()}{duration ? ` · ${duration}` : ""}{session.contentScope ? ` · ${scopeLabel(session.contentScope)}` : ""}</div>{lectureLabels.length > 0 && <div className="mt-1 text-xs text-text-2">{lectureLabels.join(" · ")}</div>}</div><div className="flex gap-2"><button type="button" className="rounded border-2 border-border px-3 py-1.5 text-xs font-bold" onClick={() => onReviewSession?.(session.sessionId || session.id)}>Review</button><button type="button" disabled={deletingId === (session.sessionId || session.id)} className="rounded border-2 border-bad/60 px-3 py-1.5 text-xs font-bold" onClick={async () => { const id = session.sessionId || session.id; if (!window.confirm("Delete this exam attempt from your integrated-exam statistics? Its questions will return to the reserve.")) return; setDeletingId(id); try { await releaseSessionQuestions(userId, session); await deleteExamSession(userId, id); setSessions(current => current.filter(item => (item.sessionId || item.id) !== id)); } finally { setDeletingId(null); } }}>{deletingId === (session.sessionId || session.id) ? "Deleting…" : "Delete"}</button></div></div>;
       })}</div></details>}
     </div>
   );

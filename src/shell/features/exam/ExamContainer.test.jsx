@@ -196,6 +196,8 @@ describe("ExamContainer", () => {
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
     );
 
+    const bankTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Question banks"));
+    await act(async () => bankTab.click());
     expect(host.textContent).toMatch(/Original question banks/);
     expect(host.textContent).toMatch(/30 questions · 45 min timed/);
     const timed = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Timed quiz");
@@ -223,6 +225,9 @@ describe("ExamContainer", () => {
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
     );
 
+    const bankTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Question banks"));
+    act(() => bankTab.click());
+
     const bankTitles = () => Array.from(host.querySelectorAll("div")).filter((element) =>
       element.className.includes("truncate") && element.className.includes("text-[13px]")
     );
@@ -232,13 +237,16 @@ describe("ExamContainer", () => {
     unmount();
   });
 
-  it("renders the launch button and the dashboard when there is no active session", () => {
+  it("keeps the start view focused and opens analytics from its dedicated tab", () => {
     const { host, unmount } = render(
       <ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />
     );
 
     expect(host.textContent).toMatch(/Integrated Exam/);
     expect(host.textContent).toMatch(/Start Integrated Exam/);
+    expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeFalsy();
+    const resultsTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Results & weak lectures"));
+    act(() => resultsTab.click());
     expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeTruthy();
     expect(host.querySelector('[data-testid="session-runner"]')).toBeFalsy();
 
@@ -326,7 +334,7 @@ describe("ExamContainer", () => {
     act(() => host.querySelector('[data-testid="exit-session"]').click());
 
     expect(host.querySelector('[data-testid="session-runner"]')).toBeFalsy();
-    expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeTruthy();
+    expect(host.querySelector('[data-testid="exam-dashboard"]')).toBeFalsy();
 
     unmount();
   });
