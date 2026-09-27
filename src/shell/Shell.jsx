@@ -47,6 +47,7 @@ import { selectBlockObjectives, setStatus } from "./logic/objectives.js";
 import { useLectures } from "./hooks/useLectures.js";
 import { useObjectives } from "./hooks/useObjectives.js";
 import { BackgroundJobCenter } from "./BackgroundJobCenter.jsx";
+import { formatLectureLabel } from "../lectureTitle.js";
 
 const RecognitionContainer = lazy(() => import("./features/recognition/RecognitionContainer.jsx").then((m) => ({ default: m.RecognitionContainer })));
 const LectureStudyFlow = lazy(() => import("./features/lectures/LectureStudyFlow.jsx").then((m) => ({ default: m.LectureStudyFlow })));
@@ -356,6 +357,7 @@ function ShellMain({ theme, toggle, userId }) {
         <Header
           termName={active?.termName}
           blockName={active?.name}
+          lectureLabel={studyLecture ? formatLectureLabel(studyLecture) : ""}
           theme={theme}
           onToggleTheme={toggle}
           onAnki={() => setShowAnki(true)}

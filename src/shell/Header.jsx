@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
 export function Header({
-  termName, blockName, theme, onToggleTheme,
+  termName, blockName, lectureLabel = "", theme, onToggleTheme,
   onAnki, onRecognize, onImportSchedule, onAddLecture, onBulkImport,
   onQuestionBanks, onRoutine, onDailyPlanSettings, onApiKeySettings, onFocusHudLink, onSignOut, onExamDate,
 }) {
@@ -43,10 +43,13 @@ export function Header({
   return (
     <header className="desk-header shell-chrome flex h-12 flex-shrink-0 items-center justify-between border-b border-border bg-bg px-5">
       {/* Breadcrumb — condensed uppercase */}
-      <span className="font-condensed text-sm font-semibold uppercase tracking-wider text-text-3">
+      <span className="flex min-w-0 items-center gap-1 font-condensed text-sm font-semibold uppercase tracking-wider text-text-3">
         {termName ? (
-          <>{termName} <span className="text-text-3 opacity-50">/</span>{" "}
-          <span className="text-text-1">{blockName}</span></>
+          <>
+            <span className="shrink-0">{termName}</span><span className="shrink-0 text-text-3 opacity-50">/</span>
+            <span className="shrink-0 text-text-1">{blockName}</span>
+            {lectureLabel && <><span className="shrink-0 text-text-3 opacity-50">/</span><span className="max-w-[48vw] truncate text-text-1" title={lectureLabel}>{lectureLabel}</span></>}
+          </>
         ) : (
           <span className="text-text-2">RxTrack</span>
         )}

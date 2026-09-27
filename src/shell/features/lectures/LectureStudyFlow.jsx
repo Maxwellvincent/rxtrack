@@ -331,6 +331,16 @@ function MentalModelImpact({ entry, onMarkReviewed }) {
   );
 }
 
+function TutorCountdown({ remainingSeconds, active }) {
+  const [seconds, setSeconds] = useState(Math.max(0, Number(remainingSeconds) || 0));
+  useEffect(() => {
+    if (!active) return undefined;
+    const interval = window.setInterval(() => setSeconds((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearInterval(interval);
+  }, [active]);
+  return <span className="min-w-[54px] text-center font-mono text-sm font-semibold text-text-1">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, "0")}</span>;
+}
+
 export function LectureStudyFlow({
   lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onGoDeep,
   onReExtract = null,
@@ -420,7 +430,12 @@ export function LectureStudyFlow({
     if (!next) return;
     tutorSessionRef.current = next;
     setTutorSession(next);
-    tutorSessionsStore.save(userId, next);
+    try {
+      return Boolean(tutorSessionsStore.save(userId, next));
+    } catch (error) {
+      console.warn("Tutor checkpoint could not be saved locally", error);
+      return false;
+    }
   }, [userId]);
 
   const generateTutorCase = useCallback(async () => {
@@ -573,9 +588,14 @@ export function LectureStudyFlow({
     && latestTutorTurn.reviewedStep === normalizedTutorStep;
   const currentTutorQuestion = latestTurnMatchesStep && latestTutorTurn.followUp
     ? latestTutorTurn.followUp
-    : (normalizedTutorStep === "delayed_retrieval"
-      ? tutorPrompt.prompt
-      : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt));
+    : (latestTutorTurn
+      && String(latestTutorTurn.objectiveId) === String(tutorSession?.activeObjectiveId)
+      && latestTutorTurn.stepResolved
+      && latestTutorTurn.followUp
+      ? latestTutorTurn.followUp
+      : (normalizedTutorStep === "delayed_retrieval"
+        ? tutorPrompt.prompt
+        : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt)));
   const tutorHasCurrentCase = Boolean(tutorSession?.delayedReview || tutorSession?.patientCase);
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
@@ -656,10 +676,10 @@ export function LectureStudyFlow({
           ? { type: isBlocked ? reviewedStep : review.missType, step: reviewedStep, concept: review?.repairLink || objectiveText, status: "open" }
           : null,
       });
-      saveTutorSession(next);
+      const saved = saveTutorSession(next);
       setTutorResponse("");
       setTutorConfidence("");
-      setTutorNotice("");
+      setTutorNotice(saved ? "" : "Your answer was checked, but browser storage is full. This progress remains in this tab; free local storage before leaving to ensure it persists.");
     } catch (error) {
       setTutorNotice(`Tutor review failed: ${error?.message || "save your response and retry"}`);
     } finally {
@@ -667,17 +687,29 @@ export function LectureStudyFlow({
     }
   }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing, mentalModel?.bigPicture, tutorConfidence]);
 
-  // Tick only while the tutor is active. Pausing or leaving the lecture therefore really stops
-  // the budget rather than silently consuming time in the background.
+  // Advance the clock in a ref so typing does not rerender this large study view every second.
+  // The isolated countdown renders seconds; session state is persisted every 30 seconds/boundary.
   useEffect(() => {
     if (tutorSession?.status !== "active" || (!tutorSession.patientCase && !tutorSession.delayedReview)) return undefined;
+    let lastPersistedElapsed = tutorSessionRef.current?.elapsedSeconds || 0;
     const timer = window.setInterval(() => {
       const current = tutorSessionRef.current;
       const next = tickTutorSession(current, 1);
-      if (next !== current) saveTutorSession(next);
+      if (next === current) return;
+      tutorSessionRef.current = next;
+      if (next.status === "checkpoint") {
+        saveTutorSession(next);
+      } else if (next.elapsedSeconds - lastPersistedElapsed >= 30) {
+        lastPersistedElapsed = next.elapsedSeconds;
+        try {
+          if (!tutorSessionsStore.save(userId, next)) setTutorNotice("Browser storage is full; this timer checkpoint may not persist if you leave the page.");
+        } catch {
+          setTutorNotice("Browser storage is full; this timer checkpoint may not persist if you leave the page.");
+        }
+      }
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [tutorSession?.status, tutorSession?.patientCase, tutorSession?.delayedReview, saveTutorSession]);
+  }, [tutorSession?.status, tutorSession?.patientCase, tutorSession?.delayedReview, saveTutorSession, userId]);
 
   // Persist the last checkpoint even if the learner navigates away between timer ticks.
   useEffect(() => () => {
@@ -1553,7 +1585,7 @@ export function LectureStudyFlow({
           ))}
           {tutorSession && tutorSession.status === "active" && (tutorSession.patientCase || tutorSession.delayedReview) && (
             <>
-              <span className="min-w-[54px] text-center font-mono text-sm font-semibold text-text-1">{Math.floor(tutorSession.remainingSeconds / 60)}:{String(tutorSession.remainingSeconds % 60).padStart(2, "0")}</span>
+              <TutorCountdown key={`${tutorSession.sessionId}:${tutorSession.remainingSeconds}`} remainingSeconds={tutorSession.remainingSeconds} active />
               <button onClick={pauseCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent">Pause</button>
               <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
             </>

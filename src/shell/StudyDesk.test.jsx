@@ -32,6 +32,13 @@ it("keeps integrations available and closes the tools menu with Escape", () => {
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
   view.close();
 });
+it("shows the active lecture in the workspace breadcrumb", () => {
+  const view = mount(<Header termName="Term 2" blockName="Diabetes & Metabolism" lectureLabel="LEC 33 · Water-Soluble Vitamins" />);
+  expect(view.host.textContent).toContain("Term 2");
+  expect(view.host.textContent).toContain("Diabetes & Metabolism");
+  expect(view.host.textContent).toContain("LEC 33 · Water-Soluble Vitamins");
+  view.close();
+});
 function ThemeProbe() { const { theme, toggle } = useTheme(); return <button onClick={toggle}>{theme}</button>; }
 it("starts light without discarding a saved dark preference", () => {
   let view = mount(<ThemeProbe />); expect(view.host.textContent).toBe("light");

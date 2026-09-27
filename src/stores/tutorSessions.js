@@ -15,7 +15,50 @@ export function read(userId) {
 }
 
 export function write(userId, value) {
-  return writeJson(userId, key, value || fallback);
+  const sessions = value || fallback;
+  const compact = (session, turnLimit, responseLimit) => {
+    if (!session || typeof session !== "object") return session;
+    const turns = Array.isArray(session.turns) ? session.turns : [];
+    const objectiveStartedIds = [...new Set([
+      ...(session.objectiveStartedIds || []),
+      ...turns.map((turn) => String(turn?.objectiveId || "")),
+    ].filter(Boolean).map(String))];
+    const trimmedTurns = turns.slice(-turnLimit).map((turn) => ({
+      ...turn,
+      response: String(turn?.response || "").slice(0, responseLimit),
+      feedback: String(turn?.feedback || "").slice(0, 500),
+      followUp: String(turn?.followUp || "").slice(0, 300),
+    }));
+    const profile = session.learnerProfile || {};
+    return {
+      ...session,
+      objectiveStartedIds,
+      turns: trimmedTurns,
+      learnerProfile: {
+        ...profile,
+        confirmedAnchors: (profile.confirmedAnchors || []).slice(-10).map((entry) => ({ ...entry, response: String(entry.response || "").slice(0, responseLimit) })),
+        recentMisses: (profile.recentMisses || []).slice(-10).map((entry) => ({ ...entry, repairLink: String(entry.repairLink || "").slice(0, 180) })),
+        confidenceEvents: (profile.confidenceEvents || []).slice(-16),
+        reasoningSkillEvidence: (profile.reasoningSkillEvidence || []).slice(-24),
+      },
+    };
+  };
+  const attempt = (turnLimit, responseLimit) => {
+    const packed = Object.fromEntries(Object.entries(sessions).map(([lectureId, session]) => [lectureId, compact(session, turnLimit, responseLimit)]));
+    try {
+      writeJson(userId, key, packed);
+      return true;
+    } catch (error) {
+      if (error?.name !== "QuotaExceededError" && error?.code !== 22 && error?.code !== 1014) throw error;
+      return false;
+    }
+  };
+  if (attempt(16, 700)) return true;
+  if (attempt(6, 300)) return true;
+  // Keep the most recent per-lecture checkpoint and discard only verbose conversational
+  // history. Objective state, current case, blockers, and learner-profile signals remain.
+  if (attempt(2, 120)) return true;
+  return false;
 }
 
 export function get(userId, lectureId) {
@@ -45,7 +88,7 @@ export function getLearnerProfile(userId) {
 export function save(userId, state) {
   if (!state?.lectureId) return read(userId);
   const next = { ...read(userId), [state.lectureId]: state };
-  write(userId, next);
+  if (!write(userId, next)) return null;
   return next;
 }
 

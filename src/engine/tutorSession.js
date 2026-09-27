@@ -56,6 +56,7 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
       return { id, label: entry?.label || id };
     }),
     completedObjectiveIds: [],
+    objectiveStartedIds: [],
     activeObjectiveId: ids[0] || null,
     currentStep: "retrieval",
     blockers: [],
@@ -74,9 +75,13 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
 export function tutorPacingContext(state) {
   const ids = state?.objectiveIds || [];
   const completed = new Set((state?.completedObjectiveIds || []).map(String));
-  const started = new Set((state?.turns || []).map((turn) => String(turn.objectiveId || "")).filter(Boolean));
+  const started = new Set([
+    ...(state?.objectiveStartedIds || []),
+    ...(state?.turns || []).map((turn) => String(turn.objectiveId || "")),
+  ].filter(Boolean).map(String));
   const plan = new Map((state?.objectivePlan || []).map((item) => [String(item.id), item.label || String(item.id)]));
   const activeId = String(state?.delayedReview?.objectiveId || state?.activeObjectiveId || "");
+  if (activeId && (state?.patientCase || state?.delayedReview)) started.add(activeId);
   const remainingIds = ids.filter((id) => !completed.has(String(id)));
   const completedLabels = ids.filter((id) => completed.has(String(id))).map((id) => plan.get(String(id)) || String(id));
   const inProgressLabels = ids.filter((id) => !completed.has(String(id)) && started.has(String(id))).map((id) => plan.get(String(id)) || String(id));
@@ -209,6 +214,9 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
   const completed = turn?.objectiveComplete && objectiveId
     ? [...new Set([...(state.completedObjectiveIds || []), objectiveId])]
     : state.completedObjectiveIds || [];
+  const objectiveStartedIds = objectiveId
+    ? [...new Set([...(state.objectiveStartedIds || []), objectiveId])]
+    : state.objectiveStartedIds || [];
   const blockers = (state.blockers || []).map((blocker) => (
     turn?.stepResolved
       && String(blocker.objectiveId) === String(objectiveId)
@@ -229,6 +237,7 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
       && (state.objectiveIds || []).every((id) => reviewCompletedObjectives.includes(id));
     return checkpoint(state, {
       turns: nextTurns,
+      objectiveStartedIds,
       completedObjectiveIds: reviewCompletedObjectives,
       blockers,
       learnerProfile,
@@ -276,6 +285,7 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
   const finishedAllObjectives = Boolean(turn?.objectiveComplete && !nextObjectiveId && !delayedReview);
   return checkpoint(state, {
     turns: nextTurns,
+    objectiveStartedIds,
     completedObjectiveIds: completed,
     activeObjectiveId: delayedReview?.objectiveId || nextObjectiveId || objectiveId || state.activeObjectiveId,
     currentStep: delayedReview ? "delayed_retrieval" : (nextObjectiveId !== objectiveId ? "retrieval" : (turn?.nextStep || state.currentStep)),
