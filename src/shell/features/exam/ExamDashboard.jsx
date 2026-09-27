@@ -281,7 +281,7 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         <div className="mt-2 flex flex-wrap justify-between gap-2 text-sm text-text-2">
           <span>Overall accuracy: {progress.accuracy == null ? '—' : `${Math.round(progress.accuracy * 100)}%`} · {progress.correct.toLocaleString()} correct</span>
         </div>
-        <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture / objective quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers</p>
+        <p className="mt-2 text-sm text-text-2">{progress.lectureAnswered.toLocaleString()} study / lecture / objective quiz answers · {progress.schoolAnswered.toLocaleString()} school homework / exam answers · {progress.examAnswered.toLocaleString()} integrated-exam answers · {progress.manualAnswered.toLocaleString()} logged outside-app answers</p>
         <PracticeGoal key={`${userId}:${blockId}`} userId={userId} blockId={blockId} studyAnswers={studyAnswers} sessions={sessions}/>
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>

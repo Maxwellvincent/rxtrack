@@ -1,7 +1,7 @@
 /** Use the study-answer log plus saved sessions, never the mixed lecture
  * counters that already include integrated exams (and older deleted attempts).
  */
-export function questionProgress(studyAnswers = [], sessions = [], range = {}) {
+export function questionProgress(studyAnswers = [], sessions = [], range = {}, manualEntries = []) {
   const inRange = ts => (!range.start || ts >= new Date(`${range.start}T00:00:00`).getTime()) && (!range.end || ts <= new Date(`${range.end}T23:59:59.999`).getTime());
   let lectureAnswered = 0;
   let correct = 0;
@@ -34,6 +34,13 @@ export function questionProgress(studyAnswers = [], sessions = [], range = {}) {
       if (value === question.correct) correct++;
     }
   }
-  const answered = lectureAnswered + schoolAnswered + examAnswered;
-  return {answered, correct, lectureAnswered, schoolAnswered, examAnswered, accuracy: answered ? correct / answered : null};
+  let manualAnswered = 0;
+  for (const entry of manualEntries || []) {
+    const ts = Number(entry?.completedAt);
+    const count = Number(entry?.questionCount);
+    if (Number.isFinite(ts) && Number.isInteger(count) && count > 0 && inRange(ts)) manualAnswered += count;
+  }
+  const gradedAnswered = lectureAnswered + schoolAnswered + examAnswered;
+  const answered = gradedAnswered + manualAnswered;
+  return {answered, correct, lectureAnswered, schoolAnswered, examAnswered, manualAnswered, gradedAnswered, accuracy: gradedAnswered ? correct / gradedAnswered : null};
 }

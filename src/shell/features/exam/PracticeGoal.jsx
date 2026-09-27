@@ -1,16 +1,45 @@
 import {useState} from 'react';
 import {useStoreResource} from '../../hooks/useStoreResource.js';
 import {practiceGoalStore} from '../../../stores/practiceGoal.js';
+import {manualPracticeStore} from '../../../stores/manualPractice.js';
 import {questionProgress} from './questionProgress.js';
 
 export function PracticeGoal({userId,blockId,studyAnswers,sessions}) {
  const resource=useStoreResource(practiceGoalStore,userId);
+ const manualResource=useStoreResource(manualPracticeStore,userId);
  const goal=resource.data?.[blockId];
  const [busy,setBusy]=useState(false),[notice,setNotice]=useState('');
- const progress=goal?questionProgress(studyAnswers,sessions,goal):null;
+ const manualEntries=manualResource.data?.[blockId]||[];
+ const progress=questionProgress(studyAnswers,sessions,goal||{},manualEntries);
  async function save(next){setBusy(true);setNotice('');try{await practiceGoalStore.write(userId,{...practiceGoalStore.read(userId),[blockId]:next});setNotice('Goal saved.');}catch(e){setNotice(`Could not save: ${e.message}`);}finally{setBusy(false);}}
+ async function logOutsidePractice(form){
+  const data=new FormData(form),questionCount=Number(data.get('questionCount')),date=String(data.get('date')||''),source=String(data.get('source')||'').trim(),label=String(data.get('label')||'').trim();
+  if(!Number.isInteger(questionCount)||questionCount<1||!/^\d{4}-\d{2}-\d{2}$/.test(date)){setNotice('Enter a positive whole number of questions and a valid completion date.');return;}
+  const completedAt=new Date(`${date}T12:00:00`).getTime();
+  const entry={id:typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():`manual-${Date.now()}`,questionCount,completedAt,date,source:source||'Outside RXTrack',...(label?{label}:{})};
+  const next={...(manualPracticeStore.read(userId)||{}),[blockId]:[...manualEntries,entry]};
+  setBusy(true);setNotice('');try{await manualPracticeStore.write(userId,next);form.reset();setNotice('Outside-app practice logged and added to your total.');}catch(e){setNotice(`Could not log practice: ${e.message}`);}finally{setBusy(false);}
+ }
+ async function removeManualEntry(id){
+  const next={...(manualPracticeStore.read(userId)||{}),[blockId]:manualEntries.filter(entry=>entry.id!==id)};
+  setBusy(true);setNotice('');try{await manualPracticeStore.write(userId,next);setNotice('Practice entry removed.');}catch(e){setNotice(`Could not remove entry: ${e.message}`);}finally{setBusy(false);}
+ }
+ const today=new Date();
+ const todayValue=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
  return <div className="mt-3 border-t border-border pt-3">
   {goal && <><p className="text-sm font-semibold">Personal goal · {goal.start} – {goal.end}: {progress.answered.toLocaleString()} / {goal.target.toLocaleString()}</p><progress className="mt-2 h-3 w-full accent-accent" max={goal.target} value={Math.min(goal.target,progress.answered)} aria-label="Personal question goal"/><p className="text-sm">{Math.max(0,goal.target-progress.answered)} remaining · {Math.round(progress.answered/goal.target*100)}% of goal</p></>}
+  <details className="mt-2 rounded-lg border border-border p-3"><summary className="cursor-pointer text-sm font-semibold">Log questions completed outside RXTrack</summary>
+   <p className="mt-2 text-xs text-text-3">For iPad or other question-bank work. These count toward practice volume and your goal, but not app accuracy.</p>
+   <form className="mt-3 flex flex-wrap items-end gap-3" onSubmit={e=>{e.preventDefault();logOutsidePractice(e.currentTarget);}}>
+    <label className="text-sm">Questions<input name="questionCount" type="number" min="1" step="1" required className="mt-1 block w-28 rounded border border-border bg-panel p-2" placeholder="e.g. 20"/></label>
+    <label className="text-sm">Date<input name="date" type="date" required defaultValue={todayValue} className="mt-1 block rounded border border-border bg-panel p-2"/></label>
+    <label className="text-sm">Where<input name="source" className="mt-1 block w-40 rounded border border-border bg-panel p-2" placeholder="iPad / UWorld"/></label>
+    <label className="text-sm">Quiz (optional)<input name="label" className="mt-1 block w-44 rounded border border-border bg-panel p-2" placeholder="Set name or topic"/></label>
+    <button disabled={busy||manualResource.loading||!!manualResource.error} className="rounded bg-accent px-3 py-2 font-semibold text-white">Add to total</button>
+   </form>
+   {manualResource.error&&<p role="alert" className="mt-2 text-sm text-bad">Outside practice could not sync. Your existing total is unchanged.</p>}
+   {!!manualEntries.length&&<ul className="mt-3 space-y-1 text-sm">{[...manualEntries].sort((a,b)=>b.completedAt-a.completedAt).slice(0,5).map(entry=><li key={entry.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2"><span>{entry.questionCount} questions · {entry.date} · {entry.source}{entry.label?` · ${entry.label}`:''}</span><button type="button" className="text-text-3 underline" disabled={busy} onClick={()=>removeManualEntry(entry.id)}>Remove</button></li>)}</ul>}
+  </details>
   <details><summary className="cursor-pointer py-2 text-sm">{goal?'Edit personal goal':'Set an optional personal goal'}</summary>
    <form key={JSON.stringify(goal)} className="flex flex-wrap items-end gap-3" onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget);const next={target:Number(form.get('target')),start:String(form.get('start')),end:String(form.get('end'))};if(!Number.isInteger(next.target)||next.target<1||next.start>next.end){setNotice('Choose a positive target and an end date after the start date.');return;}save(next);}}>
     <label className="text-sm">Questions<input className="block w-28 rounded border border-border bg-panel p-2" name="target" type="number" min="1" required defaultValue={goal?.target||1000}/></label>
@@ -19,6 +48,6 @@ export function PracticeGoal({userId,blockId,studyAnswers,sessions}) {
     <button className="rounded border border-border p-2" disabled={busy||resource.loading||!!resource.error}>Save goal</button>
     {goal&&<button type="button" className="rounded border border-border p-2" disabled={busy||resource.loading||!!resource.error} onClick={()=>save(null)}>Remove goal</button>}
    </form><p className="mt-2 text-xs text-text-3">Includes lecture/objective quizzes, school practice and integrated exams in this block. Session answers use the submission date. This goal does not repeat automatically.</p>
-  </details>{notice&&<p role="status">{notice}</p>}{resource.error&&<p role="alert">Goal settings could not sync.</p>}
+  </details>{notice&&<p role="status" className="mt-2 text-sm">{notice}</p>}{resource.error&&<p role="alert">Goal settings could not sync.</p>}
  </div>;
 }
