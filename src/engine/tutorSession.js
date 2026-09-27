@@ -36,7 +36,7 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
   };
 }
 
-export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], learnerProfile = null, retrievalQueue = [], now = Date.now() } = {}) {
+export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], objectivePlan = [], learnerProfile = null, retrievalQueue = [], now = Date.now() } = {}) {
   const budget = BUDGETS.has(Number(budgetMinutes)) ? Number(budgetMinutes) : 30;
   const ids = [...new Set((objectiveIds || []).map(String).filter(Boolean))];
   return {
@@ -51,6 +51,10 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     elapsedSeconds: 0,
     remainingSeconds: budget * 60,
     objectiveIds: ids,
+    objectivePlan: ids.map((id) => {
+      const entry = objectivePlan.find((item) => String(item?.id) === id);
+      return { id, label: entry?.label || id };
+    }),
     completedObjectiveIds: [],
     activeObjectiveId: ids[0] || null,
     currentStep: "retrieval",
@@ -64,6 +68,63 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     resumeObjectiveId: null,
     learnerProfile: learnerProfile || { confirmedAnchors: [], recentMisses: [], confidenceEvents: [], reasoningSkillEvidence: [], stableReasoningSkills: [] },
   };
+}
+
+/** Build explicit pacing and coverage context for both the tutor and its UI. */
+export function tutorPacingContext(state) {
+  const ids = state?.objectiveIds || [];
+  const completed = new Set((state?.completedObjectiveIds || []).map(String));
+  const started = new Set((state?.turns || []).map((turn) => String(turn.objectiveId || "")).filter(Boolean));
+  const plan = new Map((state?.objectivePlan || []).map((item) => [String(item.id), item.label || String(item.id)]));
+  const activeId = String(state?.delayedReview?.objectiveId || state?.activeObjectiveId || "");
+  const remainingIds = ids.filter((id) => !completed.has(String(id)));
+  const completedLabels = ids.filter((id) => completed.has(String(id))).map((id) => plan.get(String(id)) || String(id));
+  const inProgressLabels = ids.filter((id) => !completed.has(String(id)) && started.has(String(id))).map((id) => plan.get(String(id)) || String(id));
+  const untouchedLabels = ids.filter((id) => !completed.has(String(id)) && !started.has(String(id))).map((id) => plan.get(String(id)) || String(id));
+  const remainingSeconds = Math.max(0, Number(state?.remainingSeconds) || 0);
+  const timePerObjectiveSeconds = remainingIds.length ? Math.floor(remainingSeconds / remainingIds.length) : remainingSeconds;
+  const budgetMinutes = Number(state?.budgetMinutes) || 30;
+  const mode = budgetMinutes <= 30 ? "quick overview" : budgetMinutes <= 45 ? "balanced walkthrough" : "deep dive";
+  const depthGuidance = timePerObjectiveSeconds < 120
+    ? "Use a concise high-yield model and one integrated reasoning chain. Prioritize the core diagnosis/mechanism/consequence; defer optional contrasts and do not imply uncovered objectives were mastered."
+    : timePerObjectiveSeconds < 270
+      ? "Use one patient case per objective and a focused diagnosis → mechanism → consequence chain. Add a contrast only when it is a key lecture discriminator."
+    : "Use a deeper guided case: diagnosis → mechanism → consequence, then a useful contrast or transfer question when lecture-supported. Keep one question per turn and let the learner reason before revealing.";
+  const closing = remainingSeconds <= 90
+    ? "The clock is at its closing checkpoint: do not start a new case or introduce new material. Help the learner consolidate the current step and state what remains uncovered."
+    : remainingSeconds <= 240
+      ? "The block is nearing its end: finish the current reasoning chain concisely and avoid opening optional branches."
+      : "Continue at the planned pace; do not rush a learner who is actively processing.";
+  return {
+    mode,
+    budgetMinutes,
+    elapsedSeconds: Math.max(0, Number(state?.elapsedSeconds) || 0),
+    remainingSeconds,
+    objectivesTotal: ids.length,
+    objectivesCompleted: completedLabels.length,
+    objectivesInProgress: inProgressLabels.length,
+    objectivesNotYetReached: untouchedLabels.length,
+    activeObjective: plan.get(activeId) || activeId || null,
+    currentStep: state?.currentStep || null,
+    targetSecondsPerRemainingObjective: timePerObjectiveSeconds,
+    completed: completedLabels,
+    inProgress: inProgressLabels,
+    notYetReached: untouchedLabels,
+    depthGuidance,
+    closingGuidance: closing,
+  };
+}
+
+export function extendTutorSession(state, extraMinutes = 10, now = Date.now()) {
+  if (!state || state.status !== "checkpoint") return state;
+  const extra = Math.max(1, Number(extraMinutes) || 10);
+  return checkpoint(state, {
+    budgetMinutes: (Number(state.budgetMinutes) || 0) + extra,
+    remainingSeconds: (Number(state.remainingSeconds) || 0) + extra * 60,
+    status: "active",
+    phase: "resume",
+    nextAction: "retrieve_previous_state",
+  }, now);
 }
 
 export function attachTutorCase(state, patientCase, now = Date.now(), openingModel = null) {
@@ -252,7 +313,9 @@ export function pauseTutorSession(state, now = Date.now()) {
 }
 
 export function resumeTutorSession(state, now = Date.now()) {
-  if (!state || !["paused", "checkpoint"].includes(state.status)) return state;
+  // A completed time block must be consciously extended; resuming it at zero would
+  // immediately checkpoint again and create a confusing dead-end.
+  if (!state || state.status !== "paused") return state;
   return checkpoint(state, { status: "active", phase: "resume", nextAction: "retrieve_previous_state" }, now);
 }
 
@@ -284,6 +347,7 @@ export function tutorSessionSummary(state) {
     remainingSeconds: state?.remainingSeconds || 0,
     objectivesCompleted: objectiveIds.filter((id) => completed.has(id)).length,
     objectivesTotal: objectiveIds.length,
+    objectivesNotYetReached: tutorPacingContext(state).objectivesNotYetReached,
     blockerCount: (state?.blockers || []).length,
     unresolvedBlockers: (state?.blockers || []).filter((blocker) => blocker.status !== "resolved").length,
     nextAction: state?.nextAction || null,

@@ -9,6 +9,8 @@ import {
   tutorSessionSummary,
   tutorStepPrompt,
   attachTutorCase,
+  tutorPacingContext,
+  extendTutorSession,
 } from "./tutorSession.js";
 
 describe("bounded tutor sessions", () => {
@@ -36,9 +38,10 @@ describe("bounded tutor sessions", () => {
   });
 
   it("creates a resumable session with a bounded budget", () => {
-    const state = createTutorSession({ lectureId: "lec30", budgetMinutes: 45, objectiveIds: ["o1", "o1", "o2"], now: 100 });
+    const state = createTutorSession({ lectureId: "lec30", budgetMinutes: 45, objectiveIds: ["o1", "o1", "o2"], objectivePlan: [{ id: "o1", label: "First" }, { id: "o2", label: "Second" }], now: 100 });
     expect(state).toMatchObject({ lectureId: "lec30", budgetMinutes: 45, remainingSeconds: 2700, status: "active", activeObjectiveId: "o1" });
     expect(state.objectiveIds).toEqual(["o1", "o2"]);
+    expect(tutorPacingContext(state)).toMatchObject({ mode: "balanced walkthrough", objectivesNotYetReached: 2, notYetReached: ["First", "Second"] });
   });
 
   it("does not consume the study budget until a patient case or delayed-retrieval case exists", () => {
@@ -64,14 +67,27 @@ describe("bounded tutor sessions", () => {
     expect(state).toMatchObject({ status: "finished", phase: "summary", activeObjectiveId: "o1", nextAction: "review_checkpoint" });
   });
 
-  it("checkpoints at the time boundary and resumes from the same state", () => {
+  it("checkpoints at the time boundary and requires an explicit extension", () => {
     let state = createTutorSession({ lectureId: "lec30", budgetMinutes: 30, now: 100 });
     state = attachTutorCase(state, { caseTitle: "Patient 1", stem: "A patient presents." }, 150);
     state = recordTutorTurn(state, { objectiveId: "o1", nextStep: "bile" }, 200);
     state = tickTutorSession(state, 1800, 300);
     expect(state).toMatchObject({ status: "checkpoint", phase: "checkpoint", remainingSeconds: 0, currentStep: "bile" });
-    state = resumeTutorSession(state, 400);
-    expect(state).toMatchObject({ status: "active", phase: "resume", currentStep: "bile", nextAction: "retrieve_previous_state" });
+    expect(resumeTutorSession(state, 400)).toBe(state);
+    state = extendTutorSession(state, 10, 400);
+    expect(state).toMatchObject({ status: "active", phase: "resume", budgetMinutes: 40, remainingSeconds: 600, currentStep: "bile", nextAction: "retrieve_previous_state" });
+  });
+
+  it("reports completed, in-progress, and untouched objectives separately", () => {
+    let state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1", "o2", "o3"], objectivePlan: [
+      { id: "o1", label: "Completed" }, { id: "o2", label: "Started" }, { id: "o3", label: "Untouched" },
+    ], now: 100 });
+    state = recordTutorTurn(state, { objectiveId: "o2", response: "reasoning attempt" }, 150);
+    state = recordTutorTurn(state, { objectiveId: "o1", objectiveComplete: true }, 200);
+    expect(tutorPacingContext(state)).toMatchObject({
+      completed: ["Completed"], inProgress: ["Started"], notYetReached: ["Untouched"],
+      objectivesCompleted: 1, objectivesInProgress: 1, objectivesNotYetReached: 1,
+    });
   });
 
   it("supports pause/resume and reports unfinished work", () => {
