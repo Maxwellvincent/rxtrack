@@ -35,7 +35,27 @@ vi.mock("../../../stores/calibrationByBlock.js", () => ({
   subscribe: () => () => {},
 }));
 
-const { ExamDashboard, computeObjectiveReadiness, computePacingMetrics } = await import("./ExamDashboard.jsx");
+const { ExamDashboard, computeObjectiveReadiness, computePacingMetrics, buildLectureRepairContext } = await import("./ExamDashboard.jsx");
+
+describe("buildLectureRepairContext", () => {
+  it("collects missed items and orders struggling objectives for the lecture quiz", () => {
+    const sessions = [{
+      sessionId: "attempt-1", title: "Week 4 Quiz", submittedAt: 500,
+      questions: [
+        { questionId: "q1", lectureId: "lec-1", stem: "A patient has X. What is the mechanism?", choices: { A: "Alpha", B: "Beta" }, correct: "A", objectiveIds: ["o1"] },
+        { questionId: "q2", lectureId: "lec-2", stem: "Other lecture question", choices: { A: "Yes" }, correct: "A", objectiveIds: ["o2"] },
+      ],
+      answers: [{ questionId: "q1", value: "B" }, { questionId: "q2", value: "A" }],
+    }];
+    const result = buildLectureRepairContext(sessions, "lec-1", [
+      { id: "o1", linkedLecId: "lec-1", objective: "Explain the mechanism", status: "struggling" },
+      { id: "o3", linkedLecId: "lec-1", objective: "Predict the consequence", status: "untested" },
+    ]);
+    expect(result.focusObjectiveIds).toEqual(["o1"]);
+    expect(result.weakObjectives).toEqual([{ id: "o1", label: "Explain the mechanism", misses: 1, attempts: 1 }]);
+    expect(result.missedQuestions[0]).toMatchObject({ title: "Week 4 Quiz", stem: "A patient has X. What is the mechanism?", selected: "Beta", correct: "Alpha" });
+  });
+});
 
 describe("computeObjectiveReadiness", () => {
   it("reports objective coverage, accuracy, ready, and weak counts", () => {
@@ -267,10 +287,10 @@ describe("ExamDashboard", () => {
     );
     await flush();
 
-    const button = [...host.querySelectorAll("button")].find(b=>b.textContent.includes('Repair model'));
+    const button = [...host.querySelectorAll("button")].find(b=>b.textContent.includes('Study lecture'));
     act(() => button.click());
 
-    expect(onNavigateToLecture).toHaveBeenCalledWith("lec-1");
+    expect(onNavigateToLecture).toHaveBeenCalledWith("lec-1", expect.objectContaining({ missedQuestions: [expect.objectContaining({ selected: "B", correct: "A" })] }));
     unmount();
   });
 

@@ -46,7 +46,7 @@ import * as masterGuideStore from "../../../stores/masterGuide.js";
 import { generateMentalModel } from "../../../engine/mentalModel.js";
 import * as mentalModelStore from "../../../stores/mentalModel.js";
 import * as mentalModelImpactStore from "../../../stores/mentalModelImpact.js";
-import { ROUND_SIZE, atomRounds, extractAtoms, isActiveQuizComplete, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
+import { ROUND_SIZE, prioritizeAtomRounds, extractAtoms, isActiveQuizComplete, loadLecture, quizFromAtoms, roundDifficulty, roundLabel, topicsToAutoCheck } from "./lectureStudy.js";
 import {
   clearRoundProgress,
   readRoundProgress,
@@ -352,6 +352,7 @@ export function LectureStudyFlow({
   // preserved here as a priority order rather than dropped when that entry point stopped
   // having its own generation call to apply it to.
   focusObjectiveIds = null,
+  examRepairContext = null,
 }) {
   const [atoms, setAtoms] = useState([]);
   const [text, setText] = useState("");
@@ -1049,7 +1050,7 @@ export function LectureStudyFlow({
     }
   }, [figures, lecture, userId]);
 
-  const rounds = useMemo(() => atomRounds(atoms), [atoms]);
+  const rounds = useMemo(() => prioritizeAtomRounds(atoms, focusObjectiveIds), [atoms, focusObjectiveIds]);
   /** The round Study should open on — one value, so the button's label and its action agree. */
   const nextRound = resumeRound(done, rounds.length);
 
@@ -1119,7 +1120,7 @@ export function LectureStudyFlow({
   const orderedObjectives = useMemo(() => {
     if (!focusObjectiveIds?.length) return lectureObjectives;
     const rank = (o) => {
-      const i = focusObjectiveIds.indexOf(o.id);
+      const i = focusObjectiveIds.indexOf(o.id || o.code);
       return i === -1 ? Number.MAX_SAFE_INTEGER : i;
     };
     return [...lectureObjectives].sort((a, b) => rank(a) - rank(b));
@@ -1582,6 +1583,23 @@ export function LectureStudyFlow({
       </div>
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
+      {examRepairContext && (examRepairContext.weakObjectives?.length || examRepairContext.missedQuestions?.length) > 0 && (
+        <section aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
+          <h3 className="font-semibold text-text-1">Continue from your exam misses</h3>
+          {examRepairContext.weakObjectives?.length > 0 && <>
+            <p className="mt-1 text-sm text-text-2">Weak objectives are moved to the front when you build a lecture quiz:</p>
+            <ul className="mt-1 list-inside list-disc text-sm text-text-1">{examRepairContext.weakObjectives.slice(0, 6).map((objective) => <li key={objective.id}>{objective.label}{objective.attempts ? ` · ${objective.misses}/${objective.attempts} missed` : " · flagged struggling"}</li>)}</ul>
+          </>}
+          {examRepairContext.missedQuestions?.length > 0 && <details className="mt-2">
+            <summary className="cursor-pointer text-sm font-semibold text-accent">Review {examRepairContext.missedQuestions.length} recent missed question{examRepairContext.missedQuestions.length === 1 ? "" : "s"}</summary>
+            <div className="mt-2 space-y-2">{examRepairContext.missedQuestions.map((miss) => <article key={miss.key} className="rounded border border-border bg-panel p-2 text-sm">
+              <p className="font-medium text-text-1">{miss.stem}</p>
+              <p className="mt-1 text-text-2"><span className="text-bad">Your answer:</span> {miss.selected} · <span className="text-good">Keyed answer:</span> {miss.correct}</p>
+              <p className="mt-0.5 text-xs text-text-3">{miss.title}{miss.submittedAt ? ` · ${new Date(miss.submittedAt).toLocaleDateString()}` : ""}</p>
+            </article>)}</div>
+          </details>}
+        </section>
+      )}
       <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

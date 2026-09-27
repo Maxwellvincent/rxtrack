@@ -9,6 +9,7 @@ import {
   topicsToAutoCheck,
   selectAtomsForQuiz,
   isActiveQuizComplete,
+  prioritizeAtomRounds,
 } from "./lectureStudy.js";
 
 const BODY = "Brachial plexus anatomy in detail. ".repeat(20);
@@ -20,6 +21,22 @@ describe("lecture text", () => {
     expect(lectureTextFrom({ chunks: [], fullText: "flat" })).toBe("flat");
     expect(lectureTextFrom({ meta: { extractedText: "from meta" } })).toBe("from meta");
     expect(lectureTextFrom(null)).toBe("");
+  });
+});
+
+describe("exam-focused lecture rounds", () => {
+  it("brings rounds and facts tagged to weak objectives forward without dropping content", () => {
+    const atoms = [
+      atom({ term: "A", objectiveIds: ["o1"] }),
+      atom({ term: "B", objectiveIds: ["o2"] }),
+      atom({ term: "C", objectiveIds: ["o3"] }),
+      atom({ term: "D", objectiveIds: ["o4"] }),
+      atom({ term: "E", objectiveIds: ["o5"] }),
+      atom({ term: "F", objectiveIds: ["weak"] }),
+    ];
+    const rounds = prioritizeAtomRounds(atoms, ["weak"], 3);
+    expect(rounds[0].map((entry) => entry.term)).toEqual(["F", "D", "E"]);
+    expect(rounds.flat().map((entry) => entry.term).sort()).toEqual(["A", "B", "C", "D", "E", "F"]);
   });
 });
 

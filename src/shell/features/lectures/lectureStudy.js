@@ -186,6 +186,25 @@ export function atomRounds(atoms, size = ROUND_SIZE) {
   return out;
 }
 
+/** Move rounds containing exam-repair objectives forward without dropping any atoms. */
+export function prioritizeAtomRounds(atoms, focusObjectiveIds, size = ROUND_SIZE) {
+  const rounds = atomRounds(atoms, size);
+  const priority = new Map((focusObjectiveIds || []).map((id, index) => [id, index]));
+  if (!priority.size) return rounds;
+  const rankAtom = (atom) => {
+    const ids = Array.isArray(atom?.objectiveIds) ? atom.objectiveIds : [];
+    const ranks = ids.map((id) => priority.get(id)).filter(Number.isFinite);
+    return ranks.length ? Math.min(...ranks) : Number.MAX_SAFE_INTEGER;
+  };
+  return rounds.map((atomsInRound, index) => ({
+    index,
+    rank: Math.min(...atomsInRound.map(rankAtom)),
+    atoms: atomsInRound.map((atom, order) => ({ atom, order, rank: rankAtom(atom) }))
+      .sort((a, b) => a.rank - b.rank || a.order - b.order)
+      .map(({ atom }) => atom),
+  })).sort((a, b) => a.rank - b.rank || a.index - b.index).map(({ atoms: group }) => group);
+}
+
 /** Human label for where you are: "atoms 6–10 of 48". */
 export function roundLabel(index, rounds, total, size = ROUND_SIZE) {
   if (!rounds.length) return "";

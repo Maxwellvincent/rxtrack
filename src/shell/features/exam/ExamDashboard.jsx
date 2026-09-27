@@ -66,6 +66,72 @@ function computeLectureStats(sessions) {
   return stats;
 }
 
+/** Build a lecture-scoped repair handoff from the learner's own exam attempts. */
+export function buildLectureRepairContext(sessions = [], lectureId, objectives = []) {
+  const stats = new Map();
+  const misses = [];
+  for (const session of sessions || []) {
+    const answers = new Map((session?.answers || []).map((answer) => [answer.questionId, answer.value]));
+    for (const question of session?.questions || []) {
+      if (question?.lectureId !== lectureId) continue;
+      const value = answers.get(question.questionId);
+      if (value == null) continue;
+      const correct = value === question.correct;
+      for (const id of question.objectiveIds || []) {
+        const current = stats.get(id) || { attempts: 0, correct: 0, misses: 0 };
+        current.attempts += 1;
+        current.correct += correct ? 1 : 0;
+        current.misses += correct ? 0 : 1;
+        stats.set(id, current);
+      }
+      if (!correct) {
+        const choiceText = (choices, key) => choices?.[key] || key || "No answer";
+        misses.push({
+          key: `${session.sessionId || session.id || session.submittedAt}:${question.questionId}`,
+          title: session.title || (session.format === "exam" ? "Timed quiz" : "Practice quiz"),
+          submittedAt: Number(session.submittedAt) || 0,
+          stem: question.stem || question.prompt || "Question text unavailable",
+          selected: choiceText(question.choices, value),
+          correct: choiceText(question.choices, question.correct),
+          objectiveIds: question.objectiveIds || [],
+        });
+      }
+    }
+  }
+  const lectureObjectives = (objectives || []).filter((objective) =>
+    objective?.linkedLecId === lectureId || objective?.lectureId === lectureId || stats.has(objective?.id || objective?.code)
+  );
+  const ordered = lectureObjectives.map((objective) => {
+    const id = objective.id || objective.code;
+    const performance = stats.get(id) || { attempts: 0, correct: 0, misses: 0 };
+    const explicitlyWeak = String(objective.status || "").toLowerCase() === "struggling";
+    return { objective, id, performance, explicitlyWeak };
+  }).sort((a, b) => Number(b.explicitlyWeak) - Number(a.explicitlyWeak)
+    || (a.performance.attempts ? a.performance.correct / a.performance.attempts : 1) - (b.performance.attempts ? b.performance.correct / b.performance.attempts : 1)
+    || b.performance.misses - a.performance.misses);
+  const weakObjectives = ordered.filter(({ explicitlyWeak, performance }) => explicitlyWeak || (performance.misses > 0 && performance.correct / performance.attempts < 0.6));
+  misses.sort((a, b) => b.submittedAt - a.submittedAt);
+  const uniqueMisses = [];
+  const seenStems = new Set();
+  for (const miss of misses) {
+    const normalized = String(miss.stem).toLowerCase().replace(/\W+/g, " ").trim();
+    if (seenStems.has(normalized)) continue;
+    seenStems.add(normalized);
+    uniqueMisses.push(miss);
+    if (uniqueMisses.length >= 5) break;
+  }
+  return {
+    focusObjectiveIds: weakObjectives.map(({ id }) => id).filter(Boolean),
+    weakObjectives: weakObjectives.map(({ objective, performance }) => ({
+      id: objective.id || objective.code,
+      label: objective.objective || objective.text || objective.title || objective.code || objective.id,
+      misses: performance.misses,
+      attempts: performance.attempts,
+    })),
+    missedQuestions: uniqueMisses,
+  };
+}
+
 /**
  * `lectureId`s flagged struggling by Task 7's finalization, per this block.
  * Prefers `linkedLecIds[0]` over parsing the `id` suffix — that's the field
@@ -375,12 +441,17 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
               className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border py-1.5 last:border-b-0"
             >
               <span className="text-sm text-text-1">
-                {row.label}
+                <button
+                  type="button"
+                  className="font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent"
+                  onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(integratedSessions, row.lectureId, objectives))}
+                  title="Open this lecture and continue studying its weak objectives"
+                >{row.label} · Study lecture →</button>
                 {row.workedToday && <span className="ml-2 font-semibold">✓ Worked today{row.followupQuestions?` · ${row.followupQuestions} follow-up questions`:''}</span>}
                 {(row.weak || (row.accuracy !== null && row.accuracy < 0.6)) && (
                   <button
                     type="button"
-                    onClick={() => onNavigateToLecture(row.lectureId)}
+                    onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(integratedSessions, row.lectureId, objectives))}
                     className="ml-2 font-mono text-[12px] text-bad underline"
                     title="flagged struggling from Integrated Exam performance"
                   >

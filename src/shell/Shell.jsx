@@ -230,6 +230,8 @@ function ShellMain({ theme, toggle, userId }) {
   // itself owns quiz generation now (one runner, see docs/plans/2026-08-23-unify-quiz-study-rounds.md),
   // this just tells it to open its picker immediately instead of waiting for an in-page click.
   const [pendingAutoQuiz, setPendingAutoQuiz] = useState(null); // null | { focusObjectiveIds }
+  const [studyFocusObjectiveIds, setStudyFocusObjectiveIds] = useState(null);
+  const [examRepairContext, setExamRepairContext] = useState(null);
   // LectureList unmounts every time a lecture is opened (or the tab is left)
   // and remounts fresh on return, dropping scroll position. `main` itself
   // never unmounts, so its scrollTop is saved here and restored once the
@@ -320,6 +322,8 @@ function ShellMain({ theme, toggle, userId }) {
     const lecture = (lecturesStore.read(userId) || []).find((l) => l?.id === lectureId);
     if (!lecture) return;
     setStudyLecture(lecture);
+    setStudyFocusObjectiveIds(opts.focusObjectiveIds || null);
+    setExamRepairContext(opts.repairContext || null);
     setPendingAutoQuiz(opts.autoQuiz ? { focusObjectiveIds: opts.focusObjectiveIds || null } : null);
   }, [userId]);
 
@@ -427,10 +431,11 @@ function ShellMain({ theme, toggle, userId }) {
                 userId={userId}
                 logActivity={logActivity}
                 examDates={examDates.data}
-                onClose={() => { setStudyLecture(null); setPendingAutoQuiz(null); }}
+                onClose={() => { setStudyLecture(null); setPendingAutoQuiz(null); setStudyFocusObjectiveIds(null); setExamRepairContext(null); }}
                 onReExtract={(target) => { setReextractLecture(target || null); setShowAddLecture(true); }}
                 autoOpenQuiz={!!pendingAutoQuiz}
-                focusObjectiveIds={pendingAutoQuiz?.focusObjectiveIds}
+                focusObjectiveIds={studyFocusObjectiveIds || pendingAutoQuiz?.focusObjectiveIds}
+                examRepairContext={examRepairContext}
                 onGoDeep={(lecId) => {
                   setStudyLecture(null);
                   setPendingAutoQuiz(null);
@@ -454,9 +459,10 @@ function ShellMain({ theme, toggle, userId }) {
               blockId={activeBlockId}
               blockName={active?.name}
               userId={userId}
-              onNavigateToLecture={(lectureId) => {
+              onNavigateToLecture={(lectureId, repairContext = null) => {
                 setExamFocusLectureId(lectureId);
                 switchTab("lectures");
+                onStudyLecture(lectureId, { focusObjectiveIds: repairContext?.focusObjectiveIds, repairContext });
               }}
             />
           ) : tab === "guide" && activeBlockId ? (
