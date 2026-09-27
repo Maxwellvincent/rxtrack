@@ -52,7 +52,7 @@ export function buildObjectiveCoverage(questions = [], objectives = []) {
 /** Two bounded workers, incremental cloud persistence, then atomic assignment
  * at launch. A prepared pool is not an answer history or a mastery claim. */
 export async function generateExamQuestions({ allocation, lecturesById, objectivesByLecture, atomsByLecture,
-  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "" }, deps = {}) {
+  blockId, lectures, weakConceptAccuracyByLecture, userId, generationId, focusNotes = "", preparedGenerationId = null, preparedQuestionIds = [] }, deps = {}) {
   const questions = [], errors = [], accepted = [];
   const exemplars = readExemplarsForBlock(userId, blockId);
   const clinicalCorrelateLibrary = buildClinicalCorrelateLibrary({
@@ -81,7 +81,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     let obtained = 0, attempt = 0, errorMessage = null;
     if (deps.pool) {
       progress(`Checking saved questions: ${lectureTitle}`);
-      const savedQuestions = deps.savedOnly && deps.pool.readyForLectures
+      const savedQuestions = preparedGenerationId && deps.pool.readyForGeneration
+        ? await deps.pool.readyForGeneration(preparedGenerationId, lectureId, preparedQuestionIds)
+        : deps.savedOnly && deps.pool.readyForLectures
         ? await deps.pool.readyForLectures([lectureId])
         : await deps.pool.ready(bucket);
       for (const q of savedQuestions) {

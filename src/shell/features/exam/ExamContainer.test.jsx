@@ -14,6 +14,7 @@ const launchExamSessionMock = vi.fn();
 const launchQuestionBankSessionMock = vi.fn();
 const questionBanksReadMock = vi.fn(() => ({}));
 const questionBankMetaReadMock = vi.fn(() => ({}));
+const poolPreparedSetsMock = vi.fn(async () => []);
 vi.mock("./launchExam.js", () => ({
   launchExamSession: (...args) => launchExamSessionMock(...args),
 }));
@@ -21,7 +22,7 @@ vi.mock("./launchQuestionBank.js", () => ({
   launchQuestionBankSession: (...args) => launchQuestionBankSessionMock(...args),
 }));
 vi.mock("../../../questionPool.js", () => ({
-  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }) }),
+  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock() }),
 }));
 vi.mock("../../../supabase.js", () => ({ listExamSessions: async () => [] }));
 
@@ -132,13 +133,22 @@ beforeEach(() => {
   questionBanksReadMock.mockReturnValue({});
   questionBankMetaReadMock.mockReset();
   questionBankMetaReadMock.mockReturnValue({});
+  poolPreparedSetsMock.mockReset();
+  poolPreparedSetsMock.mockResolvedValue([]);
   readTutorModeEnabledMock.mockReset();
   readTutorModeEnabledMock.mockReturnValue(false);
   writeTutorModeEnabledMock.mockReset();
 });
 
 describe("ExamContainer", () => {
-  it("shows a direct start action after a named, scoped quiz is prepared", async () => {
+  it("keeps a named prepared set discoverable after reload and starts that exact set", async () => {
+    const preparedQuestionIds = Array.from({ length: 30 }, (_, index) => `pool-${index}`);
+    poolPreparedSetsMock.mockResolvedValue([{
+      id: "generation-1", prepareOnly: true, examName: "Sep date-range quiz", format: "exam",
+      requestedCount: 30, durationMinutes: 45, contentScope: "date-range:2026-09-20:2026-09-23",
+      studyMode: "balanced", preparedQuestionIds,
+      questions: preparedQuestionIds.map(poolId => ({ poolId })),
+    }]);
     launchExamSessionMock
       .mockResolvedValueOnce({ ok: true, prepared: 30 })
       .mockResolvedValueOnce({ ok: true, sessionId: "prepared-quiz-session" });
@@ -148,27 +158,30 @@ describe("ExamContainer", () => {
     await act(async () => host.querySelector('[data-testid="prepare-exam"]').click());
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 
-    expect(host.textContent).toMatch(/Ready to start: Sep date-range quiz/);
-    expect(host.textContent).toMatch(/30 saved · 30 requested/);
-    const startPrepared = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start this saved 30-question quiz"));
+    expect(host.textContent).toMatch(/Prepared exams · start later/);
+    expect(host.textContent).toMatch(/Sep date-range quiz/);
+    expect(host.textContent).toMatch(/30\/30 saved questions available/);
+    const startPrepared = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start this 30-question set"));
     expect(startPrepared).toBeTruthy();
     await act(async () => startPrepared.click());
     await flush();
     expect(launchExamSessionMock.mock.calls[1][0]).toMatchObject({
       examName: "Sep date-range quiz", questionCount: 30, durationMinutes: 45,
       contentScope: "date-range:2026-09-20:2026-09-23", startWhilePreparing: true,
+      preparedGenerationId: "generation-1", preparedQuestionIds,
     });
     expect(host.textContent).toMatch(/prepared-quiz-session/);
     unmount();
   });
 
-  it("starts directly from the prepared reserve without requesting new AI questions", async () => {
+  it("has only one launch entry point; the saved-reserve action remains inside its chooser", async () => {
     launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "saved-session" });
     const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
     await flush();
-    const choose = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Choose scope, name & count"));
-    expect(choose).toBeTruthy();
-    await act(async () => choose.click());
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Start Integrated Exam"));
+    expect(start).toBeTruthy();
+    expect(Array.from(host.querySelectorAll("button")).some(button => button.textContent.includes("Choose scope, name & count"))).toBe(false);
+    await act(async () => start.click());
     await flush();
     const saved = host.querySelector('[data-testid="start-scoped-saved"]');
     expect(saved).toBeTruthy();

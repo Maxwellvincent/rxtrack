@@ -39,6 +39,26 @@ export function summarizePoolRows(rows = []) {
   };
 }
 
+export function summarizePreparedSets(generations = [], rows = []) {
+  const questionById = new Map();
+  const readyByGeneration = new Map();
+  for (const row of rows) {
+    if (row.status !== "ready" || !row.generationId || !row.question) continue;
+    const question = { ...row.question, poolId: row.id, poolBucket: row.bucket };
+    questionById.set(row.id, question);
+    const list = readyByGeneration.get(row.generationId) || [];
+    list.push(question);
+    readyByGeneration.set(row.generationId, list);
+  }
+  return generations.map(generation => {
+    const questions = Array.isArray(generation.preparedQuestionIds)
+      ? generation.preparedQuestionIds.map(id => questionById.get(id)).filter(Boolean)
+      : readyByGeneration.get(generation.id) || [];
+    return { ...generation, questions };
+  }).filter(set => set.prepareOnly && set.questions.length)
+    .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+}
+
 export function createQuestionPool(userId, blockId, database = db) {
   const db = database;
   const records = collection(db, "users", userId, "questionPool");
@@ -65,6 +85,24 @@ export function createQuestionPool(userId, blockId, database = db) {
     async summary() {
       const snap = await getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500)));
       return summarizePoolRows(snap.docs.map(d => d.data()));
+    },
+    async preparedSets() {
+      const [generations, questions] = await Promise.all([
+        getDocsFromServer(query(collection(db, "users", userId, "questionGenerations"), where("blockId", "==", blockId), limit(100))),
+        getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500))),
+      ]);
+      const generationRows = generations.docs.map(item => ({ id: item.id, ...item.data() }));
+      const questionRows = questions.docs.map(item => ({ id: item.id, ...item.data() }));
+      return summarizePreparedSets(generationRows, questionRows);
+    },
+    async readyForGeneration(generationId, lectureId, questionIds = []) {
+      const snap = await getDocsFromServer(query(records, where("blockId", "==", blockId), limit(500)));
+      return snap.docs.filter(item => {
+        const row = item.data();
+        const belongs = questionIds.length ? questionIds.includes(item.id) : row.generationId === generationId;
+        return row.status === "ready" && belongs && (!lectureId || row.lectureId === lectureId);
+      }).map(item => ({ ...item.data().question, poolId: item.id, poolBucket: item.data().bucket })).filter(isValidPoolQuestion)
+        .sort((a, b) => questionIds.length ? questionIds.indexOf(a.poolId) - questionIds.indexOf(b.poolId) : 0);
     },
     async ready(bucket) {
       // Assignment changes bucket, so one automatic single-field index suffices.

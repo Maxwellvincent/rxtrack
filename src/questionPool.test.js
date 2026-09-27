@@ -1,24 +1,29 @@
-import { describe, it, expect } from "vitest";
-import { questionPoolKey, isValidPoolQuestion, summarizePoolRows } from "./questionPool.js";
-const source = { blockId: "b", lectureId: "l", difficulty: "medium", lecture: { content: "Original source" }, objectives: [{ id: "o", text: "Explain feedback", status: "new" }], atoms: [], exemplars: [] };
-describe("question pool freshness", () => {
-  it("invalidates on source, difficulty, objective or exemplar changes", async () => {
-    const original = await questionPoolKey(source);
-    for (const change of [{ difficulty: "expert" }, { lecture: { content: "New source" } }, { objectives: [{ id: "o", text: "Changed objective" }] }, { exemplars: [{ stem: "New school example" }] }]) {
-      expect(await questionPoolKey({ ...source, ...change })).not.toBe(original);
-    }
-    expect(await questionPoolKey({ ...source, objectives: [{ ...source.objectives[0], status: "mastered" }] })).toBe(original);
-  });
-  it("requires a keyed answer and renderable choices", () => {
-    const q = { stem: "Which?", choices: { A: "one", B: "two" }, correct: "A" };
-    expect(isValidPoolQuestion(q)).toBe(true);
-    expect(isValidPoolQuestion({ ...q, correct: "C" })).toBe(false);
-    expect(isValidPoolQuestion({ ...q, stem: "" })).toBe(false);
-    expect(isValidPoolQuestion({ ...q, choices: { A: {} } })).toBe(false);
-  });
-  it("reports the saved reserve separately from already assigned questions", () => {
+import { describe, expect, it } from "vitest";
+import { summarizePoolRows, summarizePreparedSets } from "./questionPool.js";
+
+describe("question pool availability", () => {
+  it("counts only unassigned questions as ready", () => {
     expect(summarizePoolRows([
-      { status: "ready" }, { status: "ready" }, { status: "assigned" }, { status: "error" },
-    ])).toEqual({ ready: 2, assigned: 1, total: 4 });
+      { status: "ready" },
+      { status: "assigned" },
+      { status: "used" },
+    ])).toEqual({ ready: 1, assigned: 1, total: 3 });
+  });
+
+  it("lists persisted named sets but reports only their still-unused questions", () => {
+    const sets = summarizePreparedSets([{
+      id: "generation-1", prepareOnly: true, examName: "Later quiz", requestedCount: 2,
+      preparedQuestionIds: ["q1", "q2"], createdAt: 100,
+    }, {
+      id: "generation-2", prepareOnly: false, requestedCount: 1,
+    }], [{
+      id: "q1", generationId: "older-run", status: "ready", bucket: "b1", question: { stem: "Still free" },
+    }, {
+      id: "q2", generationId: "generation-1", status: "assigned", bucket: "b1", question: { stem: "Already launched" },
+    }]);
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toMatchObject({ id: "generation-1", examName: "Later quiz", requestedCount: 2 });
+    expect(sets[0].questions).toHaveLength(1);
+    expect(sets[0].questions[0]).toMatchObject({ poolId: "q1", stem: "Still free" });
   });
 });

@@ -59,6 +59,8 @@ async function runLaunch(
     examName = "Integrated exam",
     contentScope = "block-so-far",
     weekNumber = null,
+    preparedGenerationId = null,
+    preparedQuestionIds = [],
   },
   deps = {}
 ) {
@@ -67,7 +69,7 @@ async function runLaunch(
   deps.onProgress?.({ message: "Checking exam storage access…", completed: 0 });
   await checkExamAccess(userId);
   const pool = deps.pool || createQuestionPool(userId, blockId);
-  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope });
+  await pool.begin(sessionId, { requestedCount: questionCount, prepareOnly, examName, contentScope: resolvedContentScope, format, durationMinutes, studyMode, focusNotes, weekNumber });
   const startedGenerationAt = Date.now();
   try {
 
@@ -83,7 +85,7 @@ async function runLaunch(
   if (startWhilePreparing && !prepareOnly && !savedOnly) {
     const savedResult = await generateExamQuestions(
       { allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
-        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, focusNotes },
+        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, focusNotes, preparedGenerationId, preparedQuestionIds },
       { ...deps, pool, savedOnly: true }
     );
     const savedQuestions = savedResult.questions || [];
@@ -157,7 +159,8 @@ async function runLaunch(
 
   await pool.finish(sessionId, { status: "complete", readyCount: questions?.length || 0,
     cacheHits, durationMs: Date.now() - startedGenerationAt, errors: generationErrors,
-    questionIds: (questions || []).map(q => q.poolId).filter(Boolean) });
+    questionIds: (questions || []).map(q => q.poolId).filter(Boolean),
+    ...(prepareOnly ? { preparedQuestionIds: (questions || []).map(q => q.poolId).filter(Boolean) } : {}) });
 
   if (!questions || questions.length === 0) {
     return {

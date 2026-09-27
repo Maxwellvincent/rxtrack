@@ -71,7 +71,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launchProgress, setLaunchProgress] = useState(null);
   const [bankLaunching, setBankLaunching] = useState(null);
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
-  const [preparedSet, setPreparedSet] = useState(null);
+  const [preparedSets, setPreparedSets] = useState([]);
   const [partialLaunch, setPartialLaunch] = useState(null);
   const [resumableSessions, setResumableSessions] = useState([]);
   const [bankAttempts, setBankAttempts] = useState([]);
@@ -260,10 +260,17 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     }
   };
 
+  const refreshPreparedSets = async () => {
+    if (!userId || !blockId) return;
+    try { setPreparedSets(await createQuestionPool(userId, blockId).preparedSets()); }
+    catch { setPreparedSets([]); }
+  };
+
   useEffect(() => {
     setQuestionReserve({ ready: 0, loading: true });
     refreshQuestionReserve();
-    // The reserve is refreshed after each preparation run below.
+    refreshPreparedSets();
+    // The reserve and named prepared sets are refreshed after preparation/launch.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId]);
 
@@ -431,8 +438,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         if (!result.ok) throw new Error(result.error);
         setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
-        setPreparedSet({ config: { ...config }, prepared: result.prepared || 0 });
-        return `${result.prepared}/${config.questionCount} questions saved. Use the “Ready to start” panel on this page to launch this set.${result.generationErrors?.length ? " Some slots still need generation; the launcher will report and fill any shortfall." : ""}`;
+        await refreshPreparedSets();
+        return `${result.prepared}/${config.questionCount} questions prepared. This named set is saved below and will still be there after reload.${result.generationErrors?.length ? " The saved set will report and fill any shortfall when you start it." : ""}`;
       },
     });
   };
@@ -479,6 +486,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       if (result.ok) {
         setGenerationCoverage(result.coverage || null);
         await refreshQuestionReserve();
+        await refreshPreparedSets();
         setShowLaunchModal(false);
         setActiveSessionId(result.sessionId);
         setLaunchWarning(
@@ -626,37 +634,48 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         </div>)}</div>
       </section>}
 
-      {preparedSet && <section aria-label="Prepared quiz ready to start" role="status" className="mb-4 rounded-xl border border-accent bg-bg-elevated p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-bold text-text-1">Ready to start: {preparedSet.config.examName?.trim() || (preparedSet.config.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
-            <p className="mt-1 text-sm text-text-2">{preparedSet.prepared} saved · {preparedSet.config.questionCount} requested · {preparedSet.config.contentScope || "block-so-far"}. This uses the same scope and name you chose.</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button disabled={launching} onClick={() => {
-              const { config } = preparedSet;
-              setPreparedSet(null);
-              handleLaunch({ ...config, startWhilePreparing: true });
-            }}>Start this saved {preparedSet.config.questionCount}-question {preparedSet.config.format === "exam" ? "quiz" : "practice set"}</Button>
-            <Button variant="outline" onClick={() => setPreparedSet(null)}>Dismiss</Button>
-          </div>
-        </div>
-      </section>}
-
       <section className="mb-4 grid gap-3 rounded-xl border border-border bg-bg-elevated p-4 sm:grid-cols-[1fr_auto] sm:items-center">
         <div>
-          <div className="text-sm font-bold text-text-1">Prepared question reserve</div>
+          <div className="text-sm font-bold text-text-1">Unused prepared questions</div>
           <p className="mt-1 text-sm text-text-2">
-            {questionReserve.ready} ready questions in the block-wide reserve. Choose your dates, name, and count before starting; prepared questions are reused when their lecture scope matches.
+            {questionReserve.ready} unassigned questions across this block’s eligible lectures. This number decreases when questions are assigned to a started exam; completed named sets are listed below.
           </p>
         </div>
         <div className="rounded-lg border border-border bg-panel px-4 py-3 text-center">
           <div className="text-2xl font-bold text-text-1">{questionReserve.loading ? "…" : questionReserve.ready}</div>
-          <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">ready questions</div>
-          {!questionReserve.loading && questionReserve.ready > 0 && (
-            <Button className="mt-2" disabled={launching} onClick={() => { setLaunchError(null); setShowLaunchModal(true); }}>Choose scope, name & count</Button>
-          )}
+          <div className="font-mono text-[11px] uppercase tracking-wide text-text-3">unused questions</div>
         </div>
+      </section>
+
+      <section aria-label="Prepared exams to start" className="mb-4 rounded-xl border border-border bg-bg-elevated p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-bold text-text-1">Prepared exams · start later</h2>
+          <span className="text-xs text-text-3">{preparedSets.length} saved set{preparedSets.length === 1 ? "" : "s"}</span>
+        </div>
+        {preparedSets.length ? <ul className="mt-3 space-y-2">{preparedSets.map((set) => {
+          const requested = Number(set.requestedCount) || set.questions.length;
+          const available = set.questions.length;
+          return <li key={set.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
+            <div>
+              <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
+              <div className="text-sm text-text-2">{available}/{requested} saved questions available · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              {!!set.preparedQuestionIds?.length && available < requested && <div className="text-xs text-warn">{requested - available} question{requested - available === 1 ? "" : "s"} short; missing questions will be generated when started.</div>}
+            </div>
+            <Button disabled={launching || !available} onClick={() => handleLaunch({
+              format: set.format || "exam",
+              questionCount: requested,
+              durationMinutes: Number(set.durationMinutes) || 45,
+              contentScope: set.contentScope || "block-so-far",
+              studyMode: set.studyMode || "balanced",
+              focusNotes: set.focusNotes || "",
+              weekNumber: set.weekNumber ?? null,
+              examName: set.examName || "Integrated exam",
+              preparedGenerationId: set.id,
+              preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
+              startWhilePreparing: true,
+            })}>Start this {requested}-question set</Button>
+          </li>;
+        })}</ul> : <p className="mt-2 text-sm text-text-3">No named sets prepared yet. Use the single “Start Integrated Exam” button above and choose Prepare for later.</p>}
       </section>
       </>}
 
