@@ -228,6 +228,27 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.questions).toHaveLength(3);
   });
 
+  it("fills the requested count with distinct applications of a repeated topic", async () => {
+    const questions = [
+      "A patient with the first clinical presentation is evaluated. Which mechanism best explains the finding?",
+      "A patient with a second clinical presentation is evaluated. Which mechanism best explains the finding?",
+      "A patient with a third clinical presentation is evaluated. Which mechanism best explains the finding?",
+    ].map((stem, index) => ({
+      stem,
+      choices: { A: "Mechanism A", B: "Mechanism B", C: "Mechanism C", D: "Mechanism D" },
+      correct: "A",
+      objectiveIds: ["o1"],
+      topic: "shared metabolic pathway",
+      explanation: `Application ${index + 1}.`,
+    }));
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Apply one pathway." }], atoms: [{ term: "Pathway", content: "One fact." }], questionCount: 3 },
+      { callAIJSON: vi.fn().mockResolvedValue({ questions }), skipQuestionAudit: true }
+    );
+    expect(result.incomplete).toBe(false);
+    expect(result.questions).toHaveLength(3);
+  });
+
   it("reports a shortfall instead of launching generic substitutes", async () => {
     const made = (label) => ({ stem: `${label}?`, choices: { A: "One", B: "Two", C: "Three", D: "Four" }, correct: "A" });
     const callAIJSON = vi.fn()

@@ -437,7 +437,6 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 4));
   let lastError = "";
   const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
-  const conceptsSeen = new Set();
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
@@ -469,16 +468,13 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const newlyAccepted = [];
     for (const question of result.questions || []) {
       const key = normalizeStem(question?.stem);
-      const conceptKey = normalizeStem(question?.atomKey || question?.topic);
       const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
-      const repeatsConcept = conceptKey && conceptsSeen.has(conceptKey);
-      // Repeated practice of one objective is valid and necessary for a 15-question
-      // lecture quiz. Coverage is handled by the generator's objective rotation;
-      // this reviewer only rejects duplicate stems/concepts or near-identical items.
-      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || repeatsConcept || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
+      // Repeated practice of one topic/objective is valid: a quiz count is a hard
+      // request. Reject duplicate or near-duplicate questions, not distinct tasks
+      // solely because they share an atom/topic label.
+      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
       seen.add(key);
       accepted.push(question);
-      if (conceptKey) conceptsSeen.add(conceptKey);
       newlyAccepted.push(question);
       if (accepted.length >= requested) break;
     }

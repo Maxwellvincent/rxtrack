@@ -430,6 +430,7 @@ export function LectureStudyFlow({
   const [tutorResponse, setTutorResponse] = useState("");
   const [tutorConfidence, setTutorConfidence] = useState("");
   const [tutorNotice, setTutorNotice] = useState("");
+  const [tutorWorkspaceOpen, setTutorWorkspaceOpen] = useState(true);
   const [tutorLoading, setTutorLoading] = useState(false);
   const [tutorReviewing, setTutorReviewing] = useState(false);
   const tutorCaseGenerationRef = useRef(null);
@@ -1705,6 +1706,15 @@ export function LectureStudyFlow({
           )}
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 sm:mt-0 sm:justify-end">
+          {tutorSession && (
+            <button
+              type="button"
+              aria-expanded={tutorWorkspaceOpen}
+              aria-controls="guided-tutor-workspace"
+              onClick={() => setTutorWorkspaceOpen((open) => !open)}
+              className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent"
+            >{tutorWorkspaceOpen ? "Collapse case" : "Show patient case"}</button>
+          )}
           {!tutorSession && [
             { minutes: 30, label: "Quick overview" },
             { minutes: 45, label: "Balanced walkthrough" },
@@ -1747,7 +1757,7 @@ export function LectureStudyFlow({
         </div>
       </div>
       {tutorSession && (
-        <section className="mt-3 rounded-lg border border-good/30 bg-good/5 p-3" data-testid="guided-tutor-workspace">
+        <section id="guided-tutor-workspace" hidden={!tutorWorkspaceOpen} className="mt-3 rounded-lg border border-good/30 bg-good/5 p-3" data-testid="guided-tutor-workspace">
           {tutorSession.status !== "active" && (
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-accent/30 bg-bg-elevated px-3 py-2">
               <p className="text-sm text-text-2">
