@@ -11,9 +11,11 @@ const deleteExamSessionMock = vi.fn();
 const readWeakConceptsMock = vi.fn();
 const readLearnerEvidenceMock = vi.fn();
 const activityMock = vi.hoisted(()=>({data:{}}));
+const manualPracticeMock = vi.hoisted(()=>({data:{}}));
 vi.mock('../../../stores/mentalModelImpact.js',()=>({read:()=>activityMock.data,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}));
 vi.mock('../../../stores/atomProgress.js',()=>({read:()=>({}),subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null}));
 vi.mock('../../../stores/practiceGoal.js',()=>({practiceGoalStore:{read:()=>({}),subscribe:()=>()=>{},write:vi.fn()}}));
+vi.mock('../../../stores/manualPractice.js',()=>({manualPracticeStore:{read:()=>manualPracticeMock.data,subscribe:()=>()=>{},isHydrated:()=>true,readError:()=>null,write:vi.fn()}}));
 
 vi.mock("../../../supabase.js", () => ({
   listExamSessions: (...args) => listExamSessionsMock(...args),
@@ -139,6 +141,7 @@ beforeEach(() => {
   readWeakConceptsMock.mockReset();
   readWeakConceptsMock.mockReturnValue({});
   readLearnerEvidenceMock.mockReturnValue({ testTaking: { reasons: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } });
+  manualPracticeMock.data = {};
 });
 
 afterEach(() => {
@@ -172,6 +175,21 @@ describe("ExamDashboard", () => {
     expect(card.textContent).toContain('Overall accuracy: 50%');
     expect(card.textContent).toContain('1 school homework / exam answers');
     expect(card.querySelector('progress')).toBeNull();
+    unmount();
+  });
+  it("includes outside-app question logs in the bold block total but not accuracy", async () => {
+    manualPracticeMock.data = { [BLOCK]: [{ id: "ipad-set", questionCount: 30, completedAt: Date.now() }] };
+    listExamSessionsMock.mockResolvedValue([{
+      sessionId:'school', status:'submitted', sourceType:'question-bank',
+      questions:[{questionId:'q1',correct:'A',choices:{A:'First',B:'Second'}}],
+      answers:[{questionId:'q1',value:'A'}],
+    }]);
+    const {host, unmount} = render(<ExamDashboard blockId={BLOCK} userId={USER} lecturesById={LECTURES}/>);
+    await flush();
+    const card = host.querySelector('[aria-label="Overall block question progress"]');
+    expect(card.textContent).toContain('32 questions answered');
+    expect(card.textContent).toContain('30 logged outside-app answers');
+    expect(card.textContent).toContain('Overall accuracy: 100% · 2 correct');
     unmount();
   });
   it("shows loading state before the fetch resolves, not an empty state", async () => {

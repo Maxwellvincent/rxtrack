@@ -17,6 +17,7 @@ import { ERROR_REASONS } from "./questionReading.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import { questionProgress } from "./questionProgress.js";
 import { PracticeGoal } from './PracticeGoal.jsx';
+import { manualPracticeStore } from '../../../stores/manualPractice.js';
 import { repairActivity } from './repairQueue.js';
 import { useStoreResource } from '../../hooks/useStoreResource.js';
 import * as modelImpactStore from '../../../stores/mentalModelImpact.js';
@@ -24,6 +25,8 @@ import * as atomProgressStore from '../../../stores/atomProgress.js';
 import {ConfidenceCalibration} from './ConfidenceCalibration.jsx';
 import { formatLectureLabel } from "../../../lectureTitle.js";
 import { scopeLabel } from "../../logic/weekScope.js";
+
+const EMPTY_MANUAL_ENTRIES = [];
 
 /**
  * Per-lecture `{totalQuestions, totalMisses, accuracy}` summed across every
@@ -250,7 +253,9 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
     setStudyAnswers(calibrationStore.readBlock(userId, blockId));
     return calibrationStore.subscribe(() => setStudyAnswers(calibrationStore.readBlock(userId, blockId)));
   }, [userId, blockId]);
-  const progress = useMemo(() => questionProgress(studyAnswers, sessions), [studyAnswers, sessions]);
+  const manualPractice = useStoreResource(manualPracticeStore, userId);
+  const manualEntries = manualPractice.data?.[blockId] || EMPTY_MANUAL_ENTRIES;
+  const progress = useMemo(() => questionProgress(studyAnswers, sessions, {}, manualEntries), [studyAnswers, sessions, manualEntries]);
   const modelActivity=useStoreResource(modelImpactStore,userId);
   const atomActivity=useStoreResource(atomProgressStore,userId);
 
