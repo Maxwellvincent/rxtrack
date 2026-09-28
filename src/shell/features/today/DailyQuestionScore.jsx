@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import { listExamSessions } from "../../../supabase.js";
 import { questionProgress } from "../exam/questionProgress.js";
@@ -8,11 +8,18 @@ function localDateKey(date = new Date()) {
 }
 
 export function DailyQuestionScore({ userId, blockId }) {
-  const studyAnswers = useSyncExternalStore(
+  // readBlock may deserialize localStorage data or manufacture a new empty
+  // array on each call. useSyncExternalStore requires a cached snapshot, so
+  // compare a stable serialized value and only parse when that value changes.
+  const studyAnswersSnapshot = useSyncExternalStore(
     (callback) => calibrationStore.subscribe(callback),
-    () => calibrationStore.readBlock(userId, blockId),
-    () => calibrationStore.readBlock(userId, blockId)
+    () => JSON.stringify(calibrationStore.readBlock(userId, blockId)),
+    () => JSON.stringify(calibrationStore.readBlock(userId, blockId))
   );
+  const studyAnswers = useMemo(() => {
+    try { return JSON.parse(studyAnswersSnapshot || "[]"); }
+    catch { return []; }
+  }, [studyAnswersSnapshot]);
   const [loadResult, setLoadResult] = useState(null);
   const queryKey = `${userId || "local"}:${blockId}`;
   const loading = loadResult?.key !== queryKey;
