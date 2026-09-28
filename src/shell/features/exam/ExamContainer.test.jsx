@@ -54,6 +54,10 @@ vi.mock("../../hooks/useObjectives.js", () => ({
 }));
 
 vi.mock("../../../stores/lectureQuestionStats.js", () => ({
+  read: () => ({}),
+  subscribe: () => () => {},
+  isHydrated: () => true,
+  readError: () => null,
   statsForLecture: () => ({ answered: 0, correct: 0, accuracy: null }),
 }));
 

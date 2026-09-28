@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useTheme, getObjStatusColor } from "../../../theme";
 import { LEVEL_COLORS, LEVEL_BG } from "../../../bloomsTaxonomy";
+import { objectiveStatusWithEvidence } from "../../logic/objectives.js";
 
 const MONO = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
@@ -745,6 +746,7 @@ export default function ObjectiveTracker({
   blockLectures = [],
   objectives,
   coverageObjectives,
+  learnerEvidence = {},
   onSelfRate,
   onUpdateObjectiveStatus,
   onStartObjectiveQuiz,
@@ -802,11 +804,16 @@ export default function ObjectiveTracker({
     }
   }, [blockId, objectives]);
 
+  const covSrc = useMemo(() => (coverageObjectives ?? objectives ?? []).map((objective) => ({
+    ...objective,
+    status: objectiveStatusWithEvidence(objective, learnerEvidence?.objectives?.[objective?.id]),
+  })), [coverageObjectives, objectives, learnerEvidence]);
+
   const validLecIds = useMemo(() => new Set((blockLectures || []).map((l) => l.id)), [blockLectures]);
 
   /** Only objectives with linkedLecId pointing at a real lecture in this block (no Unknown / fake SG rows). */
   const linkedObjectives = useMemo(() => {
-    const raw = objectives || [];
+    const raw = covSrc;
     const filtered = raw.filter((obj) => {
       const lid = obj?.linkedLecId;
       if (!lid || lid === "imported" || lid === "unknown") return false;
@@ -824,16 +831,16 @@ export default function ObjectiveTracker({
         resolvedActivity,
       };
     });
-  }, [objectives, blockLectures, validLecIds]);
+  }, [covSrc, blockLectures, validLecIds]);
 
   const unlinkedObjectives = useMemo(() => {
-    const raw = objectives || [];
+    const raw = covSrc;
     return raw.filter((obj) => {
       const lid = obj?.linkedLecId;
       if (!lid || lid === "imported" || lid === "unknown") return true;
       return !validLecIds.has(lid);
     });
-  }, [objectives, validLecIds]);
+  }, [covSrc, validLecIds]);
 
   const unlinkedCount = unlinkedObjectives.length;
 
@@ -886,8 +893,6 @@ export default function ObjectiveTracker({
   const [bulkAssignLecId, setBulkAssignLecId] = useState("");
   const [selectedObjIds, setSelectedObjIds] = useState(() => new Set());
   const [bulkMultiAssign, setBulkMultiAssign] = useState("");
-
-  const covSrc = coverageObjectives ?? objectives ?? [];
 
   const lecturesSortedForSelect = useMemo(
     () => [...(blockLectures || [])].sort(sortLecturesForSelect),
@@ -1011,7 +1016,11 @@ export default function ObjectiveTracker({
       const inprogress = lecObjs.filter((o) => o.status === "inprogress" || o.status === "developing").length;
       const struggling = lecObjs.filter((o) => o.status === "struggling").length;
       const untested = Math.max(0, total - mastered - inprogress - struggling);
-      const coverage = total ? Math.round(((mastered + inprogress) / total) * 100) : 0;
+      // Coverage means seen/tested, irrespective of correctness. Segment
+      // colors retain the distinction between repair and positive evidence.
+      const tested = mastered + inprogress + struggling;
+      const questionAttempts = lecObjs.reduce((sum, objective) => sum + (Number(learnerEvidence?.objectives?.[objective.id]?.attempts) || 0), 0);
+      const coverage = total ? Math.round((tested / total) * 100) : 0;
       const masteredPct = total ? (mastered / total) * 100 : 0;
       const inprogressPct = total ? (inprogress / total) * 100 : 0;
       const strugglingPct = total ? (struggling / total) * 100 : 0;
@@ -1023,6 +1032,8 @@ export default function ObjectiveTracker({
         ip: inprogress,
         st: struggling,
         ut: untested,
+        tested,
+        questionAttempts,
         coverage,
         masteredPct,
         inprogressPct,
@@ -1030,7 +1041,7 @@ export default function ObjectiveTracker({
         untestedPct,
       };
     });
-  }, [covSrc, blockLectures]);
+  }, [covSrc, blockLectures, learnerEvidence]);
 
   const sortedCoverageRows = useMemo(() => {
     const rows = [...coverageRows];
@@ -2166,6 +2177,9 @@ export default function ObjectiveTracker({
                   />
                 ))}
           </div>
+          <p style={{ fontFamily: MONO, fontSize: 11, color: T.text3, margin: "-8px 0 12px" }}>
+            Seen = at least one answered question linked to the objective, or a recorded status. The bar includes misses as seen; colors show the latest state, not mastery from exposure alone.
+          </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
             {[
               { k: "struggling", label: "Most struggling" },
@@ -2211,7 +2225,7 @@ export default function ObjectiveTracker({
                     ? "#BA7517"
                     : "#E24B4A"
                 : T.text3;
-              const numer = row.m + row.ip;
+              const numer = row.tested;
               return (
                 <div key={String(lid)}>
                   <div
@@ -2276,7 +2290,7 @@ export default function ObjectiveTracker({
                         flexShrink: 0,
                       }}
                     >
-                      {row.total > 0 ? `${numer}/${row.total}` : "—"}
+                      {row.total > 0 ? `${numer}/${row.total} seen` : "—"}
                     </span>
                     <span
                       style={{
@@ -2324,6 +2338,18 @@ export default function ObjectiveTracker({
                         }}
                       >
                         △ {row.ip} in progress
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 10,
+                          padding: "2px 8px",
+                          borderRadius: 4,
+                          background: T.pillBg,
+                          color: T.text2,
+                        }}
+                      >
+                        {row.questionAttempts} linked question attempts
                       </span>
                       <span
                         style={{

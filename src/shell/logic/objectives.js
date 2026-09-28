@@ -168,6 +168,28 @@ export function recordObjectiveAttempt(objectives, objId, correct, now = new Dat
   });
 }
 
+/**
+ * Derive the visible status from objective-linked question evidence without
+ * writing it back as a manual rating. Any linked attempt counts as seen;
+ * recent misses surface as repair, while correct exposure is developing (not
+ * mastered). A newer explicit status change remains authoritative.
+ */
+export function objectiveStatusWithEvidence(objective, evidence = {}) {
+  const savedStatus = objective?.status || "untested";
+  const attempts = Math.max(0, Number(evidence?.attempts) || 0);
+  if (!attempts) return savedStatus;
+
+  const evidenceAt = Number(evidence.lastSeen) || Date.parse(evidence.lastSeen) || 0;
+  const statusAt = Number(objective?.lastUpdated) || Date.parse(objective?.lastUpdated) || 0;
+  if (statusAt > evidenceAt) return savedStatus;
+
+  const recent = Array.isArray(evidence.recent) ? evidence.recent : [];
+  const lastCorrect = recent.length ? recent[recent.length - 1] === true : null;
+  if (lastCorrect === false) return "struggling";
+  if (lastCorrect === true) return savedStatus === "mastered" ? "mastered" : "inprogress";
+  return savedStatus === "mastered" ? "mastered" : "inprogress";
+}
+
 /** Link an objective to a lecture, marking it manually aligned. */
 export function assignToLecture(objectives, objId, lecId, now) {
   if (!objId || !lecId) return objectives || [];

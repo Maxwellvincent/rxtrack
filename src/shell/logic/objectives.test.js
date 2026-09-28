@@ -11,6 +11,7 @@ import {
   setStatus,
   selfRate,
   recordObjectiveAttempt,
+  objectiveStatusWithEvidence,
   assignToLecture,
   assignManyToLecture,
   removeLectureLink,
@@ -120,6 +121,14 @@ describe("reducers", () => {
     expect(second[0]).toMatchObject({ status: "mastered", attempts: 2, correctCount: 2, consecutiveCorrect: 2 });
     const missed = recordObjectiveAttempt(second, "a", false, NOW);
     expect(missed[0]).toMatchObject({ status: "struggling", attempts: 3, consecutiveCorrect: 0 });
+  });
+
+  it("derives tested objective status from recent linked answers without promoting one correct answer to mastery", () => {
+    expect(objectiveStatusWithEvidence({ id: "a", status: "untested" }, { attempts: 1, recent: [true], lastSeen: 20 })).toBe("inprogress");
+    expect(objectiveStatusWithEvidence({ id: "a", status: "untested" }, { attempts: 4, recent: [true, true, false], lastSeen: 20 })).toBe("struggling");
+    expect(objectiveStatusWithEvidence({ id: "a", status: "mastered" }, { attempts: 1, recent: [false], lastSeen: 20 })).toBe("struggling");
+    expect(objectiveStatusWithEvidence({ id: "a", status: "mastered", lastUpdated: 30 }, { attempts: 1, recent: [false], lastSeen: 20 })).toBe("mastered");
+    expect(objectiveStatusWithEvidence({ id: "a", status: "untested" }, {})).toBe("untested");
   });
 
   it("assigns and unassigns lectures", () => {

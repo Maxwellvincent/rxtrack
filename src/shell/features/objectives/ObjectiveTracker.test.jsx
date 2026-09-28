@@ -70,3 +70,33 @@ it("organizes objectives into an actionable readiness summary", () => {
 
   view.close();
 });
+
+it("counts correct and incorrect linked question evidence as seen without promoting one correct answer to mastery", () => {
+  const view = mount(
+    <ObjectiveTracker
+      blockId="block-1"
+      blockLectures={[{ id: "lec-1", lectureType: "LEC", lectureNumber: 1, lectureTitle: "Hormone signaling" }]}
+      objectives={[
+        { id: "obj-seen", linkedLecId: "lec-1", objective: "Explain receptor signaling", status: "untested" },
+        { id: "obj-missed", linkedLecId: "lec-1", objective: "Compare hormone classes", status: "untested" },
+        { id: "obj-new", linkedLecId: "lec-1", objective: "Predict feedback", status: "untested" },
+      ]}
+      learnerEvidence={{ objectives: {
+        "obj-seen": { attempts: 1, correct: 1, recent: [true], lastSeen: Date.now() },
+        "obj-missed": { attempts: 1, correct: 0, recent: [false], lastSeen: Date.now() },
+      } }}
+      onSelfRate={vi.fn()}
+      onStartObjectiveQuiz={vi.fn()}
+    />
+  );
+
+  expect(view.host.textContent).toContain("Untested1");
+  expect(view.host.textContent).toContain("Developing1");
+  expect(view.host.textContent).toContain("Needs repair1");
+  const coverageTab = [...view.host.querySelectorAll("button")].find((button) => button.textContent.trim() === "Coverage");
+  act(() => coverageTab.click());
+  expect(view.host.textContent).toContain("2/3 seen");
+  expect(view.host.textContent).toContain("1 in progress");
+  expect(view.host.textContent).toContain("1 struggling");
+  view.close();
+});

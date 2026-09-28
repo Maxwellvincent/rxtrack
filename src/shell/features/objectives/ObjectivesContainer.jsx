@@ -30,7 +30,7 @@ export function ObjectivesContainer({
 }) {
   const [editingLecId, setEditingLecId] = useState(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const { objectives, blockLectures, getLecPerf, loading, error, ...actions } = useObjectivesController(
+  const { objectives, blockLectures, getLecPerf, learnerEvidence, loading, error, ...actions } = useObjectivesController(
     blockId,
     userId
   );
@@ -64,6 +64,7 @@ export function ObjectivesContainer({
       blockLectures={blockLectures}
       objectives={objectives}
       coverageObjectives={objectives}
+      learnerEvidence={learnerEvidence}
       getLecPerf={getLecPerf}
       termColor={termColor}
       T={T}

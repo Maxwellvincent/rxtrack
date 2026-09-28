@@ -10,10 +10,12 @@
  */
 import { useCallback, useMemo } from "react";
 import * as objectivesStore from "../../../stores/blockObjectives.js";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { getStoreHookUserId } from "../../hooks/currentUser.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { usePerformance } from "../../hooks/usePerformance.js";
+import { useStoreResource } from "../../hooks/useStoreResource.js";
 import {
   createObjectiveCommands,
   dedupeByText,
@@ -31,6 +33,7 @@ export function useObjectivesController(blockId, userId) {
   const objectivesRes = useObjectives(null, userId);
   const lecturesRes = useLectures(blockId, userId);
   const performanceRes = usePerformance(userId);
+  const learnerEvidenceRes = useStoreResource(learnerEvidenceStore, userId);
 
   const blockLectures = lecturesRes.data;
 
@@ -102,8 +105,11 @@ export function useObjectivesController(blockId, userId) {
     blockLectures,
     getLecPerf,
     commands,
-    loading: objectivesRes.loading || lecturesRes.loading,
-    error: objectivesRes.error || lecturesRes.error || performanceRes.error,
+    loading: objectivesRes.loading || lecturesRes.loading || learnerEvidenceRes.loading,
+    error: objectivesRes.error || lecturesRes.error || performanceRes.error || learnerEvidenceRes.error,
+    learnerEvidence: learnerEvidenceRes.data || {},
+    learnerEvidenceLoading: learnerEvidenceRes.loading,
+    learnerEvidenceError: learnerEvidenceRes.error,
     ...actions,
   };
 }
