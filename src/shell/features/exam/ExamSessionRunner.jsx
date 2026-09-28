@@ -228,6 +228,38 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
   );
 }
 
+function QuestionNavigator({ questions, session, currentIndex, onSelect }) {
+  return (
+    <nav aria-label="Question navigation" className="flex flex-wrap gap-1.5">
+      {questions.map((question, index) => {
+        const answered = pickedFor(session, question.questionId) != null;
+        const current = index === currentIndex;
+        return (
+          <button
+            key={question.questionId}
+            type="button"
+            data-question-state={current ? "current" : answered ? "answered" : "unanswered"}
+            aria-current={current ? "step" : undefined}
+            aria-label={`Question ${index + 1}${answered ? ", answered" : ", unanswered"}${current ? ", current" : ""}`}
+            title={`Question ${index + 1} · ${answered ? "answered" : "unanswered"}`}
+            onClick={() => onSelect(index)}
+            className={
+              "flex h-9 min-w-9 items-center justify-center gap-1 rounded border px-2 font-mono text-xs " +
+              (current
+                ? "border-accent bg-accent/15 text-text-1 ring-2 ring-accent/30"
+                : answered
+                  ? "border-good/60 bg-good/10 text-text-1"
+                  : "border-border bg-bg text-text-3 hover:border-border-strong")
+            }
+          >
+            {answered && <span aria-hidden="true">✓</span>}{index + 1}
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId }) {
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
     controller;
@@ -251,29 +283,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        {questions.map((question, idx) => {
-          const isAnswered = pickedFor(session, question.questionId) != null;
-          const isCurrent = idx === currentIndex;
-          return (
-            <button
-              key={question.questionId}
-              type="button"
-              onClick={() => setCurrentIndex(idx)}
-              className={
-                "flex h-7 w-7 items-center justify-center rounded border font-mono text-[11px] " +
-                (isCurrent
-                  ? "border-accent text-text-1"
-                  : isAnswered
-                    ? "border-border-strong bg-panel text-text-2"
-                    : "border-border text-text-3")
-              }
-            >
-              {idx + 1}
-            </button>
-          );
-        })}
-      </div>
+      <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
 
       {!q && session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing the first questions for this scope…</div>}
 
@@ -346,10 +356,10 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), revealed && currentIndex < questions.length - 1 && !submitting)}>
       <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
         <span>Practice</span>
-        <span className="text-text-3">
-          {currentIndex + 1}/{questions.length}
-        </span>
+        <span className="text-text-3">{(session.answers || []).length}/{questions.length} answered</span>
       </div>
+
+      <QuestionNavigator questions={questions} session={session} currentIndex={currentIndex} onSelect={setCurrentIndex} />
 
       <div className="rounded-lg border border-border bg-bg-elevated p-3">
         <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
@@ -391,13 +401,13 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
               <Button onClick={() => submit(submitOpts)} disabled={submitting}>
                 {submitting ? "Submitting…" : "Finish"}
               </Button>
-            ) : (
-              <Button onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}>
-                Next →
-              </Button>
-            )}
+            ) : null}
           </div>
         )}
+      </div>
+      <div className="flex items-center justify-between">
+        <Button variant="outline" disabled={currentIndex === 0} onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}>← Prev</Button>
+        <Button variant="outline" disabled={currentIndex >= questions.length - 1} onClick={() => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1))}>Next →</Button>
       </div>
     </div>
   );
@@ -416,7 +426,9 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 // it, which is the actual preference-gated piece.
 function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId }) {
   const questions = session.questions || [];
-  const [filter, setFilter] = useState("incorrect");
+  // Start with the complete, PDF-like exam review; filters remain available
+  // for focused remediation after the full set is visible.
+  const [filter, setFilter] = useState("all");
   const [worksheetError, setWorksheetError] = useState("");
   const answered = questions.filter((q) => pickedFor(session, q.questionId) != null);
   const correctCount = answered.filter((q) => pickedFor(session, q.questionId) === q.correct).length;
@@ -470,7 +482,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
       <div className="flex flex-wrap gap-2">
         {[["incorrect", `Incorrect (${incorrectCount})`], ["correct", `Correct (${correctCount})`], ["unused", `Unused (${questions.length - answered.length})`], ["all", `All (${questions.length})`]].map(([value, label]) => <button key={value} type="button" onClick={() => setFilter(value)} aria-pressed={filter === value} className={`rounded-lg border-2 px-3 py-2 text-xs font-bold ${filter === value ? "border-accent bg-accent/15 ring-2 ring-accent/30" : "border-border"}`}>{filter === value ? "✓ " : ""}{label}</button>)}
       </div>
-      {visible.map((q, index) => {
+      {visible.map((q) => {
         const picked = pickedFor(session, q.questionId);
         const lectureId = q.lectureId || q.lectureIds?.[0];
         const lectureLabel = q.lectureLabel || lectureLabelsByLectureId?.[lectureId];
@@ -480,22 +492,19 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
         }).filter(Boolean).join("; ");
         const context = [lectureLabel, objectiveLabel].filter(Boolean).join(" · ");
         return (
-          <details key={q.questionId} className="rounded-lg border border-border bg-bg-elevated p-3" open={filter === "incorrect" && index === 0}>
-            <summary className="cursor-pointer text-sm font-bold text-text-1">{picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Incorrect"}{context ? ` · ${context}` : ""} · {extractLeadIn(q.stem)}</summary>
-            <div className="mt-3">
+          <article key={q.questionId} data-testid="review-question" className="rounded-lg border border-border bg-bg-elevated p-3">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-accent-text">Question {questions.findIndex((item) => item.questionId === q.questionId) + 1} · {picked == null ? "Unused" : picked === q.correct ? "✓ Correct" : "✕ Incorrect"}</h3>
+              {context && <span className="text-xs text-text-3">{context}</span>}
+            </div>
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
-            <LeadInCue stem={q.stem} />
             <QuestionStem text={q.stem} questionId={q.questionId} />
             <SchoolQuestionFigure question={q} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
-            {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
-              <div className="mt-2"><QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} /></div>
-            )}
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
             {picked !== q.correct && <MissReflection userId={userId} />}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
-            </div>
-          </details>
+          </article>
         );
       })}
     </div>
@@ -570,7 +579,7 @@ export function ExamSessionRunner({
       <div className="space-y-3">
         <SessionTitle session={session} />
         <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. {sessionLabel(session)} saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
-        {(session.format === "exam" || session.sourceType === "question-bank") && (
+        {(session.questions || []).length > 0 && (
           <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
         )}
       </div>

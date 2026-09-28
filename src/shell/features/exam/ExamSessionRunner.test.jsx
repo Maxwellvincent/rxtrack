@@ -108,6 +108,26 @@ describe("ExamSessionRunner", () => {
     expect(host.textContent).not.toContain('Needs repair');
     unmount();
   });
+  it("shows score and clean review for a submitted integrated practice exam", () => {
+    const controller = baseController({
+      session: {
+        ...baseController().session,
+        format: "practice",
+        status: "submitted",
+        questions: [makeQuestion("q1", "A"), makeQuestion("q2", "A")],
+        answers: [
+          { questionId: "q1", value: "A" },
+          { questionId: "q2", value: "B" },
+        ],
+      },
+    });
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+    expect(host.querySelector('[data-testid="exam-score"]')?.textContent).toContain("1/2 correct · 50%");
+    expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
+    expect(host.textContent).not.toContain("Because reasons.");
+    unmount();
+  });
   it("format exam: renders a countdown timer, a submit button, and no per-question reveal", () => {
     controllerMock.mockReturnValue(baseController());
 
@@ -204,7 +224,29 @@ describe("ExamSessionRunner", () => {
 
     expect(host.querySelector('[data-testid="practice-reveal"]')).toBeTruthy();
     expect(host.textContent).toMatch(/Because reasons\./);
+    expect(host.querySelector('[aria-label="Question 1, answered, current"]')).toBeTruthy();
 
+    unmount();
+  });
+
+  it("practice format lets me navigate back to answered questions and clearly marks answered items", () => {
+    const controller = baseController({
+      session: {
+        sessionId: "s1", blockId: "b1", format: "practice", status: "in_progress",
+        questions: [makeQuestion("q1"), makeQuestion("q2")],
+        answers: [{ questionId: "q1", value: "B", answeredAt: Date.now(), seq: 0, writerId: "w1" }],
+        deadline: null,
+      },
+      remainingMs: null,
+    });
+    controllerMock.mockReturnValue(controller);
+    const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" />);
+
+    expect(host.querySelector('[aria-label="Question 1, answered, current"]')).toBeTruthy();
+    expect(host.querySelector('[aria-label="Question 2, unanswered"]')).toBeTruthy();
+    expect(host.querySelector("nav[aria-label='Question navigation']")).toBeTruthy();
+    expect(host.textContent).toContain("← Prev");
+    expect(host.textContent).toContain("Next →");
     unmount();
   });
 
@@ -478,6 +520,9 @@ describe("ExamSessionRunner", () => {
       const score = host.querySelector('[data-testid="exam-score"]');
       expect(score).toBeTruthy();
       expect(score.textContent).toMatch(/1\/2 correct · 50%/);
+      expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
+      expect(host.textContent).not.toContain("Because reasons.");
+      expect(host.querySelector("details")).toBeFalsy();
       // Tutor panel itself stays gated behind tutorModeEnabled.
       expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
 
