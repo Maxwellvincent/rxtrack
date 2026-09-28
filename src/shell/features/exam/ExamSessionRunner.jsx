@@ -75,7 +75,9 @@ function pickedFor(session, questionId) {
 function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId = {} }) {
   const objectiveCount = question?.objectiveIds?.length || 0;
   const lectureId = question?.lectureId || question?.lectureIds?.[0];
-  const lectureLabel = question?.lectureLabel || lectureLabelsByLectureId[lectureId];
+  // Lecture IDs are stable; labels are not. Prefer the latest lecture metadata
+  // so a later rename is reflected in already-prepared and resumed exams.
+  const lectureLabel = lectureLabelsByLectureId[lectureId] || question?.lectureLabel || question?.lectureTitle;
   const objectiveLabels = (question?.objectiveIds || []).map((id) => {
     const objective = objectivesById[id];
     const code = objective?.code || objective?.objectiveCode;

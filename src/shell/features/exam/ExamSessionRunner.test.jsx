@@ -125,6 +125,7 @@ describe("ExamSessionRunner", () => {
   it("shows the linked lecture and objective instead of a generic repair label", () => {
     const controller = baseController();
     controller.session.questions[0].objectiveIds = ["obj-1"];
+    controller.session.questions[0].lectureLabel = "Old lecture title";
     controllerMock.mockReturnValue(controller);
     const { host, unmount } = render(<ExamSessionRunner
       sessionId="s1" userId="u1"
@@ -132,6 +133,7 @@ describe("ExamSessionRunner", () => {
       objectivesById={{ "obj-1": { id: "obj-1", code: "BIO.1", objective: "Explain pathway regulation." } }}
     />);
     expect(host.textContent).toContain("Lecture: Glycolysis and the PPP");
+    expect(host.textContent).not.toContain("Old lecture title");
     expect(host.textContent).toContain("Objective: BIO.1 · Explain pathway regulation.");
     unmount();
   });

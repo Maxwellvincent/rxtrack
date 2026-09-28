@@ -15,6 +15,7 @@ const launchQuestionBankSessionMock = vi.fn();
 const questionBanksReadMock = vi.fn(() => ({}));
 const questionBankMetaReadMock = vi.fn(() => ({}));
 const poolPreparedSetsMock = vi.fn(async () => []);
+const updatePreparedSetMetadataMock = vi.fn(async () => ({ ok: true }));
 const deletePreparedSetMock = vi.fn(async () => ({ ok: true, removed: 3, preserved: 0 }));
 const listExamSessionsMock = vi.fn(async () => []);
 vi.mock("./launchExam.js", () => ({
@@ -24,7 +25,7 @@ vi.mock("./launchQuestionBank.js", () => ({
   launchQuestionBankSession: (...args) => launchQuestionBankSessionMock(...args),
 }));
 vi.mock("../../../questionPool.js", () => ({
-  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock(), deletePreparedSet: (...args) => deletePreparedSetMock(...args) }),
+  createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock(), updatePreparedSetMetadata: (...args) => updatePreparedSetMetadataMock(...args), deletePreparedSet: (...args) => deletePreparedSetMock(...args) }),
 }));
 vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
 
@@ -137,6 +138,8 @@ beforeEach(() => {
   questionBankMetaReadMock.mockReturnValue({});
   poolPreparedSetsMock.mockReset();
   poolPreparedSetsMock.mockResolvedValue([]);
+  updatePreparedSetMetadataMock.mockReset();
+  updatePreparedSetMetadataMock.mockResolvedValue({ ok: true });
   listExamSessionsMock.mockReset();
   listExamSessionsMock.mockResolvedValue([]);
   deletePreparedSetMock.mockReset();
@@ -147,6 +150,33 @@ beforeEach(() => {
 });
 
 describe("ExamContainer", () => {
+  it("edits and durably saves a prepared quiz name and date scope", async () => {
+    poolPreparedSetsMock.mockResolvedValue([{
+      id: "generation-edit", prepareOnly: true, examName: "Old quiz", format: "practice",
+      requestedCount: 2, contentScope: "date-range:2026-09-20:2026-09-23",
+      questions: [{ poolId: "q1" }, { poolId: "q2" }],
+    }]);
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    await flush();
+
+    act(() => Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Edit").click());
+    const name = host.querySelector('[aria-label="Prepared set name"]');
+    const startDate = host.querySelector('[aria-label="Prepared set start date"]');
+    const endDate = host.querySelector('[aria-label="Prepared set end date"]');
+    expect(name).toBeTruthy();
+    expect(startDate).toBeTruthy();
+    expect(endDate).toBeTruthy();
+    const save = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Save changes");
+    await act(async () => save.click());
+
+    expect(updatePreparedSetMetadataMock).toHaveBeenCalledWith("generation-edit", {
+      examName: "Old quiz",
+      contentScope: "date-range:2026-09-20:2026-09-23",
+      weekNumber: null,
+    });
+    unmount();
+  });
+
   it("requires confirmation and deletes a selected prepared set", async () => {
     poolPreparedSetsMock.mockResolvedValue([{
       id: "generation-delete", prepareOnly: true, examName: "Old practice set", format: "practice",
@@ -181,7 +211,7 @@ describe("ExamContainer", () => {
     await act(async () => host.querySelector('[data-testid="prepare-exam"]').click());
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
 
-    expect(host.textContent).toMatch(/Prepared exams · start later/);
+    expect(host.textContent).toMatch(/Prepared quizzes & exams · start later/);
     expect(host.textContent).toMatch(/Sep date-range quiz/);
     expect(host.textContent).toMatch(/30\/30 saved questions available/);
     const startPrepared = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start this 30-question set"));

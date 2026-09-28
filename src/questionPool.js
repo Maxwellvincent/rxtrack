@@ -112,6 +112,23 @@ export function createQuestionPool(userId, blockId, database = db) {
       const questionRows = questions.docs.map(item => ({ id: item.id, ...item.data() }));
       return summarizePreparedSets(generationRows, questionRows);
     },
+    async updatePreparedSetMetadata(generationId, { examName, contentScope, weekNumber } = {}) {
+      if (!generationId) throw new Error("Missing prepared-set ID.");
+      const ref = runRef(generationId);
+      return runTransaction(db, async tx => {
+        const snapshot = await tx.get(ref);
+        const generation = snapshot.exists() ? snapshot.data() : null;
+        if (!generation || generation.blockId !== blockId || !generation.prepareOnly || generation.startedSessionId) {
+          throw new Error("This prepared set is no longer editable.");
+        }
+        const patch = {};
+        if (examName !== undefined) patch.examName = String(examName).trim();
+        if (contentScope !== undefined) patch.contentScope = contentScope;
+        if (weekNumber !== undefined) patch.weekNumber = weekNumber;
+        tx.update(ref, { ...patch, updatedAt: Date.now() });
+        return { ...generation, ...patch };
+      });
+    },
     async deletePreparedSet(generationId) {
       if (!generationId) return { ok: false, error: "Missing prepared-set ID." };
       const generationRef = runRef(generationId);

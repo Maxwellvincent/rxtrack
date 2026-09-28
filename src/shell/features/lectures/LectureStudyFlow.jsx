@@ -343,7 +343,7 @@ function TutorCountdown({ remainingSeconds, active }) {
 }
 
 export function LectureStudyFlow({
-  lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onGoDeep,
+  lecture, blockId, blockName = "", userId, logActivity, examDates, onClose, onGoDeep, onLectureRenamed = null,
   onReExtract = null,
   // Set by an external "Quiz" button (Today, Lectures list, ObjectiveTracker) instead of
   // launching its own separate screen — opens the same picker this file's "Quiz this lecture"
@@ -1865,7 +1865,7 @@ export function LectureStudyFlow({
       )}
       <details className="mt-2 w-fit text-sm text-text-3">
         <summary className="cursor-pointer py-1 hover:text-text-1">Lecture settings</summary>
-        <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={setRenamedTitle} /></div>
+        <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} /></div>
       </details>
       </header>
 

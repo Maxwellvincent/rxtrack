@@ -441,6 +441,7 @@ function ShellMain({ theme, toggle, userId }) {
                 logActivity={logActivity}
                 examDates={examDates.data}
                 onClose={() => { setStudyLecture(null); setPendingAutoQuiz(null); setStudyFocusObjectiveIds(null); setExamRepairContext(null); }}
+                onLectureRenamed={(name) => setStudyLecture(current => current?.id === studyLecture.id ? { ...current, lectureTitle: name, title: name } : current)}
                 onReExtract={(target) => { setReextractLecture(target || null); setShowAddLecture(true); }}
                 autoOpenQuiz={!!pendingAutoQuiz}
                 focusObjectiveIds={studyFocusObjectiveIds || pendingAutoQuiz?.focusObjectiveIds}

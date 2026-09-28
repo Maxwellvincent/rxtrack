@@ -65,6 +65,24 @@ function resolveDefaultQuestionCount(userId, blockId) {
   return DEFAULT_QUESTION_COUNT_FALLBACK;
 }
 
+function preparedSetEditDraft(set) {
+  const scope = set.contentScope || (set.weekNumber != null ? `week:${set.weekNumber}` : "block-so-far");
+  const dateMatch = /^date-range:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$/.exec(scope);
+  return {
+    examName: set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz"),
+    scopeMode: dateMatch ? "date-range" : /^\d+$/.test(String(scope)) || /^week:\d+$/.test(scope) ? `week:${String(scope).replace(/^week:/, "")}` : "block-so-far",
+    rangeStart: dateMatch?.[1] || "",
+    rangeEnd: dateMatch?.[2] || "",
+  };
+}
+
+function isValidCalendarDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value || "")) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(`${value}T12:00:00`);
+  return !Number.isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
+}
+
 export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture }) {
   const [activeSessionId, setActiveSessionId] = useState(null);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
@@ -76,6 +94,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
   const [preparedSets, setPreparedSets] = useState([]);
   const [confirmDeleteSetId, setConfirmDeleteSetId] = useState(null);
+  const [editingPreparedSetId, setEditingPreparedSetId] = useState(null);
+  const [preparedSetDraft, setPreparedSetDraft] = useState(null);
+  const [savingPreparedSet, setSavingPreparedSet] = useState(false);
+  const [preparedSetEditError, setPreparedSetEditError] = useState(null);
   const [deleteSetError, setDeleteSetError] = useState(null);
   const [deletingSet, setDeletingSet] = useState(false);
   const [partialLaunch, setPartialLaunch] = useState(null);
@@ -286,6 +308,41 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     } finally {
       setDeletingSet(false);
     }
+  };
+
+  const editPreparedSet = (set) => {
+    setPreparedSetEditError(null);
+    setPreparedSetDraft(preparedSetEditDraft(set));
+    setEditingPreparedSetId(set.id);
+  };
+
+  const savePreparedSet = async (set) => {
+    if (!preparedSetDraft || savingPreparedSet) return;
+    const examName = preparedSetDraft.examName.trim().replace(/\s+/g, " ");
+    if (!examName) { setPreparedSetEditError("Enter a name for this quiz or exam."); return; }
+    let contentScope = "block-so-far";
+    let weekNumber = null;
+    if (preparedSetDraft.scopeMode === "date-range") {
+      const { rangeStart, rangeEnd } = preparedSetDraft;
+      if (!isValidCalendarDate(rangeStart) || !isValidCalendarDate(rangeEnd) || rangeStart > rangeEnd) {
+        setPreparedSetEditError("Choose a valid start and end date, with the start date first.");
+        return;
+      }
+      contentScope = `date-range:${rangeStart}:${rangeEnd}`;
+    } else if (preparedSetDraft.scopeMode.startsWith("week:")) {
+      weekNumber = Number(preparedSetDraft.scopeMode.slice(5));
+      if (!Number.isInteger(weekNumber) || weekNumber < 1) { setPreparedSetEditError("Choose a valid week."); return; }
+    }
+    setSavingPreparedSet(true);
+    setPreparedSetEditError(null);
+    try {
+      await createQuestionPool(userId, blockId).updatePreparedSetMetadata(set.id, { examName, contentScope, weekNumber });
+      await refreshPreparedSets();
+      setEditingPreparedSetId(null);
+      setPreparedSetDraft(null);
+    } catch (error) {
+      setPreparedSetEditError(error?.message || "Could not save this quiz or exam.");
+    } finally { setSavingPreparedSet(false); }
   };
 
   useEffect(() => {
@@ -677,19 +734,45 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
       <section aria-label="Prepared exams to start" className="mb-4 rounded-xl border border-border bg-bg-elevated p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-sm font-bold text-text-1">Prepared exams · start later</h2>
+          <h2 className="text-sm font-bold text-text-1">Prepared quizzes & exams · start later</h2>
           <span className="text-xs text-text-3">{preparedSets.length} saved set{preparedSets.length === 1 ? "" : "s"}</span>
         </div>
         {deleteSetError && <div role="alert" className="mt-3 rounded border border-bad/40 px-3 py-2 text-sm text-bad">{deleteSetError}</div>}
+        {preparedSetEditError && <div role="alert" className="mt-3 rounded border border-bad/40 px-3 py-2 text-sm text-bad">{preparedSetEditError}</div>}
         {preparedSets.length ? <ul className="mt-3 space-y-2">{preparedSets.map((set) => {
           const requested = Number(set.requestedCount) || set.questions.length;
           const available = set.questions.length;
           const preparedCount = Number.isFinite(set.preparedCount) ? set.preparedCount : available;
           const actualShortfall = Math.max(0, requested - preparedCount);
+          const savedWeekNumber = set.weekNumber ?? (/^\d+$/.test(String(set.contentScope || "")) ? Number(set.contentScope) : null);
           return <li key={set.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
             <div>
               <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
               <div className="text-sm text-text-2">{available}/{requested} saved questions available{set.assignedCount ? ` · ${set.assignedCount} assigned to prior attempts` : ""} · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              {editingPreparedSetId === set.id && preparedSetDraft && <div className="mt-3 grid max-w-2xl gap-2 rounded border border-border bg-bg-elevated p-3 sm:grid-cols-2">
+                <label className="text-xs text-text-2 sm:col-span-2">Quiz / exam name
+                  <input aria-label="Prepared set name" maxLength={80} value={preparedSetDraft.examName} disabled={savingPreparedSet} onChange={event => setPreparedSetDraft(current => ({ ...current, examName: event.target.value }))} className="mt-1 min-h-10 w-full rounded border border-border bg-panel px-2 text-sm text-text-1" />
+                </label>
+                <label className="text-xs text-text-2 sm:col-span-2">Question date scope
+                  <select aria-label="Prepared set scope" value={preparedSetDraft.scopeMode} disabled={savingPreparedSet} onChange={event => setPreparedSetDraft(current => ({ ...current, scopeMode: event.target.value }))} className="mt-1 min-h-10 w-full rounded border border-border bg-panel px-2 text-sm text-text-1">
+                    <option value="block-so-far">Block so far</option>
+                    {savedWeekNumber != null && <option value={`week:${savedWeekNumber}`}>Week {savedWeekNumber}</option>}
+                    <option value="date-range">Specific date range</option>
+                  </select>
+                </label>
+                {preparedSetDraft.scopeMode === "date-range" && <>
+                  <label className="text-xs text-text-2">From
+                    <input aria-label="Prepared set start date" type="date" value={preparedSetDraft.rangeStart} disabled={savingPreparedSet} onChange={event => setPreparedSetDraft(current => ({ ...current, rangeStart: event.target.value }))} className="mt-1 min-h-10 w-full rounded border border-border bg-panel px-2 text-sm text-text-1" />
+                  </label>
+                  <label className="text-xs text-text-2">Through
+                    <input aria-label="Prepared set end date" type="date" value={preparedSetDraft.rangeEnd} disabled={savingPreparedSet} onChange={event => setPreparedSetDraft(current => ({ ...current, rangeEnd: event.target.value }))} className="mt-1 min-h-10 w-full rounded border border-border bg-panel px-2 text-sm text-text-1" />
+                  </label>
+                </>}
+                <div className="flex gap-2 sm:col-span-2">
+                  <button type="button" disabled={savingPreparedSet} onClick={() => savePreparedSet(set)} className="rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-50">{savingPreparedSet ? "Saving…" : "Save changes"}</button>
+                  <button type="button" disabled={savingPreparedSet} onClick={() => { setEditingPreparedSetId(null); setPreparedSetDraft(null); setPreparedSetEditError(null); }} className="rounded border border-border px-3 py-2 text-sm text-text-2 disabled:opacity-50">Cancel</button>
+                </div>
+              </div>}
               {set.assignedCount > 0 && <div className="text-xs text-text-3">Starting will create a separately named attempt and fill the remaining {Math.max(0, requested - available)} slots from unused reserve questions or generation. The original set’s name and question list will not be changed.</div>}
               {actualShortfall > 0 && <div className="text-xs text-warn">{actualShortfall} question{actualShortfall === 1 ? "" : "s"} short of the requested set; missing questions will be generated when started.</div>}
               {confirmDeleteSetId === set.id && <div className="mt-2 rounded border border-bad/40 bg-bg-elevated p-2 text-sm text-text-2">
@@ -701,6 +784,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               </div>}
             </div>
             <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={savingPreparedSet || deletingSet} onClick={() => editingPreparedSetId === set.id ? (setEditingPreparedSetId(null), setPreparedSetDraft(null)) : editPreparedSet(set)} className="rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-2 hover:bg-bg-elevated disabled:opacity-50">{editingPreparedSetId === set.id ? "Close editor" : "Edit"}</button>
             <Button disabled={launching || !available} onClick={() => handleLaunch({
               format: set.format || "exam",
               questionCount: requested,
