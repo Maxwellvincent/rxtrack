@@ -1013,76 +1013,32 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   }
 
   return (
-    <div className="desk-today flex flex-col gap-4">
-      <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} />
-      <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
-      {/* Header */}
-      <div className="desk-day-heading flex items-start justify-between gap-3">
-        <div>
-          <div className="font-mono text-[13px] text-text-3">{dateStr}</div>
-          <div className="flex items-center gap-2">
-            <h2 className="font-condensed text-xl font-bold uppercase tracking-wider text-text-1">Your study day</h2>
-            <button
-              onClick={() => {
-                const next = !taskListCollapsed;
-                setTaskListCollapsed(next);
-                writeTaskListCollapsed(next);
-              }}
-              title={taskListCollapsed ? "Show task list" : "Hide task list"}
-              aria-label={taskListCollapsed ? "Show task list" : "Hide task list"}
-              className="text-text-3 hover:text-text-1 transition-colors"
-            >
-              <svg
-                width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg"
-                className={`transition-transform ${taskListCollapsed ? "-rotate-90" : ""}`}
-              >
-                <path d="M3.5 5.25L7 8.75L10.5 5.25" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </div>
+    <div className="desk-today today-page flex flex-col gap-5">
+      <section className="today-hero">
+        <div className="today-hero-copy">
+          <div className="today-eyebrow">{dateStr} · {daysLeft} days to exam</div>
+          <h2 className="today-title">Make today count.</h2>
+          <p className="today-subtitle">One focused pass through the material, then stop. Your next best move is waiting below.</p>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <span className="rounded-sm border border-border bg-panel px-3 py-1 font-condensed text-[13px] font-bold uppercase tracking-wide text-text-2">
-            {effectiveMode
-              ? <><span className="inline-block mr-1.5 h-2 w-2 rounded-full align-middle" style={{ background: MODE_COLORS[effectiveMode] }} />{DAY_MODES.find((m) => m.id === effectiveMode)?.label}{!dayMode && <span className="ml-1 text-[13px] font-normal opacity-60">auto</span>}</>
-              : "Set day type"
-            }
-          </span>
-          <button onClick={() => setModePickerOpen((open) => !open)} className="font-mono text-[11px] text-text-3 hover:text-text-1">
-            {modePickerOpen ? "hide modes" : "change mode"}
-          </button>
-          <span className="font-mono text-[12px] text-text-3">{daysLeft}d to exam</span>
+        <div className="today-hero-actions">
+          <span className="today-mode-pill"><span className="today-mode-dot" style={{ background: MODE_COLORS[effectiveMode] }} />{effectiveMode ? DAY_MODES.find((m) => m.id === effectiveMode)?.label : "Set day type"}</span>
+          <button onClick={() => setModePickerOpen((open) => !open)} className="today-text-button">{modePickerOpen ? "Hide modes" : "Change mode"}</button>
         </div>
-      </div>
+      </section>
 
-      {/* Day mode picker */}
       {modePickerOpen && <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />}
 
-      <DailyQuestionScore userId={userId} blockId={blockId} />
+      <div className="today-layout">
+        <main className="today-main-column">
+          <section className="today-section-heading">
+            <div><div className="today-eyebrow">Your queue</div><h3>Today’s focus</h3></div>
+            <button onClick={() => { const next = !taskListCollapsed; setTaskListCollapsed(next); writeTaskListCollapsed(next); }} className="today-text-button">{taskListCollapsed ? "Show queue" : "Collapse queue"}</button>
+          </section>
+          {filteredTasks.length > 0 && <div className="today-progress-wrap"><ProgressBar done={doneCount} total={filteredTasks.length} /></div>}
+          {logFeedback && <div className="today-feedback" role="status">{logFeedback}</div>}
+          {todayReason === "urgency-fallback" && nextDay && <div className="today-note">Nothing is scheduled today — showing the highest-urgency work ahead of {nextDay.dateStr}.</div>}
 
-      <BlockReadinessDashboard blockId={blockId} userId={userId} onStudyLecture={onStudy} />
-
-      {/* Progress */}
-      {filteredTasks.length > 0 && (
-        <ProgressBar done={doneCount} total={filteredTasks.length} />
-      )}
-
-      {logFeedback && (
-        <div className="font-mono text-[12px] text-good">{logFeedback}</div>
-      )}
-
-      {/* Urgency fallback notice */}
-      {todayReason === "urgency-fallback" && nextDay && (
-        <div className="font-mono text-[12px] text-text-3">
-          Nothing scheduled today — next session {nextDay.dateStr} ({nextDay.daysFromNow}d). Showing highest-urgency:
-        </div>
-      )}
-
-      {/* Routine schedule for selected mode */}
-      {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}
-
-      {/* Task list */}
-      {!taskListCollapsed && (filteredTasks.length === 0 ? (
+          {!taskListCollapsed && (filteredTasks.length === 0 ? (
         todayTasks.length > 0 && effectiveMode ? (
           <div className="rounded-sm border border-border p-4 text-xs text-text-3">
             No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === effectiveMode)?.label}</span> today.
@@ -1107,7 +1063,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
             Nothing to do — every lecture is mastered or not yet available.
           </div>
         )
-      ) : (
+          ) : (
         <div className="flex flex-col gap-3">
           {filteredTasks.map((task) => (
             <TaskRow
@@ -1126,10 +1082,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
             />
           ))}
         </div>
-      ))}
+          ))}
 
-      {/* Work ahead — pre-read what is coming */}
-      <WorkAheadSection
+          <WorkAheadSection
         workAhead={workAhead}
         preReadFor={preReadFor}
         readyFor={(id) => {
@@ -1137,7 +1092,18 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
           return lec ? !!cachedFor(lec, objectivesForTask(id)) : false;
         }}
         onPreRead={(ls) => setPreReadTarget(ls)}
-      />
+          />
+        </main>
+
+        <aside className="today-side-column">
+          <section className="today-section-heading today-section-heading--side"><div><div className="today-eyebrow">Signals</div><h3>Study pulse</h3></div></section>
+          <DailyQuestionScore userId={userId} blockId={blockId} />
+          <BlockReadinessDashboard blockId={blockId} userId={userId} onStudyLecture={onStudy} compact />
+          <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
+          <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} />
+          {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}
+        </aside>
+      </div>
 
       {preReadTarget && (
         <PreReadModal
@@ -1150,7 +1116,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         />
       )}
 
-      {/* Reset */}
       {doneCount > 0 && (
         <button
           onClick={() => { setChecked(new Set()); writeChecked(blockId, new Set()); }}

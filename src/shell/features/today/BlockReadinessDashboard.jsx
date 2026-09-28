@@ -20,7 +20,7 @@ function Metric({ label, value, detail }) {
   </div>;
 }
 
-export function BlockReadinessDashboard({ blockId, userId, onStudyLecture }) {
+export function BlockReadinessDashboard({ blockId, userId, onStudyLecture, compact = false }) {
   const lectures = useLectures(blockId, userId);
   const objectives = useObjectives(blockId, userId);
   const questionStats = useLectureQuestionStats(userId);
@@ -71,6 +71,40 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture }) {
   const confidenceDetail = result.confidence.highCount < 10
     ? `${result.confidence.highCount} high-confidence answers recorded`
     : `${result.confidence.landmines} confident miss${result.confidence.landmines === 1 ? "" : "es"}`;
+
+  if (compact) {
+    const topTarget = result.targets?.[0];
+    return <section aria-label="Block readiness signal" className="today-signal-card rounded-xl border border-border bg-bg-elevated p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="today-eyebrow">Block signal</div>
+          <h2 className="mt-1 text-lg font-bold text-text-1">{loading ? "Syncing…" : result.state}</h2>
+        </div>
+        <span className="today-signal-dot" aria-hidden="true" />
+      </div>
+      <div className="today-mini-metrics mt-4">
+        <div><strong>{loading ? "—" : pct(result.objectives.coverage)}</strong><span>objectives covered</span></div>
+        <div><strong>{loading ? "—" : pct(result.confidence.highAccuracy)}</strong><span>confident accuracy</span></div>
+        <div><strong>{loading ? "—" : result.models.overdue}</strong><span>models due</span></div>
+      </div>
+      {topTarget && !loading && <div className="mt-4 rounded-lg bg-panel p-3">
+        <div className="today-eyebrow">Best next move</div>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <span className="min-w-0 truncate text-sm font-semibold text-text-1">{topTarget.title}</span>
+          {onStudyLecture && <button type="button" onClick={() => onStudyLecture(topTarget.lectureId)} className="shrink-0 text-sm font-bold text-accent hover:underline">Study →</button>}
+        </div>
+      </div>}
+      {partial && <p role="alert" className="mt-3 text-xs text-text-2">Some records could not sync; showing what is available.</p>}
+      <details className="mt-3 text-sm text-text-2">
+        <summary className="cursor-pointer py-1 font-semibold">See full block readiness</summary>
+        <div className="mt-3 rounded-lg border border-border bg-bg-elevated p-3">
+          <p className="text-xs text-text-2">{result.objectives.covered}/{result.objectives.total} objectives tested or rated · {result.practice.answered} questions answered · {result.trend.label}</p>
+          {result.targets?.length > 1 && <ol className="mt-3 space-y-2 border-t border-border pt-3">{result.targets.slice(1, 3).map((target) => <li key={target.lectureId} className="flex items-center justify-between gap-2 text-xs"><span className="truncate">{target.title}</span>{onStudyLecture && <button type="button" onClick={() => onStudyLecture(target.lectureId)} className="shrink-0 text-accent hover:underline">Study</button>}</li>)}</ol>}
+          <p className="mt-3 text-xs text-text-3">Coverage shows exposure, not mastery. Repeated varied evidence still matters.</p>
+        </div>
+      </details>
+    </section>;
+  }
 
   return <section aria-label="Block readiness dashboard" className="rounded-xl border border-border bg-bg-elevated p-4">
     <div className="flex flex-wrap items-start justify-between gap-3">
