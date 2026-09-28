@@ -4,6 +4,7 @@ import { useToday } from "./useToday.js";
 import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
+import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
@@ -1056,6 +1057,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
 
       {/* Day mode picker */}
       {modePickerOpen && <DayModePicker mode={dayMode} onChange={handleDayMode} suggested={suggestedMode} />}
+
+      <DailyQuestionScore userId={userId} blockId={blockId} />
 
       <BlockReadinessDashboard blockId={blockId} userId={userId} onStudyLecture={onStudy} />
 
