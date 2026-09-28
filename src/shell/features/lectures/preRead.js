@@ -13,6 +13,7 @@
  */
 import { getChunkBody } from "../../../lectureText.js";
 import { MIN_TEXT, lectureTextFrom } from "./lectureStudy.js";
+import { objectiveFacetCoveragePrompt } from "../../../engine/objectiveFacets.js";
 
 /** How many prediction questions a pre-read asks. Matches the study-flow round size. */
 export const PRE_READ_QUESTION_COUNT = 5;
@@ -96,9 +97,10 @@ export function buildPreReadPrompt({ source, objectives = [], count = PRE_READ_Q
     `concepts. Each has 4 choices, a 0-based correctIndex, a one-sentence explanation, and "objectiveId" set ` +
     `to the id of the learning objective it maps to (use null when none applies).\n\n` +
     (objLines.length ? `LEARNING OBJECTIVES:\n${objLines.join("\n")}\n\n` : "") +
+    objectiveFacetCoveragePrompt(objectives, count, { questionLinkField: "objectiveId" }) +
     `${sourceLabel}:\n${String(source.text || "").slice(0, 12000)}\n\n` +
     `Return ONLY valid JSON: {"bigPicture":"...","roadmap":["..."],"vocabulary":["..."],"diagramTargets":["..."],"topics":["..."],"questions":[{"question":"...","choices":["...","...","...","..."],` +
-    `"correctIndex":0,"explanation":"...","objectiveId":"..."}]}`
+    `"correctIndex":0,"explanation":"...","objectiveId":"...","objectiveFacet":"specific clause tested"}]}`
   );
 }
 
@@ -143,6 +145,7 @@ export async function generatePreRead({ lecture, objectives = [], count = PRE_RE
         // A hallucinated id would silently break lecture-day gap ordering, so
         // anything not matching a real objective is dropped to null.
         objectiveId: validIds.has(q.objectiveId) ? q.objectiveId : null,
+        objectiveFacet: q.objectiveFacet ? String(q.objectiveFacet).trim().slice(0, 100) : null,
       }));
 
     const cleanList = (value, limit) => Array.isArray(value)

@@ -22,6 +22,10 @@ describe("normalizeQuestions", () => {
     expect(out.orderLevel).toBe("third-order");
     expect(out.bloomLevel).toBe(4);
   });
+  it("preserves the objective facet label for later analysis", () => {
+    const [out] = normalizeQuestions([{ ...good, objectiveFacet: "neurotransmitter synthesis" }]);
+    expect(out.objectiveFacet).toBe("neurotransmitter synthesis");
+  });
   it("accepts a bare array too", () => {
     expect(normalizeQuestions([good])).toHaveLength(1);
   });
@@ -116,18 +120,23 @@ describe("buildMcqPrompt", () => {
   it("requires atom-targeted questions to use full clinical vignettes rather than recall templates", () => {
     const atomPrompt = buildAtomQuestionsPrompt({
       atoms: [{ type: "definition", term: "Insulin", content: "Lowers serum glucose." }],
+      objectives: [{ id: "o1", objective: "Explain insulin function, deficiency, manifestations, and management." }],
       difficulty: "medium",
     });
     expect(atomPrompt).toContain("realistic 3-5 sentence clinical vignette");
     expect(atomPrompt).toContain("1–2 reasoning steps");
     expect(atomPrompt).toContain("do not mention a lecture or learning objective");
     expect(atomPrompt).toContain("reject and rewrite any draft");
+    expect(atomPrompt).toContain("OBJECTIVE FACET COVERAGE");
+    expect(atomPrompt).toContain("multiple questions, each with the SAME single primary objective ID");
   });
   it("includes lecture content, objectives, difficulty and count", () => {
     expect(prompt).toContain("Insulin is an anabolic hormone");
     expect(prompt).toContain("Describe insulin secretion");
     expect(prompt).toMatch(/HARD/);
     expect(prompt).toContain("5");
+    expect(prompt).toContain("OBJECTIVE FACET COVERAGE");
+    expect(prompt).toContain("objectiveFacet");
   });
   it("keeps modality breadth named by an objective", () => {
     const modalityPrompt = buildMcqPrompt({

@@ -8,6 +8,7 @@ import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } f
 import { uniqueQuestions } from "./questionSimilarity.js";
 import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription } from "./questionOrder.js";
+import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -376,6 +377,7 @@ export function normalizeQuestions(raw) {
       // echo the term.
       atomKey: q.atomKey ? String(q.atomKey) : null,
       objectiveIds: Array.isArray(q.objectiveIds) ? q.objectiveIds.map(String).filter(Boolean) : [],
+      objectiveFacet: q.objectiveFacet ? String(q.objectiveFacet).trim().slice(0, 100) : null,
       taskType: q.taskType ? String(q.taskType).trim() : null,
       orderLevel: normalizeQuestionOrder(q.orderLevel || q.questionOrder),
       bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
@@ -559,6 +561,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
+    objectiveFacetCoveragePrompt(objectives, atoms.length) +
     v2Blueprint + styleProfilePrompt(styleProfile, atoms.length) + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
     `Each question must test that specific fact (not adjacent trivia). Respect the hierarchy: anchor/core atoms establish the big picture; supporting atoms explain the mechanism; discriminator atoms supply the small exam-defining clue. For a discriminator, name its parent concept and test the distinction. For comparison atoms, explicitly contrast the parent entities using the supplied characteristic rather than asking an isolated definition. Use the supplied clinical correlate, cues, buzzwords, testable details, exceptions, quantitative details, or inheritance pattern when present so the learner practices recognizing the lecturer's exact discriminators. Preserve qualifiers such as only/except/first/rate-limiting, timing, thresholds, laterality, anatomic level, cell type, compartment, sequence, and direction of change; these small details are often the tested distinction. Every stem must be a realistic 3-5 sentence clinical vignette with age and sex, presenting concern, relevant history, and only the examination, laboratory, imaging, or pathology clues needed for the reasoning task. End with a single-best-answer question. ` +
@@ -574,7 +577,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     `\n\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
   );
 }
 
@@ -661,7 +664,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `Independently audit every generated question. Do not rewrite or repair it. Approve it only when ALL checks pass:\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
-    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied.\n` +
+    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied. objectiveFacet must name the specific clause/task actually tested. For broad objectives, compare the batch against every independently assessable clause; when the requested count and evidence permit, distinct clauses must be represented by distinct questions before a facet is repeated.\n` +
     `4. No choices are duplicates or medically equivalent, and the stem does not reveal the answer.\n` +
     `5. The explanation states the decisive mechanism or reasoning, not merely that the answer is correct.\n` +
     `6. The vignette is internally consistent and contains enough discriminating information to answer. Symptoms or an anatomic region must actually distinguish the key from every plausible alternative; generic pain or tenderness alone is not enough.\n` +
@@ -696,7 +699,7 @@ LECTURE FACTS:\n${JSON.stringify(atoms)}
 STYLE EXAMPLES:\n${JSON.stringify(examples)}
 REJECTED ITEMS:\n${JSON.stringify(items)}
 
-Return ONLY: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"objectiveIds":["exact objective id"],"topic":"...","taskType":"recognition|mechanism|clinical-application","orderLevel":"first-order|second-order|third-order"}]}`;
+Return ONLY: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","topic":"...","taskType":"recognition|mechanism|clinical-application","orderLevel":"first-order|second-order|third-order"}]}`;
 }
 
 function normalizedComparableText(value) {
@@ -921,6 +924,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     ? "\n\nLEARNING OBJECTIVES TO COVER (every question maps to one):\n" +
       objectives.map((o, i) => `${i + 1}. [${o.code || o.id || ""}] ${o.objective || o.text || ""}`).join("\n")
     : "";
+  const objectiveFacetsSection = objectiveFacetCoveragePrompt(objectives, count);
   const comparisonObjectives = objectives.filter((o) => /\b(compare|compar(?:e|ing|ison)|differentiat(?:e|ing)|distinguish|contrast|versus|\bvs\.?\b|different\s+(?:between|among))\b/i.test(String(o.objective || o.text || "")));
   const comparisonSection = comparisonObjectives.length
     ? "\n\nCOMPARISON OBJECTIVE REQUIREMENT:\n" + comparisonObjectives.map((o) => `[${o.id}] ${o.objective || o.text || ""}`).join("\n") +
@@ -957,7 +961,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
   return (
-    v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
+    objectiveFacetsSection + v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette. The final sentence should ask for the mechanism, downstream consequence, structure, pathway, or best comparison—not simply repeat the diagnosis already made obvious by the stem.\n` +
@@ -971,6 +975,6 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
     `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
   );
 }

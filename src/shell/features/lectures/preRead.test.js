@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { preReadSource, preReadGaps, generatePreRead, PRE_READ_QUESTION_COUNT } from "./preRead.js";
+import { preReadSource, preReadGaps, generatePreRead, PRE_READ_QUESTION_COUNT, buildPreReadPrompt } from "./preRead.js";
 
 describe("preReadSource", () => {
   it("uses the lecture body when there is one to read", () => {
@@ -33,6 +33,19 @@ describe("preReadSource", () => {
 
   it("reports when there is nothing at all to work from", () => {
     expect(preReadSource({}, []).kind).toBe("none");
+  });
+});
+
+describe("pre-read objective facet instructions", () => {
+  it("asks the requested question set to cover distinct clauses of broad objectives", () => {
+    const prompt = buildPreReadPrompt({
+      source: { kind: "objectives", subject: "Metabolism", text: "BH4 pathway" },
+      objectives: [{ id: "bh4", objective: "Explain BH4 synthesis, deficiency, manifestations, and nutritional management." }],
+      count: 4,
+    });
+    expect(prompt).toContain("OBJECTIVE FACET COVERAGE");
+    expect(prompt).toContain("nutritional management");
+    expect(prompt).toContain("objectiveFacet");
   });
 });
 
@@ -76,7 +89,7 @@ describe("generatePreRead", () => {
       return {
         topics: ["cortisol synthesis pathway", "HPA axis feedback"],
         questions: [
-          { objectiveId: "o1", question: "Which enzyme starts it?", choices: ["A", "B", "C", "D"], correctIndex: 1, explanation: "…" },
+          { objectiveId: "o1", objectiveFacet: "enzyme function", question: "Which enzyme starts it?", choices: ["A", "B", "C", "D"], correctIndex: 1, explanation: "…" },
           { objectiveId: "nonsense", question: "Second?", choices: ["A", "B"], correctIndex: 0, explanation: "…" },
         ],
       };
@@ -89,6 +102,7 @@ describe("generatePreRead", () => {
     expect(result.topics).toEqual(["cortisol synthesis pathway", "HPA axis feedback"]);
     expect(result.questions).toHaveLength(2);
     expect(result.questions[0].objectiveId).toBe("o1");
+    expect(result.questions[0].objectiveFacet).toBe("enzyme function");
     // A hallucinated objective id would break lecture-day gap ordering.
     expect(result.questions[1].objectiveId).toBe(null);
     expect(result.questions[0].id).toBeTruthy();
