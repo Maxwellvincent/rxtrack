@@ -1,7 +1,6 @@
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
-import { BlockReadinessDashboard } from "./BlockReadinessDashboard.jsx";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
@@ -1098,7 +1097,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         <aside className="today-side-column">
           <section className="today-section-heading today-section-heading--side"><div><div className="today-eyebrow">Signals</div><h3>Study pulse</h3></div></section>
           <DailyQuestionScore userId={userId} blockId={blockId} />
-          <BlockReadinessDashboard blockId={blockId} userId={userId} onStudyLecture={onStudy} compact />
           <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
           <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} />
           {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}
