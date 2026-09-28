@@ -881,6 +881,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         {examPageSection === "results" && <ExamDashboard
           blockId={blockId}
           userId={userId}
+          lectures={lectures}
+          questionStats={questionStats.data || {}}
           lecturesById={lecturesById}
           objectives={objectives}
           generationCoverage={generationCoverage}

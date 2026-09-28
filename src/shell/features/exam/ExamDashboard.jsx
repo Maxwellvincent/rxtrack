@@ -25,6 +25,7 @@ import * as atomProgressStore from '../../../stores/atomProgress.js';
 import {ConfidenceCalibration} from './ConfidenceCalibration.jsx';
 import { formatLectureLabel } from "../../../lectureTitle.js";
 import { scopeLabel } from "../../logic/weekScope.js";
+import { buildWeakAreaMap } from "./weakAreaMap.js";
 
 const EMPTY_MANUAL_ENTRIES = [];
 
@@ -238,7 +239,7 @@ export function computePacingMetrics(sessions = []) {
   };
 }
 
-export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], generationCoverage = null, onNavigateToLecture, onReviewSession }) {
+export function ExamDashboard({ blockId, userId, lectures = [], questionStats = {}, lecturesById, objectives = [], generationCoverage = null, onNavigateToLecture, onReviewSession }) {
   const [queueNow,setQueueNow]=useState(Date.now);
   useEffect(()=>{const timer=setInterval(()=>setQueueNow(Date.now()),60000);return ()=>clearInterval(timer);},[]);
   const [loading, setLoading] = useState(true);
@@ -317,6 +318,13 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
   const taskRows = useMemo(() => Object.entries(learnerProfile?.taskTypes || {})
     .map(([id, stat]) => ({ id, ...stat, accuracy: stat.attempts ? stat.correct / stat.attempts : null }))
     .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1)), [learnerProfile?.taskTypes]);
+  const weakAreas = useMemo(() => buildWeakAreaMap({
+    lectures,
+    objectives,
+    questionStats,
+    learnerEvidence: learnerProfile,
+  }), [lectures, objectives, questionStats, learnerProfile]);
+  const priorityAreas = weakAreas.filter((row) => row.objectivesUntested > 0 || row.strugglingObjectives > 0 || (row.accuracy != null && row.accuracy < 0.8));
 
   if (loading) {
     return (
@@ -357,6 +365,55 @@ export function ExamDashboard({ blockId, userId, lecturesById, objectives = [], 
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <ConfidenceCalibration records={studyAnswers}/>
+      <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="Overall weak-area map">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <h2 className="text-base font-semibold text-text-1">Overall weak-area map</h2>
+            <p className="mt-1 text-sm text-text-2">All recorded lecture quizzes and exam practice, plus objective exposure. Low accuracy and untested objectives are shown separately.</p>
+          </div>
+          <span className="text-sm text-text-3">{priorityAreas.length} lecture{priorityAreas.length === 1 ? "" : "s"} to prioritize · {weakAreas.length} total</span>
+        </div>
+        {priorityAreas.length ? <div className="mt-3 space-y-3">
+          {priorityAreas.slice(0, 8).map((row) => {
+            const label = formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture);
+            const coverage = row.objectiveTotal ? row.objectivesTested / row.objectiveTotal : null;
+            return <div key={row.lectureId} className="rounded-lg border border-border bg-bg-elevated p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId)} className="text-left font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent">{label} →</button>
+                <div className="flex flex-wrap gap-x-3 text-sm text-text-2">
+                  <span>{row.totalQuestions ? `${Math.round(row.accuracy * 100)}% correct · ${row.misses} missed of ${row.totalQuestions}` : "No graded practice yet"}</span>
+                  <span>{row.objectiveTotal ? `${row.objectivesTested}/${row.objectiveTotal} objectives seen · ${row.objectivesUntested} untested` : "No linked objectives"}</span>
+                </div>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                <div>
+                  <div className="mb-1 flex justify-between text-xs text-text-3"><span>Practice accuracy</span><span>{row.accuracy == null ? "No data" : `${Math.round(row.accuracy * 100)}%`}</span></div>
+                  <div className="h-2 overflow-hidden rounded-full bg-panel" role="img" aria-label={row.accuracy == null ? "No practice accuracy data" : `Practice accuracy ${Math.round(row.accuracy * 100)} percent`}>
+                    {row.accuracy != null && <div className={`h-full ${row.accuracy < 0.6 ? "bg-bad" : row.accuracy < 0.8 ? "bg-warn" : "bg-good"}`} style={{ width: `${row.accuracy * 100}%` }} />}
+                  </div>
+                </div>
+                <div>
+                  <div className="mb-1 flex justify-between text-xs text-text-3"><span>Objective exposure</span><span>{coverage == null ? "No linked objectives" : `${Math.round(coverage * 100)}%`}</span></div>
+                  <div className="h-2 overflow-hidden rounded-full bg-panel" role="img" aria-label={coverage == null ? "No linked objectives" : `Objective exposure ${Math.round(coverage * 100)} percent`}>
+                    {coverage != null && <div className="h-full bg-accent" style={{ width: `${coverage * 100}%` }} />}
+                  </div>
+                </div>
+              </div>
+              {row.strugglingObjectives > 0 && <div className="mt-1 text-xs text-bad">{row.strugglingObjectives} objective{row.strugglingObjectives === 1 ? "" : "s"} currently marked struggling</div>}
+            </div>;
+          })}
+          {priorityAreas.length > 8 && <details className="rounded-lg border border-border px-3">
+            <summary className="cursor-pointer py-2 text-sm font-semibold text-text-2">Show {priorityAreas.length - 8} more priority lectures</summary>
+            <div className="space-y-3 pb-3">
+              {priorityAreas.slice(8).map((row) => <div key={row.lectureId} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-sm">
+                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId)} className="text-left font-semibold underline decoration-border underline-offset-2 hover:text-accent">{formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture)}</button>
+                <span>{row.accuracy == null ? "No graded practice" : `${Math.round(row.accuracy * 100)}% · ${row.misses}/${row.totalQuestions} missed`} · {row.objectivesUntested} objectives untested</span>
+              </div>)}
+            </div>
+          </details>}
+        </div> : <p className="mt-3 text-sm text-text-2">No current low-accuracy or untested-objective priorities. Lectures with no objective links or evidence are not ranked as covered.</p>}
+        <details className="mt-3 text-xs text-text-3"><summary className="cursor-pointer py-1 font-semibold">How this map is calculated</summary><p className="mt-1">Practice totals come from the saved per-lecture question record, which includes lecture quizzes and finalized exam practice. Objective exposure counts linked objective attempts or an explicit non-untested status. Exposure means seen, not mastered; outside-app question logs count toward volume but do not have per-lecture accuracy unless linked in the app.</p></details>
+      </section>
       {generationCoverage && (
         <section className="mb-4 rounded-xl border border-border bg-panel p-4" aria-label="Prepared question objective coverage">
           <div className="font-mono text-[12px] uppercase tracking-wider text-text-3">Prepared question coverage</div>

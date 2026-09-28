@@ -149,6 +149,31 @@ afterEach(() => {
 });
 
 describe("ExamDashboard", () => {
+  it("maps all lecture practice and objective gaps independently of integrated-exam history", async () => {
+    listExamSessionsMock.mockResolvedValue([]);
+    readLearnerEvidenceMock.mockReturnValue({
+      objectives: { seen: { attempts: 2, recent: [true, false] } },
+      testTaking: { reasons: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 },
+    });
+    const { host, unmount } = render(<ExamDashboard
+      blockId={BLOCK}
+      userId={USER}
+      lectures={[{ id: "lec-1", blockId: BLOCK, lectureType: "LEC", lectureNumber: 1, lectureTitle: "Lecture One" }, { id: "lec-2", blockId: BLOCK, lectureType: "LEC", lectureNumber: 2, lectureTitle: "Lecture Two" }]}
+      lecturesById={LECTURES}
+      objectives={[{ id: "seen", linkedLecId: "lec-1", status: "untested" }, { id: "new-1", linkedLecId: "lec-1", status: "untested" }, { id: "new-2", linkedLecId: "lec-2", status: "untested" }]}
+      questionStats={{ "lec-1": { answered: 5, correct: 2 }, "lec-2": { answered: 3, correct: 3 } }}
+    />);
+    await flush();
+
+    const map = host.querySelector('[aria-label="Overall weak-area map"]');
+    expect(map.textContent).toContain("Overall weak-area map");
+    expect(map.textContent).toContain("LEC 1 · Lecture One");
+    expect(map.textContent).toContain("40% correct · 3 missed of 5");
+    expect(map.textContent).toContain("1/2 objectives seen · 1 untested");
+    expect(host.textContent).toContain("No Integrated Exam attempts yet for this block");
+    unmount();
+  });
+
   it('moves a lecture practiced today below untouched exam weaknesses',async()=>{
     activityMock.data={'lec-1':{attempts:[{at:Date.now(),correct:true}]}};
     listExamSessionsMock.mockResolvedValue([{...makeSession({id:'s',questions:[q('a','lec-1'),q('b','lec-2')],answers:[a('a','B'),a('b','B')]}),title:"Week 4 Quiz",format:"exam",submittedAt:Date.now()-86400000}]);
