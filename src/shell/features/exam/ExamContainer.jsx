@@ -34,6 +34,7 @@ import { buildFocusedRepairScope } from "./focusedRepair.js";
 import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { filterLecturesByScope } from "../../logic/weekScope.js";
 import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
+import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -71,6 +72,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const [launching, setLaunching] = useState(false);
   const [launchProgress, setLaunchProgress] = useState(null);
   const [bankLaunching, setBankLaunching] = useState(null);
+  const [bankEditBusy, setBankEditBusy] = useState(false);
   const [questionReserve, setQuestionReserve] = useState({ ready: 0, loading: true });
   const [preparedSets, setPreparedSets] = useState([]);
   const [confirmDeleteSetId, setConfirmDeleteSetId] = useState(null);
@@ -210,7 +212,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     return filenames.sort((a, b) => cleanLectureTitle(a).localeCompare(cleanLectureTitle(b), undefined, { numeric: true })).map((filename) => {
       const entry = Object.values(meta).find((item) => item?.filename === filename);
       const questions = banks[filename] || [];
-      return { filename, questions, aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "school", expectedQuestions: entry?.expectedQuestions ?? null, analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || questions.find((question) => question?.blockId)?.blockId || null };
+      return { filename, questions, aliases: entry?.aliases || [], displayName: entry?.displayName || "", assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "school", expectedQuestions: entry?.expectedQuestions ?? null, analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || questions.find((question) => question?.blockId)?.blockId || null };
     });
     // Hydration flags deliberately trigger a fresh synchronous store read.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -234,7 +236,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     }).map((filename) => {
       const entry = Object.values(meta).find((item) => item?.filename === filename);
       const questions = banks[filename] || [];
-      return { filename, questions, aliases: entry?.aliases || [], assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "imcq", analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || null };
+      return { filename, questions, aliases: entry?.aliases || [], displayName: entry?.displayName || "", assignedDate: entry?.assignedDate || null, weekNumber: entry?.weekNumber ?? null, sourceKind: entry?.sourceKind || questions[0]?.sourceKind || "imcq", analysis: questionBankAnalysisStore.read(userId, filename), blockId: entry?.blockId || null };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, questionBanksHydrated, questionBankMetaHydrated, bankStoreRevision, blockQuestionBanks]);
@@ -324,38 +326,37 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, blockId, activeSessionId]);
 
-  const renameBank = (bank) => {
-    const requested = window.prompt("Rename this practice set", cleanLectureTitle(bank.filename));
-    const title = String(requested || "").trim().replace(/\s+/g, " ");
-    if (!title) return;
-    const extension = /\.pdf$/i.test(bank.filename) ? ".pdf" : "";
-    const nextFilename = `${title.replace(/\.pdf$/i, "")}${extension}`;
-    if (nextFilename === bank.filename) return;
-    const banks = questionBanksStore.read(userId) || {};
-    if (banks[nextFilename]) {
-      setLaunchError("A practice set already uses that name.");
-      return;
-    }
-    const nextBanks = { ...banks, [nextFilename]: banks[bank.filename] };
-    delete nextBanks[bank.filename];
-    questionBanksStore.write(userId, nextBanks);
-    const meta = questionBankMetaStore.read(userId) || {};
-    const nextMeta = Object.fromEntries(Object.entries(meta).map(([id, entry]) => [id,
-      entry?.filename === bank.filename
-        ? { ...entry, filename: nextFilename, aliases: [...new Set([...(entry.aliases || []), bank.filename])] }
-        : entry
-    ]));
-    questionBankMetaStore.write(userId, nextMeta);
-    setBankStoreRevision((value) => value + 1);
+  const renameBank = async (bank) => {
+    const requested = window.prompt("Rename this practice set", bank.displayName || cleanLectureTitle(bank.filename));
+    if (requested == null) return;
+    const displayName = String(requested).trim().replace(/\s+/g, " ");
+    if (!displayName) { setLaunchError("Enter a name for this practice set."); return; }
+    if (displayName === (bank.displayName || cleanLectureTitle(bank.filename))) return;
+    setBankEditBusy(true);
+    setLaunchError(null);
+    try {
+      await updateQuestionBankMetadata(userId, bank, { displayName }, questionBankMetaStore);
+      setBankStoreRevision((value) => value + 1);
+    } catch (error) {
+      setLaunchError(`Could not save the practice-set name: ${error?.message || String(error)}`);
+    } finally { setBankEditBusy(false); }
   };
 
-  const scheduleBank = (bank) => {
+  const scheduleBank = async (bank) => {
     const requested = window.prompt("Assign a date (YYYY-MM-DD)", bank.assignedDate || "");
     if (requested == null) return;
     const assignedDate = requested.trim();
     if (assignedDate && !/^\d{4}-\d{2}-\d{2}$/.test(assignedDate)) {
       setLaunchError("Use a date in YYYY-MM-DD format.");
       return;
+    }
+    if (assignedDate) {
+      const parsedDate = new Date(`${assignedDate}T12:00:00`);
+      const [year, month, day] = assignedDate.split("-").map(Number);
+      if (Number.isNaN(parsedDate.getTime()) || parsedDate.getFullYear() !== year || parsedDate.getMonth() !== month - 1 || parsedDate.getDate() !== day) {
+        setLaunchError("Choose a valid calendar date.");
+        return;
+      }
     }
     let weekNumber = null;
     if (assignedDate) {
@@ -381,12 +382,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         weekNumber = Math.max(1, Number(nearest.weekNumber) + Math.round((target - anchor) / (7 * 86400000)));
       }
     }
-    const meta = questionBankMetaStore.read(userId) || {};
-    const next = Object.fromEntries(Object.entries(meta).map(([id, entry]) => [id,
-      entry?.filename === bank.filename ? { ...entry, assignedDate: assignedDate || null, weekNumber } : entry
-    ]));
-    questionBankMetaStore.write(userId, next);
-    setBankStoreRevision((value) => value + 1);
+    setBankEditBusy(true);
+    setLaunchError(null);
+    try {
+      await updateQuestionBankMetadata(userId, bank, { assignedDate: assignedDate || null, weekNumber }, questionBankMetaStore);
+      setBankStoreRevision((value) => value + 1);
+    } catch (error) {
+      setLaunchError(`Could not save the practice-set date: ${error?.message || String(error)}`);
+    } finally { setBankEditBusy(false); }
   };
 
   const bankGroups = useMemo(() => {
@@ -741,7 +744,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               return (
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-medium text-text-1">{cleanLectureTitle(bank.filename)}</div>
+                    <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
                     <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
@@ -765,8 +768,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     </details>}
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="ghost" disabled={!!bankLaunching} onClick={() => renameBank(bank)}>Rename</Button>
-                    <Button variant="ghost" disabled={!!bankLaunching} onClick={() => scheduleBank(bank)}>{bank.assignedDate ? "Change date" : "Assign date"}</Button>
+                    <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => renameBank(bank)}>{bankEditBusy ? "Saving…" : "Rename"}</Button>
+                    <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}
                     {!exampleOnly && <Button variant="outline" disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "practice")}>Practice</Button>}
                     {!exampleOnly && <Button disabled={!!bankLaunching} onClick={() => handleBankLaunch(bank, "exam")}>Timed quiz</Button>}
