@@ -110,6 +110,12 @@
 .desk-objective-focus-card--repair { border-top: 3px solid var(--bad); }
 .desk-objective-focus-card--first { border-top: 3px solid var(--status-amber); }
 .desk-objective-focus-card--coverage { border-top: 3px solid var(--status-blue); }
+.desk-objective-library-copy { display: flex; min-width: 210px; flex-direction: column; gap: 2px; }
+.desk-objective-library-copy strong { color: var(--text-1); font-size: .82rem; }
+.desk-objective-library-copy span { color: var(--text-3); font-size: .72rem; }
+.desk-objective-search { min-height: 40px; min-width: 190px; flex: 1 1 220px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); padding: 8px 10px; color: var(--text-1); font-size: .82rem; }
+.desk-objective-load-more { min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); color: var(--accent-text); font-size: .82rem; font-weight: 700; }
+.desk-objective-load-more:hover { border-color: var(--accent); background: var(--accent-soft); }
 .desk-objective-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
 .desk-objective-metric { min-height: 118px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); color: var(--text-1); text-align: left; transition: border-color .16s ease, transform .16s ease; }
 .desk-objective-metric:hover { border-color: var(--border-strong); transform: translateY(-1px); }

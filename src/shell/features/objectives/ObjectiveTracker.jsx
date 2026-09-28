@@ -783,6 +783,9 @@ export default function ObjectiveTracker({
 
   const [subView, setSubView] = useState("lecture");
   const [lectureSort, setLectureSort] = useState("objective-count");
+  const [lectureQuery, setLectureQuery] = useState("");
+  const [lectureFilter, setLectureFilter] = useState("all");
+  const [lectureLimit, setLectureLimit] = useState(12);
 
   const weakCountByObjectiveId = useMemo(() => {
     if (!blockId) return {};
@@ -873,6 +876,21 @@ export default function ObjectiveTracker({
     }
     return byLecture;
   }, [byLecture, lectureSort]);
+
+  const filteredLectureGroups = useMemo(() => {
+    const query = lectureQuery.trim().toLowerCase();
+    return sortedByLecture.filter((group) => {
+      const searchable = `${group.activity} ${group.discipline} ${group.lectureTitle}`.toLowerCase();
+      if (query && !searchable.includes(query)) return false;
+      const statuses = group.objectives.map((objective) => objective.status || "untested");
+      if (lectureFilter === "repair" && !statuses.includes("struggling")) return false;
+      if (lectureFilter === "untested" && !statuses.includes("untested")) return false;
+      if (lectureFilter === "complete" && statuses.some((status) => status !== "mastered")) return false;
+      return true;
+    });
+  }, [sortedByLecture, lectureQuery, lectureFilter]);
+
+  useEffect(() => setLectureLimit(12), [lectureQuery, lectureFilter, lectureSort, blockId]);
 
   const countStruggling = linkedObjectives.filter((o) => o.status === "struggling").length;
   const countInprogress = linkedObjectives.filter((o) => o.status === "inprogress" || o.status === "developing").length;
@@ -1169,16 +1187,16 @@ export default function ObjectiveTracker({
       {subView === "lecture" && (
         <div style={{ display: "flex", flexDirection: "column" }}>
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-panel p-2.5">
-            <span className="text-sm text-text-2">Objective density shows where the curriculum places the most explicit emphasis.</span>
-            <label className="flex items-center gap-2 text-sm text-text-2">
-              Sort
-              <select value={lectureSort} onChange={(event) => setLectureSort(event.target.value)} className="min-h-10 rounded border border-border bg-bg-elevated px-2 text-sm text-text-1">
-                <option value="objective-count">Most objectives</option>
-                <option value="lecture-order">Lecture order</option>
-              </select>
-            </label>
+            <div className="desk-objective-library-copy"><strong>{filteredLectureGroups.length} lecture groups</strong><span>Open one group to see its objectives. The rest stay out of your way.</span></div>
+            <input value={lectureQuery} onChange={(event) => setLectureQuery(event.target.value)} placeholder="Find a lecture…" aria-label="Find a lecture" className="desk-objective-search" />
+            <select aria-label="Filter lecture groups" value={lectureFilter} onChange={(event) => setLectureFilter(event.target.value)} className="min-h-10 rounded border border-border bg-bg-elevated px-2 text-sm text-text-1">
+              <option value="all">All groups</option><option value="repair">Needs repair</option><option value="untested">Has untested</option><option value="complete">Fully mastered</option>
+            </select>
+            <select aria-label="Sort lecture groups" value={lectureSort} onChange={(event) => setLectureSort(event.target.value)} className="min-h-10 rounded border border-border bg-bg-elevated px-2 text-sm text-text-1">
+              <option value="objective-count">Most objectives</option><option value="lecture-order">Lecture order</option>
+            </select>
           </div>
-          {sortedByLecture.map((group) => (
+          {filteredLectureGroups.slice(0, lectureLimit).map((group) => (
             <LecObjectiveGroup
               key={group.lectureId || group.activity}
               group={group}
@@ -1205,9 +1223,10 @@ export default function ObjectiveTracker({
               smartTruncateTitle={smartTruncateTitle}
             />
           ))}
-          {sortedByLecture.length === 0 && (
+          {filteredLectureGroups.length > lectureLimit && <button type="button" className="desk-objective-load-more" onClick={() => setLectureLimit((limit) => limit + 12)}>Show 12 more · {filteredLectureGroups.length - lectureLimit} remaining</button>}
+          {filteredLectureGroups.length === 0 && (
             <p style={{ fontFamily: MONO, color: T.text3, fontSize: 16 }}>
-              No objectives loaded. Seed data in ftm2Objectives.json or load from storage.
+              No lecture groups match this view. Clear the search or choose All groups.
             </p>
           )}
         </div>
