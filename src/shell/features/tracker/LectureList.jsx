@@ -17,6 +17,7 @@ import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { deleteLectureFully } from "../../logic/deleteLecture.js";
 import { updateLectureDate } from "../../logic/lectureDate.js";
 import { localDateString } from "../../logic/completionLog.js";
+import { buildLectureWeeks, rowMatchesWeek } from "./lectureWeeks.js";
 
 const CONFIDENCE = [
   { key: "good", label: "Solid" },
@@ -30,7 +31,7 @@ const FILTERS_STORAGE_KEY = "rxt-lecture-list-prefs";
 function filterPrefsKey(blockId) { return `${FILTERS_STORAGE_KEY}:${blockId || "default"}`; }
 
 function readFilterPrefs(blockId) {
-  const defaults = { filter: "active", activityType: "all", search: "", sort: "urgency" };
+  const defaults = { filter: "active", activityType: "all", search: "", sort: "urgency", week: "all" };
   try {
     if (typeof localStorage === "undefined") return defaults;
     const saved = JSON.parse(localStorage.getItem(filterPrefsKey(blockId)) || "{}");
@@ -39,6 +40,7 @@ function readFilterPrefs(blockId) {
       activityType: ACTIVITY_TYPES.includes(saved.activityType) ? saved.activityType : defaults.activityType,
       search: typeof saved.search === "string" ? saved.search : defaults.search,
       sort: SORT_LABELS[saved.sort] ? saved.sort : defaults.sort,
+      week: typeof saved.week === "string" ? saved.week : defaults.week,
     };
   } catch { return defaults; }
 }
@@ -277,6 +279,7 @@ export function LectureList({
   const [activityType, setActivityType] = useState(() => readFilterPrefs(blockId).activityType);
   const [search, setSearch] = useState(() => readFilterPrefs(blockId).search);
   const [sort, setSort] = useState(() => readFilterPrefs(blockId).sort);
+  const [week, setWeek] = useState(() => readFilterPrefs(blockId).week);
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
   const [visibleCount, setVisibleCount] = useState(30);
@@ -311,6 +314,8 @@ export function LectureList({
     () => buildLectureRows(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data, filter, activityType, search, sort }),
     [scores, context.completion, blockId, repairProgress.data, filter, activityType, search, sort]
   );
+  const weeks = useMemo(() => buildLectureWeeks(rows), [rows]);
+  const weekRows = useMemo(() => rows.filter((row) => rowMatchesWeek(row, week)), [rows, week]);
   const counts = useMemo(
     () => lectureCounts(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data }),
     [scores, context.completion, blockId, repairProgress.data]
@@ -319,9 +324,9 @@ export function LectureList({
     const all = buildLectureRows(scores, { completion: context.completion, blockId, filter: "all" });
     return Object.fromEntries(ACTIVITY_TYPES.map((type) => [type, type === "all" ? all.length : all.filter((row) => row.type === type).length]));
   }, [scores, context.completion, blockId]);
-  const visibleRows = rows.slice(0, visibleCount);
+  const visibleRows = weekRows.slice(0, visibleCount);
 
-  useEffect(() => setVisibleCount(30), [filter, activityType, search, sort, blockId]);
+  useEffect(() => setVisibleCount(30), [filter, activityType, search, sort, week, blockId]);
 
   // One-shot per focusLectureId value: `rows` is a dependency only so this
   // can wait for the target row to actually be present (e.g. still loading
@@ -332,10 +337,10 @@ export function LectureList({
   useEffect(() => {
     if (!focusLectureId) return;
     if (scrolledForRef.current === focusLectureId) return;
-    if (!rows.some((row) => row.lectureId === focusLectureId)) return;
+    if (!weekRows.some((row) => row.lectureId === focusLectureId)) return;
     scrolledForRef.current = focusLectureId;
     focusRowRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center" });
-  }, [focusLectureId, rows]);
+  }, [focusLectureId, weekRows]);
 
   const onLog = useCallback(
     (lectureId, activityType, confidenceRating) => {
@@ -411,6 +416,27 @@ export function LectureList({
         ))}
       </div>
 
+      <div className="desk-filter-strip mb-3 flex flex-wrap items-center gap-2" aria-label="School week filters">
+        <button
+          onClick={() => { setWeek("all"); saveFilterPrefs(blockId, { week: "all" }); }}
+          aria-pressed={week === "all"}
+          className={"rounded border px-3 py-2 text-sm " + (week === "all" ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")}
+        >
+          All weeks ({rows.length})
+        </button>
+        {weeks.map((item) => (
+          <button
+            key={item.key}
+            onClick={() => { setWeek(item.key); saveFilterPrefs(blockId, { week: item.key }); }}
+            aria-pressed={week === item.key}
+            className={"rounded border px-3 py-2 text-sm " + (week === item.key ? "border-accent text-text-1" : "border-border text-text-3 hover:text-text-2")}
+            title={item.range ? `${item.label} · ${item.range}` : item.label}
+          >
+            {item.label}{item.range ? ` · ${item.range}` : ""} ({item.count})
+          </button>
+        ))}
+      </div>
+
       <div className="desk-toolbar mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-bg-elevated p-3">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-text-3">Type</span>
         {ACTIVITY_TYPES.filter((type) => type === "all" || typeCounts[type] > 0).map((type) => (
@@ -444,7 +470,7 @@ export function LectureList({
         </select>
       </div>
 
-      {rows.length === 0 ? (
+      {weekRows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
       ) : (
         <div className="desk-lecture-list rounded-xl border border-border bg-bg-elevated px-4">
@@ -468,9 +494,9 @@ export function LectureList({
           ))}
         </div>
       )}
-      {visibleCount < rows.length && (
+      {visibleCount < weekRows.length && (
         <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
-          Show 30 more · {rows.length - visibleCount} remaining
+          Show 30 more · {weekRows.length - visibleCount} remaining
         </button>
       )}
 

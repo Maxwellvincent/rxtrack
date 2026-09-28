@@ -191,4 +191,18 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     expect(restored.getAttribute("aria-pressed")).toBe("true");
     reopened.unmount();
   });
+
+  it("restores the selected school-week tab after leaving and reopening the list", () => {
+    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn(), onBack: vi.fn() };
+    const first = render(<LectureList {...props} />);
+    const unscheduled = Array.from(first.host.querySelectorAll("button")).find((button) => /^Unscheduled \(/.test(button.textContent));
+    act(() => unscheduled.click());
+    expect(unscheduled.getAttribute("aria-pressed")).toBe("true");
+    first.unmount();
+
+    const reopened = render(<LectureList {...props} />);
+    const restored = Array.from(reopened.host.querySelectorAll("button")).find((button) => /^Unscheduled \(/.test(button.textContent));
+    expect(restored.getAttribute("aria-pressed")).toBe("true");
+    reopened.unmount();
+  });
 });
