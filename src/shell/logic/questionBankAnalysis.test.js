@@ -44,6 +44,15 @@ describe("question bank analysis", () => {
     expect(question.correct).toBe("A");
   });
 
+  it("matches explicit source lecture titles and searches saved lecture text for candidate support", () => {
+    const analysis = buildQuestionBankAnalysis({
+      questions: [{ ...question, stem: `${question.stem} Lecture 2: Clinical Embryology of GI System` }],
+      lectures: [{ id: "lec-2", lectureTitle: "Clinical Embryology of GI System", chunks: [{ markdown: "Meckel diverticulum and intestinal rotation" }] }],
+    });
+    expect(analysis.items[0].lectureIds).toContain("lec-2");
+    expect(analysis.items[0].lectureLinks[0].label).toContain("Clinical Embryology");
+  });
+
   it("retains per-question prior performance and aggregates it separately from the answer key", () => {
     const analysis = buildQuestionBankAnalysis({
       questions: [

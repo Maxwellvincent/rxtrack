@@ -1,6 +1,7 @@
 import { createSessionShape } from "../../../examSessions.js";
 import { createExamSession } from "../../../supabase.js";
 import { examDurationMs } from "./examTiming.js";
+import { prepareBankQuestionSet } from "./questionBankLinks.js";
 
 function makeSessionId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -18,8 +19,9 @@ function validBankQuestion(question) {
   return !!question?.stem && letters.length >= 2 && choicesContiguous && letters.includes(question?.correct) && (!needsImage || hasImage);
 }
 
-export function prepareQuestionBankQuestions(questions, { blockId, filename }) {
-  return (questions || []).map((question, index) => ({
+export function prepareQuestionBankQuestions(questions, { blockId, filename, analysis = null }) {
+  const { questions: distinctQuestions } = prepareBankQuestionSet(questions || [], analysis);
+  return distinctQuestions.map((question, index) => ({
     ...question,
     questionId: `bank:${filename}:${question.id || question.num || "q"}:${index + 1}`,
     blockId,
@@ -32,11 +34,11 @@ export function prepareQuestionBankQuestions(questions, { blockId, filename }) {
 }
 
 export async function launchQuestionBankSession(
-  { userId, blockId, filename, questions, format = "exam" },
+  { userId, blockId, filename, questions, analysis = null, format = "exam" },
   deps = {}
 ) {
   const create = deps.createExamSession || createExamSession;
-  const sourceQuestions = questions || [];
+  const { questions: sourceQuestions, removedDuplicateCount } = prepareBankQuestionSet(questions || [], analysis);
   const invalidCount = sourceQuestions.filter((question) => !validBankQuestion(question)).length;
   if (!sourceQuestions.length) return { ok: false, error: "This question bank is empty." };
   if (invalidCount) {
@@ -47,7 +49,7 @@ export async function launchQuestionBankSession(
   }
 
   const sessionId = makeSessionId();
-  const prepared = prepareQuestionBankQuestions(sourceQuestions, { blockId, filename });
+  const prepared = prepareQuestionBankQuestions(sourceQuestions, { blockId, filename, analysis });
   const startedAt = format === "exam" ? Date.now() : null;
   const session = createSessionShape({
     sessionId,
@@ -62,5 +64,5 @@ export async function launchQuestionBankSession(
   });
   const result = await create(userId, session);
   if (!result?.ok) return { ok: false, error: result?.error || "Could not create the quiz session." };
-  return { ok: true, sessionId, questionCount: prepared.length, deadline: session.deadline };
+  return { ok: true, sessionId, questionCount: prepared.length, removedDuplicateCount, deadline: session.deadline };
 }

@@ -47,14 +47,24 @@ function candidateObjectiveLinks(question, objectives) {
 
 function lectureSupport(question, lectures = [], linkedObjectives = []) {
   const target = words(`${question.stem || ""} ${question.topic || ""} ${question.explanation || ""}`);
+  const explicitLectureTitle = normalizeLectureTitle(
+    `${question.stem || ""} ${question.explanation || ""}`.match(/\b(?:lecture|lec)\s*\d+\s*[:.\-–—]\s*([^.!?\n]{3,120})/i)?.[1]
+  );
   return lectures.map((lecture) => {
     const map = lecture?.teachingMap || {};
     const atoms = Array.isArray(lecture?.atoms) ? lecture.atoms : [];
-    const body = [lecture.lectureTitle, map.summary, map.clinicalHook, ...(map.sections || []).flatMap((section) => [section.title, section.clinicalRelevance]), ...atoms.flatMap((atom) => [atom.term, atom.content, ...(atom.buzzwords || []), ...(atom.clinicalCues || [])])].join(" ");
+    const sourceChunks = Array.isArray(lecture?.chunks) ? lecture.chunks.flatMap((chunk) => [chunk?.markdown, chunk?.content, chunk?.text]) : [];
+    const body = [lecture.lectureTitle, map.summary, map.clinicalHook, ...sourceChunks, ...(map.sections || []).flatMap((section) => [section.title, section.clinicalRelevance]), ...atoms.flatMap((atom) => [atom.term, atom.content, ...(atom.buzzwords || []), ...(atom.clinicalCues || [])])].join(" ");
     const shared = [...words(body)].filter((word) => target.has(word));
     const objectiveHit = linkedObjectives.some(({ objective }) => objective.linkedLecId === lecture.id || objective.lectureId === lecture.id);
-    return { lecture, shared, score: shared.length + (objectiveHit ? 4 : 0), map };
+    const title = normalizeLectureTitle(lecture?.lectureTitle || lecture?.title || lecture?.fileName);
+    const explicitTitleHit = !!explicitLectureTitle && !!title && (title.includes(explicitLectureTitle) || explicitLectureTitle.includes(title));
+    return { lecture, shared, score: shared.length + (objectiveHit ? 4 : 0) + (explicitTitleHit ? 20 : 0), map, explicitTitleHit };
   }).filter((item) => item.score >= 3).sort((a, b) => b.score - a.score).slice(0, 2);
+}
+
+function normalizeLectureTitle(value) {
+  return String(value || "").toLowerCase().replace(/\b(?:lecture|lec)\s*\d+\s*[:.\-–—]?/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 export function buildQuestionBankAnalysis({ questions = [], objectives = [], lectures = [], sourceKind = "school", filename = "", expectedQuestions = null, extractionMethod = null } = {}) {

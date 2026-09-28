@@ -36,6 +36,7 @@ import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { filterLecturesByScope } from "../../logic/weekScope.js";
 import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
+import { prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -129,7 +130,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const questionStats = useLectureQuestionStats(userId);
 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
-  const completedQuestionTotal = useMemo(() => lectures.reduce((sum, lecture) => sum + (questionStats.data?.[lecture.id]?.answered || 0), 0), [lectures, questionStats.data]);
+  const completedQuestionTotal = useMemo(() => lectures.reduce((sum, lecture) => sum + (questionStats.data?.[lecture.id]?.answered || 0), 0) + bankAttempts.reduce((sum, session) => sum + (session.answers?.length || 0), 0) + resumableSessions.filter((session) => session?.sourceType === "question-bank").reduce((sum, session) => sum + (session.answers?.length || 0), 0), [lectures, questionStats.data, bankAttempts, resumableSessions]);
 
   const objectives = useMemo(
     () => dedupeByText(selectBlockObjectives(objectivesRes.data, blockId)),
@@ -610,9 +611,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         blockId,
         filename: bank.filename,
         questions: bank.questions,
+        analysis: bank.analysis,
         format,
       });
-      if (result.ok) setActiveSessionId(result.sessionId);
+      if (result.ok) {
+        if (result.removedDuplicateCount) setLaunchWarning(`${result.removedDuplicateCount} repeated question${result.removedDuplicateCount === 1 ? " was" : "s were"} skipped for this run. The source bank is unchanged.`);
+        setActiveSessionId(result.sessionId);
+      }
       else setLaunchError(result.error || "Could not start this question bank.");
     } catch (err) {
       setLaunchError(err?.message || "Could not start this question bank.");
@@ -827,20 +832,25 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           </div>
           <div className="space-y-2">
             {(bankGroups.find(([group]) => group === activeBankCategory)?.[1] || []).map((bank) => {
-              const minutes = examDurationMinutes(bank.questions.length);
+              const distinctQuestionSet = prepareBankQuestionSet(bank.questions, bank.analysis);
+              const minutes = examDurationMinutes(distinctQuestionSet.questions.length);
               const expectedCount = bank.expectedQuestions || (/examsoftpractice/i.test(cleanLectureTitle(bank.filename)) ? 30 : null);
               const incomplete = expectedCount && bank.questions.length < expectedCount;
               const exampleOnly = bank.sourceKind === "clicker";
               const stats = statsForBank(bank);
               const analysis = bank.analysis;
+              const bankNames = new Set([bank.filename, ...(bank.aliases || [])]);
+              const resumableBankSession = resumableSessions.find((session) => session?.sourceType === "question-bank" && bankNames.has(session.sourceFile));
+              const partialScore = resumableBankSession ? scoreAnsweredQuestions(resumableBankSession) : null;
               const focusSummary = analysis?.focusCounts ? Object.entries(analysis.focusCounts).slice(0, 3).map(([label, count]) => `${label} ${count}`).join(" · ") : null;
               return (
                 <div key={bank.filename} className="flex flex-col gap-2 rounded-lg border border-border bg-panel px-3 py-2 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13px] font-medium text-text-1">{bank.displayName || cleanLectureTitle(bank.filename)}</div>
-                    <div className="font-mono text-[11px] text-text-3">{bank.questions.length} questions · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
+                    <div className="font-mono text-[11px] text-text-3">{distinctQuestionSet.questions.length} distinct questions{distinctQuestionSet.removedDuplicateCount ? ` · ${distinctQuestionSet.removedDuplicateCount} repeats skipped` : ""} · {minutes} min timed · {sourceLabel(bank.sourceKind, bank.filename)}{bank.assignedDate ? ` · assigned ${bank.assignedDate}` : ""} · {stats.attempts} attempt{stats.attempts === 1 ? "" : "s"}{stats.latest ? ` · latest ${stats.latest.score}%` : ""}{stats.improvement != null ? ` · ${stats.improvement >= 0 ? "+" : ""}${stats.improvement}% change` : ""}</div>
                     {analysis && <div className="mt-1 text-[11px] text-text-2">Analysis: {analysis.clinicalQuestionCount || 0} clinical cue item{analysis.clinicalQuestionCount === 1 ? "" : "s"} · {analysis.objectiveCount || 0} objective link{analysis.objectiveCount === 1 ? "" : "s"}{focusSummary ? ` · ${focusSummary}` : ""} · {analysis.status === "reviewed" ? "reviewed" : "source-key review ready"}</div>}
                     {stats.latest?.missed?.length > 0 && <div className="mt-1 text-[11px] text-text-2">Mental-model repair: {stats.latest.missed.length} missed concept{stats.latest.missed.length === 1 ? "" : "s"}</div>}
+                    {resumableBankSession && partialScore && <div className="mt-1 text-[11px] text-accent-text">In progress · {partialScore.answered}/{resumableBankSession.questions?.length || 0} answered{partialScore.accuracy != null ? ` · ${partialScore.accuracy}% so far (${partialScore.correct} right, ${partialScore.incorrect} wrong)` : ""}</div>}
                     {stats.attempts > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Attempt history · {stats.attempts}</summary>
                       <div className="mt-2 flex flex-wrap gap-2">{stats.history.map((attempt, index) => <Button key={attempt.session.sessionId || attempt.session.id} variant="outline" onClick={() => setActiveSessionId(attempt.session.sessionId || attempt.session.id)}>Review attempt {index + 1} · {attempt.score}%</Button>)}</div>
@@ -861,6 +871,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     </details>}
                   </div>
                   <div className="flex gap-2">
+                    {resumableBankSession && <Button variant="outline" disabled={!!bankLaunching} onClick={() => setActiveSessionId(resumableBankSession.sessionId || resumableBankSession.id)}>Resume · {partialScore?.answered || 0}/{resumableBankSession.questions?.length || 0}</Button>}
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => renameBank(bank)}>{bankEditBusy ? "Saving…" : "Rename"}</Button>
                     <Button variant="ghost" disabled={!!bankLaunching || bankEditBusy} onClick={() => scheduleBank(bank)}>{bankEditBusy ? "Saving…" : bank.assignedDate ? "Change date" : "Assign date"}</Button>
                     {stats.latest && <Button variant="ghost" onClick={() => setActiveSessionId(stats.latest.session.sessionId || stats.latest.session.id)}>Review latest</Button>}

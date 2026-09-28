@@ -294,7 +294,7 @@ describe("ExamContainer", () => {
     const bankTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Question banks"));
     await act(async () => bankTab.click());
     expect(host.textContent).toMatch(/Original question banks/);
-    expect(host.textContent).toMatch(/30 questions · 45 min timed/);
+    expect(host.textContent).toMatch(/30 distinct questions · 45 min timed/);
     const timed = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Timed quiz");
     await act(async () => timed.click());
     await flush();
@@ -305,6 +305,30 @@ describe("ExamContainer", () => {
       questions,
     }));
     expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toMatch(/bank-session/);
+    unmount();
+  });
+
+  it("shows and resumes saved question-bank progress with an honest partial score", async () => {
+    const questions = Array.from({ length: 3 }, (_, index) => ({ id: `q${index + 1}`, stem: `Unique short stem ${index + 1}?`, choices: { A: "a", B: "b" }, correct: "A" }));
+    const inProgress = {
+      sessionId: "bank-resume", sourceType: "question-bank", sourceFile: "ESoft.pdf", status: "in_progress", format: "practice",
+      questions: questions.map((question, index) => ({ ...question, questionId: `bank-q${index + 1}` })),
+      answers: [{ questionId: "bank-q1", value: "A" }, { questionId: "bank-q2", value: "B" }],
+      updatedAt: { toMillis: () => 10 },
+    };
+    questionBanksReadMock.mockReturnValue({ "ESoft.pdf": questions });
+    questionBankMetaReadMock.mockReturnValue({ bank1: { filename: "ESoft.pdf", blockId: "b1" } });
+    listExamSessionsMock.mockImplementation(async (_user, _block, filter) => filter?.status === "in_progress" ? [inProgress] : []);
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    await flush();
+    const bankTab = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Question banks"));
+    await act(async () => bankTab.click());
+    await flush();
+    expect(host.textContent).toContain("In progress · 2/3 answered · 50% so far (1 right, 1 wrong)");
+    const resume = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Resume · 2/3");
+    expect(resume).toBeTruthy();
+    await act(async () => resume.click());
+    expect(host.querySelector('[data-testid="session-runner"]')?.textContent).toContain("bank-resume");
     unmount();
   });
 
