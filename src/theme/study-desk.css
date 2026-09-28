@@ -116,6 +116,12 @@
 .desk-objective-search { min-height: 40px; min-width: 190px; flex: 1 1 220px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); padding: 8px 10px; color: var(--text-1); font-size: .82rem; }
 .desk-objective-load-more { min-height: 44px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-elevated); color: var(--accent-text); font-size: .82rem; font-weight: 700; }
 .desk-objective-load-more:hover { border-color: var(--accent); background: var(--accent-soft); }
+.desk-objective-lecture-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-items: start; }
+.desk-objective-lecture-index .desk-objective-lecture { margin-bottom: 0 !important; }
+.desk-objective-lecture-index .desk-objective-lecture-trigger { min-height: 64px !important; padding: 11px 12px !important; gap: 8px !important; }
+.desk-objective-lecture-index .desk-objective-lecture-trigger > span:first-child { min-width: 38px !important; font-size: 11px !important; }
+.desk-objective-lecture-index .desk-objective-lecture-trigger > span:nth-child(2) { display: none; }
+.desk-objective-lecture-index .desk-objective-lecture-trigger .desk-objective-count { font-size: .68rem !important; }
 .desk-objective-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
 .desk-objective-metric { min-height: 118px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); color: var(--text-1); text-align: left; transition: border-color .16s ease, transform .16s ease; }
 .desk-objective-metric:hover { border-color: var(--border-strong); transform: translateY(-1px); }
@@ -184,6 +190,7 @@
   .desk-objective-actions button { flex: 1 1 auto; }
   .desk-objective-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .desk-objective-focus { grid-template-columns: 1fr; }
+  .desk-objective-lecture-index { grid-template-columns: 1fr; }
   .desk-exam-overview { width: 100%; min-width: 0; }
   .desk-objective-metric { min-height: 104px; padding: 12px; }
   .desk-objective-lecture-trigger { flex-wrap: wrap; gap: 8px !important; }

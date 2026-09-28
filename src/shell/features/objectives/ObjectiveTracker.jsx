@@ -1196,33 +1196,35 @@ export default function ObjectiveTracker({
               <option value="objective-count">Most objectives</option><option value="lecture-order">Lecture order</option>
             </select>
           </div>
-          {filteredLectureGroups.slice(0, lectureLimit).map((group) => (
-            <LecObjectiveGroup
-              key={group.lectureId || group.activity}
-              group={group}
-              objectives={group.objectives}
-              allObjectives={objectives}
-              onSelfRate={onSelfRate}
-              onQuiz={onStartObjectiveQuiz}
-              onStudyLecture={onStudyLecture}
-              color={color}
-              T={T}
-              blockId={blockId}
-              weakCountByObjectiveId={weakCountByObjectiveId}
-              quizLoadingId={quizLoadingId}
-              quizErrorId={quizErrorId}
-              quizFlashLectureId={quizFlashLectureId}
-              getLecPerf={getLecPerf}
-              onReExtractObjectives={onReExtractObjectives}
-              reExtractingLectureId={reExtractingLectureId}
-              editingLecId={editingLecId}
-              setEditingLecId={setEditingLecId}
-              editingTitle={editingTitle}
-              setEditingTitle={setEditingTitle}
-              onRenameLecture={onRenameLecture}
-              smartTruncateTitle={smartTruncateTitle}
-            />
-          ))}
+          <div className="desk-objective-lecture-index">
+            {filteredLectureGroups.slice(0, lectureLimit).map((group) => (
+              <LecObjectiveGroup
+                key={group.lectureId || group.activity}
+                group={group}
+                objectives={group.objectives}
+                allObjectives={objectives}
+                onSelfRate={onSelfRate}
+                onQuiz={onStartObjectiveQuiz}
+                onStudyLecture={onStudyLecture}
+                color={color}
+                T={T}
+                blockId={blockId}
+                weakCountByObjectiveId={weakCountByObjectiveId}
+                quizLoadingId={quizLoadingId}
+                quizErrorId={quizErrorId}
+                quizFlashLectureId={quizFlashLectureId}
+                getLecPerf={getLecPerf}
+                onReExtractObjectives={onReExtractObjectives}
+                reExtractingLectureId={reExtractingLectureId}
+                editingLecId={editingLecId}
+                setEditingLecId={setEditingLecId}
+                editingTitle={editingTitle}
+                setEditingTitle={setEditingTitle}
+                onRenameLecture={onRenameLecture}
+                smartTruncateTitle={smartTruncateTitle}
+              />
+            ))}
+          </div>
           {filteredLectureGroups.length > lectureLimit && <button type="button" className="desk-objective-load-more" onClick={() => setLectureLimit((limit) => limit + 12)}>Show 12 more · {filteredLectureGroups.length - lectureLimit} remaining</button>}
           {filteredLectureGroups.length === 0 && (
             <p style={{ fontFamily: MONO, color: T.text3, fontSize: 16 }}>
