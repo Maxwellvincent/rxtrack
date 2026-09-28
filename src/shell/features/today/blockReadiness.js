@@ -2,8 +2,15 @@ import { confidenceAnalytics } from "../exam/confidenceAnalytics.js";
 import { blockPracticeSummary } from "./blockPractice.js";
 import { SCHOOL_EXAM_TARGET_PERCENT, SCHOOL_EXAM_TARGET_RATE } from "../../logic/performanceTargets.js";
 
-const objectiveStatus = (objective) => {
+const objectiveStatus = (objective, learnerEvidence = {}) => {
   const status = String(objective?.status || "untested").toLowerCase();
+  const evidence = learnerEvidence?.objectives?.[objective?.id];
+  // A linked question answer proves exposure, not mastery. Preserve a recorded
+  // struggling/mastered state; otherwise promote the objective from untested
+  // based on the learner's actual attempt evidence.
+  if (status === "untested" && Number(evidence?.attempts) > 0) {
+    return evidence.recent?.at(-1) === false ? "struggling" : "inprogress";
+  }
   if (status === "developing") return "inprogress";
   return ["mastered", "inprogress", "struggling"].includes(status) ? status : "untested";
 };
@@ -50,6 +57,7 @@ export function blockReadinessSummary({
   confidenceRecords = [],
   models = [],
   weakConcepts = [],
+  learnerEvidence = {},
   now = Date.now(),
 }) {
   objectives = uniqueObjectives(objectives);
@@ -57,7 +65,7 @@ export function blockReadinessSummary({
   const lecturesById = Object.fromEntries(blockLectures.map((lecture) => [lecture.id, lecture]));
   const practice = blockPracticeSummary(blockId, blockLectures, questionStats, sessions);
   const statuses = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
-  objectives.forEach((objective) => { statuses[objectiveStatus(objective)] += 1; });
+  objectives.forEach((objective) => { statuses[objectiveStatus(objective, learnerEvidence)] += 1; });
   const totalObjectives = objectives.length;
   const coveredObjectives = totalObjectives - statuses.untested;
   const confidence = confidenceAnalytics(confidenceRecords);
@@ -69,7 +77,7 @@ export function blockReadinessSummary({
   const targets = blockLectures.map((lecture) => {
     const linked = objectives.filter((objective) => objective?.linkedLecId === lecture.id);
     const counts = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
-    linked.forEach((objective) => { counts[objectiveStatus(objective)] += 1; });
+    linked.forEach((objective) => { counts[objectiveStatus(objective, learnerEvidence)] += 1; });
     const accuracy = accuracyOf(questionStats[lecture.id]);
     const modelOverdue = overdueModels.some((model) => model.lectureId === lecture.id);
     const weakFlag = weakLectureIds.has(lecture.id);

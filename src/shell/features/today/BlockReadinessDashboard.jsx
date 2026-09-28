@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listExamSessions } from "../../../supabase.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
+import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { retrievalStore } from "../../../stores/modelRetrieval.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
@@ -26,6 +27,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture }) {
   const weakConcepts = useWeakConcepts(blockId, userId);
   const retrieval = useStoreResource(retrievalStore, userId);
   const calibration = useStoreResource(calibrationStore, userId);
+  const learnerEvidence = useStoreResource(learnerEvidenceStore, userId);
   const [sessionState, setSessionState] = useState({ key: null, sessions: [], error: false });
   const [refresh, setRefresh] = useState(0);
 
@@ -60,10 +62,11 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture }) {
     confidenceRecords,
     models: Object.values(retrieval.data?.models || {}),
     weakConcepts: weakConcepts.data || [],
-  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data]);
+    learnerEvidence: learnerEvidence.data || {},
+  }), [blockId, lectures.data, objectives.data, questionStats.data, sessions, confidenceRecords, retrieval.data, weakConcepts.data, learnerEvidence.data]);
 
-  const loading = lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || sessionState.key !== requestKey;
-  const partial = lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || sessionState.error;
+  const loading = lectures.loading || objectives.loading || questionStats.loading || weakConcepts.loading || retrieval.loading || calibration.loading || learnerEvidence.loading || sessionState.key !== requestKey;
+  const partial = lectures.error || objectives.error || questionStats.error || weakConcepts.error || retrieval.error || calibration.error || learnerEvidence.error || sessionState.error;
   const trendDetail = result.trend.delta == null ? "Needs more rated answers" : `${result.trend.delta >= 0 ? "+" : ""}${Math.round(result.trend.delta * 100)} points vs prior 20`;
   const confidenceDetail = result.confidence.highCount < 10
     ? `${result.confidence.highCount} high-confidence answers recorded`
@@ -110,7 +113,7 @@ export function BlockReadinessDashboard({ blockId, userId, onStudyLecture }) {
 
     <details className="mt-3 text-sm text-text-2">
       <summary className="min-h-11 cursor-pointer py-2 font-semibold">How readiness is determined</summary>
-      <p>Coverage counts objectives that are no longer untested. Question volume includes recorded lecture, objective, homework, school-bank, and integrated-exam answers while excluding unanswered items. Confidence is the accuracy of answers rated Confident or Certain. Study-next ranking prioritizes struggling objectives, sub-benchmark practice, exam repair flags, and due mental models.</p>
+      <p>Coverage counts objectives with a linked question attempt or a recorded non-untested status. An attempt shows exposure, not mastery; mastery still requires repeated, varied evidence. Question volume excludes unanswered items. Confidence is the accuracy of answers rated Confident or Certain.</p>
     </details>
   </section>;
 }

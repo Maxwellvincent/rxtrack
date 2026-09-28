@@ -115,6 +115,7 @@ async function runLaunch(
     deps.onProgress?.({ message: `Opening with ${savedQuestions.length}/${questionCount} saved questions · generating the rest`, completed: savedQuestions.length, total: questionCount });
     const committed = await pool.commit(session);
     if (!committed.ok) return { ok: false, error: committed.error };
+    if (preparedGenerationId) await pool.finish(preparedGenerationId, { startedSessionId: sessionId, startedAt: Date.now() }).catch(() => {});
 
     void (async () => {
       let result = { questions: [], errors: [] };
@@ -132,6 +133,9 @@ async function runLaunch(
         }
       } catch (error) {
         fillError = error?.message || String(error);
+      }
+      if (preparedGenerationId && result.questions?.length) {
+        await pool.addPreparedQuestions?.(preparedGenerationId, result.questions).catch(() => {});
       }
       await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError }).catch(() => {});
       await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
@@ -212,6 +216,7 @@ async function runLaunch(
   if (!result.ok) {
     return { ok: false, error: result.error };
   }
+  if (preparedGenerationId) await pool.finish(preparedGenerationId, { startedSessionId: sessionId, startedAt: Date.now() }).catch(() => {});
 
   return { ok: true, sessionId, generationErrors, cacheHits, coverage };
   } catch (error) {

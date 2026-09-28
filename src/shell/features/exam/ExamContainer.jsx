@@ -675,11 +675,13 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         {preparedSets.length ? <ul className="mt-3 space-y-2">{preparedSets.map((set) => {
           const requested = Number(set.requestedCount) || set.questions.length;
           const available = set.questions.length;
+          const preparedCount = Number.isFinite(set.preparedCount) ? set.preparedCount : available;
+          const actualShortfall = Math.max(0, requested - preparedCount);
           return <li key={set.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
             <div>
               <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
-              <div className="text-sm text-text-2">{available}/{requested} saved questions available · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
-              {!!set.preparedQuestionIds?.length && available < requested && <div className="text-xs text-warn">{requested - available} question{requested - available === 1 ? "" : "s"} short; missing questions will be generated when started.</div>}
+              <div className="text-sm text-text-2">{available}/{requested} saved questions available{set.assignedCount ? ` · ${set.assignedCount} already used` : ""} · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              {actualShortfall > 0 && <div className="text-xs text-warn">{actualShortfall} question{actualShortfall === 1 ? "" : "s"} short of the requested set; missing questions will be generated when started.</div>}
               {confirmDeleteSetId === set.id && <div className="mt-2 rounded border border-bad/40 bg-bg-elevated p-2 text-sm text-text-2">
                 Remove this saved set and its {available} still-unused question{available === 1 ? "" : "s"}? Questions already assigned to an exam will be kept.
                 <div className="mt-2 flex flex-wrap gap-2">

@@ -49,4 +49,27 @@ describe("block readiness", () => {
     expect(result.objectives.total).toBe(1);
     expect(result.targets[0].untested).toBe(1);
   });
+
+  it("counts a linked question attempt as objective exposure without calling it mastery", () => {
+    const result = blockReadinessSummary({
+      blockId: "dm",
+      lectures: [{ id: "a", blockId: "dm", lectureTitle: "Carbohydrates" }],
+      objectives: [
+        { id: "o1", linkedLecId: "a", status: "untested" },
+        { id: "o2", linkedLecId: "a", status: "untested" },
+      ],
+      learnerEvidence: { objectives: { o1: { attempts: 1, recent: [true] } } },
+    });
+    expect(result.objectives).toMatchObject({ total: 2, covered: 1, inprogress: 1, untested: 1 });
+    expect(result.objectives.coverage).toBe(0.5);
+    expect(result.objectives.mastered).toBe(0);
+  });
+
+  it("surfaces a linked incorrect attempt as struggling exposure", () => {
+    const result = blockReadinessSummary({
+      blockId: "dm", lectures: [], objectives: [{ id: "o1", status: "untested" }],
+      learnerEvidence: { objectives: { o1: { attempts: 1, recent: [false] } } },
+    });
+    expect(result.objectives).toMatchObject({ covered: 1, struggling: 1, untested: 0 });
+  });
 });

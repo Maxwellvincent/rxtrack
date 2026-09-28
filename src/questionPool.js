@@ -41,6 +41,7 @@ export function summarizePoolRows(rows = []) {
 
 export function summarizePreparedSets(generations = [], rows = []) {
   const questionById = new Map();
+  const rowById = new Map(rows.map(row => [row.id, row]));
   const readyByGeneration = new Map();
   for (const row of rows) {
     if (row.status !== "ready" || !row.generationId || !row.question) continue;
@@ -51,11 +52,16 @@ export function summarizePreparedSets(generations = [], rows = []) {
     readyByGeneration.set(row.generationId, list);
   }
   return generations.map(generation => {
-    const questions = Array.isArray(generation.preparedQuestionIds)
-      ? generation.preparedQuestionIds.map(id => questionById.get(id)).filter(Boolean)
+    const preparedQuestionIds = Array.isArray(generation.preparedQuestionIds) ? generation.preparedQuestionIds : null;
+    const questions = preparedQuestionIds
+      ? preparedQuestionIds.map(id => questionById.get(id)).filter(Boolean)
       : readyByGeneration.get(generation.id) || [];
-    return { ...generation, questions };
-  }).filter(set => set.prepareOnly && set.questions.length)
+    const preparedCount = preparedQuestionIds?.length ?? questions.length;
+    const assignedCount = preparedQuestionIds
+      ? preparedQuestionIds.filter(id => rowById.get(id)?.status === "assigned").length
+      : 0;
+    return { ...generation, questions, preparedCount, assignedCount };
+  }).filter(set => set.prepareOnly && !set.startedSessionId && set.questions.length)
     .sort((a, b) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
 }
 
@@ -69,6 +75,17 @@ export function createQuestionPool(userId, blockId, database = db) {
         provider: "existing bridge/cloud routing", model: null, tokenUsage: null, estimatedCost: null }));
     },
     async finish(id, metadata) { await setDoc(runRef(id), clean({ ...metadata, updatedAt: Date.now() }), { merge: true }); },
+    async addPreparedQuestions(generationId, questions = []) {
+      if (!generationId || !questions.length) return;
+      const ref = runRef(generationId);
+      await runTransaction(db, async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists() || !snap.data().prepareOnly) return;
+        const ids = new Set(snap.data().preparedQuestionIds || []);
+        for (const question of questions) if (question?.poolId) ids.add(question.poolId);
+        tx.update(ref, { preparedQuestionIds: [...ids], updatedAt: Date.now() });
+      });
+    },
     async history() {
       const [sessions, calibration] = await Promise.all([
         getDocsFromServer(query(collection(db, "users", userId, "examSessions"), where("blockId", "==", blockId))),

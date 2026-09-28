@@ -79,7 +79,7 @@ export async function finalizeExamSession(
       if (question?.sourceType !== "question-bank" && question?.lectureId) {
         await recordAnswerAwait(userId, question.lectureId, wasCorrect);
       }
-      if (question?.sourceType !== "question-bank" && (question?.lectureId || question?.objectiveIds?.length)) {
+      if (question?.lectureId || question?.objectiveIds?.length) {
         await recordEvidenceAwait(userId, {
           source: "integrated-exam",
           sessionKey: session.sessionId,
