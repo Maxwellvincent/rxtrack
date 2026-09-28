@@ -13,3 +13,16 @@ export function namePreparedReplacementAttempt(baseName, sessions = []) {
   }
   return `${prefix}${highest + 1}`;
 }
+
+/** Suggest a useful launch title without making the learner type one. */
+export function suggestedExamName({ format = "exam", scopeLabel = "Block so far", questionCount = 20, now = new Date(), existingNames = [] } = {}) {
+  const kind = format === "practice" ? "Practice quiz" : "Timed exam";
+  const date = now instanceof Date ? now : new Date(now);
+  const dateLabel = new Intl.DateTimeFormat("en", { month: "short", day: "numeric", year: "numeric" }).format(date);
+  const base = `${kind} · ${scopeLabel} · ${questionCount} questions · ${dateLabel}`;
+  const names = new Set((existingNames || []).map((name) => String(name || "").trim().toLocaleLowerCase()));
+  if (!names.has(base.toLocaleLowerCase())) return base;
+  let attempt = 2;
+  while (names.has(`${base} · Set ${attempt}`.toLocaleLowerCase())) attempt += 1;
+  return `${base} · Set ${attempt}`;
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { examDurationMinutes } from "./examTiming.js";
 import { filterLecturesByScope, scopeLabel } from "../../logic/weekScope.js";
+import { suggestedExamName } from "./preparedSetNaming.js";
 
 // A full school-prep sitting can now reach 100 questions. Keeping the cap here
 // (rather than accepting an arbitrary number) still protects the generation
@@ -51,6 +52,7 @@ export function ExamLaunchModal({
   partialLaunch = null,
   onStartSaved,
   savedQuestionCount = 0,
+  existingNames = [],
 }) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -74,7 +76,7 @@ export function ExamLaunchModal({
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const [focusNotes, setFocusNotes] = useState("");
-  const [examName, setExamName] = useState("Integrated exam");
+  const [examNameOverride, setExamNameOverride] = useState(null);
 
   const availableWeeks = [...new Set(eligibleLectures.map((lecture) => lecture.weekNumber).filter((week) => week != null))]
     .sort((a, b) => Number(a) - Number(b));
@@ -87,7 +89,14 @@ export function ExamLaunchModal({
 
   const parsedCount = Math.max(1, Math.min(MAX_QUESTION_COUNT, parseInt(count, 10) || 1));
   const parsedDuration = parseFloat(duration);
-  const namePayload = examName.trim() && examName.trim() !== "Integrated exam" ? { examName: examName.trim() } : {};
+  const suggestedName = suggestedExamName({
+    format,
+    scopeLabel: scopeLabel(effectiveScope),
+    questionCount: parsedCount,
+    existingNames,
+  });
+  const examName = examNameOverride ?? suggestedName;
+  const namePayload = { examName: examName.trim() || suggestedName };
   const durationValid = format !== "exam" || (Number.isFinite(parsedDuration) && parsedDuration > 0);
 
   const datesValid = contentScope !== "custom-dates" || (rangeStart && rangeEnd && rangeStart <= rangeEnd);
@@ -177,8 +186,8 @@ export function ExamLaunchModal({
           {/* Format */}
           <div>
             <label className="mb-1 block font-mono text-[12px] font-bold uppercase tracking-wider text-text-3" htmlFor="exam-name">Quiz / exam name</label>
-            <input id="exam-name" aria-label="Quiz or exam name" value={examName} onChange={(event) => setExamName(event.target.value)} maxLength={80} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1" placeholder="e.g. Metabolism · Sep 20–23" />
-            <p className="mt-1 text-xs text-text-3">The session opens with saved questions in this scope. Missing slots generate in the background; for exam conditions, the clock starts when the requested set is ready.</p>
+            <input id="exam-name" aria-label="Quiz or exam name" value={examName} onChange={(event) => setExamNameOverride(event.target.value)} maxLength={100} className="w-full rounded border border-border bg-bg-elevated px-2 py-2 text-sm text-text-1" placeholder="Suggested from format, scope, and date" />
+            <p className="mt-1 text-xs text-text-3">Suggested from format, scope, question count, and today’s date. Edit only if you want a custom title. Saved questions open first; missing slots generate in the background.</p>
           </div>
 
           {/* Format */}

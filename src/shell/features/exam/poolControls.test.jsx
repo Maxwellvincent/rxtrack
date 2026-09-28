@@ -11,7 +11,7 @@ it("prepares the selected count without launching an exam", () => {
   act(() => root.render(<ExamLaunchModal eligibleLectures={[{ lectureId: "l", objectiveCount: 30 }]} defaultQuestionCount={30} onPrepare={onPrepare} onLaunch={onLaunch} />));
   const prepare = [...host.querySelectorAll("button")].find(b => b.textContent === "Prepare questions for later");
   act(() => prepare.click());
-  expect(onPrepare).toHaveBeenCalledWith({ format: "exam", questionCount: 30, durationMinutes: 45 });
+  expect(onPrepare).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam · Block so far · 30 questions ·/), questionCount: 30, durationMinutes: 45 }));
   expect(onLaunch).not.toHaveBeenCalled();
   act(() => root.unmount());
 });

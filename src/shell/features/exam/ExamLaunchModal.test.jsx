@@ -93,6 +93,21 @@ describe("ExamLaunchModal", () => {
     unmount();
   });
 
+  it("suggests a descriptive title and preserves a custom title", () => {
+    const onLaunch = vi.fn();
+    const { host, unmount } = render(<ExamLaunchModal eligibleLectures={ELIGIBLE} defaultQuestionCount={12} onLaunch={onLaunch} />);
+    const name = host.querySelector("#exam-name");
+    expect(name.value).toMatch(/^Timed exam · Block so far · 12 questions ·/);
+    act(() => setInputValue(name, "My custom exam"));
+    const practice = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Practice");
+    act(() => practice.click());
+    expect(name.value).toBe("My custom exam");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
+    act(() => start.click());
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ examName: "My custom exam" }));
+    unmount();
+  });
+
   it("launch button is disabled when eligibleLectures is empty, and shows the no-material message", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(
@@ -135,7 +150,7 @@ describe("ExamLaunchModal", () => {
     const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     act(() => startBtn.click());
 
-    expect(onLaunch).toHaveBeenCalledWith({ format: "practice", questionCount: 15, durationMinutes: null, startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "practice", examName: expect.stringMatching(/^Practice quiz ·/), questionCount: 15, durationMinutes: null, startWhilePreparing: true }));
 
     unmount();
   });
@@ -159,7 +174,7 @@ describe("ExamLaunchModal", () => {
     const startBtn = Array.from(host.querySelectorAll("button")).find((b) => b.textContent === "Start quiz / exam now");
     expect(startBtn.disabled).toBe(false);
     act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 20, durationMinutes: 30, startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 20, durationMinutes: 30, startWhilePreparing: true }));
 
     unmount();
   });
@@ -173,7 +188,7 @@ describe("ExamLaunchModal", () => {
     expect(host.textContent).toContain("fresh retest");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", studyMode: "repair", questionCount: 10, durationMinutes: 15, startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), studyMode: "repair", questionCount: 10, durationMinutes: 15, startWhilePreparing: true }));
     unmount();
   });
 
@@ -236,7 +251,7 @@ describe("ExamLaunchModal", () => {
     expect(durationInput.value).toBe("22.5");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 22.5, startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 15, durationMinutes: 22.5, startWhilePreparing: true }));
     unmount();
   });
 
@@ -257,7 +272,7 @@ describe("ExamLaunchModal", () => {
     expect(inputs[1].value).toBe("150");
     const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 100, durationMinutes: 150, startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 100, durationMinutes: 150, startWhilePreparing: true }));
     unmount();
   });
 
@@ -285,7 +300,7 @@ describe("ExamLaunchModal", () => {
     act(() => setInputValue(durationInput, "60"));
     expect(startBtn.disabled).toBe(false);
     act(() => startBtn.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 15, durationMinutes: 60, startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), questionCount: 15, durationMinutes: 60, startWhilePreparing: true }));
 
     unmount();
   });
@@ -327,7 +342,7 @@ describe("ExamLaunchModal", () => {
     expect(host.textContent).toContain("7 objectives across 1 lectures");
     const start = [...host.querySelectorAll("button")].find(button => button.textContent === "Start quiz / exam now");
     act(() => start.click());
-    expect(onLaunch).toHaveBeenCalledWith({ format: "exam", questionCount: 10, durationMinutes: 15, weekNumber: "2", startWhilePreparing: true });
+    expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam · Week 2 ·/), questionCount: 10, durationMinutes: 15, weekNumber: "2", startWhilePreparing: true }));
     unmount();
   });
 

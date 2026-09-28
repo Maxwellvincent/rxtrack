@@ -703,6 +703,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           error={launchError}
           partialLaunch={partialLaunch}
           savedQuestionCount={questionReserve.ready}
+          existingNames={[...preparedSets.map(set => set.examName), ...resumableSessions.map(session => session.title)]}
           onStartSaved={(config) => handleLaunch({ ...config, startWhilePreparing: true })}
           onPrepare={prepareQuestions}
         />
