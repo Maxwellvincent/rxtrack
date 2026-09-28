@@ -1072,10 +1072,38 @@ export default function ObjectiveTracker({
     return `${l.lectureType || "LEC"} ${l.lectureNumber ?? ""} — ${title || "No title"}`;
   };
 
+  const testedCount = totalAll - countUntested;
+  const coveragePercent = totalAll ? Math.round((testedCount / totalAll) * 100) : 0;
+  const focusCount = countStruggling + countUntested;
+
   return (
     <div className="desk-objectives" style={{ display: "flex", flexDirection: "column", gap: 16, padding: "0 4px 24px" }}>
       <style>{`@keyframes rxtObjSpin { to { transform: rotate(360deg); } }`}</style>
       {headerActions && <div className="desk-objective-actions">{headerActions}</div>}
+      <section className="desk-objectives-hero" aria-labelledby="objective-command-title">
+        <div className="desk-objectives-hero-copy">
+          <div className="today-eyebrow">Objective command center</div>
+          <h3 id="objective-command-title">Turn the syllabus into your next move.</h3>
+          <p>Repair misses first, expose untested objectives second, then use coverage to decide where another question set will pay off.</p>
+        </div>
+        <div className="desk-objectives-hero-meta">
+          <strong>{focusCount}</strong>
+          <span>priority objectives</span>
+          <div className="desk-objectives-hero-progress"><span style={{ width: `${coveragePercent}%` }} /></div>
+          <small>{coveragePercent}% seen at least once</small>
+        </div>
+      </section>
+      <section className="desk-objective-focus" aria-label="Objective study paths">
+        <button type="button" className="desk-objective-focus-card desk-objective-focus-card--repair" onClick={() => { setSubView("status"); setStatusFilter("struggling"); }}>
+          <span>01 · Repair</span><strong>{countStruggling}</strong><small>Missed or unstable objectives</small><em>Open repair queue →</em>
+        </button>
+        <button type="button" className="desk-objective-focus-card desk-objective-focus-card--first" onClick={() => { setSubView("status"); setStatusFilter("untested"); }}>
+          <span>02 · First pass</span><strong>{countUntested}</strong><small>Objectives without evidence</small><em>Start first-pass review →</em>
+        </button>
+        <button type="button" className="desk-objective-focus-card desk-objective-focus-card--coverage" onClick={() => setSubView("coverage")}>
+          <span>03 · Coverage</span><strong>{coveragePercent}%</strong><small>{testedCount} of {totalAll} linked objectives seen</small><em>Inspect lecture coverage →</em>
+        </button>
+      </section>
       <section className="desk-objective-summary" aria-label="Objective readiness summary">
         {[
           { label: "School objectives", value: totalAll + unlinkedCount, note: `${blockLectures.length} lectures`, view: "lecture" },

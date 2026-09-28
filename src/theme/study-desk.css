@@ -91,6 +91,25 @@
 .desk-objective-actions > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px !important; }
 .desk-objective-actions button { min-height: 40px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--bg-elevated); font-family: var(--font-sans) !important; font-size: .8125rem !important; }
 .desk-objective-actions button:hover { border-color: var(--border-strong); background: var(--panel); }
+.desk-objectives-hero { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 22px 24px; border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border)); border-radius: 18px; background: radial-gradient(circle at 88% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 42%), var(--bg-elevated); }
+.desk-objectives-hero-copy { max-width: 650px; }
+.desk-objectives-hero-copy h3 { margin-top: 5px; color: var(--text-1); font-size: clamp(1.45rem, 3vw, 2.15rem); font-weight: 800; letter-spacing: -.055em; line-height: 1.05; }
+.desk-objectives-hero-copy p { margin-top: 10px; color: var(--text-2); font-size: .86rem; line-height: 1.55; }
+.desk-objectives-hero-meta { min-width: 170px; padding: 12px 14px; border-radius: 12px; background: var(--panel); }
+.desk-objectives-hero-meta strong { display: block; color: var(--text-1); font-size: 1.7rem; letter-spacing: -.05em; }
+.desk-objectives-hero-meta span, .desk-objectives-hero-meta small { display: block; color: var(--text-3); font-size: .7rem; }
+.desk-objectives-hero-progress { height: 6px; margin: 10px 0 6px; overflow: hidden; border-radius: 999px; background: var(--border); }
+.desk-objectives-hero-progress span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.desk-objective-focus { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.desk-objective-focus-card { display: flex; min-height: 138px; flex-direction: column; align-items: flex-start; padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); color: var(--text-1); text-align: left; transition: transform .16s ease, border-color .16s ease, box-shadow .16s ease; }
+.desk-objective-focus-card:hover { border-color: var(--border-strong); box-shadow: 0 10px 24px color-mix(in srgb, var(--text-1) 7%, transparent); transform: translateY(-1px); }
+.desk-objective-focus-card > span { color: var(--text-3); font-size: .7rem; font-weight: 750; letter-spacing: .04em; text-transform: uppercase; }
+.desk-objective-focus-card > strong { margin-top: 8px; font-size: 1.8rem; letter-spacing: -.05em; }
+.desk-objective-focus-card > small { color: var(--text-2); font-size: .76rem; }
+.desk-objective-focus-card > em { margin-top: auto; color: var(--accent-text); font-size: .74rem; font-style: normal; font-weight: 700; }
+.desk-objective-focus-card--repair { border-top: 3px solid var(--bad); }
+.desk-objective-focus-card--first { border-top: 3px solid var(--status-amber); }
+.desk-objective-focus-card--coverage { border-top: 3px solid var(--status-blue); }
 .desk-objective-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 10px; }
 .desk-objective-metric { min-height: 118px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--bg-elevated); color: var(--text-1); text-align: left; transition: border-color .16s ease, transform .16s ease; }
 .desk-objective-metric:hover { border-color: var(--border-strong); transform: translateY(-1px); }
@@ -123,6 +142,8 @@
   .desk-header, .desk-tabs { padding-inline: 20px; }
   .desk-tab { padding-inline: 12px; }
   .desk-objective-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .desk-objectives-hero { align-items: flex-start; flex-direction: column; }
+  .desk-objectives-hero-meta { width: 100%; }
   .today-layout { grid-template-columns: minmax(0, 1.2fr) minmax(280px, .8fr); }
 }
 @media (max-width: 760px) {
@@ -156,6 +177,7 @@
   .desk-objective-actions > div { width: 100%; justify-content: flex-start; }
   .desk-objective-actions button { flex: 1 1 auto; }
   .desk-objective-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .desk-objective-focus { grid-template-columns: 1fr; }
   .desk-exam-overview { width: 100%; min-width: 0; }
   .desk-objective-metric { min-height: 104px; padding: 12px; }
   .desk-objective-lecture-trigger { flex-wrap: wrap; gap: 8px !important; }

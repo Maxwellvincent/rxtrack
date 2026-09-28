@@ -49,9 +49,10 @@ export function ObjectivesContainer({
   return (
     <div className="desk-page desk-objectives-page mx-auto w-full max-w-6xl p-4 sm:p-5">
       <div className="desk-page-heading mb-4">
+        <div className="today-eyebrow">Study map</div>
         <h2 className="text-2xl font-bold text-text-1">Objectives</h2>
         <p className="mt-1 text-sm text-text-3">
-          {objectives.length} school objectives across {blockLectures.length} lectures. Start with gaps, then inspect coverage.
+          {objectives.length} school objectives across {blockLectures.length} lectures. Use the command center to choose your next question set, then inspect the underlying evidence.
         </p>
       </div>
       {error && (
