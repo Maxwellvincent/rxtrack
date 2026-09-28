@@ -325,6 +325,13 @@ export function LectureList({
     return Object.fromEntries(ACTIVITY_TYPES.map((type) => [type, type === "all" ? all.length : all.filter((row) => row.type === type).length]));
   }, [scores, context.completion, blockId]);
   const visibleRows = weekRows.slice(0, visibleCount);
+  const questionTotals = useMemo(() => (context.lectures || []).filter((lecture) => lecture.blockId === blockId).reduce((out, lecture) => {
+    const stat = questionStats.data?.[lecture.id];
+    out.answered += stat?.answered || 0;
+    out.correct += stat?.correct || 0;
+    return out;
+  }, { answered: 0, correct: 0 }), [context.lectures, blockId, questionStats.data]);
+  const questionAccuracy = questionTotals.answered ? Math.round((questionTotals.correct / questionTotals.answered) * 100) : null;
 
   useEffect(() => setVisibleCount(30), [filter, activityType, search, sort, week, blockId]);
 
@@ -395,7 +402,7 @@ export function LectureList({
           <h2 className="text-2xl font-bold text-text-1">Lectures</h2>
           <div className="text-sm text-text-3">Find the next useful lecture, not another endless list.</div>
         </div>
-        <div className="desk-count-summary text-sm text-text-2"><strong>{counts.active}</strong> active · <strong>{counts.done}</strong> complete · {counts.all} total</div>
+        <div className="desk-count-summary text-sm text-text-2"><strong>{counts.active}</strong> active · <strong>{counts.done}</strong> complete · {counts.all} total · <strong>{questionTotals.answered.toLocaleString()}</strong> questions completed{questionAccuracy == null ? "" : ` · ${questionAccuracy}% accuracy`}</div>
       </div>
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}

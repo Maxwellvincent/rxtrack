@@ -5,9 +5,10 @@
  * gets everything it used to get from App.jsx from `useObjectivesController`
  * instead — store hooks + the pure commands in shell/logic.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import ObjectiveTracker from "./ObjectiveTracker.jsx";
 import { useObjectivesController } from "./useObjectivesController.js";
+import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 
 export function ObjectivesContainer({
   blockId,
@@ -33,6 +34,13 @@ export function ObjectivesContainer({
     blockId,
     userId
   );
+  const questionStats = useLectureQuestionStats(userId);
+  const practice = useMemo(() => (blockLectures || []).reduce((out, lecture) => {
+    const row = questionStats.data?.[lecture.id];
+    out.answered += row?.answered || 0;
+    out.correct += row?.correct || 0;
+    return out;
+  }, { answered: 0, correct: 0 }), [blockLectures, questionStats.data]);
 
   if (loading && !objectives.length) {
     return <div className="rounded-lg border border-border p-4 text-sm text-text-3">Syncing objectives…</div>;
@@ -65,7 +73,9 @@ export function ObjectivesContainer({
       setEditingLecId={setEditingLecId}
       editingTitle={editingTitle}
       setEditingTitle={setEditingTitle}
-      smartTruncateTitle={smartTruncateTitle}
+          smartTruncateTitle={smartTruncateTitle}
+      practiceAnswered={practice.answered}
+      practiceAccuracy={practice.answered ? practice.correct / practice.answered : null}
       onStartObjectiveQuiz={onStartObjectiveQuiz}
       onStudyLecture={onStudyLecture}
       quizLoadingId={quizLoadingId}

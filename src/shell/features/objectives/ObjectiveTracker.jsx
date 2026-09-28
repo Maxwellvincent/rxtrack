@@ -772,6 +772,8 @@ export default function ObjectiveTracker({
   setEditingTitle = null,
   onRenameLecture = null,
   smartTruncateTitle = null,
+  practiceAnswered = 0,
+  practiceAccuracy = null,
 }) {
   const theme = useTheme();
   const T = TProp ?? theme.T;
@@ -1071,6 +1073,7 @@ export default function ObjectiveTracker({
           { label: "Developing", value: countInprogress, note: "Building consistency", view: "status", filter: "inprogress" },
           { label: "Mastered", value: countMastered, note: "Current evidence", view: "status", filter: "mastered" },
           { label: "Unlinked", value: unlinkedCount, note: "Needs lecture match", view: unlinkedCount ? "unlinked" : "coverage" },
+          { label: "Practice questions", value: practiceAnswered.toLocaleString(), note: practiceAccuracy == null ? "No quiz evidence yet" : `${Math.round(practiceAccuracy * 100)}% accuracy`, view: "lecture" },
         ].map((metric) => (
           <button
             key={metric.label}

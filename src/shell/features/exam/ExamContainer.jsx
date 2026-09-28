@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
+import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { dedupeByText, selectBlockObjectives } from "../../logic/objectives.js";
 import { statsForLecture } from "../../../stores/lectureQuestionStats.js";
 import * as weakConceptsStore from "../../../stores/weakConcepts.js";
@@ -125,8 +126,10 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
 
   const lecturesRes = useLectures(blockId, userId);
   const objectivesRes = useObjectives(null, userId);
+  const questionStats = useLectureQuestionStats(userId);
 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
+  const completedQuestionTotal = useMemo(() => lectures.reduce((sum, lecture) => sum + (questionStats.data?.[lecture.id]?.answered || 0), 0), [lectures, questionStats.data]);
 
   const objectives = useMemo(
     () => dedupeByText(selectBlockObjectives(objectivesRes.data, blockId)),
@@ -655,6 +658,11 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         <div>
           <h2 className="text-2xl font-bold text-text-1">Integrated exam center</h2>
           <p className="mt-1 text-sm text-text-3">School banks for faithful practice. Integrated exams for fresh readiness checks.</p>
+        </div>
+        <div className="desk-exam-overview" aria-label="Exam study overview">
+          <div><strong>{completedQuestionTotal.toLocaleString()}</strong><span>study questions completed</span></div>
+          <div><strong>{questionReserve.loading ? "—" : questionReserve.ready.toLocaleString()}</strong><span>prepared questions</span></div>
+          <div><strong>{resumableSessions.length}</strong><span>in progress</span></div>
         </div>
         <div className="flex items-center gap-3">
           <label className="flex items-center gap-1.5 font-mono text-[12px] text-text-3">

@@ -7,7 +7,7 @@ import { SchoolAlignmentPanel } from "./SchoolAlignmentPanel.jsx";
 import { SCHOOL_EXAM_TARGET_PERCENT } from "../../logic/performanceTargets.js";
 
 const percent = (n) => n == null ? "—" : `${(n * 100).toFixed(1)}%`;
-export function BlockPracticeCard({ blockId, userId }) {
+export function BlockPracticeCard({ blockId, userId, compact = false }) {
   const lectures = useLectures(blockId, userId);
   const stats = useLectureQuestionStats(userId);
   const [history, setHistory] = useState({ blockId: null, sessions: [], loading: true, error: false });
@@ -23,6 +23,19 @@ export function BlockPracticeCard({ blockId, userId }) {
   const result = blockPracticeSummary(blockId, lectures.data, stats.data, history.blockId === blockId ? history.sessions : []);
   const loading = stats.loading || history.loading || history.blockId !== blockId;
   const gap = result.accuracy == null ? null : (result.accuracy * 100 - SCHOOL_EXAM_TARGET_PERCENT);
+  if (compact) return <section aria-label="Block question progress" className="desk-practice rounded-lg border border-border bg-bg-elevated p-4">
+    <div className="flex items-start justify-between gap-3">
+      <div><div className="today-eyebrow">Practice pulse</div><h3 className="mt-1 text-base font-semibold">Questions completed</h3></div>
+      <span className="today-signal-dot" aria-hidden="true" />
+    </div>
+    <div className="today-mini-metrics mt-3">
+      <div><strong>{loading ? "—" : result.answered.toLocaleString()}</strong><span>completed</span></div>
+      <div><strong>{loading ? "—" : result.correct.toLocaleString()}</strong><span>correct</span></div>
+      <div><strong>{loading ? "—" : percent(result.accuracy)}</strong><span>accuracy</span></div>
+    </div>
+    {history.error && <p role="alert" className="mt-3 text-xs text-text-2">Exam history unavailable; lecture totals are shown.</p>}
+    <details className="mt-2 text-xs text-text-2"><summary className="min-h-9 cursor-pointer py-2">How this is counted</summary><p>Saved lecture quizzes and submitted exam answers, with overlapping records removed.</p></details>
+  </section>;
   return <section aria-label="Block question progress" className="desk-practice rounded-lg border border-border bg-bg-elevated p-4">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <h3 className="text-base font-semibold">This block · question progress</h3>
