@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { extractTypedHighYield, buildExtractionWindows } from "./extractHighYield.js";
+import { extractTypedHighYield, buildExtractionWindows, extractionDeadlineMs } from "./extractHighYield.js";
 
 const longText = "Endocrine physiology. ".repeat(30); // > 200 chars
 
@@ -39,6 +39,21 @@ describe("extractTypedHighYield", () => {
     expect(windows.length).toBeGreaterThan(3);
     expect(windows[0]).toContain("LECTURE SEGMENT 1");
     expect(windows.at(-1)).toContain("LECTURE SEGMENT");
+  });
+  it("scales the total deadline for segmented decks while keeping a bounded per-window bridge timeout", () => {
+    expect(extractionDeadlineMs(1, 300_000)).toBe(360_000);
+    expect(extractionDeadlineMs(3, 300_000)).toBe(960_000);
+  });
+  it("keeps facts from completed segments and reports a later segment failure", async () => {
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ atoms: [{ type: "definition", term: "Heme", content: "An iron-containing porphyrin." }] })
+      .mockRejectedValue(new Error("local model unavailable"));
+    const progress = vi.fn();
+    const result = await extractTypedHighYield("Heme degradation. ".repeat(1500), {}, { callAIJSON, onProgress: progress });
+    expect(result.atoms).toHaveLength(1);
+    expect(result.warning).toMatch(/facts were kept/i);
+    expect(result.error).toBeUndefined();
+    expect(progress).toHaveBeenCalledWith(expect.stringMatching(/segment 1\/\d/i));
   });
   it("preserves provider errors rather than calling them empty lectures", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("AI usage limit reached"));

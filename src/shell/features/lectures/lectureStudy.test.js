@@ -119,6 +119,20 @@ describe("extractAtoms", () => {
     expect(result.saveError).toBe("permission denied");
   });
 
+  it("persists recovered atoms when a later lecture segment fails", async () => {
+    const callAIJSON = vi.fn()
+      .mockResolvedValueOnce({ atoms: [{ type: "definition", term: "Heme", content: "An iron-containing porphyrin." }] })
+      .mockRejectedValue(new Error("local model unavailable"));
+    const saveAtoms = vi.fn().mockResolvedValue({ saved: 1 });
+    const result = await extractAtoms({ id: "heme", lectureTitle: "Heme Degradation" }, "Heme degradation. ".repeat(1500), {
+      callAIJSON, saveAtoms, userId: "u1",
+    });
+    expect(result.atoms).toHaveLength(1);
+    expect(result.warning).toMatch(/facts were kept/i);
+    expect(result.saved).toBe(true);
+    expect(saveAtoms).toHaveBeenCalledWith("u1", "heme", result.atoms);
+  });
+
   it("reports too-short text and an empty extraction", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ atoms: [] });
     expect((await extractAtoms({ id: "l" }, "short", { callAIJSON })).error).toMatch(/Not enough lecture text/);

@@ -73,7 +73,7 @@ export async function loadLecture(lecture, { fetchContent, userId }) {
  * A save failure does not lose the atoms — they come back either way.
  */
 export async function extractAtoms(lecture, text, deps = {}) {
-  const { callAIJSON, saveAtoms, userId, objectives = [] } = deps;
+  const { callAIJSON, saveAtoms, userId, objectives = [], onProgress } = deps;
   const slideObjectiveCodes = extractSlideObjectiveEvidence(lecture?.chunks || [], objectives)
     .flatMap((slide) => slide.codes);
   const result = await extractTypedHighYield(
@@ -84,7 +84,7 @@ export async function extractAtoms(lecture, text, deps = {}) {
       objectives,
       slideObjectiveCodes,
     },
-    { callAIJSON }
+    { callAIJSON, onProgress }
   );
   if (result.error) return { atoms: result.atoms || [], error: result.error, saved: false };
 
@@ -100,7 +100,7 @@ export async function extractAtoms(lecture, text, deps = {}) {
       return { atoms, error: null, saved: false, saveError: e?.message || String(e) };
     }
   }
-  return { atoms, error: null, saved };
+  return { atoms, error: null, warning: result.warning || null, saved };
 }
 
 /**

@@ -947,7 +947,7 @@ export function LectureStudyFlow({
       // Defer persistence until after objective tagging so this extraction
       // writes the lecture's atom document only once.
       const r = await extractAtoms(lecture, sourceText, {
-        callAIJSON, userId, objectives: objectivesForTagging,
+        callAIJSON, userId, objectives: objectivesForTagging, onProgress: setBusy,
       });
       if (r.error) {
         const suffix = /timed out/i.test(r.error)
@@ -969,6 +969,7 @@ export function LectureStudyFlow({
       catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || String(e)}`); }
       setAtoms(finalAtoms);
       setStage("quiz");
+      if (r.warning) setError(r.warning);
       // Update cross-lecture atom index (non-blocking, non-critical)
       try { atomTermIndex.upsertLectureAtoms(userId, blockId, lecture?.id, finalAtoms); } catch { /* ok */ }
     } catch (e) {

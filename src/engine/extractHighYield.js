@@ -13,6 +13,9 @@ import { withDeadline } from "../asyncDeadline.js";
 // failure even when the bridge was healthy and still processing the request.
 export const EXTRACTION_TIMEOUT_MS = 360_000;
 export const EXTRACTION_BRIDGE_TIMEOUT_MS = 300_000;
+export function extractionDeadlineMs(windowCount, bridgeTimeoutMs = EXTRACTION_BRIDGE_TIMEOUT_MS) {
+  return Math.max(EXTRACTION_TIMEOUT_MS, Math.max(1, Number(windowCount) || 1) * (bridgeTimeoutMs + 20_000));
+}
 
 // Preserve the beginning, middle, and end of long slide decks in one request. The old
 // first-or-tail strategy silently dropped clinical features placed in the middle of a lecture.
@@ -73,9 +76,10 @@ export async function extractTypedHighYield(lectureText, lecInfo = {}, deps = {}
     // A bounded response keeps the local 8B model responsive while still
     // leaving room for the separate detail arrays on each atom.
     maxTokens = 2500,
-    timeoutMs = EXTRACTION_TIMEOUT_MS,
+    timeoutMs = null,
     bridgeTimeoutMs = EXTRACTION_BRIDGE_TIMEOUT_MS,
     signal: parentSignal,
+    onProgress,
   } = deps;
   const fullText = String(lectureText || "");
   if (fullText.length < 200) return { error: "Not enough lecture text — re-upload/convert the PDF first.", atoms: [] };
@@ -128,19 +132,21 @@ ${text}`;
     return normalizeResponse(result);
   };
 
+  const evidenceWindows = buildExtractionWindows(fullText, 8000, 4);
+  const deadline = timeoutMs ?? extractionDeadlineMs(evidenceWindows.length, bridgeTimeoutMs);
+  let atoms = [];
+  let completedWindows = 0;
   try {
     return await withDeadline(async (signal) => {
-      // Keep ordinary lecture decks in one context window. Multiple local
-      // Ollama generations are much slower than one bounded pass and can
-      // exceed the extraction deadline before the deck is fully covered.
-      const evidenceWindows = buildExtractionWindows(fullText, 8000, 4);
-      let atoms = [];
       let firstError = null;
       let firstAttemptCompleted = false;
       for (const [index, evidenceWindow] of evidenceWindows.entries()) {
+        onProgress?.(`Extracting lecture segment ${index + 1}/${evidenceWindows.length}…`);
         try {
           atoms.push(...await runWindow(evidenceWindow, false, signal));
           firstAttemptCompleted = true;
+          completedWindows++;
+          onProgress?.(`Segment ${index + 1}/${evidenceWindows.length} complete · ${normalizeHighYield(atoms).length} facts so far`);
         } catch (error) {
           firstError ||= error;
         }
@@ -155,10 +161,14 @@ ${text}`;
           }
         }
       }
-      if (!atoms.length && firstError) throw firstError;
-      return { atoms: normalizeHighYield(atoms) };
-    }, timeoutMs, parentSignal, "Lecture extraction");
+      const normalized = normalizeHighYield(atoms);
+      if (!normalized.length && firstError) throw firstError;
+      if (firstError) return { atoms: normalized, warning: `Some lecture segments could not be extracted (${completedWindows}/${evidenceWindows.length} completed). The recovered facts were kept; retry extraction to fill the gaps.` };
+      return { atoms: normalized };
+    }, deadline, parentSignal, "Lecture extraction");
   } catch (e) {
+    const partial = normalizeHighYield(atoms);
+    if (partial.length) return { atoms: partial, warning: `${e?.message || String(e)} Recovered facts from ${completedWindows}/${evidenceWindows.length} lecture segments; those facts were kept.` };
     return { error: e?.message || String(e), atoms: [] };
   }
 }
