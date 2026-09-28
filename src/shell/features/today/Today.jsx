@@ -4,7 +4,7 @@ import { useToday } from "./useToday.js";
 import { ModelRetrievalCard } from "./ModelRetrievalCard.jsx";
 import { SchoolReviewCard } from "./SchoolReviewCard.jsx";
 import { DailyQuestionScore } from "./DailyQuestionScore.jsx";
-import { BlockPracticeCard } from "./BlockPracticeCard.jsx";
+import { CompactQuestionProgress } from "./BlockPracticeCard.jsx";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
 import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
@@ -1098,7 +1098,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         <aside className="today-side-column">
           <section className="today-section-heading today-section-heading--side"><div><div className="today-eyebrow">Signals</div><h3>Study pulse</h3></div></section>
           <DailyQuestionScore userId={userId} blockId={blockId} />
-          <BlockPracticeCard compact userId={userId} blockId={blockId} />
+          <CompactQuestionProgress userId={userId} blockId={blockId} />
           <SchoolReviewCard blockId={blockId} userId={userId} examDate={examDate} onOpenExam={onOpenExam} />
           <ModelRetrievalCard key={`${userId}:${blockId}`} userId={userId} blockId={blockId} examDate={examDate} />
           {effectiveMode && <RoutineSchedulePanel mode={effectiveMode} wakeTime={wakeTime} lecConfig={lecConfig} />}

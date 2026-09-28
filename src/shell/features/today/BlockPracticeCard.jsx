@@ -7,6 +7,30 @@ import { SchoolAlignmentPanel } from "./SchoolAlignmentPanel.jsx";
 import { SCHOOL_EXAM_TARGET_PERCENT } from "../../logic/performanceTargets.js";
 
 const percent = (n) => n == null ? "—" : `${(n * 100).toFixed(1)}%`;
+export function CompactQuestionProgress({ blockId, userId }) {
+  const lectures = useLectures(blockId, userId);
+  const stats = useLectureQuestionStats(userId);
+  const result = (lectures.data || []).reduce((out, lecture) => {
+    const row = stats.data?.[lecture.id];
+    out.answered += row?.answered || 0;
+    out.correct += row?.correct || 0;
+    return out;
+  }, { answered: 0, correct: 0 });
+  const loading = lectures.loading || stats.loading;
+  return <section aria-label="Block question progress" className="desk-practice rounded-lg border border-border bg-bg-elevated p-4">
+    <div className="flex items-start justify-between gap-3">
+      <div><div className="today-eyebrow">Practice pulse</div><h3 className="mt-1 text-base font-semibold">Questions completed</h3></div>
+      <span className="today-signal-dot" aria-hidden="true" />
+    </div>
+    <div className="today-mini-metrics mt-3">
+      <div><strong>{loading ? "—" : result.answered.toLocaleString()}</strong><span>completed</span></div>
+      <div><strong>{loading ? "—" : result.correct.toLocaleString()}</strong><span>correct</span></div>
+      <div><strong>{loading ? "—" : percent(result.answered ? result.correct / result.answered : null)}</strong><span>accuracy</span></div>
+    </div>
+    <p className="mt-2 text-xs text-text-2">Saved lecture-quiz attempts for this block.</p>
+  </section>;
+}
+
 export function BlockPracticeCard({ blockId, userId, compact = false }) {
   const lectures = useLectures(blockId, userId);
   const stats = useLectureQuestionStats(userId);
