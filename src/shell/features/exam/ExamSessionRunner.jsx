@@ -32,6 +32,7 @@ import { ERROR_REASONS, extractLeadIn } from "./questionReading.js";
 import { orderedChoiceEntries } from "./choiceOrder.js";
 import { printQuestionWorksheet } from "./questionWorksheet.js";
 import { recordReflection } from "../../../stores/learnerEvidence.js";
+import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../../../engine/questionOrder.js";
 
 function sessionLabel(session) {
   if (session.sourceType !== "question-bank") return "Exam";
@@ -84,6 +85,9 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
   return (
     <div className="mb-2 flex flex-wrap gap-1.5 font-mono text-[11px] text-text-3">
       {question?.difficulty && <span className="rounded border border-border px-1.5 py-0.5">{question.difficulty}</span>}
+      <span className="rounded border border-border px-1.5 py-0.5" title="Structural reasoning level, inferred from the question and objective; not a measure of medical correctness">
+        {QUESTION_ORDER_LABELS[question?.orderLevel || classifyQuestionOrder(question, objectivesById[question?.objectiveIds?.[0]])]}
+      </span>
       <span className="max-w-full rounded border border-border px-1.5 py-0.5">Lecture: {lectureLabel || lectureId || "not linked"}</span>
       {objectiveLabels.map((label, index) => <span key={`${question.questionId}-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title={label}>Objective: {label}</span>)}
       {!objectiveCount && <span className="max-w-full rounded border border-border px-1.5 py-0.5">Objective: not linked yet</span>}

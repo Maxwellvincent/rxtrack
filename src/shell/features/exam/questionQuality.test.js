@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity } from "./questionQuality.js";
+import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 
 describe("question quality", () => {
   it("detects paraphrased stems sharing the same clinical concepts", () => {
@@ -15,5 +15,12 @@ describe("question quality", () => {
     const recall = { stem: "What is TSH?", choices: { A: "a", B: "b" } };
     expect(schoolStyleSimilarity(styled, [exemplar])).toBeGreaterThan(schoolStyleSimilarity(recall, [exemplar]));
     expect(schoolStyleSimilarity(styled, [exemplar])).toBeLessThan(95); // One example cannot certify bank-wide equivalence.
+  });
+
+  it("rejects meta-questions that test the wording of an objective", () => {
+    expect(questionQualityIssues({ stem: "Which portion of the gastrointestinal tract is explicitly identified in the supplied lecture objective?" }))
+      .toContain("asks about objective wording instead of testing the medical concept");
+    expect(questionQualityIssues({ stem: "A patient has abdominal pain after a fructose-rich meal. Which transporter is impaired?" }))
+      .not.toContain("asks about objective wording instead of testing the medical concept");
   });
 });

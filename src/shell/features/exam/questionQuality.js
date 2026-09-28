@@ -85,6 +85,9 @@ export function questionQualityIssues(question, objectives = []) {
   if (new Set(choices).size !== choices.length) issues.push("duplicate answer choices");
 
   const stem = String(question?.stem || "");
+  if (/\b(?:explicitly identified|stated|listed|mentioned)\s+(?:in|by)\s+(?:the\s+)?(?:supplied\s+)?(?:lecture\s+)?(?:learning\s+)?objective\b|\baccording to the (?:lecture|learning) objective\b/i.test(stem)) {
+    issues.push("asks about objective wording instead of testing the medical concept");
+  }
   const sentences = stem.split(/(?<=[.!?])\s+/).map(normalize).filter(s => s.split(" ").length >= 6);
   if (new Set(sentences).size !== sentences.length) issues.push("repeated sentence in stem");
 

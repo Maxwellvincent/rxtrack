@@ -329,6 +329,10 @@ describe("generateFromAtoms", () => {
     expect(p).toContain("Dopamine inhibits");
     expect(p).toMatch(/one question per fact/i);
   });
+  it("explicitly prohibits testing objective wording instead of medicine", () => {
+    expect(buildAtomQuestionsPrompt({ atoms, objectives: [{ id: "o1", objective: "Explain a pathway" }] }))
+      .toMatch(/Never ask what an objective says/i);
+  });
   it("generates + normalizes questions from atoms", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({
       questions: [{ stem: "A slide shows dilated axon terminals...?", choices: { A: "Herring bodies", B: "x", C: "y", D: "z" }, correct: "A", explanation: "e" }],

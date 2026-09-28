@@ -12,4 +12,9 @@ describe("lecture labels", () => {
       .toBe("DLA 1 · Structure and Function");
     expect(cleanLectureTitle("Liver Function Tests.pdf")).toBe("Liver Function Tests");
   });
+
+  it("does not expose a conflicting number embedded in the title", () => {
+    expect(formatLectureLabel({ lectureType: "LEC", lectureNumber: 26, lectureTitle: "Lec 25 - Exocrine Pancreas.pdf" }))
+      .toBe("LEC 26 · Exocrine Pancreas");
+  });
 });

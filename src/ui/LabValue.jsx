@@ -234,7 +234,7 @@ function LabPopover({ lab, value, onClose }) {
   );
 }
 
-export function LabAnnotatedText({ text, className, highlights, onHighlight, onRemoveHighlight, annotateLabs = true }) {
+export function LabAnnotatedText({ text, className, highlights, onHighlight, onRemoveHighlight, annotateLabs = true, showInlineLabRanges = false }) {
   const [openIdx, setOpenIdx] = useState(null);
   const containerRef = useRef(null);
   const selectionClick = useRef(false);
@@ -274,6 +274,10 @@ export function LabAnnotatedText({ text, className, highlights, onHighlight, onR
           );
         }
         if (p.type === "text") return <span key={i}>{p.content}</span>;
+        const isHigh = p.value > p.lab.high;
+        const isLow = p.lab.low > 0 && p.value < p.lab.low;
+        const status = isHigh ? "high" : isLow ? "low" : "in range";
+        const normalRange = `${p.lab.low}–${p.lab.high === 999 ? "∞" : p.lab.high}${p.lab.unit ? ` ${p.lab.unit}` : ""}`;
         return (
           <span key={i} className="relative inline-block">
             <button
@@ -283,6 +287,9 @@ export function LabAnnotatedText({ text, className, highlights, onHighlight, onR
             >
               {p.raw}
             </button>
+            {showInlineLabRanges && <span className={`ml-1 text-[0.9em] ${isHigh || isLow ? "font-medium text-bad" : "text-text-3"}`}>
+              (ref {normalRange}; {status}{p.lab.note ? `; ${p.lab.note}` : ""})
+            </span>}
             {openIdx === i && (
               <LabPopover lab={p.lab} value={p.value} onClose={() => setOpenIdx(null)} />
             )}
