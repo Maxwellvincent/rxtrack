@@ -33,6 +33,7 @@ import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js"
 import { buildFocusedRepairScope } from "./focusedRepair.js";
 import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { filterLecturesByScope } from "../../logic/weekScope.js";
+import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -475,9 +476,14 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
     setPartialLaunch(null);
     setLaunchProgress({ message: "Checking exam storage access…", completed: 0 });
     try {
-      let scopedLectures = filterLecturesByScope(eligibleLectures, config.contentScope || (config.weekNumber != null ? `week-number:${config.weekNumber}` : "block-so-far"));
+      let launchConfig = config;
+      if (config.preparedSetHasUsedQuestions) {
+        const priorSessions = await listExamSessions(userId, blockId).catch(() => []);
+        launchConfig = { ...config, examName: namePreparedReplacementAttempt(config.examName, priorSessions) };
+      }
+      let scopedLectures = filterLecturesByScope(eligibleLectures, launchConfig.contentScope || (launchConfig.weekNumber != null ? `week-number:${launchConfig.weekNumber}` : "block-so-far"));
       let scopedObjectives = objectivesByLecture;
-      if (config.studyMode === "repair") {
+      if (launchConfig.studyMode === "repair") {
         const focus = buildFocusedRepairScope({ eligibleLectures: scopedLectures, objectivesByLecture, weakConcepts, learnerEvidence: readLearnerEvidence(userId), blockId });
         scopedLectures = focus.eligibleLectures;
         scopedObjectives = focus.objectivesByLecture;
@@ -487,7 +493,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         {
           userId,
           blockId,
-          ...config,
+          ...launchConfig,
           eligibleLectures: scopedLectures,
           objectivesByLecture: scopedObjectives,
           atomsByLecture,
@@ -516,7 +522,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       } else {
         setLaunchError(result.error || "Could not start the exam.");
         if (result.canStartSaved && result.readyCount > 0) {
-          setPartialLaunch({ config, readyCount: result.readyCount });
+          setPartialLaunch({ config: launchConfig, readyCount: result.readyCount });
         }
       }
     } catch (err) {
@@ -680,7 +686,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           return <li key={set.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-panel p-3">
             <div>
               <div className="font-semibold text-text-1">{set.examName || (set.format === "exam" ? "Timed exam" : "Practice quiz")}</div>
-              <div className="text-sm text-text-2">{available}/{requested} saved questions available{set.assignedCount ? ` · ${set.assignedCount} already used` : ""} · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              <div className="text-sm text-text-2">{available}/{requested} saved questions available{set.assignedCount ? ` · ${set.assignedCount} assigned to prior attempts` : ""} · {set.difficultyOverride || "adaptive difficulty"} · {set.contentScope || "block-so-far"} · {set.format === "exam" ? `${set.durationMinutes || 0} min timed` : "untimed practice"}</div>
+              {set.assignedCount > 0 && <div className="text-xs text-text-3">Starting will create a separately named attempt and fill the remaining {Math.max(0, requested - available)} slots from unused reserve questions or generation. The original set’s name and question list will not be changed.</div>}
               {actualShortfall > 0 && <div className="text-xs text-warn">{actualShortfall} question{actualShortfall === 1 ? "" : "s"} short of the requested set; missing questions will be generated when started.</div>}
               {confirmDeleteSetId === set.id && <div className="mt-2 rounded border border-bad/40 bg-bg-elevated p-2 text-sm text-text-2">
                 Remove this saved set and its {available} still-unused question{available === 1 ? "" : "s"}? Questions already assigned to an exam will be kept.
@@ -701,6 +708,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
               focusNotes: set.focusNotes || "",
               weekNumber: set.weekNumber ?? null,
               examName: set.examName || "Integrated exam",
+              preparedSetHasUsedQuestions: set.assignedCount > 0,
               preparedGenerationId: set.id,
               preparedQuestionIds: set.preparedQuestionIds || set.questions.map((question) => question.poolId),
               startWhilePreparing: true,

@@ -9,8 +9,10 @@ const createExamSessionMock = vi.fn();
 const checkExamAccessMock = vi.fn();
 const appendPoolQuestionMock = vi.fn();
 const finishPoolFillMock = vi.fn();
+const addPreparedQuestionsMock = vi.fn();
 vi.mock("../../../questionPool.js", () => ({ createQuestionPool: userId => ({
   begin: async () => {}, finish: async () => {},
+  addPreparedQuestions: (...args) => addPreparedQuestionsMock(...args),
   commit: session => createExamSessionMock(userId, session),
   appendToSession: (...args) => appendPoolQuestionMock(...args),
   finishSessionFill: (...args) => finishPoolFillMock(...args),
@@ -68,6 +70,7 @@ beforeEach(() => {
   appendPoolQuestionMock.mockResolvedValue({ ok: true });
   finishPoolFillMock.mockReset();
   finishPoolFillMock.mockResolvedValue({});
+  addPreparedQuestionsMock.mockReset();
 
   allocateQuestionsMock.mockReturnValue({ "lec-1": 10 });
 });
@@ -205,7 +208,7 @@ describe("launchExamSession", () => {
       });
     createExamSessionMock.mockResolvedValue({ ok: true });
 
-    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 2, startWhilePreparing: true });
+    const result = await launchExamSession({ ...BASE_ARGS, questionCount: 2, startWhilePreparing: true, preparedGenerationId: "original-prepared-set" });
     expect(result).toMatchObject({ ok: true, sessionId: expect.any(String) });
     const [, session] = createExamSessionMock.mock.calls[0];
     expect(session.questions.map(question => question.questionId)).toEqual(["saved"]);
@@ -216,5 +219,6 @@ describe("launchExamSession", () => {
     expect(appendPoolQuestionMock).toHaveBeenCalledWith(result.sessionId, fresh, expect.objectContaining({ requestedCount: 2 }));
     await Promise.resolve();
     expect(finishPoolFillMock).toHaveBeenCalledWith(result.sessionId, expect.objectContaining({ requestedCount: 2 }));
+    expect(addPreparedQuestionsMock).not.toHaveBeenCalled();
   });
 });

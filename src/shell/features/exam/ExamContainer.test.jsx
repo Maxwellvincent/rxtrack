@@ -16,6 +16,7 @@ const questionBanksReadMock = vi.fn(() => ({}));
 const questionBankMetaReadMock = vi.fn(() => ({}));
 const poolPreparedSetsMock = vi.fn(async () => []);
 const deletePreparedSetMock = vi.fn(async () => ({ ok: true, removed: 3, preserved: 0 }));
+const listExamSessionsMock = vi.fn(async () => []);
 vi.mock("./launchExam.js", () => ({
   launchExamSession: (...args) => launchExamSessionMock(...args),
 }));
@@ -25,7 +26,7 @@ vi.mock("./launchQuestionBank.js", () => ({
 vi.mock("../../../questionPool.js", () => ({
   createQuestionPool: () => ({ summary: async () => ({ ready: 12, assigned: 4, total: 16 }), preparedSets: () => poolPreparedSetsMock(), deletePreparedSet: (...args) => deletePreparedSetMock(...args) }),
 }));
-vi.mock("../../../supabase.js", () => ({ listExamSessions: async () => [] }));
+vi.mock("../../../supabase.js", () => ({ listExamSessions: (...args) => listExamSessionsMock(...args) }));
 
 const readTutorModeEnabledMock = vi.fn(() => false);
 const writeTutorModeEnabledMock = vi.fn();
@@ -136,6 +137,8 @@ beforeEach(() => {
   questionBankMetaReadMock.mockReturnValue({});
   poolPreparedSetsMock.mockReset();
   poolPreparedSetsMock.mockResolvedValue([]);
+  listExamSessionsMock.mockReset();
+  listExamSessionsMock.mockResolvedValue([]);
   deletePreparedSetMock.mockReset();
   deletePreparedSetMock.mockResolvedValue({ ok: true, removed: 3, preserved: 0 });
   readTutorModeEnabledMock.mockReset();
@@ -191,6 +194,31 @@ describe("ExamContainer", () => {
       preparedGenerationId: "generation-1", preparedQuestionIds,
     });
     expect(host.textContent).toMatch(/prepared-quiz-session/);
+    unmount();
+  });
+
+  it("gives a partially-used named set a distinct title when replacement questions are generated", async () => {
+    const preparedQuestionIds = Array.from({ length: 20 }, (_, index) => `pool-${index}`);
+    poolPreparedSetsMock.mockResolvedValue([{
+      id: "generation-used", prepareOnly: true, examName: "Exam 1", format: "exam",
+      requestedCount: 20, assignedCount: 14, preparedQuestionIds,
+      questions: preparedQuestionIds.slice(14).map(poolId => ({ poolId })),
+    }]);
+    listExamSessionsMock.mockResolvedValue([{ title: "Exam 1", status: "submitted" }]);
+    launchExamSessionMock.mockResolvedValue({ ok: true, sessionId: "exam-1-new-questions-2" });
+
+    const { host, unmount } = render(<ExamContainer blockId="b1" userId="u1" onNavigateToLecture={vi.fn()} />);
+    await flush();
+    const start = Array.from(host.querySelectorAll("button")).find(button => button.textContent.includes("Start this 20-question set"));
+    expect(start).toBeTruthy();
+    await act(async () => start.click());
+    await flush();
+
+    expect(launchExamSessionMock.mock.calls.at(-1)[0]).toMatchObject({
+      examName: "Exam 1 — New questions 2",
+      preparedGenerationId: "generation-used",
+      preparedQuestionIds,
+    });
     unmount();
   });
 

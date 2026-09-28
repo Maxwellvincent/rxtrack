@@ -134,9 +134,8 @@ async function runLaunch(
       } catch (error) {
         fillError = error?.message || String(error);
       }
-      if (preparedGenerationId && result.questions?.length) {
-        await pool.addPreparedQuestions?.(preparedGenerationId, result.questions).catch(() => {});
-      }
+      // Questions generated to fill this running attempt belong to its session,
+      // not to the already-prepared source set. Keep that named set immutable.
       await pool.finishSessionFill(sessionId, { requestedCount: questionCount, durationMinutes, error: fillError }).catch(() => {});
       await pool.finish(sessionId, { status: fillError ? "partial" : "complete",
         readyCount: savedQuestions.length + (result.questions?.length || 0), errors: result.errors || [],
