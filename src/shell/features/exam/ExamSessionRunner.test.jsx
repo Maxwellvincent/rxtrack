@@ -245,6 +245,8 @@ describe("ExamSessionRunner", () => {
     expect(host.querySelector('[aria-label="Question 1, answered, current"]')).toBeTruthy();
     expect(host.querySelector('[aria-label="Question 2, unanswered"]')).toBeTruthy();
     expect(host.querySelector("nav[aria-label='Question navigation']")).toBeTruthy();
+    expect(host.querySelector("details").open).toBe(false);
+    expect(host.querySelector("details summary").textContent).toContain("1/2 answered");
     expect(host.textContent).toContain("← Prev");
     expect(host.textContent).toContain("Next →");
     unmount();

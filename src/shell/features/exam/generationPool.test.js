@@ -57,6 +57,25 @@ describe("parallel generation with durable reuse", () => {
     expect(result.coverage.covered).toEqual(["obj1"]);
     expect(result.coverage.untagged).toBe(0);
   });
+  it("does not reuse a saved question whose objective tag is clearly outside its topic", async () => {
+    const storage = pool();
+    storage.ready.mockResolvedValueOnce([{
+      stem: "A patient sustains a penetrating injury to the forearm and cannot oppose the thumb. Which hand finding is most likely?",
+      choices: { A: "Thenar weakness", B: "Foot drop", C: "Ptosis", D: "Loss of knee extension" },
+      correct: "A",
+      explanation: "A median nerve lesion affects thenar motor function and thumb opposition.",
+      objectiveIds: ["aa-objective"],
+      poolId: "mislinked",
+      lectureId: "l1",
+    }]);
+    const result = await generateExamQuestions({
+      ...args,
+      allocation: { l1: 1 },
+      objectivesByLecture: { l1: [{ id: "aa-objective", objective: "Analyze deficiencies in amino acid metabolic pathways associated with inborn errors of metabolism" }] },
+    }, { pool: storage, savedOnly: true });
+    expect(result.questions).toHaveLength(0);
+    expect(result.errors).toHaveLength(1);
+  });
   it("rejects repeated and overgenerated questions across workers", async () => {
     generate.mockResolvedValue({ questions: [q("Identical"), q("Identical")] });
     const result = await generateExamQuestions({ ...args, allocation: { l1: 1, l2: 1 } });

@@ -664,7 +664,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `Independently audit every generated question. Do not rewrite or repair it. Approve it only when ALL checks pass:\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
-    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied. objectiveFacet must name the specific clause/task actually tested. For broad objectives, compare the batch against every independently assessable clause; when the requested count and evidence permit, distinct clauses must be represented by distinct questions before a facet is repeated.\n` +
+    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied. Reject gross domain mismatches even if the item is otherwise medically correct (for example, an isolated peripheral nerve lesion question is not evidence for an amino-acid metabolism objective). objectiveFacet must name the specific clause/task actually tested. For broad objectives, compare the batch against every independently assessable clause; when the requested count and evidence permit, distinct clauses must be represented by distinct questions before a facet is repeated.\n` +
     `4. No choices are duplicates or medically equivalent, and the stem does not reveal the answer.\n` +
     `5. The explanation states the decisive mechanism or reasoning, not merely that the answer is correct.\n` +
     `6. The vignette is internally consistent and contains enough discriminating information to answer. Symptoms or an anatomic region must actually distinguish the key from every plausible alternative; generic pain or tenderness alone is not enough.\n` +
@@ -745,9 +745,38 @@ export function locallyUsableQuestions(questions = []) {
     const correctText = question?.choices?.[question?.correct];
     const explanation = String(question?.explanation || "").trim();
     if (!stem.endsWith("?") || stem.length < 100 || !correctText || entries.length < 4 || explanation.length < 40) return false;
+    // Generated items must not refer to a figure/table that the question object
+    // cannot actually supply. Otherwise the learner sees an unanswerable item.
+    const visualCue = /\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b.{0,90}\b(?:shown|below|above|provided|attached|following|numbered|labeled)\b|\b(?:shown|below|above|provided|attached|following)\b.{0,70}\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b/i.test(stem);
+    const hasSourceVisual = !!(question.sourceImageUrl || question.sourceImageDataUrl || question.image?.url || typeof question.image === "string");
+    if (visualCue && !hasSourceVisual) return false;
+    if (question.hasImage && !hasSourceVisual) return false;
     const values = entries.map(([, value]) => normalizedComparableText(value)).filter(Boolean);
     return new Set(values).size === values.length;
   }));
+}
+
+export function questionMatchesObjectiveDomain(question, cfg = {}) {
+  const objectiveIds = Array.isArray(question?.objectiveIds) ? question.objectiveIds.map(String) : [];
+  if (!objectiveIds.length) return true;
+  const linkedObjectives = (cfg.objectives || []).filter((objective) => objectiveIds.includes(String(objective.id || objective.code || "")));
+  if (!linkedObjectives.length) return true;
+  const stop = new Set("about after again against all also among and any are because been before being both but can could describe determine during each explain following from have how identify into involving itself most other overview provide related should some such than that their them then these they this through toward under until using what when where which while with would".split(" "));
+  const tokens = (value) => String(value || "").toLowerCase().match(/[a-z0-9]+/g)?.filter((token) => token.length > 3 && !stop.has(token)) || [];
+  const linkedAtoms = (cfg.atoms || []).filter((atom) => (atom.objectiveIds || []).some((id) => objectiveIds.includes(String(id))));
+  const supportingEvidence = retrieveLectureEvidence(String(cfg.lectureText || ""), linkedObjectives, linkedAtoms);
+  const targets = new Set([
+    ...linkedObjectives.flatMap((objective) => tokens(objective.objective || objective.text)),
+    ...linkedAtoms.flatMap((atom) => [...tokens(atom.term), ...tokens(atom.content)]),
+    ...tokens(supportingEvidence),
+  ]);
+  if (!targets.size) return true;
+  const itemText = [question.stem, ...Object.values(question.choices || {}), question.explanation].join(" ");
+  // At least one meaningful concept from the linked objective must be visible
+  // in the item. This catches gross attribution errors (e.g. amino-acid IEM
+  // objective attached to an isolated median-nerve lesion question) without
+  // demanding literal overlap with every valid clinical paraphrase.
+  return tokens(itemText).some((token) => targets.has(token));
 }
 
 /** Keep a generated batch from being dominated by one generic final ask.
@@ -787,14 +816,15 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
   const reviewer = deps.reviewAIJSON || deps.callAIJSON;
-  const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions));
+  const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions))
+    .filter((question) => questionMatchesObjectiveDomain(question, cfg) && locallyUsableQuestions([question]).length > 0);
   // An explicit independent approval is stronger than the conservative clinical-shape screen.
   // Keep the basic structural guard, but do not discard an approved question merely because it
   // is a shorter anatomy/mechanism item or uses a school-specific stem shape.
-  const locallyUsable = locallyUsableQuestions(questions);
+  const locallyUsable = locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
   const locallyUsableSet = new Set(locallyUsable);
   const keepLocallyValidated = (reason) => {
-    const deferred = locallyValid.length ? [] : locallyUsableQuestions(questions);
+    const deferred = locallyValid.length ? [] : locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
     const candidates = locallyValid.length ? locallyValid : deferred;
     return {
     questions: candidates.map((question) => ({
@@ -953,7 +983,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `SGU/EXAMSOFT BLUEPRINT:\nObjectives define what may be tested. Lecture evidence determines factual content and the correct answer. Uploaded ExamSoft/IMCQ questions define structure, wording, clue density, and distractor style only. Use concise clinical/anatomic framing, usually one or two reasoning steps, rather than generic UWorld/NBME diagnostic puzzles. Target a 20/60/20 mix of direct application, standard application, and harder integration. Use same-category plausible distractors and distinct clue-to-answer routes.\n` +
     `SOURCE-GROUNDED WRITING RULES (learned from the supplied DM/ER ExamSoft, IMCQ, and Madcow examples): build the stem in three linked moves — (1) context and time course, (2) one or two discriminating examination, laboratory, imaging, histology, or procedural findings, then (3) a precise foundational-science ask. Every included detail must change the differential or support the mechanism; remove decorative comorbidities. Prefer one decisive discriminator over a long list of buzzwords.\n` +
     `Distractors must be near-neighbors in the same semantic category (for example, adjacent structures, enzymes in the same pathway, competing autonomic routes, or related lesions). Each wrong option must be tempting for a stated reason and contradicted by a specific clue; never use joke answers, category mismatches, or an answer that is merely less specific.\n` +
-    `The school bank is single-best-answer but does not force one visual format: default to 5 options, while preserving verified 4–8-option patterns when the objective and reference style support them. Use a compact lab/data table, image or numbered-label interpretation, and histology only when the supplied lecture/objective contains that modality; do not invent image dependence. Tables must test pattern interpretation, not hide a sentence in cells.\n` +
+    `The school bank is single-best-answer but does not force one visual format: default to 5 options, while preserving verified 4–8-option patterns when the objective and reference style support them. Use a compact lab/data table, image or numbered-label interpretation, and histology only when the supplied lecture/objective contains that modality; do not invent image dependence. If you choose image dependence, an actual visual asset must be attached to the question. Never write "figure shown," "see the image," or similar when no image is supplied; convert the task into a fully self-contained text question instead. Tables must test pattern interpretation, not hide a sentence in cells.\n` +
     `Madcow items are useful for clinical-context and anatomy/physiology task patterns, but are not a license to copy their occasional recall items or questionable explanations. Keep the factual answer anchored to the lecture and objective.\n` +
     `STYLE FINGERPRINT: ${JSON.stringify(styleFingerprint)}\n\n` : "";
   const taskSection = taskVariationPrompt(styleFingerprint, diff, "question batch");

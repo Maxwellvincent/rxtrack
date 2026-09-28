@@ -230,33 +230,38 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
 
 function QuestionNavigator({ questions, session, currentIndex, onSelect }) {
   return (
-    <nav aria-label="Question navigation" className="flex flex-wrap gap-1.5">
-      {questions.map((question, index) => {
-        const answered = pickedFor(session, question.questionId) != null;
-        const current = index === currentIndex;
-        return (
-          <button
-            key={question.questionId}
-            type="button"
-            data-question-state={current ? "current" : answered ? "answered" : "unanswered"}
-            aria-current={current ? "step" : undefined}
-            aria-label={`Question ${index + 1}${answered ? ", answered" : ", unanswered"}${current ? ", current" : ""}`}
-            title={`Question ${index + 1} · ${answered ? "answered" : "unanswered"}`}
-            onClick={() => onSelect(index)}
-            className={
-              "flex h-9 min-w-9 items-center justify-center gap-1 rounded border px-2 font-mono text-xs " +
-              (current
-                ? "border-accent bg-accent/15 text-text-1 ring-2 ring-accent/30"
-                : answered
-                  ? "border-good/60 bg-good/10 text-text-1"
-                  : "border-border bg-bg text-text-3 hover:border-border-strong")
-            }
-          >
-            {answered && <span aria-hidden="true">✓</span>}{index + 1}
-          </button>
-        );
-      })}
-    </nav>
+    <details className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
+      <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">
+        Question navigator · {questions.filter((question) => pickedFor(session, question.questionId) != null).length}/{questions.length} answered · question {currentIndex + 1} selected
+      </summary>
+      <nav aria-label="Question navigation" className="mt-2 flex flex-wrap gap-1.5">
+        {questions.map((question, index) => {
+          const answered = pickedFor(session, question.questionId) != null;
+          const current = index === currentIndex;
+          return (
+            <button
+              key={question.questionId}
+              type="button"
+              data-question-state={current ? "current" : answered ? "answered" : "unanswered"}
+              aria-current={current ? "step" : undefined}
+              aria-label={`Question ${index + 1}${answered ? ", answered" : ", unanswered"}${current ? ", current" : ""}`}
+              title={`Question ${index + 1} · ${answered ? "answered" : "unanswered"}`}
+              onClick={() => onSelect(index)}
+              className={
+                "flex h-9 min-w-9 items-center justify-center gap-1 rounded border px-2 font-mono text-xs " +
+                (current
+                  ? "border-accent bg-accent/15 text-text-1 ring-2 ring-accent/30"
+                  : answered
+                    ? "border-good/60 bg-good/10 text-text-1"
+                    : "border-border bg-bg text-text-3 hover:border-border-strong")
+              }
+            >
+              {answered && <span aria-hidden="true">✓</span>}{index + 1}
+            </button>
+          );
+        })}
+      </nav>
+    </details>
   );
 }
 

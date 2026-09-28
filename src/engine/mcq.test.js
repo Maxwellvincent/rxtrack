@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
+import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -220,6 +220,41 @@ describe("question ending analysis", () => {
     const varied = diversifyQuestionEndings(questions);
     expect(varied).toHaveLength(5);
     expect(varied.some(({ stem }) => /additional laboratory/.test(stem))).toBe(true);
+  });
+});
+
+describe("generated question scope checks", () => {
+  const base = {
+    stem: "A young adult is evaluated for a pathway disorder after several days of symptoms. Which metabolic change is most likely?",
+    choices: { A: "Reduced amino acid breakdown", B: "Increased insulin secretion", C: "Increased bone turnover", D: "Reduced renal filtration" },
+    correct: "A",
+    explanation: "The pathway defect alters amino acid metabolism and reduces downstream breakdown.",
+    objectiveIds: ["aa-objective"],
+  };
+
+  it("rejects generated questions with a grossly unrelated objective attribution", async () => {
+    const nerveQuestion = {
+      ...base,
+      stem: "A patient sustains a penetrating injury to the forearm and cannot oppose the thumb. Which hand finding is most likely?",
+      choices: { A: "Thenar weakness", B: "Foot drop", C: "Ptosis", D: "Loss of knee extension" },
+      explanation: "A median nerve lesion affects thenar motor function and thumb opposition.",
+    };
+    expect(locallyUsableQuestions([nerveQuestion])).toHaveLength(1);
+    await expect(auditGeneratedQuestions([nerveQuestion], {
+      objectives: [{ id: "aa-objective", objective: "Analyze deficiencies in amino acid metabolic pathways associated with inborn errors of metabolism" }],
+    }, { skipQuestionAudit: false, reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, issues: [] }] }) })).resolves.toMatchObject({ questions: [] });
+  });
+
+  it("rejects a question that refers to a figure when no visual asset is attached", () => {
+    const visualQuestion = { ...base, stem: "A figure showing pathway activity is provided. A patient has a metabolic disorder after several days. Which change is expected?" };
+    expect(locallyUsableQuestions([visualQuestion])).toHaveLength(0);
+  });
+
+  it("keeps a grounded text-only item for its linked objective", async () => {
+    expect(locallyUsableQuestions([base])).toHaveLength(1);
+    await expect(auditGeneratedQuestions([base], {
+      objectives: [{ id: "aa-objective", objective: "Analyze deficiencies in amino acid metabolic pathways associated with inborn errors of metabolism" }],
+    }, { reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, issues: [] }] }) })).resolves.toMatchObject({ questions: [{ stem: base.stem }] });
   });
 });
 

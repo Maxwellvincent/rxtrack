@@ -5,6 +5,7 @@ import { withDeadline } from "../../../asyncDeadline.js";
 import { repairTaskForIndex } from "./focusedRepair.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
+import { questionMatchesObjectiveDomain } from "../../../engine/mcq.js";
 
 const MAX_ATTEMPTS = 3;
 // Local Ollama completions for large, school-style prompts routinely take a little over
@@ -90,8 +91,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         : await deps.pool.ready(bucket);
       for (const q of savedQuestions) {
         if (obtained >= requested) break;
-        if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length) continue;
-        const cached = { ...q, objectiveIds: resolveQuestionObjectiveIds(q, objectives) };
+        const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
+        const cached = { ...q, objectiveIds };
+        if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms })) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
       }
@@ -122,11 +124,12 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
       }
       for (const q of result?.questions || []) {
         if (obtained >= requested) break;
+        const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         const qualityIssues = questionQualityIssues(q, objectives);
-        if (!isValidPoolQuestion(q) || qualityIssues.length || alreadyUsed(q, [...history, ...accepted])) continue;
+        if (!isValidPoolQuestion(q) || qualityIssues.length || !questionMatchesObjectiveDomain({ ...q, objectiveIds }, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])) continue;
         const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
-          objectiveIds: resolveQuestionObjectiveIds(q, objectives),
+          objectiveIds,
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
           source: exemplars.length ? "school-style generated" : "lecture generated" };
         // Reserve in this run before awaiting storage, preventing worker races.
