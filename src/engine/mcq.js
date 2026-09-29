@@ -696,8 +696,8 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `RETRIEVED LECTURE EVIDENCE:\n${evidence || "No lecture text supplied; use only objectives and lecture facts."}\n\n` +
     `RECURRENT CLINICAL CORRELATES (optional; use only when supported by the lecture facts):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
-    `Return exactly one review for every question index:\n` +
-    `{"reviews":[{"index":0,"approved":true,"issues":[]}]}\n` +
+    `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question with 4-6 choices, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
+    `{"reviews":[{"index":0,"approved":true,"issues":[],"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
     `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending.`
   );
 }
@@ -899,7 +899,29 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         },
       }];
     });
-    const distinctApproved = diversifyQuestionEndings(uniqueQuestions(approved));
+    // A partial rejection used to be thrown away outright; only an entirely
+    // rejected batch entered the repair path. Let the independent reviewer
+    // return an in-place correction, then apply the same deterministic
+    // structure/domain screens before it can enter the quiz.
+    const reviewerReplacements = reviews.flatMap((review) => {
+      if (review?.approved === true || !review?.replacement) return [];
+      const normalized = stampQuestionOrders(
+        ensureObjectiveAttribution(normalizeQuestions({ questions: [review.replacement] }), cfg.objectives || []),
+        cfg.objectives || []
+      ).map((question) => ({ ...question, generationVersion: "v2" }));
+      return locallyValidClinicalQuestions(normalized)
+        .filter((question) => locallyUsableQuestions([question]).length > 0 && questionMatchesObjectiveDomain(question, cfg))
+        .map((question) => ({
+          ...question,
+          qualityAudit: {
+            version: 1,
+            status: "reviewer-repaired",
+            checks: ["medical-review-repair", "clinical-structure", "valid-key", "objective-alignment"],
+            notes: Array.isArray(review.issues) ? review.issues.map(String) : ["reviewer_rejected"],
+          },
+        }));
+    });
+    const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...reviewerReplacements]));
     // A strict reviewer can reject every item when the local/cloud reviewer is
     // unavailable or over-sensitive. Do not strand the learner in an endless
     // replacement loop: retain questions that passed deterministic safety

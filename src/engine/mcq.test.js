@@ -484,6 +484,33 @@ describe("independent generated-question audit", () => {
     });
   });
 
+  it("keeps a structurally valid reviewer replacement for a partially rejected batch", async () => {
+    const second = {
+      ...questions[0],
+      stem: "A 52-year-old patient has progressive polyuria, polydipsia, weight loss, and fasting hyperglycemia with a low C-peptide concentration. Which hormone deficiency best explains this presentation?",
+      topic: "insulin deficiency",
+    };
+    const replacement = {
+      ...questions[0],
+      stem: "A 48-year-old patient develops polyuria, polydipsia, weight loss, fasting hyperglycemia, and a markedly reduced C-peptide concentration. Which hormone is most directly deficient in this patient?",
+      objectiveIds: ["o1"],
+      objectiveFacet: "identify deficient hormone from endogenous secretion marker",
+      taskType: "clinical-application",
+      orderLevel: "second-order",
+    };
+    const reviewAIJSON = vi.fn().mockResolvedValue({ reviews: [
+      { index: 0, approved: true, issues: [], replacement: null },
+      { index: 1, approved: false, issues: ["weak_explanation"], replacement },
+    ] });
+    const result = await auditGeneratedQuestions(
+      [questions[0], second],
+      { objectives: [{ id: "o1", objective: "Explain insulin deficiency" }] },
+      { reviewAIJSON }
+    );
+    expect(result.questions).toHaveLength(2);
+    expect(result.questions.some((question) => question.qualityAudit?.status === "reviewer-repaired")).toBe(true);
+  });
+
   it("rejects explicit medical failures but preserves sound clinical items when reviewer JSON is malformed", async () => {
     const rejected = await auditGeneratedQuestions(questions, {}, { reviewAIJSON: vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: false, issues: ["incorrect_key"] }] }) });
     const malformed = await auditGeneratedQuestions([{ ...questions[0], stem: "A patient has polyuria. Which hormone is deficient?" }], {}, { reviewAIJSON: vi.fn().mockResolvedValue({ questions: [] }) });

@@ -433,7 +433,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const avoidedStemKeys = new Set((args.avoidStems || []).map(normalizeStem).filter(Boolean));
   const avoidedQuestions = Array.isArray(args.avoidQuestions) ? args.avoidQuestions.filter(Boolean) : [];
   // Bound generation retries. V2 reports a shortfall instead of substituting foundational recall.
-  const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
+  // Preparation actually requests PREPARE_BATCH_SIZE items at a time. Using the
+  // larger engine cap here gave a 15-item quiz only three total attempts: just
+  // enough to draft 15 candidates, with no refill capacity after review.
+  const plannedBatches = Math.max(1, Math.ceil(requested / PREPARE_BATCH_SIZE));
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 1));
   let lastError = "";
   let consecutiveEmptyRounds = 0;

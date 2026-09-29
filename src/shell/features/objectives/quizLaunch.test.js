@@ -214,6 +214,50 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
+  it("budgets a refill round after the three base batches for a 15-question quiz", async () => {
+    const contexts = [
+      "postprandial intestinal motility after vagal stimulation",
+      "sphincter contraction after sympathetic discharge",
+      "pancreatic secretion following cholecystokinin release",
+      "gastric accommodation after a meal",
+      "colonic mass movement after waking",
+      "salivary secretion during parasympathetic activation",
+      "biliary emptying after a fatty meal",
+      "small-bowel peristalsis after luminal distention",
+      "gastric acid secretion after histamine exposure",
+      "ileocecal valve tone during sympathetic activation",
+      "rectal relaxation during the defecation reflex",
+      "intestinal blood flow after local metabolite accumulation",
+      "submucosal secretion after mucosal stimulation",
+      "myenteric contraction after stretch",
+      "lower esophageal sphincter relaxation during swallowing",
+    ];
+    const objectives = contexts.map((context, index) => ({
+      id: `o${index + 1}`,
+      objective: `Explain ${context}.`,
+    }));
+    const made = (index) => ({
+      stem: `An investigator measures ${contexts[index]} while intrinsic enteric circuits remain intact. Which neural mechanism most directly accounts for this observation?`,
+      choices: { A: `Supported route ${index}A`, B: `Alternative route ${index}B`, C: `Adjacent route ${index}C`, D: `Unrelated route ${index}D` },
+      correct: "A",
+      explanation: `Supported route ${index}A directly explains ${contexts[index]} using the supplied autonomic mechanism.`,
+      objectiveIds: [`o${index + 1}`],
+    });
+    let round = 0;
+    const callAIJSON = vi.fn().mockImplementation(() => {
+      const start = round * 4;
+      round += 1;
+      return { questions: contexts.slice(start, start + 4).map((_, offset) => made(start + offset)) };
+    });
+    const result = await prepareObjectiveQuiz(
+      { objectives, atoms: [{ term: "Mechanism", content: "A supported mechanism." }], questionCount: 15 },
+      { callAIJSON, skipQuestionAudit: true }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(4);
+    expect(result.questions).toHaveLength(15);
+    expect(result.incomplete).toBe(false);
+  });
+
   it("allows repeated questions for the same objective when the stems and concepts differ", async () => {
     const questions = [
       { stem: "A receptor mutation changes the first messenger response. Which mechanism explains the finding?", choices: { A: "Gs activation", B: "Gi inhibition", C: "Ion channel opening", D: "Nuclear binding" }, correct: "A", objectiveIds: ["o1"], topic: "receptor signaling" },
