@@ -250,22 +250,26 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   };
 
   return (
-    <div className="mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
-      <div className="flex items-center justify-between font-mono text-[12px] uppercase tracking-wider text-accent-text">
-        <span className="min-w-0 truncate" title={[blockName, lectureTitle].filter(Boolean).join(" · ")}>
+    <div className="quiz-surface mb-5 space-y-3" onKeyDown={(event) => advanceOnEnter(event, next, revealed)}>
+      <div className="quiz-header">
+        <div className="quiz-context" title={[blockName, lectureTitle].filter(Boolean).join(" · ")}>
+          <span className="quiz-kicker">Active quiz</span>
+          <span className="quiz-context-title">
           {blockName && <span className="text-text-3">{blockName} · </span>}
           {lectureNumber != null && <span className="text-text-3">Lecture {lectureNumber} · </span>}
           {lectureTitle && <span className="text-text-1">{lectureTitle} · </span>}
           {q.generationMode === "grounded-fallback" ? "Foundational lecture check" : "Objective quiz — recognition & application"}
           {q.orderLevel && <span className="ml-2 text-text-3">· {QUESTION_ORDER_LABELS[q.orderLevel]}</span>}
-        </span>
-        <span className="flex flex-shrink-0 items-center gap-2 text-text-3">
-          {onExit && <button type="button" onClick={() => { onCheckpoint?.(checkpointRef.current); onExit(); }} className="rounded border border-border px-2 py-1 normal-case tracking-normal hover:border-accent hover:text-text-1">Save & leave</button>}
-          {currentIndex + 1}/{displayedTotal}{preparing ? " · preparing more" : ""}
-        </span>
+          </span>
+        </div>
+        <div className="quiz-header-actions">
+          <span className="quiz-count">{currentIndex + 1}<span>/{displayedTotal}</span></span>
+          {preparing && <span className="quiz-preparing"> · preparing more</span>}
+          {onExit && <button type="button" onClick={() => { onCheckpoint?.(checkpointRef.current); onExit(); }} className="quiz-save-button">Save & leave</button>}
+        </div>
       </div>
       <div
-        className="h-1.5 overflow-hidden rounded-full bg-panel"
+        className="quiz-progress-track h-1.5 overflow-hidden rounded-full bg-panel"
         role="progressbar"
         aria-label="Quiz progress"
         aria-valuemin={1}
@@ -277,7 +281,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
           style={{ width: `${((currentIndex + 1) / displayedTotal) * 100}%` }}
         />
       </div>
-      <div className="rounded-lg border border-border bg-bg-elevated p-3">
+      <div className="quiz-question-card rounded-lg border border-border bg-bg-elevated p-3">
         {q.generationMode === "grounded-fallback" && (
           <div className="mb-2 rounded border border-border bg-panel px-3 py-2 text-xs text-text-2">
             Source-grounded fallback · reinforces lecture recall, but does not count as an ExamSoft-style objective test.
@@ -293,15 +297,17 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             className="mb-2 max-h-64 w-full rounded-lg border border-border bg-panel object-contain"
           />
         )}
+        <div className="quiz-stem-wrap">
         <LabAnnotatedText
           text={q.stem}
-          className="mb-2 block text-sm text-text-1"
+          className="quiz-stem mb-2 block text-sm text-text-1"
           highlights={highlights[q.stem]}
           onHighlight={(phrase) => onHighlight(q.stem, phrase)}
           onRemoveHighlight={(range) => removeHighlight(q.stem, range)}
         />
-        {!!highlights[q.stem]?.length && <button className="mb-2 min-h-9 text-xs text-text-2 underline" onClick={() => removeHighlight(q.stem, null)}>Clear highlights</button>}
-        <div className="flex flex-col gap-1.5">
+        {!!highlights[q.stem]?.length && <button className="quiz-clear-highlights mb-2 min-h-9 text-xs text-text-2 underline" onClick={() => removeHighlight(q.stem, null)}>Clear highlights</button>}
+        </div>
+        <div className="quiz-choice-list flex flex-col gap-1.5">
           {Object.entries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
             const isCrossed = !revealed && crossed.has(letter);
@@ -317,16 +323,16 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                   ? "border-bad"
                   : "border-border opacity-60";
             return (
-              <div key={letter} className="flex items-center gap-1.5">
+              <div key={letter} className="quiz-choice-row flex items-center gap-1.5">
                 <button
                   type="button"
                   disabled={revealed}
                   onClick={() => !revealed && !isCrossed && setPicked(letter)}
                   aria-pressed={isPicked}
-                  className={"flex flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + borderCls}
+                  className={"quiz-choice flex flex-1 items-center gap-2 rounded-lg border bg-bg px-3 py-2 text-left text-xs text-text-1 " + borderCls}
                 >
-                  <span className="font-mono text-text-3">{letter}</span>
-                  <span className={isCrossed ? "line-through text-text-3 flex-1" : "flex-1"}><ChoiceValue value={txt} columns={q.choiceColumns || []} table={hasTableChoices(q)} /></span>
+                  <span className="quiz-choice-letter font-mono text-text-3">{letter}</span>
+                  <span className={isCrossed ? "quiz-choice-copy line-through text-text-3 flex-1" : "quiz-choice-copy flex-1"}><ChoiceValue value={txt} columns={q.choiceColumns || []} table={hasTableChoices(q)} /></span>
                   {isPicked && !revealed && <span className="rounded bg-accent px-2 py-0.5 text-[10px] font-bold text-white">SELECTED</span>}
                   {revealed && letter === q.correct && <span className="rounded border-2 border-good bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✓ CORRECT</span>}
                   {revealed && isPicked && letter !== q.correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
@@ -360,7 +366,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         </div>
 
         {picked != null && !revealed && (
-          <div className="mt-3 rounded-lg border border-border-strong bg-panel p-2">
+          <div className="quiz-confidence mt-3 rounded-lg border border-border-strong bg-panel p-2">
             <div className="mb-1.5 font-mono text-[12px] uppercase tracking-wider text-text-3">How sure? (1–5)</div>
             <div className="flex gap-1.5">
               {CONF.map((c) => (
@@ -375,8 +381,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         )}
 
         {revealed && (
-          <div className="mt-3 space-y-2">
-            <div className={"text-xs " + (GAP[quadrant]?.cls || "")}>
+          <div className="quiz-feedback mt-3 space-y-2">
+            <div className={"quiz-result text-xs " + (GAP[quadrant]?.cls || "")}>
               {correct ? "✓ " : "✕ "}{GAP[quadrant]?.text}
             </div>
             {/* The atom/concept this question was testing — named here, not just buried in
@@ -425,7 +431,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 </div>
               </div>
             )}
-            <Button onClick={next} disabled={preparing && currentIndex + 1 >= questions.length}>
+            <Button className="quiz-next-button" onClick={next} disabled={preparing && currentIndex + 1 >= questions.length}>
               {preparing && currentIndex + 1 >= questions.length ? "Preparing next question…" : currentIndex + 1 >= questions.length ? "See results" : "Next →"}
             </Button>
           </div>
