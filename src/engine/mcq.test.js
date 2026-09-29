@@ -68,6 +68,26 @@ describe("styleProfilePrompt", () => {
     expect(prompt).toContain("aggregate stem length and sentence-count profile");
     expect(prompt).toContain("plausible homogeneous distractors");
   });
+
+  it("keeps the generation payload compact when the stored report has many outcomes", () => {
+    const prompt = styleProfilePrompt({
+      version: 3,
+      sampleSize: 1791,
+      sourceCounts: { examsoft: 1400, homework: 391 },
+      optionCounts: { 5: 1791 },
+      officialStyle: { sampleSize: 1400, medianStemWords: 72, medianSentences: 4, optionCountDistribution: [{ options: 5, count: 1400 }] },
+      homeworkStyle: { sampleSize: 391, medianStemWords: 58 },
+      clickerStyle: { sampleSize: 0 },
+      reportOutcomePerformance: Array.from({ length: 300 }, (_, index) => ({
+        label: `Outcome ${index + 1} with a long curriculum description`,
+        attempts: 1,
+        correct: 1,
+        accuracy: 100,
+      })),
+    }, 5);
+    expect(prompt).not.toContain("Outcome 300");
+    expect(prompt.length).toBeLessThan(4000);
+  });
 });
 
 describe("buildMcqPrompt", () => {
@@ -450,6 +470,18 @@ describe("independent generated-question audit", () => {
     const result = await auditGeneratedQuestions(questions, {}, { reviewAIJSON });
     expect(reviewAIJSON).toHaveBeenCalledOnce();
     expect(result.questions[0].qualityAudit.status).toBe("approved");
+  });
+
+  it("keeps structurally sound questions when review reports only batch-style notes", async () => {
+    const reviewAIJSON = vi.fn().mockResolvedValue({
+      reviews: [{ index: 0, approved: false, issues: ["repetitive_task_ending", "order_level_mismatch"] }],
+    });
+    const result = await auditGeneratedQuestions(questions, {}, { reviewAIJSON });
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].qualityAudit).toMatchObject({
+      status: "approved-with-notes",
+      notes: ["repetitive_task_ending", "order_level_mismatch"],
+    });
   });
 
   it("rejects explicit medical failures but preserves sound clinical items when reviewer JSON is malformed", async () => {

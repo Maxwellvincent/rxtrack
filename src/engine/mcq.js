@@ -27,6 +27,20 @@ export function styleProfilePrompt(profile, questionCount = null) {
   if (!profile?.sampleSize) return "";
   const reportOutcomes = profile.reportOutcomePerformance || [];
   const weakOutcomes = reportOutcomes.filter((entry) => entry.attempts >= 2 && entry.accuracy < 60).slice(0, 8);
+  // The persisted profile can contain hundreds of report-outcome rows. They are
+  // useful for local analytics, but serializing the entire array into every AI
+  // request made a five-question prompt tens of thousands of characters larger
+  // and materially slowed the local bridge. Only the compact style aggregates
+  // and the bounded weak-outcome sample below affect generation.
+  const promptProfile = {
+    version: profile.version,
+    sampleSize: profile.sampleSize,
+    sourceCounts: profile.sourceCounts || {},
+    optionCounts: profile.optionCounts || {},
+    officialStyle: profile.officialStyle || {},
+    homeworkStyle: profile.homeworkStyle || {},
+    clickerStyle: profile.clickerStyle || {},
+  };
   const weakness = weakOutcomes.length
     ? `\nREPORT-DERIVED LEARNER GAPS (the learner previously missed items tagged to these school outcomes): ${JSON.stringify(weakOutcomes)}. Prioritize these only when they map to the requested lecture objectives and supplied lecture evidence supports the tested relationship; do not expand scope or copy source questions.\n`
     : "";
@@ -50,7 +64,7 @@ export function styleProfilePrompt(profile, questionCount = null) {
   const shapeRule = official.sampleSize >= 5
     ? `Match the source bank's aggregate stem length and sentence-count profile (not one convenient exemplar): target about ${official.medianStemWords || official.averageStemWords || "the observed"} words and ${official.medianSentences || official.averageSentences || "the observed"} sentences, with natural variation inside the observed range. Match its clinical-case, laboratory/data, image/table, and task-ending proportions where the requested objectives and available assets support them.`
     : `The style sample is small; follow the supplied verified exemplars closely and do not infer a precise bank-wide distribution.`;
-  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(profile)}\nSTYLE-MATCHING CONTRACT: ${shapeRule} ${optionRule} Match the source's construction and reasoning demand, not merely its topic: preserve relevant demographics/context, discriminating findings, a focused single-best-answer lead-in, and plausible homogeneous distractors of comparable specificity and length. Use varied, medically plausible distractors; no throwaway choices, joke options, duplicated choices, or answer-length giveaway. Objectives define scope and lecture evidence defines medical correctness.${weakness}`;
+  return `PERSISTED SCHOOL STYLE PROFILE (${profile.sampleSize} verified uploaded questions; aggregate statistics, not factual authority):\n${JSON.stringify(promptProfile)}\nSTYLE-MATCHING CONTRACT: ${shapeRule} ${optionRule} Match the source's construction and reasoning demand, not merely its topic: preserve relevant demographics/context, discriminating findings, a focused single-best-answer lead-in, and plausible homogeneous distractors of comparable specificity and length. Use varied, medically plausible distractors; no throwaway choices, joke options, duplicated choices, or answer-length giveaway. Objectives define scope and lecture evidence defines medical correctness.${weakness}`;
 }
 
 export function exemplarSourceTier(question) {
@@ -856,6 +870,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
     if (!reviews.length) return keepLocallyValidated("malformed reviewer response");
+    const nonBlockingReviewIssues = new Set(["repetitive_task_ending", "order_level_mismatch"]);
     const approved = questions.flatMap((question, index) => {
       const review = byIndex.get(index);
       if (!review) {
@@ -864,13 +879,23 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
         }] : [];
       }
-      if (review?.approved !== true || (Array.isArray(review.issues) && review.issues.length) || !locallyUsableSet.has(question)) return [];
+      const issues = Array.isArray(review.issues) ? review.issues.map(String) : [];
+      const blockingIssues = issues.filter((issue) => !nonBlockingReviewIssues.has(issue));
+      // Batch-level variety and a mislabeled reasoning order are useful editor
+      // notes, not evidence that the key or vignette is medically unsafe. The
+      // old all-or-nothing rule discarded these sound questions, then paid for
+      // another full generation/review round. Keep them when the deterministic
+      // structural/domain screen passes; medical, ambiguity, grounding, answer-
+      // leak, and explanation failures remain blocking.
+      const acceptedWithNotes = review?.approved !== true && issues.length > 0 && blockingIssues.length === 0;
+      if ((!acceptedWithNotes && review?.approved !== true) || blockingIssues.length || !locallyUsableSet.has(question)) return [];
       return [{
         ...question,
         qualityAudit: {
           version: 1,
-          status: "approved",
+          status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",
           checks: ["medical-correctness", "single-best-answer", "objective-alignment", "explanation-quality"],
+          ...(issues.length ? { notes: issues } : {}),
         },
       }];
     });

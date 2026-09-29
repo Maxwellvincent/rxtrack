@@ -391,6 +391,16 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.questions.length).toBeGreaterThan(0);
   });
 
+  it("stops after two empty replacement rounds instead of grinding through every retry", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    const result = await prepareObjectiveQuiz(
+      { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 10 },
+      { callAIJSON, skipQuestionAudit: true }
+    );
+    expect(result.incomplete).toBe(true);
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+  });
+
   it("builds large reserves in five-question batches instead of one oversized response", async () => {
     let batch = 0;
     const callAIJSON = vi.fn().mockImplementation(async () => {

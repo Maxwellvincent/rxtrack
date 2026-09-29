@@ -434,8 +434,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const avoidedQuestions = Array.isArray(args.avoidQuestions) ? args.avoidQuestions.filter(Boolean) : [];
   // Bound generation retries. V2 reports a shortfall instead of substituting foundational recall.
   const plannedBatches = Math.max(1, Math.ceil(requested / ATOM_QUIZ_CAP));
-  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 4));
+  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 1));
   let lastError = "";
+  let consecutiveEmptyRounds = 0;
   const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
@@ -479,6 +480,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       if (accepted.length >= requested) break;
     }
     if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
+    consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
     onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
     // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
     // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
@@ -487,6 +489,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // and gives the model a fresh chance. Stop immediately only for transport/provider failures;
     // otherwise a single over-strict audit response used to strand the whole quiz at 0/N.
     if (!result.questions?.length && result.error && isProviderFailure(result.error)) break;
+    // Two rounds without one new usable question is a strong signal that the
+    // current evidence/model combination will not improve during this run.
+    // Stop instead of making the learner wait through several more minute-long
+    // generation and review calls.
+    if (consecutiveEmptyRounds >= 2) break;
   }
 
   if (accepted.length < requested) {
