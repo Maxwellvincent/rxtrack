@@ -82,11 +82,32 @@ export function recordUse(userId, lectureId, stem, correct) {
     ...question,
     timesAnswered: (Number(question.timesAnswered) || 0) + 1,
     timesCorrect: (Number(question.timesCorrect) || 0) + (correct ? 1 : 0),
+    lastCorrect: !!correct,
     lastAnsweredAt: new Date().toISOString(),
   } : question);
   const next = { ...current, [lectureId]: { ...entry, questions } };
   writeCloud(userId, key, next);
   return next;
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Answered questions leave the adaptive reserve. They return only for deliberate
+ * review: immediately after the latest miss, or after a success-based spacing gap.
+ */
+export function isQuestionReviewDue(question, now = Date.now()) {
+  const answered = Number(question?.timesAnswered) || 0;
+  if (!answered) return false;
+  const correct = Number(question?.timesCorrect) || 0;
+  const latestWasWrong = question?.lastCorrect === false
+    || (question?.lastCorrect == null && correct < answered);
+  if (latestWasWrong) return true;
+  const lastAnsweredAt = Date.parse(question?.lastAnsweredAt || "");
+  if (!Number.isFinite(lastAnsweredAt)) return true;
+  const successfulReviews = Math.max(1, correct);
+  const spacingDays = successfulReviews === 1 ? 3 : successfulReviews === 2 ? 7 : 14;
+  return Number(now) - lastAnsweredAt >= spacingDays * DAY_MS;
 }
 
 /**

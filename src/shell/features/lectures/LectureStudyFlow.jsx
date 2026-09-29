@@ -38,7 +38,7 @@ import {
   readStoredLabels,
   selectCandidates,
 } from "../../../lectureFigures.js";
-import { PREPARE_BATCH_SIZE, prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
+import { PREPARE_BATCH_SIZE, buildAdaptiveObjectivePlan, prepareObjectiveQuiz, readClinicalAnalysesForBlock, resolveDefaultDifficulty, selectClinicalExamplesForBlock, selectExemplarsForBlock } from "../objectives/quizLaunch.js";
 import { useQuestionBanks } from "../../hooks/useQuestionBanks.js";
 import { useQuestionBankMeta } from "../../hooks/useQuestionBankMeta.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
@@ -1199,13 +1199,22 @@ export function LectureStudyFlow({
     const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
 
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
+    const adaptivePlan = buildAdaptiveObjectivePlan(orderedObjectives, count);
+    const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v2") === generationVersion)
       .filter((question) => validReserve.has(question))
       .filter((question) => (Number(question.timesAnswered) || 0) === 0)
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
-      .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0) || String(a.createdAt || "").localeCompare(String(b.createdAt || "")))
+      .sort((a, b) => {
+        const questionRank = (question) => Math.min(
+          ...(question.objectiveIds || []).map((id) => adaptiveRank.get(id) ?? Number.MAX_SAFE_INTEGER),
+          Number.MAX_SAFE_INTEGER
+        );
+        return questionRank(a) - questionRank(b)
+          || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+      })
       .slice(0, count);
     const missing = Math.max(0, count - reserve.length);
     if (!missing) {
@@ -1330,20 +1339,24 @@ export function LectureStudyFlow({
     setQuizPreparation(null);
   }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById]);
 
-  const savedQuizQuestions = lecture?.id
+  const reviewableQuizQuestions = lecture?.id
     ? locallyValidClinicalQuestions(generatedQuestionsStore.questionsForLecture(userId, lecture.id))
+      .filter((question) => generatedQuestionsStore.isQuestionReviewDue(question))
     : [];
   const runSavedQuiz = useCallback((count) => {
     const saved = locallyValidClinicalQuestions(
       lecture?.id ? generatedQuestionsStore.questionsForLecture(userId, lecture.id) : []
     );
-    if (!saved.length) {
-      setError("No saved clinical questions are ready for this lecture yet. Choose Generate new questions to prepare a set.");
+    const due = saved.filter((question) => generatedQuestionsStore.isQuestionReviewDue(question));
+    if (!due.length) {
+      setError("No previous questions are due for review. The adaptive quiz will use unseen questions instead.");
       return;
     }
-    const selected = [...saved]
-      .sort((a, b) => (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0))
-      .slice(0, Math.min(Math.max(1, Number(count) || saved.length), saved.length));
+    const selected = [...due]
+      .sort((a, b) => Number(b.lastCorrect === false) - Number(a.lastCorrect === false)
+        || String(a.lastAnsweredAt || "").localeCompare(String(b.lastAnsweredAt || ""))
+        || (Number(a.timesAnswered) || 0) - (Number(b.timesAnswered) || 0))
+      .slice(0, Math.min(Math.max(1, Number(count) || due.length), due.length));
     setError("");
     setAdHocQuiz(true);
     startQuizSession(selected);
@@ -2143,19 +2156,6 @@ export function LectureStudyFlow({
                 <span className="text-[12px] text-text-3">V2 is the active generator for every new quiz.</span>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                {savedQuizQuestions.length > 0 && (
-                  <Button
-                    variant="outline"
-                    disabled={!!busy}
-                    onClick={() => {
-                      const count = quizPicker.count;
-                      setQuizPicker(null);
-                      runSavedQuiz(count);
-                    }}
-                  >
-                    Start saved set ({Math.min(quizPicker.count, savedQuizQuestions.length)})
-                  </Button>
-                )}
                 <Button
                   onClick={() => {
                     const { count, difficulty } = quizPicker;
@@ -2164,17 +2164,38 @@ export function LectureStudyFlow({
                   }}
                   disabled={!!busy}
                 >
-                  {busyLabel || `Generate new ${quizPicker.count}-question quiz`}
+                  {busyLabel || `Start adaptive ${quizPicker.count}-question quiz`}
                 </Button>
                 <button onClick={() => setQuizPicker(null)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
                   cancel
                 </button>
                 <span className="font-mono text-[12px] text-text-3">
                   {lectureObjectives.length > 0
-                    ? `${quizPicker.count} questions distributed across ${lectureObjectives.length} objective${lectureObjectives.length === 1 ? "" : "s"} · atoms supply the supporting facts`
+                    ? `Unseen questions first · struggling, then developing objectives · atoms supply the supporting facts`
                     : `Grounded in ${atoms.length} key facts`}
                 </span>
               </div>
+              {reviewableQuizQuestions.length > 0 && (
+                <details className="border-t border-border pt-3">
+                  <summary className="cursor-pointer text-sm text-text-2 hover:text-text-1">
+                    Review previous questions ({reviewableQuizQuestions.length} due)
+                  </summary>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <Button
+                      variant="outline"
+                      disabled={!!busy}
+                      onClick={() => {
+                        const count = quizPicker.count;
+                        setQuizPicker(null);
+                        runSavedQuiz(count);
+                      }}
+                    >
+                      Review {Math.min(quizPicker.count, reviewableQuizQuestions.length)} due question{Math.min(quizPicker.count, reviewableQuizQuestions.length) === 1 ? "" : "s"}
+                    </Button>
+                    <span className="text-[12px] text-text-3">Missed items return now; correct items return after 3, 7, then 14 days.</span>
+                  </div>
+                </details>
+              )}
             </div>
           )}
 

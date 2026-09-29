@@ -65,6 +65,24 @@ describe("generatedQuestions store — durable reserve", () => {
     expect(saved.id).toMatch(/^q_/);
     expect(saved.timesAnswered).toBe(1);
     expect(saved.timesCorrect).toBe(1);
+    expect(saved.lastCorrect).toBe(true);
+  });
+
+  it("reviews misses immediately and spaces successful questions", () => {
+    const now = Date.parse("2026-09-29T12:00:00.000Z");
+    expect(generatedQuestions.isQuestionReviewDue({ timesAnswered: 0 }, now)).toBe(false);
+    expect(generatedQuestions.isQuestionReviewDue({
+      timesAnswered: 1, timesCorrect: 0, lastCorrect: false, lastAnsweredAt: "2026-09-29T11:59:00.000Z",
+    }, now)).toBe(true);
+    expect(generatedQuestions.isQuestionReviewDue({
+      timesAnswered: 1, timesCorrect: 1, lastCorrect: true, lastAnsweredAt: "2026-09-27T12:00:01.000Z",
+    }, now)).toBe(false);
+    expect(generatedQuestions.isQuestionReviewDue({
+      timesAnswered: 1, timesCorrect: 1, lastCorrect: true, lastAnsweredAt: "2026-09-26T12:00:00.000Z",
+    }, now)).toBe(true);
+    expect(generatedQuestions.isQuestionReviewDue({
+      timesAnswered: 2, timesCorrect: 2, lastCorrect: true, lastAnsweredAt: "2026-09-23T12:00:00.000Z",
+    }, now)).toBe(false);
   });
 
   it("does not save a demographic paraphrase of the same reasoning route", () => {

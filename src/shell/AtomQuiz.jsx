@@ -6,7 +6,7 @@ import { classify, atomsToReview } from "../engine/calibration.js";
 import { appendCalibration } from "../engine/calibrationStore.js";
 import { recordAnswer } from "../stores/lectureQuestionStats.js";
 import { recordAtomAnswer } from "../stores/atomProgress.js";
-import { recordEvidence, recordReflection } from "../stores/learnerEvidence.js";
+import { questionEvidenceKey, read as readLearnerEvidence, recordEvidence, recordReflection } from "../stores/learnerEvidence.js";
 import { classifyLeadIn, ERROR_REASONS } from "./features/exam/questionReading.js";
 import * as objectivesStore from "../stores/blockObjectives.js";
 import { recordObjectiveAttempt, selectBlockObjectives, storageKeyFor, toEntry } from "./logic/objectives.js";
@@ -189,12 +189,18 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
+    const evidenceQuestionKey = questionEvidenceKey(q.poolId || q.id || q.questionId || `stem:${q.stem || ""}`);
+    const priorObjectiveEvidence = readLearnerEvidence(userId)?.objectives || {};
+    const newEvidenceObjectiveIds = (q.objectiveIds || []).filter((objectiveId) =>
+      !(priorObjectiveEvidence[objectiveId]?.questionKeys || []).includes(evidenceQuestionKey)
+    );
     recordEvidence(userId, {
       source: "quiz",
       sessionKey: evidenceSessionKeyRef.current,
       blockId,
       lectureId,
       objectiveIds: q.objectiveIds || [],
+      questionKey: evidenceQuestionKey,
       atomKey: q.atomKey || null,
       correct: isCorrect,
       confidence: level,
@@ -207,10 +213,10 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
     // ExamSoft-style objective test and must not graduate objective mastery.
-    if (blockId && q.objectiveIds?.length && q.generationMode !== "grounded-fallback" && q.qualityAudit?.status !== "local-validated") {
+    if (blockId && newEvidenceObjectiveIds.length && q.generationMode !== "grounded-fallback" && q.qualityAudit?.status !== "local-validated") {
       const objectiveMap = objectivesStore.read(userId) || {};
       let blockObjectives = selectBlockObjectives(objectiveMap, blockId);
-      for (const objectiveId of [...new Set(q.objectiveIds)]) {
+      for (const objectiveId of [...new Set(newEvidenceObjectiveIds)]) {
         blockObjectives = recordObjectiveAttempt(blockObjectives, objectiveId, isCorrect, new Date());
       }
       const storeKey = storageKeyFor(objectiveMap, blockId);

@@ -8,6 +8,19 @@ export function read(userId) {
   return userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
 }
 
+/** Compact, stable identity used to keep exact-item history durable without storing full stems. */
+export function questionEvidenceKey(value) {
+  const input = String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!input) return "";
+  if (/^e_[a-z0-9]+$/.test(input)) return input;
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `e_${(hash >>> 0).toString(36)}`;
+}
+
 function bump(bucket, id, event) {
   if (!id) return bucket;
   const prev = bucket[id] || {};
@@ -25,10 +38,29 @@ function bump(bucket, id, event) {
 }
 
 function bumpObjective(bucket, id, event) {
-  const next = bump(bucket, id, event);
-  if (!id) return next;
-  const entry = next[id];
+  if (!id) return bucket;
   const previous = bucket[id] || {};
+  const questionKey = questionEvidenceKey(event.questionKey);
+  const questionKeys = previous.questionKeys || [];
+  const repeatedQuestion = !!questionKey && questionKeys.includes(questionKey);
+  if (repeatedQuestion) {
+    const recent = event.correct
+      ? previous.recent || []
+      : [...(previous.recent || []), false].slice(-8);
+    return {
+      ...bucket,
+      [id]: {
+        ...previous,
+        lastSeen: event.at,
+        lastReinforcedAt: event.at,
+        reinforcements: (previous.reinforcements || 0) + 1,
+        reinforcementCorrect: (previous.reinforcementCorrect || 0) + (event.correct ? 1 : 0),
+        recent,
+      },
+    };
+  }
+  const next = bump(bucket, id, event);
+  const entry = next[id];
   const sessions = event.sessionKey
     ? [...new Set([...(previous.sessions || []), event.sessionKey])].slice(-12)
     : previous.sessions || [];
@@ -37,7 +69,10 @@ function bumpObjective(bucket, id, event) {
   const sources = { ...(previous.sources || {}) };
   const source = event.source || "quiz";
   sources[source] = (sources[source] || 0) + 1;
-  return { ...next, [id]: { ...entry, sessions, taskTypes, sources } };
+  const nextQuestionKeys = questionKey
+    ? [...new Set([...questionKeys, questionKey])].slice(-200)
+    : questionKeys;
+  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys } };
 }
 
 export function applyEvidence(model, rawEvent) {

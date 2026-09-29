@@ -118,6 +118,7 @@ export default function PatientRecognition({
       source: "recognition",
       blockId,
       objectiveIds: anchors.map((a) => a?.id).filter(Boolean),
+      questionKey: q?.id || `recognition:${String(q?.stem || q?.question || q?.correctDiagnosis || "").toLowerCase().replace(/\s+/g, " ").trim()}`,
       correct: letter === correctLetter,
       misconception: letter === correctLetter ? null : "recognition-error",
     });

@@ -29,13 +29,13 @@ import { buildStyleProfile, STYLE_PROFILE_VERSION } from "../../../engine/styleP
 // batch immediately.
 export const PREPARE_BATCH_SIZE = 5;
 
-/** Weakest first — fewest consecutive correct answers get quizzed first. */
+/** Weakest first — repair, then consolidation, then first-pass coverage. */
 export function sortWeakestFirst(objectives) {
   const rank = (objective) => {
     const status = String(objective?.status || "untested").toLowerCase();
     if (status === "struggling" || status === "needs_repair") return 0;
-    if (status === "untested" || !status) return 1;
-    if (status === "developing" || status === "inprogress" || status === "in_progress") return 2;
+    if (status === "developing" || status === "inprogress" || status === "in_progress") return 1;
+    if (status === "untested" || !status) return 2;
     if (status === "mastered" || status === "ready") return 3;
     return 1;
   };
@@ -45,6 +45,83 @@ export function sortWeakestFirst(objectives) {
       || (a?.consecutiveCorrect || 0) - (b?.consecutiveCorrect || 0)
       || (Number(a?.attempts) || 0) - (Number(b?.attempts) || 0)
   );
+}
+
+function objectiveStatus(objective) {
+  const status = String(objective?.status || "untested").toLowerCase();
+  if (status === "struggling" || status === "needs_repair") return "struggling";
+  if (status === "developing" || status === "inprogress" || status === "in_progress") return "developing";
+  if (status === "mastered" || status === "ready") return "mastered";
+  return "untested";
+}
+
+/**
+ * A new quiz is intentionally concentrated, not evenly smeared over the lecture.
+ * Roughly two thirds of available slots go to repair, then developing objectives;
+ * untested/mastered objectives receive remaining coverage. A single objective is
+ * capped before the plan cycles so one label cannot consume the whole quiz.
+ */
+export function buildAdaptiveObjectivePlan(objectives, questionCount) {
+  const ordered = sortWeakestFirst(objectives);
+  const count = Math.max(1, Number(questionCount) || 1);
+  const targets = new Map();
+  const addRoundRobin = (items, slots, cap) => {
+    let added = 0;
+    for (let pass = 0; pass < cap && added < slots; pass += 1) {
+      for (const objective of items) {
+        if (added >= slots) break;
+        const id = objective?.id || objective?.code;
+        if (!id) continue;
+        targets.set(id, (targets.get(id) || 0) + 1);
+        added += 1;
+      }
+    }
+    return added;
+  };
+
+  let remaining = count;
+  const focused = ordered.filter((objective) => Number(objective?._focusPriority) === 0);
+  if (focused.length) {
+    const focusSlots = Math.min(remaining, Math.max(focused.length, Math.ceil(count * 0.6)), focused.length * 3);
+    remaining -= addRoundRobin(focused, focusSlots, 3);
+  }
+
+  const notAlreadyFocused = (objective) => !focused.includes(objective);
+  const struggling = ordered.filter((objective) => notAlreadyFocused(objective) && objectiveStatus(objective) === "struggling");
+  if (remaining && struggling.length) {
+    const repairSlots = focused.length
+      ? remaining
+      : Math.min(remaining, Math.max(struggling.length, Math.ceil(count * 0.67)), struggling.length * 3);
+    remaining -= addRoundRobin(struggling, repairSlots, 3);
+  }
+
+  for (const [status, cap] of [["developing", 2], ["untested", 1], ["mastered", 1]]) {
+    if (!remaining) break;
+    const group = ordered.filter((objective) => notAlreadyFocused(objective) && objectiveStatus(objective) === status);
+    remaining -= addRoundRobin(group, remaining, cap);
+  }
+
+  // If the requested quiz is larger than the first deliberate pass, cycle the
+  // non-mastered plan again before spending extra questions on mastered work.
+  const refill = ordered.filter((objective) => objectiveStatus(objective) !== "mastered");
+  while (remaining > 0 && refill.length) {
+    const added = addRoundRobin(refill, remaining, 1);
+    if (!added) break;
+    remaining -= added;
+  }
+  while (remaining > 0 && ordered.length) {
+    const added = addRoundRobin(ordered, remaining, 1);
+    if (!added) break;
+    remaining -= added;
+  }
+
+  return ordered
+    .map((objective) => {
+      const id = objective?.id || objective?.code;
+      const target = targets.get(id) || 0;
+      return target ? { ...objective, _targetQuestionCount: target, _adaptiveStatus: objectiveStatus(objective) } : null;
+    })
+    .filter(Boolean);
 }
 
 /**
@@ -228,7 +305,7 @@ export function buildQuizConfig({
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation
-  const selected = pool.slice(0, Math.min(count, pool.length));
+  const selected = buildAdaptiveObjectivePlan(pool, count);
   const lecture = (lectureIdHint && (lectures || []).find((item) => item?.id === lectureIdHint))
     || (pool.map((objective) => objective?.linkedLecId).find(Boolean)
       ? (lectures || []).find((item) => item?.id === pool.map((objective) => objective?.linkedLecId).find(Boolean))
@@ -263,7 +340,12 @@ export function buildQuizConfig({
       studyMode,
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
-      focusNotes: String(focusNotes || "").trim(),
+      focusNotes: [
+        String(focusNotes || "").trim(),
+        selected.length
+          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}`).join("\n")}`
+          : "",
+      ].filter(Boolean).join("\n\n"),
     },
     lectureId: lecture?.id ?? selected.map((o) => o?.linkedLecId).find(Boolean) ?? null,
   };

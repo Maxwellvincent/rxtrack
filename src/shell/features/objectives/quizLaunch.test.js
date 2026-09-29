@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import {
   sortWeakestFirst,
+  buildAdaptiveObjectivePlan,
   resolveQuestionCount,
   findLectureForQuiz,
   readExemplars,
@@ -35,13 +36,38 @@ describe("quiz launch decisions", () => {
     ).toEqual(["b", "c", "a"]);
   });
 
-  it("prioritizes struggling and untested objectives before developing or mastered ones", () => {
+  it("prioritizes struggling and developing objectives before untested or mastered ones", () => {
     expect(sortWeakestFirst([
       { id: "mastered", status: "mastered", consecutiveCorrect: 0 },
       { id: "developing", status: "developing", consecutiveCorrect: 0 },
       { id: "untested", status: "untested", consecutiveCorrect: 0 },
       { id: "struggling", status: "struggling", consecutiveCorrect: 4 },
-    ]).map((objective) => objective.id)).toEqual(["struggling", "untested", "developing", "mastered"]);
+    ]).map((objective) => objective.id)).toEqual(["struggling", "developing", "untested", "mastered"]);
+  });
+
+  it("concentrates a 15-question adaptive plan on struggling, then developing objectives", () => {
+    const plan = buildAdaptiveObjectivePlan([
+      ...Array.from({ length: 5 }, (_, index) => ({ id: `s${index + 1}`, status: "struggling" })),
+      ...Array.from({ length: 3 }, (_, index) => ({ id: `d${index + 1}`, status: "developing" })),
+      ...Array.from({ length: 4 }, (_, index) => ({ id: `u${index + 1}`, status: "untested" })),
+    ], 15);
+    const totals = plan.reduce((result, objective) => ({
+      ...result,
+      [objective._adaptiveStatus]: (result[objective._adaptiveStatus] || 0) + objective._targetQuestionCount,
+    }), {});
+    expect(totals).toEqual({ struggling: 11, developing: 4 });
+    expect(plan.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)).toBe(15);
+  });
+
+  it("caps one struggling objective before adding developing work", () => {
+    const plan = buildAdaptiveObjectivePlan([
+      { id: "repair", status: "struggling" },
+      { id: "develop", status: "developing" },
+      { id: "new", status: "untested" },
+    ], 5);
+    expect(plan.map((objective) => [objective.id, objective._targetQuestionCount])).toEqual([
+      ["repair", 3], ["develop", 2],
+    ]);
   });
 
   it("keeps an explicit exam-coverage focus ahead of the general weakness order", () => {
@@ -80,6 +106,7 @@ describe("quiz launch decisions", () => {
     expect(config.objectives.map((o) => o.id)).toEqual(["b"]);
     expect(config.lectureText).toContain("Brachial plexus anatomy");
     expect(config.count).toBe(1);
+    expect(config.objectives[0]._targetQuestionCount).toBe(1);
     expect(lectureId).toBe("lec1");
   });
 

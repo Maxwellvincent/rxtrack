@@ -6,7 +6,12 @@ import { AtomQuiz, objectivesToReview, Summary } from "./AtomQuiz.jsx";
 import { ExamLaunchModal } from "./features/exam/ExamLaunchModal.jsx";
 import { recordReflection } from "../stores/learnerEvidence.js";
 
-vi.mock("../stores/learnerEvidence.js", () => ({ recordEvidence: vi.fn(), recordReflection: vi.fn() }));
+vi.mock("../stores/learnerEvidence.js", () => ({
+  questionEvidenceKey: (value) => String(value || ""),
+  read: () => ({ objectives: {} }),
+  recordEvidence: vi.fn(),
+  recordReflection: vi.fn(),
+}));
 vi.mock("../engine/calibrationStore.js", () => ({ appendCalibration: vi.fn() }));
 vi.mock("./hooks/useFocusHudSignal.js", () => ({ useFocusHudSignal: vi.fn() }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

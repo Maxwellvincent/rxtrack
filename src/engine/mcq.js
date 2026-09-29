@@ -999,7 +999,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
 
   const objectivesSection = objectives.length
     ? "\n\nLEARNING OBJECTIVES TO COVER (every question maps to one):\n" +
-      objectives.map((o, i) => `${i + 1}. [${o.code || o.id || ""}] ${o.objective || o.text || ""}`).join("\n")
+      objectives.map((o, i) => `${i + 1}. [${o.code || o.id || ""}] ${o.objective || o.text || ""}${o._targetQuestionCount ? ` [TARGET ${o._targetQuestionCount} ITEM${o._targetQuestionCount === 1 ? "" : "S"}]` : ""}`).join("\n")
     : "";
   const objectiveFacetsSection = objectiveFacetCoveragePrompt(objectives, count);
   const comparisonObjectives = objectives.filter((o) => /\b(compare|compar(?:e|ing|ison)|differentiat(?:e|ing)|distinguish|contrast|versus|\bvs\.?\b|different\s+(?:between|among))\b/i.test(String(o.objective || o.text || "")));

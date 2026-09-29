@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvidence, applyReflection } from "./learnerEvidence.js";
+import { applyEvidence, applyReflection, questionEvidenceKey } from "./learnerEvidence.js";
 
 describe("learner evidence", () => {
   it("replaces a miss reason without adding a second reflection", () => {
@@ -47,5 +47,35 @@ describe("learner evidence", () => {
       model = applyEvidence(model, { objectiveIds: ["o1"], correct: index >= 2, at: index + 1 });
     }
     expect(model.objectives.o1.recent).toEqual([true, true, true, true, true, true, true, true]);
+  });
+
+  it("counts an exact repeated question as reinforcement instead of new readiness evidence", () => {
+    const first = applyEvidence(null, {
+      source: "quiz", sessionKey: "session-1", questionKey: "q-1",
+      objectiveIds: ["o1"], correct: true, taskType: "mechanism", at: 10,
+    });
+    const repeated = applyEvidence(first, {
+      source: "quiz", sessionKey: "session-2", questionKey: "q-1",
+      objectiveIds: ["o1"], correct: true, taskType: "clinical-application", at: 20,
+    });
+    expect(repeated.total).toBe(2);
+    expect(repeated.objectives.o1).toMatchObject({
+      attempts: 1,
+      correct: 1,
+      sessions: ["session-1"],
+      taskTypes: { mechanism: 1 },
+      questionKeys: [questionEvidenceKey("q-1")],
+      reinforcements: 1,
+      reinforcementCorrect: 1,
+    });
+  });
+
+  it("lets a repeated miss revoke the latest positive signal without adding an attempt", () => {
+    const first = applyEvidence(null, { questionKey: "q-1", objectiveIds: ["o1"], correct: true, at: 10 });
+    const repeatedMiss = applyEvidence(first, { questionKey: "q-1", objectiveIds: ["o1"], correct: false, at: 20 });
+    expect(repeatedMiss.objectives.o1.attempts).toBe(1);
+    expect(repeatedMiss.objectives.o1.correct).toBe(1);
+    expect(repeatedMiss.objectives.o1.recent).toEqual([true, false]);
+    expect(repeatedMiss.objectives.o1.reinforcements).toBe(1);
   });
 });

@@ -86,6 +86,7 @@ export async function finalizeExamSession(
           blockId: session.blockId,
           lectureId: question.lectureId || null,
           objectiveIds: question?.objectiveIds || [],
+          questionKey: question?.poolId || question?.id || question?.questionId || `stem:${String(question?.stem || "").toLowerCase().replace(/\s+/g, " ").trim()}`,
           atomKey: question?.atomKey || null,
           correct: wasCorrect,
           difficulty: question?.difficulty || null,
