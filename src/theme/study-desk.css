@@ -92,6 +92,12 @@
 .desk-lecture-filters > summary span { margin-left: 6px; color: var(--text-3); font-size: .72rem; font-weight: 500; }
 .desk-lecture-filters[open] { padding-bottom: 10px; }
 .desk-lecture-filters[open] > div { margin-inline: 10px; }
+.desk-lecture-focus-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; padding: 14px 16px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 14px; background: linear-gradient(110deg, color-mix(in srgb, var(--accent) 9%, var(--bg-elevated)), var(--bg-elevated)); }
+.desk-lecture-focus-bar > div { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.desk-lecture-focus-bar strong { color: var(--text-1); font-size: .92rem; }
+.desk-lecture-focus-bar span { color: var(--text-3); font-size: .74rem; }
+.desk-lecture-focus-toggle { min-height: 40px; flex-shrink: 0; padding: 8px 12px; border: 1px solid var(--accent); border-radius: 9px; background: var(--bg-elevated); color: var(--accent-text); font-size: .78rem; font-weight: 750; }
+.desk-lecture-focus-toggle:hover { background: var(--accent-soft); }
 .desk-objective-tabs { padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
 .desk-objective-tabs > button { min-height: 44px; border-radius: 9px !important; padding: 9px 14px !important; font-family: var(--font-sans) !important; }
 .desk-objectives > div:not(.desk-objective-tabs) > div { box-shadow: none; }
@@ -234,6 +240,8 @@
   .desk-objective-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .desk-objective-focus { grid-template-columns: 1fr; }
   .desk-objective-lecture-index { grid-template-columns: 1fr; }
+  .desk-lecture-focus-bar { align-items: flex-start; flex-direction: column; }
+  .desk-lecture-focus-toggle { width: 100%; }
   .desk-exam-overview { width: 100%; min-width: 0; }
   .desk-objective-metric { min-height: 104px; padding: 12px; }
   .desk-objective-lecture-trigger { flex-wrap: wrap; gap: 8px !important; }

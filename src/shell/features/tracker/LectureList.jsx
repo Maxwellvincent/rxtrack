@@ -283,6 +283,7 @@ export function LectureList({
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
   const [visibleCount, setVisibleCount] = useState(18);
+  const [showAllLectures, setShowAllLectures] = useState(false);
   const [deletingLectureId, setDeletingLectureId] = useState(null);
 
   // Task 12, Part B2 — scroll the focused lecture's row into view and give
@@ -324,7 +325,7 @@ export function LectureList({
     const all = buildLectureRows(scores, { completion: context.completion, blockId, filter: "all" });
     return Object.fromEntries(ACTIVITY_TYPES.map((type) => [type, type === "all" ? all.length : all.filter((row) => row.type === type).length]));
   }, [scores, context.completion, blockId]);
-  const visibleRows = weekRows.slice(0, visibleCount);
+  const visibleRows = (showAllLectures ? weekRows : weekRows.slice(0, 6)).slice(0, visibleCount);
   const questionTotals = useMemo(() => (context.lectures || []).filter((lecture) => lecture.blockId === blockId).reduce((out, lecture) => {
     const stat = questionStats.data?.[lecture.id];
     out.answered += stat?.answered || 0;
@@ -480,6 +481,17 @@ export function LectureList({
       </div>
       </details>
 
+      <section className="desk-lecture-focus-bar" aria-label="Lecture focus queue">
+        <div>
+          <div className="today-eyebrow">{showAllLectures ? "Lecture library" : "Focus queue"}</div>
+          <strong>{showAllLectures ? `${weekRows.length} lectures in this view` : `${Math.min(6, weekRows.length)} next lectures to consider`}</strong>
+          <span>{showAllLectures ? "Use the filters above to narrow the library." : "Start with what is active, weak, or scheduled. The full library stays one click away."}</span>
+        </div>
+        <button type="button" className="desk-lecture-focus-toggle" onClick={() => { setShowAllLectures((value) => !value); setVisibleCount(18); }}>
+          {showAllLectures ? "Return to focus queue" : `Browse all ${weekRows.length} lectures`}
+        </button>
+      </section>
+
       {weekRows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
       ) : (
@@ -504,7 +516,7 @@ export function LectureList({
           ))}
         </div>
       )}
-      {visibleCount < weekRows.length && (
+      {showAllLectures && visibleCount < weekRows.length && (
         <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
           Show 18 more · {weekRows.length - visibleCount} remaining
         </button>
