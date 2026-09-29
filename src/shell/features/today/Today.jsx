@@ -298,7 +298,10 @@ function checkedKey(blockId) { return `rxt-checked-${blockId}-${new Date().toDat
 function readChecked(blockId) {
   try {
     const key = checkedKey(blockId);
-    return new Set(JSON.parse(localStorage.getItem(key) || sessionStorage.getItem(key) || "[]"));
+    const saved = localStorage.getItem(key);
+    const legacy = sessionStorage.getItem(key);
+    if (!saved && legacy) localStorage.setItem(key, legacy);
+    return new Set(JSON.parse(saved || legacy || "[]"));
   }
   catch { return new Set(); }
 }
