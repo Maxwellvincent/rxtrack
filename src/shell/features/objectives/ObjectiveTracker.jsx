@@ -1948,22 +1948,53 @@ export default function ObjectiveTracker({
                     <span style={{ fontFamily: MONO, fontSize: 11, color: T.text3, width: 28, flexShrink: 0 }}>
                       {lec?.lectureNumber ?? "—"}
                     </span>
-                    <span
-                      title={fullTitle}
-                      style={{
-                        fontFamily: MONO,
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: "var(--color-text-primary, " + T.text1 + ")",
-                        flex: 1,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        minWidth: 0,
-                      }}
-                    >
-                      {fullTitle}
-                    </span>
+                    {onStudyLecture && lec ? (
+                      <button
+                        type="button"
+                        title={`Open ${fullTitle}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onStudyLecture(lecId);
+                        }}
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color,
+                          flex: 1,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          minWidth: 0,
+                          padding: 0,
+                          border: "none",
+                          background: "transparent",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          textDecoration: "underline",
+                          textUnderlineOffset: 2,
+                        }}
+                      >
+                        {fullTitle}
+                      </button>
+                    ) : (
+                      <span
+                        title={fullTitle}
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: "var(--color-text-primary, " + T.text1 + ")",
+                          flex: 1,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          minWidth: 0,
+                        }}
+                      >
+                        {fullTitle}
+                      </span>
+                    )}
                     <span
                       style={{
                         fontFamily: MONO,

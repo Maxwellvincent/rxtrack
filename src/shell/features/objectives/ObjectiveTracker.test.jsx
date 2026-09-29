@@ -38,6 +38,7 @@ function mount(ui) {
 }
 
 it("organizes objectives into an actionable readiness summary", () => {
+  const onStudyLecture = vi.fn();
   const view = mount(
     <ObjectiveTracker
       blockId="block-1"
@@ -49,6 +50,7 @@ it("organizes objectives into an actionable readiness summary", () => {
       ]}
       onSelfRate={vi.fn()}
       onStartObjectiveQuiz={vi.fn()}
+      onStudyLecture={onStudyLecture}
     />
   );
 
@@ -66,6 +68,12 @@ it("organizes objectives into an actionable readiness summary", () => {
   const lectureGroup = [...view.host.querySelectorAll('[role="button"]')]
     .find((button) => button.textContent.includes("Hormone signaling"));
   act(() => lectureGroup.click());
+  expect(view.host.textContent).toContain("Explain receptor signaling");
+
+  const lectureLink = [...view.host.querySelectorAll("button")]
+    .find((button) => button.textContent.trim() === "Hormone signaling");
+  act(() => lectureLink.click());
+  expect(onStudyLecture).toHaveBeenCalledWith("lec-1");
   expect(view.host.textContent).toContain("Explain receptor signaling");
 
   view.close();
