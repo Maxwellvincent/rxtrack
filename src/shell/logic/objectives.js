@@ -272,6 +272,11 @@ export function isLinked(objective, blockLectures) {
   return (blockLectures || []).some((l) => l.id === lid);
 }
 
+/** Objectives that can actually be studied through a lecture in this block. */
+export function selectLinkedObjectives(objectives, blockLectures) {
+  return (objectives || []).filter((objective) => isLinked(objective, blockLectures));
+}
+
 /** Drop every objective not linked to a lecture in this block. */
 export function deleteUnlinked(objectives, blockLectures) {
   return (objectives || []).filter((o) => isLinked(o, blockLectures));

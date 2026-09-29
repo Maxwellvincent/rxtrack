@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import ObjectiveTracker from "./ObjectiveTracker.jsx";
 import { useObjectivesController } from "./useObjectivesController.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
+import { selectLinkedObjectives } from "../../logic/objectives.js";
 
 export function ObjectivesContainer({
   blockId,
@@ -35,6 +36,11 @@ export function ObjectivesContainer({
     userId
   );
   const questionStats = useLectureQuestionStats(userId);
+  const activeObjectiveCount = useMemo(
+    () => selectLinkedObjectives(objectives, blockLectures).length,
+    [objectives, blockLectures]
+  );
+  const sourceOnlyCount = Math.max(0, objectives.length - activeObjectiveCount);
   const practice = useMemo(() => (blockLectures || []).reduce((out, lecture) => {
     const row = questionStats.data?.[lecture.id];
     out.answered += row?.answered || 0;
@@ -52,7 +58,9 @@ export function ObjectivesContainer({
         <div className="today-eyebrow">Study map</div>
         <h2 className="text-2xl font-bold text-text-1">Objectives</h2>
         <p className="mt-1 text-sm text-text-3">
-          {objectives.length} school objectives across {blockLectures.length} lectures. Use the command center to choose your next question set, then inspect the underlying evidence.
+          {activeObjectiveCount} active objectives across {blockLectures.length} lectures.
+          {sourceOnlyCount > 0 ? ` ${sourceOnlyCount} unlinked source objectives are preserved but excluded from progress.` : ""}
+          {" "}Use the command center to choose your next question set, then inspect the underlying evidence.
         </p>
       </div>
       {error && (

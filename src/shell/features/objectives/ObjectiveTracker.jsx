@@ -846,6 +846,10 @@ export default function ObjectiveTracker({
   }, [covSrc, validLecIds]);
 
   const unlinkedCount = unlinkedObjectives.length;
+  const referenceOnlyCount = unlinkedObjectives.filter((objective) =>
+    normalizedSourceActivity(objective.activity || objective.lectureType) !== "LEC"
+  ).length;
+  const lectureMatchCount = unlinkedCount - referenceOnlyCount;
 
   const byLecture = useMemo(() => {
     const map = new Map();
@@ -1124,12 +1128,12 @@ export default function ObjectiveTracker({
       </section>
       <section className="desk-objective-summary" aria-label="Objective readiness summary">
         {[
-          { label: "School objectives", value: totalAll + unlinkedCount, note: `${blockLectures.length} lectures`, view: "lecture" },
+          { label: "Active objectives", value: totalAll, note: `${blockLectures.length} lectures`, view: "lecture" },
           { label: "Needs repair", value: countStruggling, note: "Missed or struggling", view: "status", filter: "struggling" },
           { label: "Untested", value: countUntested, note: "No evidence yet", view: "status", filter: "untested" },
           { label: "Developing", value: countInprogress, note: "Building consistency", view: "status", filter: "inprogress" },
           { label: "Mastered", value: countMastered, note: "Current evidence", view: "status", filter: "mastered" },
-          { label: "Unlinked", value: unlinkedCount, note: "Needs lecture match", view: unlinkedCount ? "unlinked" : "coverage" },
+          { label: "Unlinked", value: unlinkedCount, note: lectureMatchCount ? `${lectureMatchCount} need lecture match` : "Excluded from progress", view: unlinkedCount ? "unlinked" : "coverage" },
           { label: "Practice questions", value: practiceAnswered.toLocaleString(), note: practiceAccuracy == null ? "No quiz evidence yet" : `${Math.round(practiceAccuracy * 100)}% accuracy`, view: "lecture" },
         ].map((metric) => (
           <button
@@ -1246,7 +1250,7 @@ export default function ObjectiveTracker({
                 marginBottom: 4,
               }}
             >
-              {unlinkedCount} objectives need a lecture assigned
+              {unlinkedCount} unlinked source objectives
             </div>
             <div
               style={{
@@ -1256,7 +1260,9 @@ export default function ObjectiveTracker({
                 lineHeight: 1.45,
               }}
             >
-              These were imported but couldn&apos;t be automatically matched to a lecture.
+              {referenceOnlyCount > 0 && <>{referenceOnlyCount} SG/DLA/LAB objectives are preserved as reference-only and excluded from readiness and completion. </>}
+              {lectureMatchCount > 0 && <>{lectureMatchCount} lecture objective{lectureMatchCount === 1 ? "" : "s"} still need{lectureMatchCount === 1 ? "s" : ""} a title match. </>}
+              You can optionally assign any source objective to an uploaded lecture when it directly belongs there.
             </div>
           </div>
 
@@ -1286,8 +1292,12 @@ export default function ObjectiveTracker({
                         <strong style={{ fontSize: 12 }}>{group.activity} · {group.hint}</strong>
                         <span style={{ fontSize: 11, color: T.text3, whiteSpace: "nowrap" }}>{group.objectives.length} obj</span>
                       </div>
-                      <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.35, color: group.possibleMatch ? "#854F0B" : "#A32D2D" }}>
-                        {group.possibleMatch ? "Possible title mismatch" : `Missing ${group.activity} upload or differently named`}
+                      <div style={{ marginTop: 5, fontSize: 11, lineHeight: 1.35, color: group.possibleMatch ? "#854F0B" : group.activity === "LEC" ? "#A32D2D" : T.text3 }}>
+                        {group.possibleMatch
+                          ? "Possible title mismatch"
+                          : group.activity === "LEC"
+                            ? "Lecture upload missing or differently named"
+                            : "Reference-only · excluded from progress"}
                       </div>
                     </button>
                   );

@@ -26,6 +26,7 @@ import {ConfidenceCalibration} from './ConfidenceCalibration.jsx';
 import { formatLectureLabel } from "../../../lectureTitle.js";
 import { scopeLabel } from "../../logic/weekScope.js";
 import { buildWeakAreaMap } from "./weakAreaMap.js";
+import { selectLinkedObjectives } from "../../logic/objectives.js";
 
 const EMPTY_MANUAL_ENTRIES = [];
 
@@ -161,7 +162,7 @@ function accuracyClass(accuracy) {
   return "text-good";
 }
 
-export function computeObjectiveReadiness(sessions, objectives = []) {
+export function computeObjectiveReadiness(sessions, objectives = [], { restrictToKnown = false } = {}) {
   const knownIds = new Set((objectives || []).map((o) => o?.id).filter(Boolean));
   const stats = {};
   for (const [sessionIndex, session] of (sessions || []).entries()) {
@@ -171,7 +172,7 @@ export function computeObjectiveReadiness(sessions, objectives = []) {
       if (!answer) continue;
       const correct = !!answer && answer.value === question.correct;
       for (const objectiveId of question.objectiveIds || []) {
-        if (knownIds.size && !knownIds.has(objectiveId)) continue;
+        if ((restrictToKnown || knownIds.size) && !knownIds.has(objectiveId)) continue;
         const prev = stats[objectiveId] || { attempts: 0, correct: 0, sessions: new Set(), taskTypes: new Set(), latestCorrect: false };
         prev.attempts += 1;
         prev.correct += correct ? 1 : 0;
@@ -306,7 +307,14 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         .sort((a, b) => Number(a.workedToday)-Number(b.workedToday) || (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.totalQuestions - a.totalQuestions || a.label.localeCompare(b.label)),
     [lectureStats, lecturesById, weakLectureIds, integratedSessions, modelActivity.data, atomActivity.data,queueNow]
   );
-  const readiness = useMemo(() => computeObjectiveReadiness(integratedSessions, objectives), [integratedSessions, objectives]);
+  const actionableObjectives = useMemo(
+    () => selectLinkedObjectives(objectives, lectures),
+    [objectives, lectures]
+  );
+  const readiness = useMemo(
+    () => computeObjectiveReadiness(integratedSessions, actionableObjectives, { restrictToKnown: true }),
+    [integratedSessions, actionableObjectives]
+  );
   const pacing = useMemo(() => computePacingMetrics(integratedSessions), [integratedSessions]);
   const process = learnerProfile?.testTaking || {};
   const reasonRows = useMemo(() =>

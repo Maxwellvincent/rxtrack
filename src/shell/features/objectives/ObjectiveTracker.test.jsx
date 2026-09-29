@@ -55,10 +55,11 @@ it("organizes objectives into an actionable readiness summary", () => {
   );
 
   expect(view.host.querySelector('[aria-label="Objective readiness summary"]')).not.toBeNull();
-  expect(view.host.textContent).toContain("School objectives3");
+  expect(view.host.textContent).toContain("Active objectives2");
   expect(view.host.textContent).toContain("Needs repair1");
   expect(view.host.textContent).toContain("Untested1");
   expect(view.host.textContent).toContain("Unlinked1");
+  expect(view.host.textContent).toContain("1 need lecture match");
   expect(view.host.textContent).toContain("Not quizzed");
 
   const repairMetric = [...view.host.querySelectorAll(".desk-objective-metric")]

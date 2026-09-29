@@ -77,6 +77,21 @@ describe("computeObjectiveReadiness", () => {
       tested: 2, total: 3, ready: 0, provisional: 1, weak: 1, accuracy: 0.5,
     });
   });
+
+  it("can exclude unlinked objective ids from exam readiness", () => {
+    const sessions = [{
+      questions: [
+        { questionId: "q1", correct: "A", objectiveIds: ["linked", "sg-unlinked"] },
+      ],
+      answers: [{ questionId: "q1", value: "A" }],
+    }];
+
+    expect(computeObjectiveReadiness(
+      sessions,
+      [{ id: "linked" }],
+      { restrictToKnown: true }
+    )).toMatchObject({ tested: 1, total: 1, coverage: 1 });
+  });
 });
 
 describe("computePacingMetrics", () => {

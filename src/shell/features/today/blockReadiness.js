@@ -1,6 +1,7 @@
 import { confidenceAnalytics } from "../exam/confidenceAnalytics.js";
 import { blockPracticeSummary } from "./blockPractice.js";
 import { SCHOOL_EXAM_TARGET_PERCENT, SCHOOL_EXAM_TARGET_RATE } from "../../logic/performanceTargets.js";
+import { selectLinkedObjectives } from "../../logic/objectives.js";
 
 const objectiveStatus = (objective, learnerEvidence = {}) => {
   const status = String(objective?.status || "untested").toLowerCase();
@@ -60,8 +61,8 @@ export function blockReadinessSummary({
   learnerEvidence = {},
   now = Date.now(),
 }) {
-  objectives = uniqueObjectives(objectives);
   const blockLectures = lectures.filter((lecture) => lecture?.blockId === blockId);
+  objectives = uniqueObjectives(selectLinkedObjectives(objectives, blockLectures));
   const lecturesById = Object.fromEntries(blockLectures.map((lecture) => [lecture.id, lecture]));
   const practice = blockPracticeSummary(blockId, blockLectures, questionStats, sessions);
   const statuses = { mastered: 0, inprogress: 0, struggling: 0, untested: 0 };
