@@ -17,6 +17,7 @@ import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModel
 import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
 import { ChoiceValue, hasTableChoices } from "../ui/ChoiceValue.jsx";
 import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../engine/questionOrder.js";
+import { orderedChoiceEntries } from "./features/exam/choiceOrder.js";
 
 const nowMs = () => Date.now();
 
@@ -308,7 +309,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         {!!highlights[q.stem]?.length && <button className="quiz-clear-highlights mb-2 min-h-9 text-xs text-text-2 underline" onClick={() => removeHighlight(q.stem, null)}>Clear highlights</button>}
         </div>
         <div className="quiz-choice-list flex flex-col gap-1.5">
-          {Object.entries(q.choices).map(([letter, txt]) => {
+          {orderedChoiceEntries(q.choices).map(([letter, txt]) => {
             const isPicked = picked === letter;
             const isCrossed = !revealed && crossed.has(letter);
             const borderCls = !revealed

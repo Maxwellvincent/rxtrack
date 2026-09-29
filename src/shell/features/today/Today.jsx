@@ -16,12 +16,13 @@ import { readTaskListCollapsed, writeTaskListCollapsed } from "../../navPrefs.js
 const DAY_MODES = [
   { id: "lecture",  label: "Lecture day",  desc: "Pre-learn AM, lectures, review PM." },
   { id: "review",   label: "Review",       desc: "No lectures. Qs + cumulative review." },
+  { id: "exam",     label: "Exam prep",    desc: "Final 3 days. Timed Qs, rapid repair, sleep." },
   { id: "triage",   label: "Triage",       desc: "Recover. Less today, essentials only." },
 ];
 
-function dayModeKey(blockId) { return `rxt-day-mode-${blockId}`; }
-function readDayMode(blockId) { return localStorage.getItem(dayModeKey(blockId)) || null; }
-function writeDayMode(blockId, mode) { localStorage.setItem(dayModeKey(blockId), mode); }
+function dayModeKey(blockId, todayKey) { return `rxt-day-mode-${blockId}-${todayKey}`; }
+function readDayMode(blockId, todayKey) { return localStorage.getItem(dayModeKey(blockId, todayKey)) || null; }
+function writeDayMode(blockId, todayKey, mode) { localStorage.setItem(dayModeKey(blockId, todayKey), mode); }
 
 function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${new Date().toDateString()}`; }
 function readSleepWake(blockId) {
@@ -36,6 +37,12 @@ function wakeTimeMode(wakeStr) {
   if (h < 8)  return "lecture";   // before 8am → default (5am wake = lecture day)
   if (h < 10) return "review";    // 8–10am → compressed
   return "triage";                // 10am+ → salvage/triage
+}
+
+export function suggestedDayMode(daysLeft, wakeTime) {
+  const remaining = Number(daysLeft);
+  if (Number.isFinite(remaining) && remaining >= 0 && remaining <= 3) return "exam";
+  return wakeTimeMode(wakeTime);
 }
 
 // ─── Lecture config (block-scoped — same every day for the term) ──────────────
@@ -260,6 +267,18 @@ export function computeSchedule(mode, wakeTime, lectureTime, lectureDuration, co
     block(gym + 60, null, "RECOVER", "🚿 Wind down + sleep", "Protect tomorrow's wake time.", true),
   ];
 
+  if (mode === "exam") return [
+    block(w, w + 15, "RESET", "🌅 Wake + reset", "Protect sleep and start calmly."),
+    block(w + 15, w + 45, "RETAIN", "🔁 Rapid retrieval", "Due reviews and known weak objectives only. No new content."),
+    block(w + 45, w + 105, "APPLY", "⏱️ Timed mixed questions", "Use second- and third-order questions across tested lectures.", true),
+    block(w + 105, w + 165, "REPAIR", "🔬 Review every miss", "Classify the error, repair the mechanism, then retrieve it once.", true),
+    block(w + 165, w + 195, "RESET", "🍽️ Break + food", "Fully step away."),
+    block(w + 195, w + 240, "RETRIEVE", "🧠 Weak-objective sweep", "Closed-book recall of the highest-yield struggling objectives."),
+    block(w + 240, w + 285, "APPLY", "❓ Final targeted questions", "Test repaired gaps; stop if attention quality drops.", true),
+    block(w + 285, w + 315, "REPAIR", "✅ Lock in misses", "One-line rule or comparison for each remaining error."),
+    block(w + 315, null, "RECOVER", "Stop + protect sleep", "No broad rereading and no late-night question marathon.", true),
+  ];
+
   if (mode === "triage") return [
     block(w, w + 15, "RESET", "🌅 Reset", "Today is recovery, not punishment."),
     block(w + 15, w + 60, "RETAIN", "🔁 Due Anki only", "Hard stop. Zero new unsuspends.", true),
@@ -295,11 +314,11 @@ function writeSessionCounts(blockId, map) {
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-const MODE_COLORS = { lecture: "#4ade80", review: "#fbbf24", triage: "#f87171" };
+const MODE_COLORS = { lecture: "#4ade80", review: "#fbbf24", exam: "#60a5fa", triage: "#f87171" };
 
 function DayModePicker({ mode, onChange, suggested }) {
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       {DAY_MODES.map((m) => {
         const isSelected = mode === m.id;
         const isSuggested = suggested === m.id;
@@ -866,8 +885,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     enabled: !workAhead.hidden,
   });
 
-  const [dayMode, setDayMode] = useState(() => readDayMode(blockId));
-  const [modePickerOpen, setModePickerOpen] = useState(() => !readDayMode(blockId));
+  const [dayMode, setDayMode] = useState(() => readDayMode(blockId, todayKey));
+  const [modePickerOpen, setModePickerOpen] = useState(() => !readDayMode(blockId, todayKey));
   const [checked, setChecked] = useState(() => readChecked(blockId));
   const [sessionCounts, setSessionCounts] = useState(() => readSessionCounts(blockId));
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? null);
@@ -886,9 +905,12 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     setChecked(readChecked(blockId));
     setSessionCounts(readSessionCounts(blockId));
     setWakeTime(readSleepWake(blockId).wakeTime ?? null);
+    const savedMode = readDayMode(blockId, todayKey);
+    setDayMode(savedMode);
+    setModePickerOpen(!savedMode);
   }
 
-  const suggestedMode = useMemo(() => wakeTimeMode(wakeTime), [wakeTime]);
+  const suggestedMode = useMemo(() => suggestedDayMode(daysLeft, wakeTime), [daysLeft, wakeTime]);
 
   // Sync when the Daily Plan Settings modal saves new values
   useEffect(() => {
@@ -903,9 +925,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
 
   const handleDayMode = useCallback((m) => {
     setDayMode(m);
-    writeDayMode(blockId, m);
+    writeDayMode(blockId, todayKey, m);
     setModePickerOpen(false);
-  }, [blockId]);
+  }, [blockId, todayKey]);
 
   const handleCheck = useCallback((id) => {
     setChecked((prev) => {
@@ -994,6 +1016,13 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         .filter((t) => t.matchReason !== "scheduled-day")
         .slice(0, 2);
     }
+    if (mode === "exam") {
+      return [...todayTasks]
+        .sort((a, b) => (b.struggling || 0) - (a.struggling || 0)
+          || (a.mastered || 0) - (b.mastered || 0)
+          || (b.urgency || 0) - (a.urgency || 0))
+        .slice(0, 3);
+    }
     if (mode === "triage") {
       const seen = todayTasks.filter((t) => (t.sessions ?? 0) > 0);
       const pool = seen.length >= 2 ? seen : todayTasks;
@@ -1007,6 +1036,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
 
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+  const examCountdown = daysLeft === 0
+    ? "exam today"
+    : `${daysLeft} day${daysLeft === 1 ? "" : "s"} to exam`;
 
   if (!examDate) {
     return <ExamDatePicker blockId={blockId} userId={userId} />;
@@ -1016,9 +1048,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     <div className="desk-today today-page flex flex-col gap-5">
       <section className="today-hero">
         <div className="today-hero-copy">
-          <div className="today-eyebrow">{dateStr} · {daysLeft} days to exam</div>
+          <div className="today-eyebrow">{dateStr} · {examCountdown}</div>
           <h2 className="today-title">Make today count.</h2>
-          <p className="today-subtitle">One focused pass through the material, then stop. Your next best move is waiting below.</p>
+          <p className="today-subtitle">{effectiveMode === "exam" ? "Final-pass mode: timed application, rapid repair, then protect sleep." : "One focused pass through the material, then stop. Your next best move is waiting below."}</p>
         </div>
         <div className="today-hero-actions">
           <span className="today-mode-pill"><span className="today-mode-dot" style={{ background: MODE_COLORS[effectiveMode] }} />{effectiveMode ? DAY_MODES.find((m) => m.id === effectiveMode)?.label : "Set day type"}</span>

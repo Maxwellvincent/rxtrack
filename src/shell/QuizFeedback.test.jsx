@@ -24,6 +24,16 @@ function click(host, text) {
   act(() => button.click());
 }
 describe("quiz feedback", () => {
+  it("renders randomized choice values under consecutive alphabetical labels", () => {
+    const { host, close } = render(<AtomQuiz userId={null} questions={[{
+      stem: "Which structure is described?",
+      choices: { A: "First", E: "Fifth", D: "Fourth", C: "Third", B: "Second" },
+      correct: "B",
+    }]} />);
+    expect([...host.querySelectorAll(".quiz-choice-letter")].map((node) => node.textContent)).toEqual(["A", "B", "C", "D", "E"]);
+    close();
+  });
+
   it("shows selection and the revealed correct/your-answer labels like Exam mode", () => {
     const { host, close } = render(<AtomQuiz userId={null} questions={[{ stem: "Which choice is correct?", choices: { A: "Wrong", B: "Correct" }, correct: "B" }]} />);
     click(host, "Wrong");
