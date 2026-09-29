@@ -35,6 +35,22 @@ describe("quiz launch decisions", () => {
     ).toEqual(["b", "c", "a"]);
   });
 
+  it("prioritizes struggling and untested objectives before developing or mastered ones", () => {
+    expect(sortWeakestFirst([
+      { id: "mastered", status: "mastered", consecutiveCorrect: 0 },
+      { id: "developing", status: "developing", consecutiveCorrect: 0 },
+      { id: "untested", status: "untested", consecutiveCorrect: 0 },
+      { id: "struggling", status: "struggling", consecutiveCorrect: 4 },
+    ]).map((objective) => objective.id)).toEqual(["struggling", "untested", "developing", "mastered"]);
+  });
+
+  it("keeps an explicit exam-coverage focus ahead of the general weakness order", () => {
+    expect(sortWeakestFirst([
+      { id: "repair", status: "struggling", _focusPriority: 1 },
+      { id: "coverage", status: "untested", _focusPriority: 0 },
+    ]).map((objective) => objective.id)).toEqual(["coverage", "repair"]);
+  });
+
   it("resolves the question count the way App did", () => {
     expect(resolveQuestionCount("all", 27)).toBe(27);
     expect(resolveQuestionCount(null, 27)).toBe(10);

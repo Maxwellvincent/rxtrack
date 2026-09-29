@@ -150,6 +150,17 @@ describe("buildScheduleContext", () => {
     expect(generateDailySchedule(context).lecScores[0].urgency).toBeGreaterThan(0);
   });
 
+  it("uses learner evidence for the same objective status on Today and Lectures", () => {
+    const context = buildScheduleContext({
+      ...stores(),
+      objectives: { b1: [{ id: "o1", linkedLecId: "lec1", objective: "Apply the pathway.", status: "untested" }] },
+      learnerEvidence: { objectives: { o1: { attempts: 2, correct: 0, recent: [false, false], sessions: ["s1"], taskTypes: { mechanism: 2 } } } },
+    });
+    const score = generateDailySchedule(context).lecScores[0];
+    expect(score.struggling).toBe(1);
+    expect(score.untested).toBe(0);
+  });
+
   it("keeps an explicit lecture date on its local calendar day", () => {
     const daily = generateDailySchedule({
       blockId: "b1",

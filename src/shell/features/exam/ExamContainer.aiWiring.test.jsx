@@ -62,7 +62,7 @@ vi.mock("../../hooks/useLectures.js", () => ({
 
 vi.mock("../../hooks/useObjectives.js", () => ({
   useObjectives: () => ({
-    data: { b1: [{ id: "o1", objective: "Explain X", linkedLecId: "lec-1" }] },
+    data: { b1: [{ id: "o1", objective: "Explain insulin deficiency and low C-peptide", linkedLecId: "lec-1" }] },
     mutate: vi.fn(),
   }),
 }));

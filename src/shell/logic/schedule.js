@@ -22,6 +22,7 @@
  */
 
 import { flattenWeakConcepts, isLandmine } from "../features/tracker/weakConcepts.js";
+import { objectivePracticePlan } from "../../engine/objectivePractice.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -73,6 +74,26 @@ export function statusTally(lectureObjectives) {
   };
 }
 
+/**
+ * Project durable learner evidence onto the objective rows used by every queue.
+ * The Objectives/Lectures surfaces already treated answered objective-linked
+ * questions as developing/struggling/ready, while Today still ranked the older
+ * stored status. Keeping this projection here gives every scheduler the same
+ * interpretation without rewriting the imported objective record.
+ */
+export function evidenceAwareObjectives(objectives = [], learnerEvidence = {}) {
+  const practice = objectivePracticePlan(objectives, learnerEvidence);
+  const practiceById = new Map(practice.rows.map((row) => [String(row.id), row]));
+  return (objectives || []).map((objective) => {
+    const evidence = practiceById.get(String(objective?.id));
+    if (!evidence?.attempts) return objective;
+    const status = evidence.state === "ready" ? "mastered"
+      : evidence.state === "struggling" ? "struggling"
+        : "developing";
+    return { ...objective, status };
+  });
+}
+
 // ── buildStudySchedule ──────────────────────────────────────────────────────
 
 /**
@@ -92,7 +113,10 @@ export function buildStudySchedule(context) {
   if (daysLeft <= 0) return null;
 
   const lecturePlans = lectures.map((lec) => {
-    const lecObjs = objectivesForLecture(objectives, lec);
+    const lecObjs = evidenceAwareObjectives(
+      objectivesForLecture(objectives, lec),
+      context.learnerEvidence
+    );
     const { struggling, untested, mastered, total } = statusTally(lecObjs);
 
     // App matched the performance map by key PREFIX, not by exact key.
@@ -437,7 +461,10 @@ export function generateDailySchedule(context) {
     const daysUntilAvailable = availableDate ? Math.max(0, daysBetween(today, availableDate)) : null;
 
     const perf = lecturePerformance[lec.id] ?? null;
-    const lecObjs = objectivesForLecture(objectives, lec);
+    const lecObjs = evidenceAwareObjectives(
+      objectivesForLecture(objectives, lec),
+      context.learnerEvidence
+    );
     const tally = statusTally(lecObjs);
     const avgBloom =
       tally.total > 0

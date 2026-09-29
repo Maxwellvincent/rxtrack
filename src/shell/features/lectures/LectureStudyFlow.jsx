@@ -29,6 +29,7 @@ import * as performanceStore from "../../../stores/performance.js";
 import * as atomTermIndex from "../../../stores/atomTermIndex.js";
 import { normAtomKey, partitionAtomsForRound } from "../../../engine/atomNorm.js";
 import { AtomQuiz } from "../../AtomQuiz.jsx";
+import { markTodayLectureComplete } from "../today/todayProgress.js";
 import { FigureReview } from "./FigureReview.jsx";
 import { bridgeComplete } from "../../../llmBridge.js";
 import {
@@ -1175,7 +1176,12 @@ export function LectureStudyFlow({
       const i = focusObjectiveIds.indexOf(o.id || o.code);
       return i === -1 ? Number.MAX_SAFE_INTEGER : i;
     };
-    return [...lectureObjectives].sort((a, b) => rank(a) - rank(b));
+    return lectureObjectives
+      .map((objective) => ({
+        ...objective,
+        _focusPriority: rank(objective) === Number.MAX_SAFE_INTEGER ? 1 : 0,
+      }))
+      .sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds]);
 
   const runQuiz = useCallback(async (count, difficulty) => {
@@ -1493,6 +1499,16 @@ export function LectureStudyFlow({
             setQStats(questionStats.statsForLecture(userId, lecture?.id));
             refreshAtomMastery();
             const score = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+            // A completed lecture quiz is real work for Today's frozen plan.
+            // Previously only manual checkboxes/log buttons or 60% of Study
+            // rounds could advance 0/3, even after a full 15-question quiz.
+            if (total > 0 && lecture?.id) {
+              markTodayLectureComplete(blockId, lecture.id);
+              window.dispatchEvent(new CustomEvent("rxt-lecture-quiz-complete", {
+                detail: { lectureId: lecture.id, total, correct },
+              }));
+            }
 
             // A correctly-answered question earns its atom's matching study-guide topic a
             // check, same as ticking it by hand — a wrong answer never checks anything.

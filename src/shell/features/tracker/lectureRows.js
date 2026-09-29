@@ -9,6 +9,7 @@
 
 import {
   availableDateFor,
+  evidenceAwareObjectives,
   lecDateMap,
   lectureUrgency,
   objectivesForLecture,
@@ -18,7 +19,6 @@ import {
   weakConceptsForLecture,
 } from "../../logic/schedule.js";
 import { isLandmine, rankConcepts } from "./weakConcepts.js";
-import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
 
 export const FILTERS = ["active", "repairs", "today", "struggling", "untested", "unstarted", "done", "all"];
 export const ACTIVITY_TYPES = ["all", "LEC", "DLA", "SG", "TBL", "LAB", "IMCQ"];
@@ -61,20 +61,9 @@ export function scoreLectures(context) {
   const _lecDates = lecDateMap(lectures);
   return lectures.map((lec) => {
     const lecObjs = objectivesForLecture(objectives, lec);
-    // The list filter must reflect answered objective-linked questions, not only
-    // the slower lecture-level graduation status written at quiz completion.
-    // This also keeps one answered question as "worked/developing", never mastered.
-    const practice = objectivePracticePlan(lecObjs, context?.learnerEvidence);
-    const practiceById = new Map(practice.rows.map((row) => [String(row.id), row]));
-    const evidenceAwareObjectives = lecObjs.map((objective) => {
-      const evidence = practiceById.get(String(objective.id));
-      if (!evidence?.attempts) return objective;
-      const status = evidence.state === "ready" ? "mastered"
-        : evidence.state === "struggling" ? "struggling"
-          : "developing";
-      return { ...objective, status };
-    });
-    const tally = statusTally(evidenceAwareObjectives);
+    // Use the same evidence projection as Today so a question attempt cannot
+    // make one queue say "developing" while the other still says "untested".
+    const tally = statusTally(evidenceAwareObjectives(lecObjs, context?.learnerEvidence));
     const perf = lecturePerformance[lec.id] ?? null;
     const sessions = perf?.sessions?.length || 0;
     const lastScore = perf?.lastScore ?? null;

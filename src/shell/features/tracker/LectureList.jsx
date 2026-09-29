@@ -310,6 +310,22 @@ export function LectureList({
   );
   const weeks = useMemo(() => buildLectureWeeks(rows), [rows]);
   const weekRows = useMemo(() => rows.filter((row) => rowMatchesWeek(row, week)), [rows, week]);
+  // The compact Focus queue is a recommendation surface, not a preview of the
+  // user's last library filter/sort. A persisted "unstarted + lecture no."
+  // preference used to relabel the first six numbered rows as recommendations.
+  // Browse all keeps those preferences; Focus always uses shared urgency.
+  const priorityRows = useMemo(
+    () => buildLectureRows(scores, {
+      completion: context.completion,
+      blockId,
+      atomProgress: repairProgress.data,
+      filter: "active",
+      activityType: "all",
+      search: "",
+      sort: "urgency",
+    }).slice(0, 6),
+    [scores, context.completion, blockId, repairProgress.data]
+  );
   const counts = useMemo(
     () => lectureCounts(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data }),
     [scores, context.completion, blockId, repairProgress.data]
@@ -318,7 +334,8 @@ export function LectureList({
     const all = buildLectureRows(scores, { completion: context.completion, blockId, filter: "all" });
     return Object.fromEntries(ACTIVITY_TYPES.map((type) => [type, type === "all" ? all.length : all.filter((row) => row.type === type).length]));
   }, [scores, context.completion, blockId]);
-  const visibleRows = (showAllLectures ? weekRows : weekRows.slice(0, 6)).slice(0, visibleCount);
+  const displayRows = showAllLectures ? weekRows : priorityRows;
+  const visibleRows = displayRows.slice(0, visibleCount);
   const questionTotals = useMemo(() => (context.lectures || []).filter((lecture) => lecture.blockId === blockId).reduce((out, lecture) => {
     const stat = questionStats.data?.[lecture.id];
     out.answered += stat?.answered || 0;
@@ -477,15 +494,15 @@ export function LectureList({
       <section className="desk-lecture-focus-bar" aria-label="Lecture focus queue">
         <div>
           <div className="today-eyebrow">{showAllLectures ? "Lecture library" : "Focus queue"}</div>
-          <strong>{showAllLectures ? `${weekRows.length} lectures in this view` : `${Math.min(6, weekRows.length)} next lectures to consider`}</strong>
-          <span>{showAllLectures ? "Use the filters above to narrow the library." : "Start with what is active, weak, or scheduled. The full library stays one click away."}</span>
+          <strong>{showAllLectures ? `${weekRows.length} lectures in this view` : `${priorityRows.length} next lectures to consider`}</strong>
+          <span>{showAllLectures ? "Use the filters above to narrow the library." : "Ranked by the same evidence-aware urgency as Today. Filters and custom sorting apply in the full library."}</span>
         </div>
         <button type="button" className="desk-lecture-focus-toggle" onClick={() => { setShowAllLectures((value) => !value); setVisibleCount(18); }}>
           {showAllLectures ? "Return to focus queue" : `Browse all ${weekRows.length} lectures`}
         </button>
       </section>
 
-      {weekRows.length === 0 ? (
+      {displayRows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
       ) : (
         <div className="desk-lecture-list rounded-xl border border-border bg-bg-elevated px-4">

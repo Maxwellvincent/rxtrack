@@ -31,8 +31,19 @@ export const PREPARE_BATCH_SIZE = 5;
 
 /** Weakest first — fewest consecutive correct answers get quizzed first. */
 export function sortWeakestFirst(objectives) {
-  return [...(objectives || [])].sort(
-    (a, b) => (a?.consecutiveCorrect || 0) - (b?.consecutiveCorrect || 0)
+  const rank = (objective) => {
+    const status = String(objective?.status || "untested").toLowerCase();
+    if (status === "struggling" || status === "needs_repair") return 0;
+    if (status === "untested" || !status) return 1;
+    if (status === "developing" || status === "inprogress" || status === "in_progress") return 2;
+    if (status === "mastered" || status === "ready") return 3;
+    return 1;
+  };
+  return [...(objectives || [])].sort((a, b) =>
+    (Number(a?._focusPriority) || 0) - (Number(b?._focusPriority) || 0)
+      || rank(a) - rank(b)
+      || (a?.consecutiveCorrect || 0) - (b?.consecutiveCorrect || 0)
+      || (Number(a?.attempts) || 0) - (Number(b?.attempts) || 0)
   );
 }
 

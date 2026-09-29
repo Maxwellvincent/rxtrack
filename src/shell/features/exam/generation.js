@@ -82,6 +82,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
     const studyMode = objectives.some((objective) => objective.repairPriority > 0) ? "repair" : "balanced";
     const bucket = deps.pool ? await questionPoolKey({ blockId, lectureId, difficulty, lecture, objectives, atoms, exemplars, studyMode }) : null;
     let obtained = 0, attempt = 0, errorMessage = null;
+    const enforceQuality = deps.skipQuestionAudit !== true;
     if (deps.pool) {
       progress(`Checking saved questions: ${lectureTitle}`);
       const savedQuestions = preparedGenerationId && deps.pool.readyForGeneration
@@ -93,7 +94,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         const cached = { ...q, objectiveIds };
-        if (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms })) continue;
+        if (enforceQuality && (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
       }
@@ -126,7 +127,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         const qualityIssues = questionQualityIssues(q, objectives);
-        if (!isValidPoolQuestion(q) || qualityIssues.length || !questionMatchesObjectiveDomain({ ...q, objectiveIds }, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])) continue;
+        if (!isValidPoolQuestion(q) || (enforceQuality && (qualityIssues.length || !questionMatchesObjectiveDomain({ ...q, objectiveIds }, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])))) continue;
         const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
           objectiveIds,

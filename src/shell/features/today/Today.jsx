@@ -10,6 +10,8 @@ import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
 import * as termsStore from "../../../stores/terms.js";
 import { readTaskListCollapsed, writeTaskListCollapsed } from "../../navPrefs.js";
+import { readChecked, writeChecked } from "./todayProgress.js";
+import { evidenceAwareObjectives } from "../../logic/schedule.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
 
@@ -294,23 +296,11 @@ export function computeSchedule(mode, wakeTime, lectureTime, lectureDuration, co
 
 // ─── Checked + session state (day-scoped per block) ───────────────────────
 
-function checkedKey(blockId) { return `rxt-checked-${blockId}-${new Date().toDateString()}`; }
-function readChecked(blockId) {
-  try {
-    const key = checkedKey(blockId);
-    const saved = localStorage.getItem(key);
-    const legacy = sessionStorage.getItem(key);
-    if (!saved && legacy) localStorage.setItem(key, legacy);
-    return new Set(JSON.parse(saved || legacy || "[]"));
-  }
-  catch { return new Set(); }
-}
-function writeChecked(blockId, set) {
-  localStorage.setItem(checkedKey(blockId), JSON.stringify([...set]));
-}
-
 function focusPlanKey(blockId, todayKey, mode) {
-  return `rxt-focus-plan-${blockId}-${todayKey}-${mode || "default"}`;
+  // v2 invalidates the old exam plan once so the evidence-aware repair +
+  // coverage selection reaches an already-open day without repeatedly
+  // reshuffling the plan after that migration.
+  return `rxt-focus-plan-v2-${blockId}-${todayKey}-${mode || "default"}`;
 }
 
 function readFocusPlan(blockId, todayKey, mode) {
@@ -337,6 +327,53 @@ export function buildFocusPlan(candidateIds = [], checkedIds = []) {
   const target = candidates.length || completed.length;
   if (!target) return [];
   return [...completed.slice(-target), ...candidates.filter((id) => !completed.includes(id))].slice(0, target);
+}
+
+/**
+ * Final-pass work needs both repair and coverage. Selecting only the largest
+ * struggling counts repeatedly hid lectures whose objectives had never been
+ * tested. Pull from the full eligible lecture pool and reserve a place for
+ * each need whenever both exist.
+ */
+export function selectExamPrepTasks(tasks = [], limit = 3) {
+  const eligible = (tasks || []).filter((task) =>
+    task?.lec?.id && !task.isFuture && (task.struggling > 0 || task.untested > 0)
+  );
+  const repair = [...eligible].filter((task) => task.struggling > 0)
+    .sort((a, b) => (b.struggling || 0) - (a.struggling || 0) || (b.urgency || 0) - (a.urgency || 0));
+  const coverage = [...eligible].filter((task) => task.untested > 0)
+    .sort((a, b) => (b.untested || 0) - (a.untested || 0) || (b.urgency || 0) - (a.urgency || 0));
+  const selected = [];
+  const add = (task, matchReason) => {
+    if (!task || selected.some((item) => item.lec.id === task.lec.id) || selected.length >= limit) return;
+    selected.push({ ...task, matchReason });
+  };
+  add(repair[0], "exam-repair");
+  add(coverage.find((task) => !selected.some((item) => item.lec.id === task.lec.id)), "exam-coverage");
+  const remainder = [...eligible].sort((a, b) =>
+    ((b.struggling || 0) * 10 + (b.untested || 0) * 6 + (b.urgency || 0))
+    - ((a.struggling || 0) * 10 + (a.untested || 0) * 6 + (a.urgency || 0))
+  );
+  for (const task of remainder) {
+    add(task, task.struggling > 0 ? "exam-repair" : "exam-coverage");
+  }
+  return selected;
+}
+
+function localDayKey(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Recover completed quiz work from durable performance history on reload/deploy. */
+export function completedLectureQuizIdsToday(lecturePerformance = {}, todayKey = "") {
+  return Object.values(lecturePerformance || {}).flatMap((entry) => {
+    const session = (entry?.sessions || []).find((item) =>
+      item?.sessionType === "lecture_quiz" && localDayKey(item.at) === todayKey
+    );
+    return session ? [session.lectureId || entry?.lectureId].filter(Boolean) : [];
+  });
 }
 
 function sessionsKey(blockId) { return `rxt-rounds-${blockId}-${new Date().toDateString()}`; }
@@ -646,6 +683,10 @@ export function TaskRow({ task, checked, isNext, sessionCount, nextReviewDate, p
                     : ""}
                 {task.matchReason === "scheduled-day"
                   ? "on schedule"
+                  : task.matchReason === "exam-repair"
+                    ? "exam repair · struggling objectives"
+                    : task.matchReason === "exam-coverage"
+                      ? "exam coverage · untested objectives"
                   : task.matchReason === "spaced-rep-due"
                     ? "spaced rep due"
                     : task.matchReason === "catch-up"
@@ -907,7 +948,7 @@ function ExamDatePicker({ blockId, userId }) {
 // ─── Main Today component ─────────────────────────────────────────────────────
 
 export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, onOpenExam, quizBusyLectureId = null }) {
-  const { todayTasks, todayReason, nextDay, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId, todayKey } =
+  const { context, daily, todayTasks, todayReason, nextDay, examDate, daysLeft, logActivity, logPreRead, preReadFor, workAhead, objectivesForTask, nextReviewByLectureId, todayKey } =
     useToday(blockId, userId);
 
   const [preReadTarget, setPreReadTarget] = useState(null);
@@ -929,6 +970,14 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const [lecConfig, setLecConfig] = useState(() => readLecConfig(blockId));
   const [logFeedback, setLogFeedback] = useState(null);
   const [taskListCollapsed, setTaskListCollapsed] = useState(readTaskListCollapsed);
+  const completedQuizIds = useMemo(
+    () => completedLectureQuizIdsToday(context?.lecturePerformance, todayKey),
+    [context?.lecturePerformance, todayKey]
+  );
+  const checkedForToday = useMemo(
+    () => new Set([...checked, ...completedQuizIds]),
+    [checked, completedQuizIds]
+  );
 
   // A tab can remain open overnight. When useToday advances to the new local
   // day, re-read all day-scoped UI state instead of showing yesterday's checks,
@@ -947,6 +996,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   }
 
   const suggestedMode = useMemo(() => suggestedDayMode(daysLeft, wakeTime), [daysLeft, wakeTime]);
+  const effectiveMode = dayMode ?? suggestedMode;
 
   // Sync when the Daily Plan Settings modal saves new values
   useEffect(() => {
@@ -1000,7 +1050,11 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
       });
     }
     window.addEventListener("rxt-lecture-progress-60", onProgress);
-    return () => window.removeEventListener("rxt-lecture-progress-60", onProgress);
+    window.addEventListener("rxt-lecture-quiz-complete", onProgress);
+    return () => {
+      window.removeEventListener("rxt-lecture-progress-60", onProgress);
+      window.removeEventListener("rxt-lecture-quiz-complete", onProgress);
+    };
   }, [blockId]);
 
   const onStudy = useCallback((id) => {
@@ -1021,8 +1075,18 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     // opens on the objectives it exposed as gaps — passed through as a priority order for
     // Study's own quiz picker to apply, not pre-sorted here.
     const gapIds = preReadFor(task.lec.id)?.gapObjectiveIds || [];
-    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id, focusObjectiveIds: gapIds });
-  }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor]);
+    const evidenceObjectives = evidenceAwareObjectives(objectives, context?.learnerEvidence);
+    const examFocusIds = effectiveMode === "exam"
+      ? evidenceObjectives
+        .filter((objective) => task.matchReason === "exam-coverage"
+          ? (!objective.status || objective.status === "untested")
+          : objective.status === "struggling")
+        .map((objective) => objective.id || objective.code)
+        .filter(Boolean)
+      : [];
+    const focusObjectiveIds = [...new Set([...examFocusIds, ...gapIds])];
+    onStartObjectiveQuiz?.(objectives, title, blockId, { lectureId: task.lec.id, focusObjectiveIds });
+  }, [objectivesForTask, onStartObjectiveQuiz, blockId, preReadFor, context?.learnerEvidence, effectiveMode]);
 
   const onPreReadDone = useCallback(({ lectureId, gapObjectiveIds, durationMinutes }) => {
     const entry = logPreRead({ lectureId, gapObjectiveIds, durationMinutes });
@@ -1033,9 +1097,6 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     );
     setTimeout(() => setLogFeedback(null), 4000);
   }, [logPreRead]);
-
-  // Effective mode: manual pick or auto-suggestion
-  const effectiveMode = dayMode ?? suggestedMode;
 
   // Day mode proposes a workload. A daily snapshot below prevents the scheduler
   // from silently replacing completed rows and resetting apparent progress.
@@ -1054,11 +1115,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         .slice(0, 2);
     }
     if (mode === "exam") {
-      return [...todayTasks]
-        .sort((a, b) => (b.struggling || 0) - (a.struggling || 0)
-          || (a.mastered || 0) - (b.mastered || 0)
-          || (b.urgency || 0) - (a.urgency || 0))
-        .slice(0, 3);
+      return selectExamPrepTasks(daily?.lecScores || todayTasks, 3);
     }
     if (mode === "triage") {
       const seen = todayTasks.filter((t) => (t.sessions ?? 0) > 0);
@@ -1066,7 +1123,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
       return pool.slice(0, 2);
     }
     return todayTasks;
-  }, [effectiveMode, todayTasks]);
+  }, [effectiveMode, todayTasks, daily?.lecScores]);
 
   const planStorageKey = focusPlanKey(blockId, todayKey, effectiveMode);
   const [focusPlan, setFocusPlan] = useState(null);
@@ -1076,14 +1133,14 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
       setFocusPlan({ key: planStorageKey, ids: stored });
       return;
     }
-    const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), [...checked]);
+    const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday]);
     if (!ids.length) {
       setFocusPlan({ key: planStorageKey, ids: [] });
       return;
     }
     writeFocusPlan(blockId, todayKey, effectiveMode, ids);
     setFocusPlan({ key: planStorageKey, ids });
-  }, [blockId, todayKey, effectiveMode, planStorageKey, candidateTasks, checked]);
+  }, [blockId, todayKey, effectiveMode, planStorageKey, candidateTasks, checkedForToday]);
 
   const focusPlanIds = focusPlan?.key === planStorageKey ? focusPlan.ids : [];
   const focusPlanSet = useMemo(() => new Set(focusPlanIds), [focusPlanIds]);
@@ -1091,9 +1148,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     () => candidateTasks.filter((task) => focusPlanSet.has(task.lec.id)),
     [candidateTasks, focusPlanSet]
   );
-  const doneCount = useMemo(() => focusPlanIds.filter((id) => checked.has(id)).length, [focusPlanIds, checked]);
+  const doneCount = useMemo(() => focusPlanIds.filter((id) => checkedForToday.has(id)).length, [focusPlanIds, checkedForToday]);
   const planComplete = focusPlanIds.length > 0 && doneCount === focusPlanIds.length;
-  const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checked.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checked]);
+  const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checkedForToday.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checkedForToday]);
 
   const startAnotherSet = useCallback(() => {
     const nextChecked = new Set();
@@ -1177,7 +1234,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
             <TaskRow
               key={task.lec.id}
               task={task}
-              checked={checked.has(task.lec.id)}
+              checked={checkedForToday.has(task.lec.id)}
               isNext={task.lec.id === firstUnchecked}
               sessionCount={sessionCounts[task.lec.id] ?? 0}
               nextReviewDate={nextReviewByLectureId?.[task.lec.id] ?? null}
