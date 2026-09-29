@@ -275,9 +275,14 @@ export async function generateMcqs(cfg = {}, deps = {}) {
       ...(deps.aiOptions || {}),
       throwOnError: true,
     });
+    const candidates = questionCandidates(result);
     const generated = withSchoolContext(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
     if (!generated.length) {
-      return { error: "The AI provider completed the request but returned no questions. Check the selected provider/model and retry.", questions: [] };
+      const fields = result && typeof result === "object" && !Array.isArray(result) ? Object.keys(result).slice(0, 8).join(", ") : typeof result;
+      const detail = candidates.length
+        ? `The response contained ${candidates.length} candidate question${candidates.length === 1 ? "" : "s"}, but none had a usable stem, choices, and answer key.`
+        : `No question list was found (response fields: ${fields || "none"}; expected { questions: [...] }).`;
+      return { error: `Question generation returned no usable items. ${detail} Retry once; if it repeats, check the selected provider/model output format.`, questions: [] };
     }
     return await auditGeneratedQuestions(generated, cfg, deps);
   } catch (e) {
@@ -344,6 +349,13 @@ export function normalizeChoiceLetter(value) {
 }
 
 function normalizedChoiceEntries(choices) {
+  if (Array.isArray(choices)) {
+    choices = Object.fromEntries(choices.map((choice, index) => {
+      const letter = choice?.letter || choice?.label || LETTERS[index];
+      const value = choice?.text ?? choice?.choice ?? choice?.option ?? choice;
+      return [letter, value];
+    }));
+  }
   const out = new Map();
   for (const [rawLetter, value] of Object.entries(choices || {})) {
     const letter = normalizeChoiceLetter(rawLetter);
@@ -351,6 +363,25 @@ function normalizedChoiceEntries(choices) {
     out.set(letter, value);
   }
   return [...out.entries()].sort((a, b) => LETTERS.indexOf(a[0]) - LETTERS.indexOf(b[0]));
+}
+
+function questionCandidates(raw, depth = 0) {
+  if (Array.isArray(raw)) return raw;
+  if (!raw || typeof raw !== "object" || depth > 3) return [];
+  for (const key of ["questions", "items", "mcqs", "data", "result", "output"]) {
+    const value = raw[key];
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const nested = questionCandidates(JSON.parse(value), depth + 1);
+        if (nested.length) return nested;
+      } catch { /* not a JSON-wrapped question list */ }
+    } else if (value && typeof value === "object") {
+      const nested = questionCandidates(value, depth + 1);
+      if (nested.length) return nested;
+    }
+  }
+  return [];
 }
 
 export function resolveCorrectLetter(question, keys) {
@@ -370,7 +401,7 @@ export function resolveCorrectLetter(question, keys) {
 
 /** Validate + normalize model output into a clean MCQ list. */
 export function normalizeQuestions(raw) {
-  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.questions) ? raw.questions : [];
+  const list = questionCandidates(raw);
   const out = [];
   for (const q of list) {
     if (!q || typeof q !== "object") continue;

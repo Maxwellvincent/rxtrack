@@ -181,7 +181,11 @@ export function objectiveStatusWithEvidence(objective, evidence = {}) {
 
   const evidenceAt = Number(evidence.lastSeen) || Date.parse(evidence.lastSeen) || 0;
   const statusAt = Number(objective?.lastUpdated) || Date.parse(objective?.lastUpdated) || 0;
-  if (statusAt > evidenceAt) return savedStatus;
+  // An explicit reset to "untested" must not erase the fact that a learner has
+  // already encountered this objective. Coverage is an exposure measure; keep
+  // deriving its visible status from durable attempts even when a later metadata
+  // or status timestamp is newer than the last quiz event.
+  if (statusAt > evidenceAt && savedStatus !== "untested") return savedStatus;
 
   const recent = Array.isArray(evidence.recent) ? evidence.recent : [];
   const lastCorrect = recent.length ? recent[recent.length - 1] === true : null;
