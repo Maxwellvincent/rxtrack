@@ -268,8 +268,17 @@ export async function generateMcqs(cfg = {}, deps = {}) {
   if (text.trim().length < 150 && !atoms.length) return { error: "Not enough lecture text — convert/upload the lecture first.", questions: [] };
   try {
     const prompt = buildMcqPrompt(cfg);
-    const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens);
+    // Quiz generation must not mistake the AI client's empty fallback for a valid
+    // (but empty) generation result. Preserve provider/bridge failures so the
+    // preparation UI can stop promptly and tell the learner what actually failed.
+    const result = await callAIJSON(MCQ_V2_SYSTEM, prompt, { questions: [] }, maxTokens, undefined, undefined, {
+      ...(deps.aiOptions || {}),
+      throwOnError: true,
+    });
     const generated = withSchoolContext(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
+    if (!generated.length) {
+      return { error: "The AI provider completed the request but returned no questions. Check the selected provider/model and retry.", questions: [] };
+    }
     return await auditGeneratedQuestions(generated, cfg, deps);
   } catch (e) {
     return { error: e?.message || String(e), questions: [] };
