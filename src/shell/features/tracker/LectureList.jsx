@@ -282,7 +282,7 @@ export function LectureList({
   const [week, setWeek] = useState(() => readFilterPrefs(blockId).week);
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
-  const [visibleCount, setVisibleCount] = useState(30);
+  const [visibleCount, setVisibleCount] = useState(18);
   const [deletingLectureId, setDeletingLectureId] = useState(null);
 
   // Task 12, Part B2 — scroll the focused lecture's row into view and give
@@ -333,7 +333,7 @@ export function LectureList({
   }, { answered: 0, correct: 0 }), [context.lectures, blockId, questionStats.data]);
   const questionAccuracy = questionTotals.answered ? Math.round((questionTotals.correct / questionTotals.answered) * 100) : null;
 
-  useEffect(() => setVisibleCount(30), [filter, activityType, search, sort, week, blockId]);
+  useEffect(() => setVisibleCount(18), [filter, activityType, search, sort, week, blockId]);
 
   // One-shot per focusLectureId value: `rows` is a dependency only so this
   // can wait for the target row to actually be present (e.g. still loading
@@ -407,6 +407,8 @@ export function LectureList({
 
       {logged && <div className="mb-2 font-mono text-[12px] text-good">{logged}</div>}
 
+      <details className="desk-lecture-filters mb-4">
+        <summary>Filters & sort <span>· {filter} · {week === "all" ? "all weeks" : week} · {activityType} · {SORT_LABELS[sort]}</span></summary>
       <div className="desk-filter-strip mb-3 flex flex-wrap items-center gap-2" aria-label="Lecture status filters">
         {FILTERS.map((f) => (
           <button
@@ -476,6 +478,7 @@ export function LectureList({
           ))}
         </select>
       </div>
+      </details>
 
       {weekRows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
@@ -503,7 +506,7 @@ export function LectureList({
       )}
       {visibleCount < weekRows.length && (
         <button onClick={() => setVisibleCount((n) => n + 30)} className="mt-3 w-full rounded-lg border border-border py-2 font-mono text-[12px] text-text-2 hover:border-accent hover:text-text-1">
-          Show 30 more · {weekRows.length - visibleCount} remaining
+          Show 18 more · {weekRows.length - visibleCount} remaining
         </button>
       )}
 

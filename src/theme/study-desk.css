@@ -76,7 +76,7 @@
 .desk-practice-metrics > div { padding: 12px 16px; border-radius: 10px; background: var(--panel); }
 .desk-practice-metrics > div:nth-child(2) { background: var(--accent-soft); }
 .desk-practice-metrics > div > div:first-child { font-size: 1.9rem; letter-spacing: -.045em; }
-.desk-lecture-row { padding: 18px 4px; }
+.desk-lecture-row { padding: 13px 4px; }
 .desk-lecture-row > div:first-child { align-items: center; }
 .desk-page-heading { padding: 18px 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-elevated); }
 .desk-count-summary { padding: 9px 12px; border-radius: 10px; background: var(--panel); }
@@ -84,6 +84,14 @@
 .desk-filter-strip button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-text); font-weight: 700; }
 .desk-toolbar { box-shadow: 0 8px 24px color-mix(in srgb, var(--text-1) 5%, transparent); }
 .desk-lecture-list { overflow: hidden; }
+.desk-lecture-filters { border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
+.desk-lecture-filters > summary { min-height: 44px; padding: 11px 14px; cursor: pointer; color: var(--text-1); font-size: .8rem; font-weight: 750; list-style: none; }
+.desk-lecture-filters > summary::-webkit-details-marker { display: none; }
+.desk-lecture-filters > summary::before { content: "＋"; display: inline-block; width: 18px; color: var(--accent-text); }
+.desk-lecture-filters[open] > summary::before { content: "−"; }
+.desk-lecture-filters > summary span { margin-left: 6px; color: var(--text-3); font-size: .72rem; font-weight: 500; }
+.desk-lecture-filters[open] { padding-bottom: 10px; }
+.desk-lecture-filters[open] > div { margin-inline: 10px; }
 .desk-objective-tabs { padding: 6px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-elevated); }
 .desk-objective-tabs > button { min-height: 44px; border-radius: 9px !important; padding: 9px 14px !important; font-family: var(--font-sans) !important; }
 .desk-objectives > div:not(.desk-objective-tabs) > div { box-shadow: none; }
