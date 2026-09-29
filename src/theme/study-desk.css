@@ -78,6 +78,10 @@
 .desk-practice-metrics > div > div:first-child { font-size: 1.9rem; letter-spacing: -.045em; }
 .desk-lecture-row { padding: 13px 4px; }
 .desk-lecture-row > div:first-child { align-items: center; }
+.desk-lecture-stat { display: inline-flex; align-items: center; padding: 3px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--panel); white-space: nowrap; }
+.desk-lecture-stat--warn { border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); color: var(--bad); }
+.desk-lecture-details { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 7px; color: var(--text-3); font-size: .72rem; }
+.desk-lecture-details > * { padding: 3px 7px; border-radius: 6px; background: var(--panel); }
 .desk-page-heading { padding: 18px 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--bg-elevated); }
 .desk-count-summary { padding: 9px 12px; border-radius: 10px; background: var(--panel); }
 .desk-filter-strip { padding: 4px; }

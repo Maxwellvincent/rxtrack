@@ -114,6 +114,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
   const [logging, setLogging] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   return (
     <div
@@ -134,37 +135,26 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           >
             {row.studyMode?.icon} {row.title}
           </button>
-          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 font-mono text-[12px] text-text-3">
             {row.scheduledToday && <span className="rounded bg-accent/15 px-1.5 py-0.5 font-bold text-accent-text">scheduled today</span>}
             {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">studied today</span>}
-            <DateEdit row={row} onUpdateDate={onUpdateDate} />
-            <span>·</span>
-            {row.total > 0 ? `${row.mastered}/${row.total} mastered` : "no objectives linked"}
-            {row.struggling > 0 && ` · ${row.struggling} struggling`}
-            {row.sessions > 0
-              ? ` · ${row.sessions} session${row.sessions > 1 ? "s" : ""}`
-              : row.hasPreRead
-                ? " · pre-read only"
-                : " · never studied"}
-            {/* Sessions count visits; this counts work. A lecture opened four times and answered
-                twice looks busy by sessions alone, and that is exactly the one to re-drill. */}
-            {answered > 0 && (
-              <span title={`${stats.correct} of ${answered} correct`}>
-                {` · ${answered} q`}
-                <span className={accuracy >= 85 ? "text-good" : accuracy >= 70 ? "text-accent" : "text-bad"}>
-                  {` ${accuracy}%`}
-                </span>
-              </span>
-            )}
-            {row.lastActivityDate && ` · last ${row.lastActivityDate}`}
-            {row.nextReview && ` · review ${row.nextReview}`}
+            <span className="desk-lecture-stat">{row.total > 0 ? `${row.mastered}/${row.total} objectives` : "No objectives linked"}</span>
+            {row.struggling > 0 && <span className="desk-lecture-stat desk-lecture-stat--warn">{row.struggling} struggling</span>}
+            {answered > 0 && <span className="desk-lecture-stat" title={`${stats.correct} of ${answered} correct`}>{answered} questions · <span className={accuracy >= 85 ? "text-good" : accuracy >= 70 ? "text-accent" : "text-bad"}>{accuracy}%</span></span>}
+            {!answered && <span className="desk-lecture-stat">{row.sessions > 0 ? `${row.sessions} sessions` : row.hasPreRead ? "Pre-read only" : "Not started"}</span>}
           </div>
-          {row.topWeakConcepts.length > 0 && (
+          {showDetails && <div className="desk-lecture-details">
+            <DateEdit row={row} onUpdateDate={onUpdateDate} />
+            {row.lastActivityDate && <span>Last studied {row.lastActivityDate}</span>}
+            {row.nextReview && <span>Review {row.nextReview}</span>}
+            {row.sessions > 0 && <span>{row.sessions} study sessions</span>}
+          </div>}
+          {showDetails && row.topWeakConcepts.length > 0 && (
             <div className="mt-0.5 font-mono text-[12px] text-bad" title="Your weakest concepts tied to this lecture">
               ⚠ review: {row.topWeakConcepts.join(" · ")}
             </div>
           )}
-          {row.repairCount > 0 && <div className="mt-1 text-sm font-semibold text-status-purple">◈ {row.repairCount} atoms to repair · open lecture → Model repairs</div>}
+          {row.repairCount > 0 && <div className="mt-1 text-xs font-semibold text-status-purple">◈ {row.repairCount} model repairs</div>}
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
           <div className="relative">
@@ -205,6 +195,9 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
           </div>
           <button onClick={() => setLogging(logging ? null : "review")} className="font-mono text-[12px] text-text-3 hover:text-text-1">
             log
+          </button>
+          <button type="button" onClick={() => setShowDetails((value) => !value)} className="font-mono text-[12px] text-text-3 hover:text-text-1">
+            {showDetails ? "less" : "details"}
           </button>
           {/* Study leads — see the note in Today.jsx's TaskCard. */}
           {row.preReadOpen && row.sessions === 0 && !row.hasPreRead && (
