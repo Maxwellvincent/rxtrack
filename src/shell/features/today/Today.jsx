@@ -296,11 +296,44 @@ export function computeSchedule(mode, wakeTime, lectureTime, lectureDuration, co
 
 function checkedKey(blockId) { return `rxt-checked-${blockId}-${new Date().toDateString()}`; }
 function readChecked(blockId) {
-  try { return new Set(JSON.parse(sessionStorage.getItem(checkedKey(blockId)) || "[]")); }
+  try {
+    const key = checkedKey(blockId);
+    return new Set(JSON.parse(localStorage.getItem(key) || sessionStorage.getItem(key) || "[]"));
+  }
   catch { return new Set(); }
 }
 function writeChecked(blockId, set) {
-  sessionStorage.setItem(checkedKey(blockId), JSON.stringify([...set]));
+  localStorage.setItem(checkedKey(blockId), JSON.stringify([...set]));
+}
+
+function focusPlanKey(blockId, todayKey, mode) {
+  return `rxt-focus-plan-${blockId}-${todayKey}-${mode || "default"}`;
+}
+
+function readFocusPlan(blockId, todayKey, mode) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(focusPlanKey(blockId, todayKey, mode)) || "null");
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFocusPlan(blockId, todayKey, mode, ids) {
+  localStorage.setItem(focusPlanKey(blockId, todayKey, mode), JSON.stringify(ids));
+}
+
+function clearFocusPlan(blockId, todayKey, mode) {
+  localStorage.removeItem(focusPlanKey(blockId, todayKey, mode));
+}
+
+/** Freeze today's initial workload; completed rows count before any scheduler backfill. */
+export function buildFocusPlan(candidateIds = [], checkedIds = []) {
+  const candidates = [...new Set(candidateIds.filter(Boolean))];
+  const completed = [...new Set(checkedIds.filter(Boolean))];
+  const target = candidates.length || completed.length;
+  if (!target) return [];
+  return [...completed.slice(-target), ...candidates.filter((id) => !completed.includes(id))].slice(0, target);
 }
 
 function sessionsKey(blockId) { return `rxt-rounds-${blockId}-${new Date().toDateString()}`; }
@@ -1001,8 +1034,9 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   // Effective mode: manual pick or auto-suggestion
   const effectiveMode = dayMode ?? suggestedMode;
 
-  // Day mode filters the raw task list without touching the scheduler
-  const filteredTasks = useMemo(() => {
+  // Day mode proposes a workload. A daily snapshot below prevents the scheduler
+  // from silently replacing completed rows and resetting apparent progress.
+  const candidateTasks = useMemo(() => {
     const mode = effectiveMode;
     if (!mode) return todayTasks;
     if (mode === "lecture") {
@@ -1031,8 +1065,42 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     return todayTasks;
   }, [effectiveMode, todayTasks]);
 
-  const doneCount = useMemo(() => filteredTasks.filter((t) => checked.has(t.lec.id)).length, [filteredTasks, checked]);
+  const planStorageKey = focusPlanKey(blockId, todayKey, effectiveMode);
+  const [focusPlan, setFocusPlan] = useState(null);
+  useEffect(() => {
+    const stored = readFocusPlan(blockId, todayKey, effectiveMode);
+    if (stored) {
+      setFocusPlan({ key: planStorageKey, ids: stored });
+      return;
+    }
+    const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), [...checked]);
+    if (!ids.length) {
+      setFocusPlan({ key: planStorageKey, ids: [] });
+      return;
+    }
+    writeFocusPlan(blockId, todayKey, effectiveMode, ids);
+    setFocusPlan({ key: planStorageKey, ids });
+  }, [blockId, todayKey, effectiveMode, planStorageKey, candidateTasks, checked]);
+
+  const focusPlanIds = focusPlan?.key === planStorageKey ? focusPlan.ids : [];
+  const focusPlanSet = useMemo(() => new Set(focusPlanIds), [focusPlanIds]);
+  const filteredTasks = useMemo(
+    () => candidateTasks.filter((task) => focusPlanSet.has(task.lec.id)),
+    [candidateTasks, focusPlanSet]
+  );
+  const doneCount = useMemo(() => focusPlanIds.filter((id) => checked.has(id)).length, [focusPlanIds, checked]);
+  const planComplete = focusPlanIds.length > 0 && doneCount === focusPlanIds.length;
   const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checked.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checked]);
+
+  const startAnotherSet = useCallback(() => {
+    const nextChecked = new Set();
+    setChecked(nextChecked);
+    writeChecked(blockId, nextChecked);
+    clearFocusPlan(blockId, todayKey, effectiveMode);
+    const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), []);
+    if (ids.length) writeFocusPlan(blockId, todayKey, effectiveMode, ids);
+    setFocusPlan({ key: planStorageKey, ids });
+  }, [blockId, todayKey, effectiveMode, candidateTasks, planStorageKey]);
 
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
@@ -1066,11 +1134,16 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
             <div><div className="today-eyebrow">Your queue</div><h3>Today’s focus</h3></div>
             <button onClick={() => { const next = !taskListCollapsed; setTaskListCollapsed(next); writeTaskListCollapsed(next); }} className="today-text-button">{taskListCollapsed ? "Show queue" : "Collapse queue"}</button>
           </section>
-          {filteredTasks.length > 0 && <div className="today-progress-wrap"><ProgressBar done={doneCount} total={filteredTasks.length} /></div>}
+          {focusPlanIds.length > 0 && <div className="today-progress-wrap"><ProgressBar done={doneCount} total={focusPlanIds.length} /></div>}
           {logFeedback && <div className="today-feedback" role="status">{logFeedback}</div>}
           {todayReason === "urgency-fallback" && nextDay && <div className="today-note">Nothing is scheduled today — showing the highest-urgency work ahead of {nextDay.dateStr}.</div>}
 
           {!taskListCollapsed && (filteredTasks.length === 0 ? (
+        planComplete ? (
+          <div className="rounded-sm border border-good/40 bg-good/5 p-4 text-sm text-text-2">
+            <strong className="text-text-1">Today&apos;s planned focus is complete.</strong> New recommendations will wait unless you choose another set.
+          </div>
+        ) :
         todayTasks.length > 0 && effectiveMode ? (
           <div className="rounded-sm border border-border p-4 text-xs text-text-3">
             No tasks match <span className="text-text-1">{DAY_MODES.find((m) => m.id === effectiveMode)?.label}</span> today.
@@ -1148,12 +1221,19 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         />
       )}
 
-      {doneCount > 0 && (
+      {planComplete ? (
         <button
-          onClick={() => { setChecked(new Set()); writeChecked(blockId, new Set()); }}
+          onClick={startAnotherSet}
+          className="self-start rounded-sm border border-border px-3 py-2 font-mono text-[12px] font-semibold text-text-2 hover:border-border-strong hover:text-text-1"
+        >
+          Start another set
+        </button>
+      ) : doneCount > 0 && (
+        <button
+          onClick={startAnotherSet}
           className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
         >
-          Reset checks
+          Reset today&apos;s set
         </button>
       )}
     </div>

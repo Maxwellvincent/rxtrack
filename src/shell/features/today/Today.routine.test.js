@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { computeSchedule, suggestedDayMode } from "./Today.jsx";
+import { buildFocusPlan, computeSchedule, suggestedDayMode } from "./Today.jsx";
 
 describe("optimized daily routine", () => {
+  it("keeps completed focus rows ahead of scheduler backfill", () => {
+    expect(buildFocusPlan(["new-1", "new-2"], ["done-1", "done-2"])).toEqual(["done-1", "done-2"]);
+    expect(buildFocusPlan(["remaining", "backfill"], ["done-1"])).toEqual(["done-1", "remaining"]);
+  });
+
   it("suggests exam prep throughout the final three days", () => {
     expect(suggestedDayMode(3, "05:00")).toBe("exam");
     expect(suggestedDayMode(1, "05:00")).toBe("exam");
