@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText, parseExamSoftReportQuestions } from "./examParser.js";
+import { buildExamExtractionPrompt, normalizeParsedExamQuestion, attachImagesToExamQuestions, attachAdjacentVisualPages, detectFormat, mergePdfQuestionCandidates, parseExamPDF, parseNumberedQuestionBankText, groupPairedKeySlides, parseMadcowPages, expectedQuestionCountFromAnswerKey, pdfItemsToLayoutText, parseExamSoftReportQuestions } from "./examParser.js";
+
+describe("adjacent source visuals", () => {
+  it("attaches an isolated next-page exhibit when the question explicitly needs a visual", () => {
+    expect(attachAdjacentVisualPages(
+      [{ id: "q1", hasImage: true, sourcePage: 2, stem: "The attached image shows an abdominal radiograph." }],
+      [{ num: 2, imgCount: 0, text: "Question stem and options" }, { num: 3, imgCount: 1, text: "" }]
+    )[0].sourceVisualPage).toBe(3);
+  });
+  it("does not borrow an adjacent page that contains a separate question", () => {
+    const [question] = attachAdjacentVisualPages(
+      [{ id: "q1", hasImage: true, sourcePage: 2 }],
+      [{ num: 2, imgCount: 0, text: "Question stem" }, { num: 3, imgCount: 1, text: "Question 2: another patient? A. One B. Two C. Three D. Four" }]
+    );
+    expect(question).not.toHaveProperty("sourceVisualPage");
+  });
+});
 
 describe("Q-numbered question banks", () => {
   it("normalizes Q-numbered question headings", () => {

@@ -96,6 +96,7 @@ export function buildQuestionBankAnalysis({ questions = [], objectives = [], lec
       clinical: focus.clinical,
       clinicalCues: focus.cues,
       objectiveIds,
+      objectiveLinkReviewStatus: "candidate",
       objectiveLinks: candidateObjectives.map((link) => ({
         id: link.targetId || link.objective?.id || link.objective?.code || null,
         label: link.targetText || textOfObjective(link.objective) || link.targetId || null,
@@ -154,16 +155,32 @@ export function buildQuestionBankCritiquePrompt(analysis, questions, objectives 
   return `Review uploaded school or homework questions against the supplied curriculum. Never change the source answer key. Mark correctness as source-key-present-not-medically-audited unless the lecture evidence supports a concern, then use needs-review. Separate direct lecture support from candidate word overlap. Identify what each item is testing, its clinical cues/buzzwords, the matching objective and lecture, and one actionable critique. Do not import outside facts as if taught.\n\nCURRENT DETERMINISTIC ANALYSIS:\n${JSON.stringify(analysis)}\n\nOBJECTIVES:\n${curriculum || "none"}\n\nLECTURE MAPS:\n${lectureText || "none"}\n\nQUESTIONS:\n${source}\n\nReturn JSON only: {"items":[{"id":"q1","focus":"...","clinicalCues":["..."],"buzzwords":["..."],"objectiveIds":["exact supplied id"],"lectureIds":["exact supplied id"],"clinicalCorrelates":["..."],"correctnessStatus":"source-key-confirmed|source-key-present-not-medically-audited|needs-review|unsupported-by-lecture","critique":"..."}]}`;
 }
 
-export function mergeQuestionBankCritique(analysis, reviewed) {
+export function mergeQuestionBankCritique(analysis, reviewed, curriculum = {}) {
   if (!analysis || !Array.isArray(reviewed?.items)) return analysis;
   const byId = new Map(reviewed.items.map((item) => [String(item.id), item]));
+  const validObjectiveIds = curriculum.objectiveIds ? new Set(curriculum.objectiveIds.map(String)) : null;
+  const validLectureIds = curriculum.lectureIds ? new Set(curriculum.lectureIds.map(String)) : null;
   return {
     ...analysis,
     status: "reviewed",
     items: analysis.items.map((item) => {
       const review = byId.get(String(item.id));
       if (!review) return item;
-      return { ...item, ...review, objectiveIds: Array.isArray(review.objectiveIds) ? review.objectiveIds : item.objectiveIds, lectureIds: Array.isArray(review.lectureIds) ? review.lectureIds : item.lectureIds, clinicalCues: Array.isArray(review.clinicalCues) ? review.clinicalCues : item.clinicalCues, buzzwords: Array.isArray(review.buzzwords) ? review.buzzwords : [] };
+      const reviewedObjectives = Array.isArray(review.objectiveIds)
+        ? [...new Set(review.objectiveIds.map(String).filter((id) => !validObjectiveIds || validObjectiveIds.has(id)))]
+        : item.objectiveIds;
+      const reviewedLectures = Array.isArray(review.lectureIds)
+        ? [...new Set(review.lectureIds.map(String).filter((id) => !validLectureIds || validLectureIds.has(id)))]
+        : item.lectureIds;
+      return {
+        ...item,
+        ...review,
+        objectiveIds: reviewedObjectives,
+        lectureIds: reviewedLectures,
+        objectiveLinkReviewStatus: Array.isArray(review.objectiveIds) ? (reviewedObjectives.length ? "ai-reviewed" : "no-supported-match") : item.objectiveLinkReviewStatus || "candidate",
+        clinicalCues: Array.isArray(review.clinicalCues) ? review.clinicalCues : item.clinicalCues,
+        buzzwords: Array.isArray(review.buzzwords) ? review.buzzwords : [],
+      };
     }),
     updatedAt: Date.now(),
   };

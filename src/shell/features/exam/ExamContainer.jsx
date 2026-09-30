@@ -36,7 +36,7 @@ import { sourceLabel } from "../../logic/questionBankAnalysis.js";
 import { filterLecturesByScope } from "../../logic/weekScope.js";
 import { namePreparedReplacementAttempt } from "./preparedSetNaming.js";
 import { updateQuestionBankMetadata } from "../../logic/questionBankMetadataEdits.js";
-import { prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
+import { confirmQuestionBankCurriculumLinks, prepareBankQuestionSet, scoreAnsweredQuestions } from "./questionBankLinks.js";
 
 const DEFAULT_QUESTION_COUNT_FALLBACK = 20;
 
@@ -158,7 +158,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   }, [lecturesById]);
 
   const objectivesById = useMemo(() => Object.fromEntries(
-    objectives.filter((objective) => objective?.id).map((objective) => [objective.id, objective])
+    objectives.filter((objective) => objective?.id || objective?.code).map((objective) => [objective.id || objective.code, objective])
   ), [objectives]);
 
   const objectivesByLecture = useMemo(() => {
@@ -450,6 +450,29 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
       setBankStoreRevision((value) => value + 1);
     } catch (error) {
       setLaunchError(`Could not save the practice-set date: ${error?.message || String(error)}`);
+    } finally { setBankEditBusy(false); }
+  };
+
+  const confirmBankCurriculumLink = async (bank, item) => {
+    if (bank.analysis?.status !== "reviewed" || item?.objectiveLinkReviewStatus !== "ai-reviewed") return;
+    const sourceQuestion = bank.questions.find((question, index) => String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num));
+    if (!sourceQuestion) return;
+    const nextQuestion = confirmQuestionBankCurriculumLinks(sourceQuestion, item, {
+      objectiveIds: objectives.map((objective) => objective.id || objective.code).filter(Boolean),
+      lectureIds: Object.keys(lecturesById),
+    });
+    if (!nextQuestion) return;
+    setBankEditBusy(true);
+    setLaunchError(null);
+    try {
+      const banks = questionBanksStore.read(userId) || {};
+      const questions = (banks[bank.filename] || bank.questions).map((question, index) =>
+        String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num) ? nextQuestion : question
+      );
+      await questionBanksStore.writeAwait(userId, { ...banks, [bank.filename]: questions });
+      setBankStoreRevision((value) => value + 1);
+    } catch (error) {
+      setLaunchError(`Could not confirm the curriculum link: ${error?.message || String(error)}`);
     } finally { setBankEditBusy(false); }
   };
 
@@ -859,14 +882,19 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
                     {exampleOnly && <div className="mt-1 text-[11px] text-accent-text">Example-only bank: use these clicker stems and images to guide generation; unkeyed slides are not scored as practice questions.</div>}
                     {analysis?.items?.length > 0 && <details className="mt-2 text-xs text-text-2">
                       <summary className="cursor-pointer font-semibold">Question critique & lecture links</summary>
-                      <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => <div key={item.id} className="rounded border border-border px-2 py-1.5">
+                      <div className="mt-2 space-y-2">{analysis.items.slice(0, 8).map((item) => {
+                        const linkedQuestion = bank.questions.find((question, index) => String(question?.id ?? question?.num ?? index + 1) === String(item.id ?? item.num));
+                        const confirmed = linkedQuestion?.curriculumLinkStatus === "user-confirmed";
+                        const reviewedObjectiveLabels = (item.objectiveIds || []).map((id) => objectivesById[id]?.objective || objectivesById[id]?.text || objectivesById[id]?.content).filter(Boolean);
+                        return <div key={item.id} className="rounded border border-border px-2 py-1.5">
                         <div className="font-mono text-[11px] text-text-3">Q{item.num} · {item.focus} · {item.correctnessStatus}</div>
                         <div>{item.critique?.[0] || "Lecture support reviewed."}</div>
                         {(item.clinicalCues?.length || item.buzzwords?.length) > 0 && <div className="text-text-3">Cues: {[...(item.clinicalCues || []), ...(item.buzzwords || [])].join(" · ")}</div>}
-                        {item.objectiveLinks?.length > 0 && <div className="text-text-3">Objective match ({item.objectiveBasis || "candidate"}): {item.objectiveLinks.map((link) => link.label || link.id).join(" · ")}</div>}
+                        {confirmed ? <div className="text-good">Linked to objective{(linkedQuestion.objectiveIds || []).length === 1 ? "" : "s"}: {(linkedQuestion.objectiveIds || []).map((id) => objectivesById[id]?.objective || objectivesById[id]?.text || objectivesById[id]?.content || id).join(" · ")}</div> : item.objectiveLinks?.length > 0 && <div className="text-text-3">Candidate objective match ({item.objectiveBasis || "candidate"}): {item.objectiveLinks.map((link) => link.label || link.id).join(" · ")}</div>}
+                        {!confirmed && item.objectiveLinkReviewStatus === "ai-reviewed" && reviewedObjectiveLabels.length > 0 && <div className="mt-1 flex flex-wrap items-center gap-2"><span className="text-text-2">Reviewer proposal: {reviewedObjectiveLabels.join(" · ")}</span><Button variant="outline" disabled={bankEditBusy} onClick={() => confirmBankCurriculumLink(bank, item)}>{bankEditBusy ? "Saving…" : "Confirm link"}</Button></div>}
                         {item.lectureLinks?.length > 0 && <div className="text-text-3">Lecture match: {item.lectureLinks.map((link) => link.label).join(" · ")}</div>}
                         {item.clinicalCorrelates?.length > 0 && <div className="text-text-3">Lecture support: {item.clinicalCorrelates[0]}</div>}
-                      </div>)}</div>
+                      </div>})}</div>
                       {analysis.items.length > 8 && <div className="mt-1 text-text-3">Showing the first 8; practice all {analysis.items.length} questions to see their source-keyed rationales.</div>}
                     </details>}
                   </div>

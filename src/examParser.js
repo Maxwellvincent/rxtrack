@@ -900,6 +900,30 @@ export function attachImagesToExamQuestions(questions, slideImages) {
   });
 }
 
+function pageStartsAnotherQuestion(page = {}) {
+  const text = String(page.layoutText || page.text || "");
+  return /(?:^|\n)\s*(?:question\s*#?\s*:?\s*\d+|\d{1,2}\s+.{8,120}\s+[01]\s*\/\s*1)\b/i.test(text) ||
+    (text.match(/(?:^|\n)\s*[A-H][.)]\s+/g) || []).length >= 4;
+}
+
+/**
+ * Some school PDFs put a referenced table/radiograph on the immediately
+ * following page. Only borrow an adjacent page when it contains a raster
+ * exhibit and no separate question/choice set; ambiguous pages stay unattached.
+ */
+export function attachAdjacentVisualPages(questions, pages = []) {
+  const pageByNumber = new Map(pages.map((page) => [Number(page.num), page]));
+  return (Array.isArray(questions) ? questions : []).map((question) => {
+    if (!question?.hasImage || question.sourceImageUrl || question.sourceImageDataUrl || question.image || !question.sourcePage) return question;
+    const current = pageByNumber.get(Number(question.sourcePage));
+    if ((current?.imgCount || 0) > 0) return { ...question, sourceVisualPage: Number(question.sourcePage) };
+    const candidates = [Number(question.sourcePage) + 1, Number(question.sourcePage) - 1]
+      .map((number) => pageByNumber.get(number))
+      .filter((page) => (page?.imgCount || 0) > 0 && !pageStartsAnotherQuestion(page));
+    return candidates.length ? { ...question, sourceVisualPage: Number(candidates[0].num) } : question;
+  });
+}
+
 async function parseWithAI(fullText, format, onProgress, examTitle = "") {
   const chunkSize = 10000;
   const overlap = 500;
@@ -1531,6 +1555,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   }
 
   questions = attachImagesToExamQuestions(questions, slideImages);
+  if (format !== "report") questions = attachAdjacentVisualPages(questions, pages);
 
   if (format === "report" && pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
     // ExamSoft answer reports include the correct option and rationale below
@@ -1579,16 +1604,17 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     const pageData = new Map();
     for (const question of questions) {
       if (!question.hasImage || !question.sourcePage || question.sourceImageUrl) continue;
-      if (!pageData.has(question.sourcePage)) {
-        const page = await pdf.getPage(question.sourcePage);
+      const visualPage = Number(question.sourceVisualPage || question.sourcePage);
+      if (!pageData.has(visualPage)) {
+        const page = await pdf.getPage(visualPage);
         const viewport = page.getViewport({ scale: 1.35 });
         const canvas = document.createElement("canvas");
         canvas.width = viewport.width;
         canvas.height = viewport.height;
         await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
-        pageData.set(question.sourcePage, canvas.toDataURL("image/jpeg", 0.82));
+        pageData.set(visualPage, canvas.toDataURL("image/jpeg", 0.82));
       }
-      question.sourceImageDataUrl = pageData.get(question.sourcePage);
+      question.sourceImageDataUrl = pageData.get(visualPage);
     }
   }
 

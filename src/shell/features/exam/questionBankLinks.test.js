@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { prepareBankQuestionSet, scoreAnsweredQuestions, sourceLectureClue } from "./questionBankLinks.js";
+import { confirmQuestionBankCurriculumLinks, prepareBankQuestionSet, scoreAnsweredQuestions, sourceLectureClue } from "./questionBankLinks.js";
 
 const item = (id, stem, choices = { A: "Atresia", B: "Stenosis" }) => ({ id, stem, choices, correct: "A" });
 
@@ -26,5 +26,14 @@ describe("question-bank source linking", () => {
   it("grades only answers attached to questions and reports honest partial progress", () => {
     expect(scoreAnsweredQuestions({ questions: [{ questionId: "q1", correct: "A" }, { questionId: "q2", correct: "B" }], answers: [{ questionId: "q1", value: "A" }, { questionId: "q2", value: "A" }, { questionId: "gone", value: "A" }] }))
       .toEqual({ answered: 2, correct: 1, incorrect: 1, accuracy: 50 });
+  });
+
+  it("requires an AI-reviewed proposal and explicit learner confirmation before making links active", () => {
+    const question = item("q7", "Which pathway is affected?");
+    const proposal = { objectiveLinkReviewStatus: "ai-reviewed", objectiveIds: ["obj-1", "unknown"], lectureIds: ["lec-1", "unknown"] };
+    expect(confirmQuestionBankCurriculumLinks(question, proposal, { objectiveIds: ["obj-1"], lectureIds: ["lec-1"] }))
+      .toMatchObject({ objectiveIds: ["obj-1"], lectureId: "lec-1", curriculumLinkStatus: "user-confirmed" });
+    expect(confirmQuestionBankCurriculumLinks(question, { ...proposal, objectiveLinkReviewStatus: "candidate" }, { objectiveIds: ["obj-1"] }))
+      .toBeNull();
   });
 });

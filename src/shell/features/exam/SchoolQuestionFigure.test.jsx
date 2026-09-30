@@ -18,7 +18,7 @@ describe("SchoolQuestionFigure", () => {
     render(<SchoolQuestionFigure question={{ hasImage: true, sourceImageUrl: "https://example.com/original.png", sourceFile: "IMCQ.pdf", sourcePage: 6 }} />);
     const disclosure = host.querySelector("details");
     expect(disclosure.open).toBe(false);
-    expect(host.textContent).toContain("Show source figure / page · page 6");
+    expect(host.textContent).toContain("Show source figure · page 6");
     act(() => disclosure.querySelector("summary").click());
     expect(host.querySelector("img").getAttribute("src")).toBe("https://example.com/original.png");
     expect(host.textContent).toContain("may include the answer choices or key");

@@ -44,6 +44,14 @@ describe("question bank analysis", () => {
     expect(question.correct).toBe("A");
   });
 
+  it("marks only curriculum IDs present in the supplied curriculum as reviewer proposals", () => {
+    const analysis = buildQuestionBankAnalysis({ questions: [question] });
+    const merged = mergeQuestionBankCritique(analysis, { items: [{ id: "q1", objectiveIds: ["obj-1", "hallucinated"], lectureIds: ["lec-1", "other"] }] }, {
+      objectiveIds: ["obj-1"], lectureIds: ["lec-1"],
+    });
+    expect(merged.items[0]).toMatchObject({ objectiveIds: ["obj-1"], lectureIds: ["lec-1"], objectiveLinkReviewStatus: "ai-reviewed" });
+  });
+
   it("matches explicit source lecture titles and searches saved lecture text for candidate support", () => {
     const analysis = buildQuestionBankAnalysis({
       questions: [{ ...question, stem: `${question.stem} Lecture 2: Clinical Embryology of GI System` }],

@@ -34,3 +34,9 @@ export function markTodayLectureComplete(blockId, lectureId, now = new Date()) {
   writeChecked(blockId, next, now);
   return next;
 }
+
+/** A reset starts a fresh unchecked queue without erasing today's completion evidence. */
+export function buildResetFocusPlan(candidateIds = [], checkedIds = [], limit = 3) {
+  const completed = new Set(checkedIds.filter(Boolean));
+  return [...new Set(candidateIds.filter((id) => id && !completed.has(id)))].slice(0, Math.max(0, Number(limit) || 0));
+}

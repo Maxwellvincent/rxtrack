@@ -10,7 +10,7 @@ import { usePreReadPrefetch } from "../lectures/usePreReadPrefetch.js";
 import * as examDatesStore from "../../../stores/examDates.js";
 import * as termsStore from "../../../stores/terms.js";
 import { readTaskListCollapsed, writeTaskListCollapsed } from "../../navPrefs.js";
-import { readChecked, writeChecked } from "./todayProgress.js";
+import { buildResetFocusPlan, readChecked, writeChecked } from "./todayProgress.js";
 import { evidenceAwareObjectives } from "../../logic/schedule.js";
 
 // ─── Day mode ────────────────────────────────────────────────────────────────
@@ -329,6 +329,7 @@ export function buildFocusPlan(candidateIds = [], checkedIds = []) {
   if (!target) return [];
   return [...completed.slice(-target), ...candidates.filter((id) => !completed.includes(id))].slice(0, target);
 }
+
 
 /**
  * Final-pass work needs both repair and coverage. Selecting only the largest
@@ -1167,6 +1168,11 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     writeFocusPlan(blockId, todayKey, effectiveMode, ids);
     setFocusPlan({ key: planStorageKey, ids });
   }, [blockId, todayKey, effectiveMode, candidateTasks, planStorageKey, focusPlanIds, checkedForToday]);
+  const resetTodaySet = useCallback(() => {
+    const ids = buildResetFocusPlan(candidateTasks.map((task) => task.lec.id), [...checkedForToday], 3);
+    writeFocusPlan(blockId, todayKey, effectiveMode, ids);
+    setFocusPlan({ key: planStorageKey, ids });
+  }, [blockId, todayKey, effectiveMode, candidateTasks, checkedForToday, planStorageKey]);
   const canExtendFocusPlan = candidateTasks.some((task) =>
     task.lec?.id && !focusPlanSet.has(task.lec.id) && !checkedForToday.has(task.lec.id)
   );
@@ -1305,6 +1311,12 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
           Add another focus set
         </button>
       )}
+      {focusPlanIds.length > 0 && <button
+        type="button"
+        onClick={resetTodaySet}
+        title="Rebuild today’s queue from unchecked recommendations. Completed checkmarks, quiz answers, and objective progress are preserved."
+        className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
+      >Reset today&apos;s set <span className="text-text-3">· keeps completed work and history</span></button>}
     </div>
   );
 }

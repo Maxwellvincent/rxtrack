@@ -19,6 +19,7 @@ export function SchoolQuestionFigure({ question }) {
   const referencesVisual = questionReferencesVisual(question?.stem);
   const url = question?.sourceImageUrl || question?.sourceImageDataUrl || (typeof question?.image === "string" ? question.image : question?.image?.url);
   const key = cropKey(question || {});
+  const visualPage = question?.sourceVisualPage || question?.sourcePage;
 
   useEffect(() => {
     setFailedUrl(null);
@@ -68,7 +69,7 @@ export function SchoolQuestionFigure({ question }) {
 
   return (
     <details className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
-      <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">Show source figure{question.sourcePage ? ` · page ${question.sourcePage}` : ""}</summary>
+      <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">Show source figure{visualPage ? ` · page ${visualPage}` : ""}</summary>
       <figure className="mt-2">
         {cropUrl && !cropping ? (
           <>
@@ -88,7 +89,7 @@ export function SchoolQuestionFigure({ question }) {
             </div>
           </>
         )}
-        <figcaption className="mt-1 text-xs text-text-3">{question.sourceFile || "Uploaded source"}{question.sourcePage ? ` · page ${question.sourcePage}` : ""}</figcaption>
+        <figcaption className="mt-1 text-xs text-text-3">{question.sourceFile || "Uploaded source"}{visualPage ? ` · visual page ${visualPage}` : ""}{question.sourcePage && visualPage && Number(question.sourcePage) !== Number(visualPage) ? ` · question page ${question.sourcePage}` : ""}</figcaption>
       </figure>
     </details>
   );

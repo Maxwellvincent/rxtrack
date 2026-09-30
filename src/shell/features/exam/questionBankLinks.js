@@ -62,6 +62,26 @@ export function prepareBankQuestionSet(questions = [], analysis = null) {
   return { questions: prepared, removedDuplicateCount: questions.length - unique.length };
 }
 
+/** Persist curriculum links only after a learner confirms the reviewer proposal. */
+export function confirmQuestionBankCurriculumLinks(question, analysisItem, { objectiveIds = [], lectureIds = [] } = {}) {
+  const allowedObjectives = new Set(objectiveIds.map(String));
+  const allowedLectures = new Set(lectureIds.map(String));
+  const reviewedObjectives = analysisItem?.objectiveLinkReviewStatus === "ai-reviewed"
+    ? [...new Set((analysisItem.objectiveIds || []).map(String).filter((id) => allowedObjectives.has(id)))].slice(0, 2)
+    : [];
+  const reviewedLectures = analysisItem?.objectiveLinkReviewStatus === "ai-reviewed"
+    ? [...new Set((analysisItem.lectureIds || []).map(String).filter((id) => allowedLectures.has(id)))].slice(0, 1)
+    : [];
+  if (!reviewedObjectives.length) return null;
+  return {
+    ...question,
+    objectiveIds: reviewedObjectives,
+    ...(reviewedLectures.length === 1 ? { lectureId: reviewedLectures[0] } : {}),
+    curriculumLinkStatus: "user-confirmed",
+    curriculumLinkConfirmedAt: Date.now(),
+  };
+}
+
 export function scoreAnsweredQuestions(session) {
   const questions = new Map((session?.questions || []).map((question) => [question.questionId, question]));
   const answers = session?.answers || [];

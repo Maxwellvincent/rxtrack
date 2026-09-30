@@ -7,7 +7,7 @@ import { installDomStorage } from "../stores/testEnv.js";
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("QuestionExplanation", () => {
-  it("separates source rationales by answer choice and labels bank keys honestly", () => {
+  it("condenses long source rationales and keeps full keyed choice notes available", () => {
     installDomStorage();
     const host = document.createElement("div");
     const root = createRoot(host);
@@ -18,6 +18,10 @@ describe("QuestionExplanation", () => {
       sourceType="question-bank"
     />));
     expect(host.textContent).toContain("not independently medically verified");
+    expect(host.textContent).toContain("Key point · condensed from source");
+    expect(host.querySelector("details")?.open).toBe(false);
+    expect(host.querySelector(".rounded.border")?.textContent).not.toContain("causes limit dextrin");
+    act(() => host.querySelector("summary").click());
     expect(host.querySelector('[aria-label="Answer-choice reasoning"]')?.children).toHaveLength(3);
     expect(host.textContent).toContain("causes limit dextrin");
     act(() => root.unmount());

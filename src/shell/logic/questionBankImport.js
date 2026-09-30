@@ -288,15 +288,19 @@ export async function processQuestionBankFiles({
       const withDurableImages = [];
       for (const question of parsed?.questions || []) {
         let sourceImageUrl = question.sourceImageUrl || null;
-        if (question.sourceImageDataUrl && question.sourcePage && userId) {
-          if (!pageUrls.has(question.sourcePage)) {
-            update(`${index + 1}/${files.length} · saving figure from ${file.name}, page ${question.sourcePage}…`);
-            pageUrls.set(question.sourcePage, await uploadQuestionBankPage(userId, bankTitle, question.sourcePage, question.sourceImageDataUrl));
+        const visualPage = Number(question.sourceVisualPage || question.sourcePage) || null;
+        if (question.sourceImageDataUrl && visualPage && userId) {
+          if (!pageUrls.has(visualPage)) {
+            update(`${index + 1}/${files.length} · saving figure from ${file.name}, page ${visualPage}…`);
+            pageUrls.set(visualPage, await uploadQuestionBankPage(userId, bankTitle, visualPage, question.sourceImageDataUrl));
           }
-          sourceImageUrl = pageUrls.get(question.sourcePage);
+          sourceImageUrl = pageUrls.get(visualPage);
         }
         const { sourceImageDataUrl: _sourceImageDataUrl, ...storedQuestion } = question;
-        withDurableImages.push({ ...storedQuestion, ...(sourceImageUrl ? { sourceImageUrl } : {}) });
+        withDurableImages.push({
+          ...storedQuestion,
+          ...(sourceImageUrl ? { sourceImageUrl } : question.sourceImageDataUrl ? { sourceImageDataUrl: question.sourceImageDataUrl } : {}),
+        });
       }
 
       const questions = tagBankQuestions(withDurableImages, { blockId, filename: bankTitle, wrongOnly, sourceKind });
@@ -378,7 +382,10 @@ export async function processQuestionBankFiles({
         { items: [] },
         7000
       );
-      const merged = mergeQuestionBankCritique(entry.analysis, reviewed);
+      const merged = mergeQuestionBankCritique(entry.analysis, reviewed, {
+        objectiveIds: objectives.map((objective) => objective.id || objective.code).filter(Boolean),
+        lectureIds: lectures.map((lecture) => lecture.id).filter(Boolean),
+      });
       await questionBankAnalysisStore.writeAwait(userId, entry.filename, merged);
     } catch {
       critiqueFailures += 1;
