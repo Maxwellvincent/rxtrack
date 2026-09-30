@@ -21,9 +21,19 @@ describe("SchoolQuestionFigure", () => {
     expect(host.textContent).toContain("Show source figure / page · page 6");
     act(() => disclosure.querySelector("summary").click());
     expect(host.querySelector("img").getAttribute("src")).toBe("https://example.com/original.png");
+    expect(host.textContent).toContain("may include the answer choices or key");
+    expect(host.textContent).toContain("Use cropped figure");
     expect(host.textContent).toContain("IMCQ.pdf · page 6");
     act(() => host.querySelector("img").dispatchEvent(new window.Event("error")));
     expect(host.querySelector('[role="status"]').textContent).toContain("Do not answer");
+  });
+  it("shows a previously saved figure crop instead of the answer-bearing source page", () => {
+    const question = { id: "q4", hasImage: true, sourceImageUrl: "https://example.com/page.png", sourceFile: "IMCQ.pdf", sourcePage: 4 };
+    localStorage.setItem("rxtrack-school-figure-crop:IMCQ.pdf:q4", "data:image/jpeg;base64,crop");
+    render(<SchoolQuestionFigure question={question} />);
+    act(() => host.querySelector("summary").click());
+    expect(host.querySelector("img").getAttribute("src")).toBe("data:image/jpeg;base64,crop");
+    expect(host.textContent).not.toContain("may include the answer choices or key");
   });
   it("warns for a missing source visual, including an unflagged figure reference", () => {
     render(<SchoolQuestionFigure question={{ hasImage: true }} />);
