@@ -305,7 +305,9 @@ function focusPlanKey(blockId, todayKey, mode) {
 
 function readFocusPlan(blockId, todayKey, mode) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(focusPlanKey(blockId, todayKey, mode)) || "null");
+    const key = focusPlanKey(blockId, todayKey, mode);
+    const saved = sessionStorage.getItem(key) || localStorage.getItem(key);
+    const parsed = JSON.parse(saved || "null");
     return Array.isArray(parsed) ? parsed.filter(Boolean) : null;
   } catch {
     return null;
@@ -313,11 +315,10 @@ function readFocusPlan(blockId, todayKey, mode) {
 }
 
 function writeFocusPlan(blockId, todayKey, mode, ids) {
-  localStorage.setItem(focusPlanKey(blockId, todayKey, mode), JSON.stringify(ids));
-}
-
-function clearFocusPlan(blockId, todayKey, mode) {
-  localStorage.removeItem(focusPlanKey(blockId, todayKey, mode));
+  const key = focusPlanKey(blockId, todayKey, mode);
+  const value = JSON.stringify(ids);
+  try { localStorage.setItem(key, value); } catch { /* full browser cache */ }
+  try { sessionStorage.setItem(key, value); } catch { /* in-memory state remains */ }
 }
 
 /** Freeze today's initial workload; completed rows count before any scheduler backfill. */
@@ -1153,14 +1154,22 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
   const firstUnchecked = useMemo(() => filteredTasks.find((t) => !checkedForToday.has(t.lec.id))?.lec.id ?? null, [filteredTasks, checkedForToday]);
 
   const startAnotherSet = useCallback(() => {
-    const nextChecked = new Set();
-    setChecked(nextChecked);
-    writeChecked(blockId, nextChecked);
-    clearFocusPlan(blockId, todayKey, effectiveMode);
-    const ids = buildFocusPlan(candidateTasks.map((task) => task.lec.id), []);
-    if (ids.length) writeFocusPlan(blockId, todayKey, effectiveMode, ids);
+    // Keep today's completed rows and extend the day's plan with newly surfaced
+    // recommendations. Starting another set must not turn 3/3 back into 0/3.
+    const planned = new Set(focusPlanIds);
+    const completed = new Set(checkedForToday);
+    const nextIds = candidateTasks
+      .map((task) => task.lec.id)
+      .filter((id, index, ids) => id && !planned.has(id) && !completed.has(id) && ids.indexOf(id) === index)
+      .slice(0, 3);
+    if (!nextIds.length) return;
+    const ids = [...focusPlanIds, ...nextIds];
+    writeFocusPlan(blockId, todayKey, effectiveMode, ids);
     setFocusPlan({ key: planStorageKey, ids });
-  }, [blockId, todayKey, effectiveMode, candidateTasks, planStorageKey]);
+  }, [blockId, todayKey, effectiveMode, candidateTasks, planStorageKey, focusPlanIds, checkedForToday]);
+  const canExtendFocusPlan = candidateTasks.some((task) =>
+    task.lec?.id && !focusPlanSet.has(task.lec.id) && !checkedForToday.has(task.lec.id)
+  );
 
   const today = new Date();
   const dateStr = today.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
@@ -1281,19 +1290,19 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
         />
       )}
 
-      {planComplete ? (
+      {planComplete && canExtendFocusPlan ? (
         <button
           onClick={startAnotherSet}
           className="self-start rounded-sm border border-border px-3 py-2 font-mono text-[12px] font-semibold text-text-2 hover:border-border-strong hover:text-text-1"
         >
-          Start another set
+          Add another focus set
         </button>
-      ) : doneCount > 0 && (
+      ) : doneCount > 0 && canExtendFocusPlan && (
         <button
           onClick={startAnotherSet}
           className="self-start font-mono text-[12px] text-text-3 hover:text-text-1"
         >
-          Reset today&apos;s set
+          Add another focus set
         </button>
       )}
     </div>

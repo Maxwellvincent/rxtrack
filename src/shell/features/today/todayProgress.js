@@ -5,17 +5,25 @@ function checkedKey(blockId, now = new Date()) {
 export function readChecked(blockId, now = new Date()) {
   try {
     const key = checkedKey(blockId, now);
-    const saved = localStorage.getItem(key);
-    const legacy = sessionStorage.getItem(key);
-    if (!saved && legacy) localStorage.setItem(key, legacy);
-    return new Set(JSON.parse(saved || legacy || "[]"));
+    // Session storage is the writable fallback when an oversized local cache
+    // has exhausted its quota. Prefer it when present because it may contain a
+    // newer successful write than localStorage.
+    const sessionSaved = sessionStorage.getItem(key);
+    const saved = sessionSaved || localStorage.getItem(key);
+    if (!sessionSaved && saved) {
+      try { sessionStorage.setItem(key, saved); } catch { /* memory state still works */ }
+    }
+    return new Set(JSON.parse(saved || "[]"));
   } catch {
     return new Set();
   }
 }
 
 export function writeChecked(blockId, set, now = new Date()) {
-  localStorage.setItem(checkedKey(blockId, now), JSON.stringify([...(set || [])]));
+  const key = checkedKey(blockId, now);
+  const value = JSON.stringify([...(set || [])]);
+  try { localStorage.setItem(key, value); } catch { /* full browser cache */ }
+  try { sessionStorage.setItem(key, value); } catch { /* retain in-memory state */ }
 }
 
 /** Persist completion even when Today is unmounted behind LectureStudyFlow. */

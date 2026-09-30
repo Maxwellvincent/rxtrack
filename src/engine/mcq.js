@@ -275,6 +275,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
       ...(deps.aiOptions || {}),
       throwOnError: true,
     });
+    if (result?.error) return { error: String(result.error), questions: [] };
     const candidates = questionCandidates(result);
     const generated = withSchoolContext(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
     if (!generated.length) {
@@ -815,22 +816,22 @@ export function questionMatchesObjectiveDomain(question, cfg = {}) {
   if (!objectiveIds.length) return true;
   const linkedObjectives = (cfg.objectives || []).filter((objective) => objectiveIds.includes(String(objective.id || objective.code || "")));
   if (!linkedObjectives.length) return true;
-  const stop = new Set("about after again against all also among and any are because been before being both but can could describe determine during each explain following from have how identify into involving itself most other overview provide related should some such than that their them then these they this through toward under until using what when where which while with would".split(" "));
+  const stop = new Set("about after again against all also among and any are because been before being both but can could describe determine during each explain following from have how identify into involving itself most other overview provide related should some such than that their them then these they this through toward under until using what when where which while with would structure function role association associated relationship relationships".split(" "));
   const tokens = (value) => String(value || "").toLowerCase().match(/[a-z0-9]+/g)?.filter((token) => token.length > 3 && !stop.has(token)) || [];
   const linkedAtoms = (cfg.atoms || []).filter((atom) => (atom.objectiveIds || []).some((id) => objectiveIds.includes(String(id))));
-  const supportingEvidence = retrieveLectureEvidence(String(cfg.lectureText || ""), linkedObjectives, linkedAtoms);
   const targets = new Set([
     ...linkedObjectives.flatMap((objective) => tokens(objective.objective || objective.text)),
     ...linkedAtoms.flatMap((atom) => [...tokens(atom.term), ...tokens(atom.content)]),
-    ...tokens(supportingEvidence),
   ]);
   if (!targets.size) return true;
   const itemText = [question.stem, ...Object.values(question.choices || {}), question.explanation].join(" ");
-  // At least one meaningful concept from the linked objective must be visible
-  // in the item. This catches gross attribution errors (e.g. amino-acid IEM
-  // objective attached to an isolated median-nerve lesion question) without
-  // demanding literal overlap with every valid clinical paraphrase.
-  return tokens(itemText).some((token) => targets.has(token));
+  // Do not let generic overlap establish a question's objective domain. Require
+  // a distinctive objective/explicitly-linked-fact term when available.
+  const overlap = tokens(itemText).filter((token) => targets.has(token));
+  const distinctive = [...targets].filter((token) => token.length >= 6);
+  return distinctive.length
+    ? overlap.some((token) => token.length >= 6)
+    : overlap.length >= 2;
 }
 
 /** Keep a generated batch from being dominated by one generic final ask.
