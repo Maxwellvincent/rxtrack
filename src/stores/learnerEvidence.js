@@ -2,7 +2,7 @@ import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait } from ".
 import { readJson, writeJson } from "./base.js";
 
 export const key = "rxt-learner-evidence-v1";
-const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
+const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, missTypes: {}, diagnosticKeys: [], positionStats: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
 
 export function read(userId) {
   return userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
@@ -93,13 +93,54 @@ export function applyEvidence(model, rawEvent) {
     lectures: bump(current.lectures || {}, event.lectureId, event),
     sources: bump(current.sources || {}, event.source || "quiz", event),
     taskTypes: bump(current.taskTypes || {}, event.taskType, event),
-    orderLevels: bump(current.orderLevels || {}, event.orderLevel, event),
-    testTaking: {
+      orderLevels: bump(current.orderLevels || {}, event.orderLevel, event),
+      testTaking: {
       ...process,
       reasons: process.reasons || {},
+      missTypes: process.missTypes || {},
+      diagnosticKeys: process.diagnosticKeys || [],
+      positionStats: (() => {
+        const position = Number(event.questionNumber);
+        if (!Number.isInteger(position) || position < 1) return process.positionStats || {};
+        const band = position <= 8 ? "first-eight" : "after-eight";
+        const prior = process.positionStats?.[band] || { attempts: 0, correct: 0, totalResponseMs: 0, timedAnswers: 0 };
+        const response = Number.isFinite(event.responseMs) ? Math.max(0, event.responseMs) : null;
+        return { ...(process.positionStats || {}), [band]: {
+          attempts: prior.attempts + 1,
+          correct: prior.correct + (event.correct ? 1 : 0),
+          totalResponseMs: prior.totalResponseMs + (response || 0),
+          timedAnswers: prior.timedAnswers + (response == null ? 0 : 1),
+        } };
+      })(),
+      reasoningDepths: event.reasoningDepth ? {
+        ...(process.reasoningDepths || {}),
+        [event.reasoningDepth]: (() => {
+          const previous = process.reasoningDepths?.[event.reasoningDepth] || { attempts: 0, correct: 0 };
+          return { attempts: previous.attempts + 1, correct: previous.correct + (event.correct ? 1 : 0) };
+        })(),
+      } : (process.reasoningDepths || {}),
       timedAnswers: (process.timedAnswers || 0) + (responseMs == null ? 0 : 1),
       totalResponseMs: (process.totalResponseMs || 0) + (responseMs || 0),
       answerChanges: (process.answerChanges || 0) + (event.answerChanges || 0),
+    },
+  };
+}
+
+export function applyMissType(model, missType, diagnosticKey, at = Date.now()) {
+  if (!missType) return model || fallback;
+  const current = model || fallback;
+  const process = current.testTaking || fallback.testTaking;
+  const key = questionEvidenceKey(diagnosticKey);
+  const keys = process.diagnosticKeys || [];
+  if (key && keys.includes(key)) return current;
+  const previous = process.missTypes?.[missType] || { count: 0 };
+  return {
+    ...current,
+    updatedAt: at,
+    testTaking: {
+      ...process,
+      missTypes: { ...(process.missTypes || {}), [missType]: { count: (previous.count || 0) + 1, lastAt: at } },
+      diagnosticKeys: key ? [...keys, key].slice(-500) : keys,
     },
   };
 }
@@ -138,6 +179,20 @@ export function recordEvidence(userId, event) {
 
 export async function recordEvidenceAwait(userId, event) {
   const next = applyEvidence(read(userId), event);
+  if (userId) await writeCloudAwait(userId, key, next);
+  else writeJson(userId, key, next);
+  return next;
+}
+
+export function recordMissType(userId, missType, diagnosticKey) {
+  const next = applyMissType(read(userId), missType, diagnosticKey);
+  if (userId) writeCloud(userId, key, next);
+  else writeJson(userId, key, next);
+  return next;
+}
+
+export async function recordMissTypeAwait(userId, missType, diagnosticKey) {
+  const next = applyMissType(read(userId), missType, diagnosticKey);
   if (userId) await writeCloudAwait(userId, key, next);
   else writeJson(userId, key, next);
   return next;

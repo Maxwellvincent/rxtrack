@@ -13,6 +13,7 @@ import { releaseSessionQuestions } from "../../../questionPool.js";
 import { read as readWeakConcepts } from "../../../stores/weakConcepts.js";
 import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
+import { MISS_TYPE_LABELS, REASONING_DEPTHS } from "../../../engine/questionReasoning.js";
 import { ERROR_REASONS } from "./questionReading.js";
 import * as calibrationStore from "../../../stores/calibrationByBlock.js";
 import { questionProgress } from "./questionProgress.js";
@@ -326,6 +327,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const taskRows = useMemo(() => Object.entries(learnerProfile?.taskTypes || {})
     .map(([id, stat]) => ({ id, ...stat, accuracy: stat.attempts ? stat.correct / stat.attempts : null }))
     .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1)), [learnerProfile?.taskTypes]);
+  const missTypeRows = Object.entries(process.missTypes || {}).map(([id, stat]) => ({ id, label: MISS_TYPE_LABELS[id] || id, count: Number(stat?.count) || 0 })).filter(row => row.count).sort((a, b) => b.count - a.count);
+  const missTypeTotal = missTypeRows.reduce((sum, row) => sum + row.count, 0);
+  const depthRows = REASONING_DEPTHS.map(id => ({ id, ...(process.reasoningDepths?.[id] || {}) })).filter(row => row.attempts);
+  const positionStats = process.positionStats || {};
   const weakAreas = useMemo(() => buildWeakAreaMap({
     lectures,
     objectives,
@@ -452,12 +457,18 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         ))}
       </div>
 
-      {(process.timedAnswers > 0 || reasonRows.length > 0) && (
+      {(process.timedAnswers > 0 || reasonRows.length > 0 || missTypeTotal > 0 || depthRows.length > 0) && (
         <details className="mb-4 rounded-lg border border-border p-3" aria-label="Test-taking diagnostics">
           <summary className="cursor-pointer font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Test-taking diagnostics</summary>
           <div className="mt-3">
           <div className="font-mono text-[12px] font-bold uppercase tracking-wider text-text-2">Test-taking diagnostics</div>
           {reasonRows.length > 0 && <div className="mt-1 text-xs text-text-3">These are the reasons you selected after missed questions. “Knowledge gap” means you marked that the tested fact or mechanism was not yet secure—not that RXtrack inferred it automatically.</div>}
+          {missTypeTotal > 0 && <div className="mt-3 border-t border-border pt-2">
+            <div className="font-mono text-[11px] uppercase tracking-wider text-text-3">Reasoning miss profile · {missTypeTotal} learner-confirmed</div>
+            <div className="mt-2 grid gap-1.5 sm:grid-cols-2">{missTypeRows.map(row => <div key={row.id} className="flex items-center justify-between rounded bg-panel px-2 py-1.5 text-[13px]"><span>{row.label}</span><span className="font-mono text-text-3">{row.count} · {Math.round(row.count / missTypeTotal * 100)}%</span></div>)}</div>
+          </div>}
+          {depthRows.length > 0 && <div className="mt-3 border-t border-border pt-2"><div className="mb-1 font-mono text-[11px] uppercase tracking-wider text-text-3">Accuracy by reasoning depth</div>{depthRows.map(row => <div key={row.id} className="flex justify-between py-0.5 text-[13px] text-text-2"><span>{row.id.replace(/-/g, " ")}</span><span className={`font-mono ${accuracyClass(row.correct / row.attempts)}`}>{row.attempts} q · {Math.round(row.correct / row.attempts * 100)}%</span></div>)}</div>}
+          {(positionStats["first-eight"]?.attempts || 0) > 0 && (positionStats["after-eight"]?.attempts || 0) > 0 && <div className="mt-3 border-t border-border pt-2 text-[13px] text-text-2">Question-position signal: first 8 {(positionStats["first-eight"].correct / positionStats["first-eight"].attempts * 100).toFixed(0)}% ({positionStats["first-eight"].attempts}) · after 8 {(positionStats["after-eight"].correct / positionStats["after-eight"].attempts * 100).toFixed(0)}% ({positionStats["after-eight"].attempts}). Descriptive only—not proof of fatigue.</div>}
           <div className="mt-2 flex flex-wrap gap-2 font-mono text-[12px] text-text-3">
             {process.timedAnswers > 0 && (
               <span className="rounded bg-panel px-2 py-1">

@@ -9,6 +9,7 @@ import { uniqueQuestions } from "./questionSimilarity.js";
 import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
 import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription } from "./questionOrder.js";
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
+import { buildReasoningDepthPlan } from "./questionReasoning.js";
 
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
@@ -434,6 +435,7 @@ export function normalizeQuestions(raw) {
       objectiveIds: Array.isArray(q.objectiveIds) ? q.objectiveIds.map(String).filter(Boolean) : [],
       objectiveFacet: q.objectiveFacet ? String(q.objectiveFacet).trim().slice(0, 100) : null,
       taskType: q.taskType ? String(q.taskType).trim() : null,
+      reasoningDepth: ["state-recognition", "pathway-process", "mechanism", "enzyme-structure", "regulation-cofactor", "clinical-consequence"].includes(q.reasoningDepth) ? q.reasoningDepth : null,
       orderLevel: normalizeQuestionOrder(q.orderLevel || q.questionOrder),
       bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
       clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,
@@ -574,7 +576,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "" } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -588,6 +590,8 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   const styleFingerprint = buildStyleFingerprint(selectStyleExemplars(examples, STYLE_FINGERPRINT_LIMIT, diff, { objectives, atoms }));
   const sourceBlueprint = buildQuestionSourceBlueprint(examples, objectives, atoms.length);
   const resolvedOrderBlueprint = orderBlueprint || sourceBlueprint.order;
+  const depthPlan = Array.isArray(reasoningDepthPlan) && reasoningDepthPlan.length ? reasoningDepthPlan : buildReasoningDepthPlan(atoms.length);
+  const depthSection = `\n\nREASONING-DEPTH TRAINING PLAN: ${JSON.stringify(depthPlan)}\nFor each question, return the matching reasoningDepth from state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence. Vary the requested layer across the batch. When multiple questions can validly target the same objective, build a shallow-to-deep progression or a same-patient mini-sequence (2-3 items maximum), then later transfer the mechanism to a different presentation. Sometimes state/process is obvious or explicitly supplied and the ask must go one level deeper. Distractors should encode plausible pathway, direction, level, or regulator errors, not random facts. Difficulty comes from supported causal depth, never vague wording.\n`;
   const examplesSection = styleExamples.length
     ? "\n\nMATCH THE STYLE of these real school exam questions:\n" +
       styleExamples.map((q, i) =>
@@ -631,8 +635,8 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `Test the atom in the context of the relevant objective's task (explain, compare, predict, identify). Return objectiveIds containing ONLY the one primary objective ID actually tested. Use [] when no supplied objective fits. Never attach every objective just because it shares terminology. Cover different relevant objectives across the set.\n` +
     examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
-    `\n\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
+    depthSection + `\nReturn ONLY valid JSON:\n` +
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
   );
 }
 
@@ -1023,13 +1027,15 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "" } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
   const styleFingerprint = buildStyleFingerprint(selectStyleExemplars(examples, STYLE_FINGERPRINT_LIMIT, diff, { objectives, atoms }));
   const sourceBlueprint = buildQuestionSourceBlueprint(examples, objectives, count);
   const resolvedOrderBlueprint = orderBlueprint || sourceBlueprint.order;
+  const depthPlan = Array.isArray(reasoningDepthPlan) && reasoningDepthPlan.length ? reasoningDepthPlan : buildReasoningDepthPlan(count);
+  const depthSection = `\n\nREASONING-DEPTH TRAINING PLAN: ${JSON.stringify(depthPlan)}\nFor each question, return the matching reasoningDepth from state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence. Vary the requested layer across the batch. When multiple questions can validly target the same objective, build a shallow-to-deep progression or a same-patient mini-sequence (2-3 items maximum), then later transfer the mechanism to a different presentation. Sometimes state/process is obvious or explicitly supplied and the ask must go one level deeper. Distractors should encode plausible pathway, direction, level, or regulator errors, not random facts. Difficulty comes from supported causal depth, never vague wording.\n`;
   const examplesSection = styleExamples.length
     ? "\n\nEXAMPLE QUESTIONS FROM YOUR SCHOOL'S EXAM BANK:\n" +
       "(Use their structure and plausible distractors, not their exact cases. Keep factual scope within the supplied lecture/objectives and honor the requested difficulty. IMCQs are challenge references, not calibrated exam-difficulty benchmarks.)\n" +
@@ -1091,8 +1097,8 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     atomsSection + clinicalSection + feedbackSection +
     contentSection +
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
-    `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n\n` +
+    `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n` + depthSection + `\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
   );
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyEvidence, applyReflection, questionEvidenceKey } from "./learnerEvidence.js";
+import { applyEvidence, applyMissType, applyReflection, questionEvidenceKey } from "./learnerEvidence.js";
 
 describe("learner evidence", () => {
   it("replaces a miss reason without adding a second reflection", () => {
@@ -39,6 +39,15 @@ describe("learner evidence", () => {
     const reflected = applyReflection(timed, "misread-lead-in");
     expect(reflected.testTaking).toMatchObject({ timedAnswers: 1, totalResponseMs: 90000, answerChanges: 1 });
     expect(reflected.testTaking.reasons["misread-lead-in"]).toBe(1);
+  });
+
+  it("tracks reasoning miss types once and separates late-question performance", () => {
+    const first = applyMissType(null, "depth", "session:q1", 10);
+    expect(applyMissType(first, "depth", "session:q1", 20)).toBe(first);
+    const later = applyEvidence(first, { questionNumber: 10, reasoningDepth: "regulation-cofactor", correct: false, responseMs: 120000, at: 30 });
+    expect(later.testTaking.missTypes.depth.count).toBe(1);
+    expect(later.testTaking.positionStats["after-eight"]).toMatchObject({ attempts: 1, correct: 0, timedAnswers: 1 });
+    expect(later.testTaking.reasoningDepths["regulation-cofactor"]).toEqual({ attempts: 1, correct: 0 });
   });
 
   it("keeps a bounded recent-answer window for repair decisions", () => {

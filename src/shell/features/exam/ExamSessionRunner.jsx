@@ -33,6 +33,9 @@ import { orderedChoiceEntries } from "./choiceOrder.js";
 import { printQuestionWorksheet } from "./questionWorksheet.js";
 import { recordReflection } from "../../../stores/learnerEvidence.js";
 import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../../../engine/questionOrder.js";
+import { callAIJSON } from "../../../aiClient.js";
+import { diagnoseQuestionMiss, MISS_TYPE_LABELS } from "../../../engine/questionReasoning.js";
+import { recordMissType } from "../../../stores/learnerEvidence.js";
 
 function sessionLabel(session) {
   if (session.sourceType !== "question-bank") return "Exam";
@@ -182,7 +185,7 @@ function SyncIndicator({ status }) {
   );
 }
 
-function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, choiceColumns = [], choiceLayout = null }) {
+function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, locked = false, choiceColumns = [], choiceLayout = null }) {
   const [crossed, setCrossed] = useState(new Set());
   useEffect(() => setCrossed(new Set()), [questionId]);
   return (
@@ -203,7 +206,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
           <div key={letter} className="flex items-stretch gap-2">
           <button
             type="button"
-            disabled={revealed || isCrossed}
+            disabled={revealed || locked || isCrossed}
             onClick={() => onPick(letter)}
             aria-pressed={isPicked}
             className={
@@ -218,7 +221,7 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
             {revealed && letter === correct && <span className="rounded border-2 border-good bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✓ CORRECT</span>}
             {revealed && isPicked && letter !== correct && <span className="rounded border-2 border-bad bg-bg px-2 py-0.5 text-[10px] font-black text-text-1">✕ YOUR ANSWER</span>}
           </button>
-          {!revealed && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
+          {!revealed && !locked && <button type="button" aria-label={`${isCrossed ? "Restore" : "Cross out"} choice ${letter}`} aria-pressed={isCrossed} onClick={() => {
             setCrossed(current => {
               const next = new Set(current);
               if (next.has(letter)) next.delete(letter); else next.add(letter);
@@ -230,6 +233,43 @@ function ChoiceList({ questionId, choices, picked, revealed, correct, onPick, ch
       })}
     </div>
   );
+}
+
+function MissDiagnosis({ question, selectedChoice, initialResult = null, onComplete, onSkip }) {
+  const [patient, setPatient] = useState("");
+  const [ask, setAsk] = useState("");
+  const [prediction, setPrediction] = useState("");
+  const [result, setResult] = useState(initialResult);
+  useEffect(() => setResult(initialResult), [question?.questionId, initialResult]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  async function diagnose() {
+    setLoading(true); setError("");
+    const response = await diagnoseQuestionMiss({ question, selectedChoice, patientInterpretation: patient, requestedTarget: ask, learnerPrediction: prediction }, { callAIJSON });
+    setLoading(false);
+    if (response.error) { setError(response.error); return; }
+    setResult(response.diagnostic);
+    onComplete?.(response.diagnostic);
+  }
+  if (result?.skipped) return <div className="mt-3 text-xs text-text-3">Reasoning diagnosis skipped; answer revealed.</div>;
+  if (result) return <div className="mt-3 rounded-lg border border-accent/40 bg-bg p-3 text-sm" data-testid="miss-diagnosis">
+    <div className="font-mono text-xs font-bold uppercase tracking-wider text-accent-text">Reasoning check · answer now revealed</div>
+    <p className="mt-2"><b>Patient:</b> {result.patient}</p><p className="mt-1"><b>Ask:</b> {result.asksFor}</p>
+    {result.preserved?.length > 0 && <p className="mt-1"><b>You had:</b> {result.preserved.join(" → ")}</p>}
+    {result.breakPoint && <p className="mt-1"><b>Break point:</b> {result.breakPoint}</p>}
+    {result.bridge && <p className="mt-1"><b>Missing bridge:</b> {result.bridge}</p>}
+    <p className="mt-1"><b>Miss type:</b> {MISS_TYPE_LABELS[result.primaryType] || "Unclassified"}{result.secondaryType ? ` + ${MISS_TYPE_LABELS[result.secondaryType]}` : ""}</p>
+    {result.choiceTrap && <p className="mt-1"><b>Why your choice tempted you:</b> {result.choiceTrap}</p>}
+    {result.anki?.kind !== "none" && result.anki?.front && <details className="mt-2"><summary className="cursor-pointer">Anki idea ({result.anki.kind})</summary><p className="mt-1"><b>Front:</b> {result.anki.front}</p><p><b>Back:</b> {result.anki.back}</p></details>}
+  </div>;
+  return <div className="mt-3 rounded-lg border border-border bg-bg p-3" data-testid="miss-diagnosis-form">
+    <p className="text-sm font-semibold">Before seeing the answer, locate the reasoning break.</p>
+    <div className="mt-2 grid gap-2 sm:grid-cols-2"><label className="text-xs text-text-2">PATIENT · what is happening?<textarea className="mt-1 min-h-16 w-full rounded border border-border bg-bg-elevated p-2" value={patient} onChange={e => setPatient(e.target.value)} /></label><label className="text-xs text-text-2">ASK · what exact target is requested?<textarea className="mt-1 min-h-16 w-full rounded border border-border bg-bg-elevated p-2" value={ask} onChange={e => setAsk(e.target.value)} /></label></div>
+    <label className="mt-2 block text-xs text-text-2">What did you predict before scanning choices? <input className="mt-1 w-full rounded border border-border bg-bg-elevated p-2" value={prediction} onChange={e => setPrediction(e.target.value)} /></label>
+    {error && <p role="alert" className="mt-2 text-xs text-bad">{error}</p>}
+    <Button className="mt-2" onClick={diagnose} disabled={loading || !patient.trim() || !ask.trim()}>{loading ? "Finding the break…" : "Diagnose, then reveal answer"}</Button>
+    <button type="button" onClick={onSkip} disabled={loading} className="ml-3 text-xs text-text-3 underline">Skip diagnosis and reveal</button>
+  </div>;
 }
 
 function QuestionNavigator({ questions, session, currentIndex, onSelect }) {
@@ -356,10 +396,13 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const q = questions[currentIndex];
   const picked = q ? pickedFor(session, q.questionId) : null;
   const revealed = picked != null;
+  const isCorrect = revealed && picked === q?.correct;
+  const [diagnostics, setDiagnostics] = useState({});
+  const diagnosed = !!diagnostics[q?.questionId];
+  const showAnswer = revealed && (isCorrect || diagnosed);
   const [draftChoice, setDraftChoice] = useState(picked);
   useEffect(() => setDraftChoice(picked), [q?.questionId, picked]);
   if (!q) return session.fillStatus === "generating" ? <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing questions for this scope…</div> : null;
-  const isCorrect = revealed && picked === q.correct;
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), revealed && currentIndex < questions.length - 1 && !submitting)}>
@@ -381,7 +424,8 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           choiceColumns={q.choiceColumns}
           choiceLayout={q.choiceLayout}
           picked={revealed ? picked : draftChoice}
-          revealed={revealed}
+          revealed={showAnswer}
+          locked={revealed && !isCorrect && !diagnosed}
           correct={q.correct}
           onPick={setDraftChoice}
         />
@@ -394,7 +438,12 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           </div>
         )}
 
-        {revealed && (
+        {revealed && !isCorrect && <MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onComplete={(diagnostic) => {
+          recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
+          setDiagnostics(current => ({ ...current, [q.questionId]: diagnostic }));
+        }} />}
+
+        {showAnswer && (
           <div className="mt-3 space-y-2">
             <div data-testid="practice-reveal" className={"text-xs " + (isCorrect ? "text-good" : "text-bad")}>
               {isCorrect ? "✓ Correct" : "✕ Incorrect"}
@@ -511,7 +560,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <SchoolQuestionFigure question={q} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
-            {picked !== q.correct && <MissReflection userId={userId} />}
+            {picked != null && picked !== q.correct && <><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onComplete={(diagnostic) => {
+              recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
+            }} /></>}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
           </article>
         );

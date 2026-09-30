@@ -11,6 +11,7 @@ import { createSessionShape } from "../../../examSessions.js";
 import { checkExamAccess } from "../../../supabase.js";
 import { createQuestionPool } from "../../../questionPool.js";
 import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
+import { reasoningGuidance } from "../../../engine/questionReasoning.js";
 
 // Same fallback pattern as generation.js's makeQuestionId — reused here for
 // consistency rather than inventing a second id-generation approach.
@@ -82,11 +83,13 @@ async function runLaunch(
     blockId,
     sessionId,
   });
+  const resolvedLearnerEvidence = learnerEvidence || readLearnerEvidence(userId);
+  const adaptiveFocusNotes = [focusNotes, reasoningGuidance(resolvedLearnerEvidence?.testTaking?.missTypes, questionCount)].filter(Boolean).join("\n\n");
 
   if (startWhilePreparing && !prepareOnly && !savedOnly) {
     const savedResult = await generateExamQuestions(
       { allocation, lecturesById, objectivesByLecture, atomsByLecture, blockId, lectures,
-        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes, preparedGenerationId, preparedQuestionIds },
+        weakConceptAccuracyByLecture, userId, generationId: sessionId, studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes, preparedGenerationId, preparedQuestionIds },
       { ...deps, pool, savedOnly: true }
     );
     const savedQuestions = savedResult.questions || [];
@@ -125,7 +128,7 @@ async function runLaunch(
           result = await generateExamQuestions(
             { allocation: missingAllocation, lecturesById, objectivesByLecture, atomsByLecture,
               blockId, lectures, weakConceptAccuracyByLecture, userId, generationId: sessionId,
-              studyMode, difficultyOverride, focusNotes },
+              studyMode, difficultyOverride, focusNotes: adaptiveFocusNotes },
             { ...deps, pool, savedOnly: false,
               onQuestionReady: question => pool.appendToSession(sessionId, question, { requestedCount: questionCount, durationMinutes }) }
           );
@@ -157,7 +160,7 @@ async function runLaunch(
       generationId: sessionId,
       studyMode,
       difficultyOverride,
-      focusNotes,
+      focusNotes: adaptiveFocusNotes,
     },
     { ...deps, pool, savedOnly }
   );

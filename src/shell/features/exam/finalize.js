@@ -67,6 +67,7 @@ export async function finalizeExamSession(
   const pending = pendingStatsQuestionIds(session);
   for (const questionId of pending) {
     const question = session.questions.find((q) => q.questionId === questionId);
+    const questionNumber = session.questions.findIndex((q) => q.questionId === questionId) + 1;
     const answer = session.answers.find((a) => a.questionId === questionId);
     const wasCorrect = !!answer && answer.value === question?.correct;
 
@@ -94,6 +95,8 @@ export async function finalizeExamSession(
           responseMs: answer?.responseMs,
           answerChanges: answer?.answerChanges || 0,
           taskType: question?.taskType || classifyLeadIn(question?.stem),
+          reasoningDepth: question?.reasoningDepth || null,
+          questionNumber,
         });
       }
     } catch (e) {

@@ -18,6 +18,7 @@ import {
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
+import { reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
@@ -1257,6 +1258,7 @@ export function LectureStudyFlow({
         feedback: questionRatingsStore.feedbackFor(userId, lecture?.id, generationVersion),
         avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),
         avoidQuestions: generatedHistory,
+        focusNotes: reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),
       },
       {
         callAIJSON,
@@ -1337,7 +1339,7 @@ export function LectureStudyFlow({
     setAdHocQuiz(true);
     startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data?.testTaking?.missTypes]);
 
   const reviewableQuizQuestions = lecture?.id
     ? locallyValidClinicalQuestions(generatedQuestionsStore.questionsForLecture(userId, lecture.id))
