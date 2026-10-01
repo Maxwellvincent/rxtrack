@@ -7,6 +7,8 @@ import {
   upsertLecture,
   findFillTarget,
   fillLecture,
+  combineLectureParts,
+  appendLectureParts,
 } from "./lectureIngest.js";
 
 describe("parseLectureFilename", () => {
@@ -203,6 +205,60 @@ describe("buildLectureFromExtraction", () => {
     expect(buildLectureFromExtraction({ filename: "a.pdf", contentResult, blockId: null }).error).toMatch(
       /Pick a block/
     );
+  });
+});
+
+describe("multi-part lecture ingestion", () => {
+  const part = (filename, title, body, id) => ({
+    filename,
+    lecture: {
+      id, blockId: "b1", lectureType: "DLA", lectureNumber: 1,
+      lectureTitle: title, filename, chunks: [{ markdown: body }], fullText: body,
+    },
+  });
+
+  it("combines Roman-numeral parts into one titled lecture and retains source order", () => {
+    const combined = combineLectureParts([
+      part("NB DLA 01 - Practical Clinical Neuroimaging III - After NB 03.pdf", "Practical Clinical Neuroimaging III - After NB 03", "third section", "3"),
+      part("NB DLA 01 - Practical Clinical Neuroimaging I - After NB 03.pdf", "Practical Clinical Neuroimaging I - After NB 03", "first section", "1"),
+      part("NB DLA 01 - Practical Clinical Neuroimaging II - After NB 03.pdf", "Practical Clinical Neuroimaging II - After NB 03", "second section", "2"),
+    ]);
+    expect(combined.lecture.lectureTitle).toBe("Practical Clinical Neuroimaging");
+    expect(combined.lecture.sourceFiles.map((file) => file.filename)).toEqual([
+      "NB DLA 01 - Practical Clinical Neuroimaging III - After NB 03.pdf",
+      "NB DLA 01 - Practical Clinical Neuroimaging I - After NB 03.pdf",
+      "NB DLA 01 - Practical Clinical Neuroimaging II - After NB 03.pdf",
+    ]);
+    expect(combined.lecture.chunks.filter((chunk) => chunk.sourceFile && !chunk.markdown.startsWith("## Part "))).toHaveLength(3);
+    expect(combined.lecture.fullText).toContain("second section");
+  });
+
+  it("does not strip a legitimate Roman numeral title from one file", () => {
+    expect(combineLectureParts([part("LEC 15 GI II.pdf", "Gastrointestinal Tract II", "lecture content", "1")]).lecture.lectureTitle)
+      .toBe("Gastrointestinal Tract II");
+  });
+
+  it("appends new parts without replacing existing lecture material and ignores duplicates", () => {
+    const existing = {
+      id: "scheduled", lectureTitle: "Neuroimaging", filename: "I.pdf",
+      sourceFiles: [{ filename: "I.pdf", storagePath: "source/I.pdf" }],
+      chunks: [{ markdown: "## Part 1 · I.pdf" }, { markdown: "first", sourceFile: "I.pdf" }],
+    };
+    const incoming = combineLectureParts([part("II.pdf", "Neuroimaging II", "second", "new")]).lecture;
+    const appended = appendLectureParts(existing, incoming);
+    expect(appended.id).toBe("scheduled");
+    expect(appended.fullText).toContain("first");
+    expect(appended.fullText).toContain("second");
+    expect(appendLectureParts(appended, incoming).sourceFiles).toHaveLength(2);
+    const revised = appendLectureParts(appended, combineLectureParts([part("II.pdf", "Neuroimaging II", "revised section", "newer")]).lecture);
+    expect(revised.fullText).toContain("revised section");
+    expect(revised.fullText).not.toContain("second section");
+  });
+
+  it("refuses to combine different numbered lectures", () => {
+    const different = part("DLA 2.pdf", "Another", "another body", "2");
+    different.lecture.lectureNumber = 2;
+    expect(combineLectureParts([part("DLA 1.pdf", "One", "first", "1"), different]).error).toMatch(/different lecture numbers/);
   });
 });
 

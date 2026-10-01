@@ -35,6 +35,8 @@ import * as mentalModelStore from "../../../stores/mentalModel.js";
 import {
   buildLectureRecord,
   buildLectureFromExtraction,
+  combineLectureParts,
+  appendLectureParts,
   parseLectureFilename,
   upsertLecture,
 } from "../../logic/lectureIngest.js";
@@ -69,56 +71,64 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
   const [mapResult, setMapResult] = useState("");
   const [atomsResult, setAtomsResult] = useState("");
   const [assetsResult, setAssetsResult] = useState("");
-  const [lastFile, setLastFile] = useState(null);
+  const [lastFiles, setLastFiles] = useState([]);
+  const [combinedTitle, setCombinedTitle] = useState("");
 
-  const onFile = useCallback(
-    async (file, overrides = {}) => {
+  const onFiles = useCallback(
+    async (fileList, overrides = {}) => {
       setError(""); setDone(""); setPreview(null); setProgress("");
       setSaved(null); setObjectiveResult(""); setMapResult("");
-      if (!file) return;
-      setLastFile(file);
-
-      const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
-      let built;
-      let quality = null;
-
-      if (isPdf) {
-        setBusy(true);
-        try {
-          const { contentResult, method } = await extractWithSmartFallback(
-            file,
-            (msg) => setProgress(msg),
-            { detectNumber: (name) => parseLectureFilename(name).number, userId, useLlm: overrides.useLlm ?? useLlm }
-          );
-          quality = assessTextQuality(contentResult?.fullText || "");
-          built = buildLectureFromExtraction({ filename: file.name, contentResult, method, blockId, termId });
-        } catch (e) {
-          setError("Could not read that PDF: " + (e?.message || String(e)));
-          return;
-        } finally {
-          setBusy(false);
-          setProgress("");
+      const files = [...(fileList || [])].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+      if (!files.length) return;
+      setBusy(true);
+      setLastFiles(files);
+      try {
+        const parts = [];
+        const qualities = [];
+        for (const [index, file] of files.entries()) {
+          setProgress(files.length > 1 ? `Reading part ${index + 1}/${files.length}: ${file.name}` : `Reading ${file.name}`);
+          const isPdf = /\.pdf$/i.test(file.name) || file.type === "application/pdf";
+          let built;
+          if (isPdf) {
+            const { contentResult, method } = await extractWithSmartFallback(
+              file,
+              (msg) => setProgress(files.length > 1 ? `Part ${index + 1}/${files.length} · ${msg}` : msg),
+              { detectNumber: (name) => parseLectureFilename(name).number, userId, useLlm: overrides.useLlm ?? useLlm }
+            );
+            qualities.push(assessTextQuality(contentResult?.fullText || ""));
+            built = buildLectureFromExtraction({ filename: file.name, contentResult, method, blockId, termId });
+          } else {
+            built = buildLectureRecord({ filename: file.name, text: await file.text(), blockId, termId });
+          }
+          if (built.error) throw new Error(`${file.name}: ${built.error}`);
+          parts.push({ filename: file.name, file, lecture: built.lecture });
         }
-      } else {
-        const text = await file.text();
-        built = buildLectureRecord({ filename: file.name, text, blockId, termId });
+        const combined = combineLectureParts(parts);
+        if (combined.error) throw new Error(combined.error);
+        const current = lecturesStore.read(userId) || [];
+        const { action, filledId, lecture: merged } = upsertLecture(current, combined.lecture, {
+          targetId: targetLecture?.id || null,
+        });
+        const existing = filledId ? current.find((row) => row.id === filledId) : null;
+        const combinedLecture = existing && ((existing.chunks || []).length || existing.fullText)
+          ? appendLectureParts(existing, { ...combined.lecture, id: filledId })
+          : { ...combined.lecture, ...(filledId ? { id: filledId } : {}) };
+        setCombinedTitle(combined.lecture.lectureTitle);
+        setPreview({
+          lecture: combinedLecture || merged,
+          sourceFiles: parts.map((part) => ({ file: part.file, filename: part.filename })),
+          action,
+          filledId,
+          fillsDate: merged?.lectureDate ?? null,
+          chars: combinedLecture.fullText?.length ?? combinedLecture.chunks.reduce((n, c) => n + (c.markdown || c.text || "").length, 0),
+          quality: qualities.find((quality) => quality?.quality === "poor") || null,
+        });
+      } catch (e) {
+        setError("Could not read selected lecture file(s): " + (e?.message || String(e)));
+      } finally {
+        setBusy(false);
+        setProgress("");
       }
-
-      if (built.error) { setError(built.error); return; }
-
-      const current = lecturesStore.read(userId) || [];
-      const { action, filledId, lecture: merged } = upsertLecture(current, built.lecture, {
-        targetId: targetLecture?.id || null,
-      });
-      setPreview({
-        lecture: built.lecture,
-        sourceFile: file,
-        action,
-        filledId,
-        fillsDate: merged?.lectureDate ?? null,
-        chars: built.lecture.fullText?.length ?? built.lecture.chunks.reduce((n, c) => n + (c.markdown || c.text || "").length, 0),
-        quality,
-      });
     },
     [blockId, termId, userId, useLlm, targetLecture]
   );
@@ -294,9 +304,23 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
 
       setProgress("Saving the full lecture…");
       if (userId) {
-        if (preview.sourceFile && (preview.sourceFile.type === "application/pdf" || /\.pdf$/i.test(preview.sourceFile.name || ""))) {
-          lecture = { ...lecture, sourceStoragePath: await uploadLectureSource(userId, lecture.id, preview.sourceFile) };
+        const uploadedSources = [];
+        for (const source of preview.sourceFiles || []) {
+          if (source.file?.type === "application/pdf" || /\.pdf$/i.test(source.filename || "")) {
+            const storagePath = await uploadLectureSource(userId, lecture.id, source.file);
+            uploadedSources.push({ filename: source.filename, storagePath });
+          }
         }
+        const uploadedByName = new Map(uploadedSources.map((source) => [source.filename, source.storagePath]));
+        const sourceFiles = (lecture.sourceFiles || []).map((source) => ({
+          ...source,
+          ...(uploadedByName.has(source.filename) ? { storagePath: uploadedByName.get(source.filename) } : {}),
+        }));
+        lecture = {
+          ...lecture,
+          sourceFiles,
+          ...(uploadedSources[0]?.storagePath ? { sourceStoragePath: uploadedSources[0].storagePath } : {}),
+        };
         const cloudResult = await saveLectureToCloud(userId, lecture);
         if (!cloudResult?.saved) throw new Error(
           cloudResult?.reason === "oversized"
@@ -309,7 +333,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       // the button press, before any enrichment could begin.
       lecturesStore.write(
         userId,
-        lectures.map((row) => row.id === lecture.id && userId ? toLocalRow({ ...row, sourceStoragePath: lecture.sourceStoragePath }) : row)
+        lectures.map((row) => row.id === lecture.id && userId ? toLocalRow({ ...row, sourceStoragePath: lecture.sourceStoragePath, sourceFiles: lecture.sourceFiles }) : row)
       );
 
       setDone(
@@ -355,7 +379,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       <div className="max-h-[calc(100vh-2rem)] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-bg p-5" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 text-lg font-bold text-text-1">{targetLecture ? "Re-extract lecture" : "Add a lecture"}</div>
         <div className="mb-4 text-xs text-text-3">
-          {targetLecture ? `Choose the replacement PDF for “${targetLecture.lectureTitle || targetLecture.filename || "this lecture"}”. ` : "Drop a PDF in: "}It goes through the local pdftotext text layer first, then Marker/Mistral OCR when needed; objectives and the teaching map are pulled out for you. A .md
+          {targetLecture ? `Add or combine source parts for “${targetLecture.lectureTitle || targetLecture.filename || "this lecture"}”. ` : "Choose one file, or select multiple PDFs/notes that are parts of the same lecture. "}Selected files are combined into one lecture record, in filename order; original PDFs are kept as separate sources. PDFs use the local pdftotext layer first, then Marker/Mistral OCR as needed. A .md
           from <span className="font-mono">pdf2md</span> skips the OCR step. Type, number and title
           come from the filename.
         </div>
@@ -376,14 +400,15 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         </label>
 
         <label className="mb-3 flex cursor-pointer items-center justify-between rounded-lg border-2 border-dashed border-border px-4 py-3 text-sm hover:border-border-strong">
-          <span className="text-text-2">{preview?.lecture?.filename || "Choose a lecture .pdf / .md / .txt"}</span>
+          <span className="text-text-2">{preview?.sourceFiles?.length ? `${preview.sourceFiles.length} source file${preview.sourceFiles.length === 1 ? "" : "s"} selected` : "Choose lecture files .pdf / .md / .txt"}</span>
           <span className="font-mono text-[12px] text-text-3">browse</span>
           <input
             type="file"
             accept=".pdf,.md,.markdown,.txt"
+            multiple
             className="hidden"
             disabled={busy}
-            onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; onFile(f); }}
+            onChange={(e) => { const files = [...(e.target.files || [])]; e.target.value = ""; if (files.length > 1) setCombinedTitle(""); onFiles(files); }}
           />
         </label>
 
@@ -392,6 +417,14 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             <div className="font-semibold text-text-1">
               {preview.lecture.lectureType} {preview.lecture.lectureNumber ?? "—"} · {preview.lecture.lectureTitle}
             </div>
+            <label className="mt-2 block text-xs text-text-3">Logical lecture title
+              <input value={combinedTitle} onChange={(event) => {
+                const value = event.target.value;
+                setCombinedTitle(value);
+                setPreview((current) => current ? { ...current, lecture: { ...current.lecture, lectureTitle: value } } : current);
+              }} className="mt-1 w-full rounded border border-border bg-panel px-2 py-1 text-sm text-text-1" />
+            </label>
+            <ul className="mt-2 list-inside list-disc text-text-3">{preview.sourceFiles.map((source) => <li key={source.filename}>{source.filename}</li>)}</ul>
             <div className="mt-1 font-mono text-[12px] text-text-3">
               {preview.chars.toLocaleString()} chars · {preview.lecture.chunks.length} chunk
               {preview.lecture.chunks.length === 1 ? "" : "s"}
@@ -405,7 +438,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             {preview.quality?.quality === "poor" && (
               <div className="mt-2 text-[13px] text-warn">
                 ⚠ {preview.quality.reason}. Try the recovery pass below if the lecture is image-heavy or the text looks wrong.
-                {lastFile && <button type="button" className="ml-2 underline" disabled={busy} onClick={() => { setUseLlm(true); onFile(lastFile, { useLlm: true }); }}>retry with LLM cleanup</button>}
+                {lastFiles.length > 0 && <button type="button" className="ml-2 underline" disabled={busy} onClick={() => { setUseLlm(true); onFiles(lastFiles, { useLlm: true }); }}>retry selected files with LLM cleanup</button>}
               </div>
             )}
             <label className="mt-2 flex items-center gap-2 font-mono text-[12px] text-text-3">

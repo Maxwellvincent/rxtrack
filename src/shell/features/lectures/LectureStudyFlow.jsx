@@ -12,6 +12,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import {
   fetchLectureContent,
+  fetchLectureSourceUrl,
   saveLectureAtoms,
   saveLectureImages,
   uploadLectureImages,
@@ -423,6 +424,23 @@ export function LectureStudyFlow({
   }, [userId, lecture?.id, blockId]);
   const [confirmDeleteLecture, setConfirmDeleteLecture] = useState(false);
   const [deletingLecture, setDeletingLecture] = useState(false);
+  const [sourceUrls, setSourceUrls] = useState({});
+  const [openingSource, setOpeningSource] = useState("");
+
+  const openOriginalSource = useCallback(async (source) => {
+    if (!source?.storagePath || !userId) return;
+    setOpeningSource(source.filename);
+    setError("");
+    try {
+      const url = await fetchLectureSourceUrl(source.storagePath);
+      if (!url) throw new Error("The original file is not available for this account.");
+      setSourceUrls((current) => ({ ...current, [source.filename]: url }));
+    } catch (e) {
+      setError(`Could not open ${source.filename}: ${e?.message || String(e)}`);
+    } finally {
+      setOpeningSource("");
+    }
+  }, [userId]);
 
   // A lecture tutor is a bounded, resumable layer over the existing study surface.
   // The checkpoint is per lecture so leaving one lecture never loses the place in another.
@@ -1688,6 +1706,27 @@ export function LectureStudyFlow({
       </div>
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
+      {lecture?.sourceFiles?.length > 0 && (
+        <details className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
+          <summary className="cursor-pointer text-sm font-semibold text-text-2">
+            Source files · {lecture.sourceFiles.length} part{lecture.sourceFiles.length === 1 ? "" : "s"}
+          </summary>
+          <ul className="mt-2 space-y-1">
+            {lecture.sourceFiles.map((source) => (
+              <li key={`${source.filename}-${source.part || ""}`} className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-3">
+                <span>{source.filename}</span>
+                {source.storagePath && (sourceUrls[source.filename] ? (
+                  <a className="text-accent underline" href={sourceUrls[source.filename]} target="_blank" rel="noreferrer">Open original PDF</a>
+                ) : (
+                  <button type="button" className="text-accent underline disabled:opacity-50" disabled={openingSource === source.filename} onClick={() => openOriginalSource(source)}>
+                    {openingSource === source.filename ? "Preparing…" : "Open original PDF"}
+                  </button>
+                ))}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
       {examRepairContext && (examRepairContext.weakObjectives?.length || examRepairContext.missedQuestions?.length) > 0 && (
         <section aria-label="Exam repair context" className="mt-4 rounded-lg border border-bad/30 bg-bad/5 p-3">
           <h3 className="font-semibold text-text-1">Continue from your exam misses</h3>

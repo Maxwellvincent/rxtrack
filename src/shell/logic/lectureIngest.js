@@ -101,6 +101,87 @@ function chunkBody(chunk) {
   return chunk?.markdown || chunk?.text || "";
 }
 
+function titleWithoutPartSuffix(title) {
+  return String(title || "")
+    .replace(/\s*[-–—]\s*(?:after|before)\b.*$/i, "")
+    .replace(/\s+(?:(?:part|pt\.?)[\s-]*)?(?:i{1,3}|iv|v|vi{0,3})$/i, "")
+    .trim();
+}
+
+/** Combine ordered files that are sections/parts of one logical lecture. */
+export function combineLectureParts(parts = [], { lectureTitle = "" } = {}) {
+  const usable = (parts || []).filter((part) => part?.lecture);
+  if (!usable.length) return { error: "Choose at least one readable lecture file." };
+  const slots = new Set(usable.map(({ lecture }) => `${lecture.blockId || ""}:${lecture.lectureType || "LEC"}:${lecture.lectureNumber ?? ""}:${lecture.lectureSuffix || ""}`));
+  if (slots.size > 1) return { error: "Selected files identify different lecture numbers or types. Combine only files that belong to the same lecture." };
+  const records = usable.map((part, index) => ({
+    ...part,
+    partNumber: index + 1,
+    filename: part.filename || part.lecture.filename || `Part ${index + 1}`,
+  }));
+  const titles = records.map((part) => part.lecture.lectureTitle || "");
+  const bases = titles.map(titleWithoutPartSuffix).filter(Boolean);
+  // A single filename ending in a Roman numeral may be a real title (e.g. GI II).
+  // Only interpret that suffix as a multipart marker when several files agree.
+  const commonBase = records.length > 1 && bases.length === records.length &&
+    bases.every((title) => title.toLowerCase() === bases[0].toLowerCase()) ? bases[0] : "";
+  const title = String(lectureTitle || commonBase || titles[0] || "Combined lecture").trim();
+  const chunks = records.flatMap((part) => [
+    { markdown: `## Part ${part.partNumber} · ${part.filename}`, sourceFile: part.filename, sourcePart: part.partNumber },
+    ...(part.lecture.chunks || []).map((chunk) => ({ ...chunk, sourceFile: part.filename, sourcePart: part.partNumber })),
+  ]);
+  const text = chunks.map(chunkBody).filter(Boolean).join("\n\n");
+  return {
+    lecture: {
+      ...records[0].lecture,
+      lectureTitle: title,
+      filename: records.map((part) => part.filename).join(" + "),
+      lectureSuffix: null,
+      chunks,
+      fullText: text,
+      sourceFiles: records.map((part) => ({ filename: part.filename, part: part.partNumber, extractionMethod: part.lecture.extractionMethod || null })),
+      combinedParts: records.length,
+    },
+  };
+}
+
+/** Append explicitly selected parts to an already populated logical lecture. */
+export function appendLectureParts(existing, incoming) {
+  if (!existing || !incoming) return incoming;
+  const oldFiles = Array.isArray(existing.sourceFiles) ? existing.sourceFiles : (existing.filename ? [{ filename: existing.filename }] : []);
+  const incomingFiles = incoming.sourceFiles || [];
+  if (!incomingFiles.length) return { ...incoming, ...existing, sourceFiles: oldFiles };
+  const incomingNames = new Set(incomingFiles.map((file) => file.filename));
+  const additions = [];
+  for (const [index, file] of incomingFiles.entries()) {
+    const partChunks = (incoming.chunks || []).filter((chunk) => chunk.sourceFile === file.filename);
+    const oldPartNumber = oldFiles.find((old) => old.filename === file.filename)?.part;
+    const partNumber = oldPartNumber || oldFiles.length + index + 1;
+    additions.push({ markdown: `## Part ${partNumber} · ${file.filename}`, sourceFile: file.filename, sourcePart: partNumber }, ...partChunks);
+  }
+  const retainedChunks = (existing.chunks || []).filter((chunk) => !incomingNames.has(chunk.sourceFile));
+  const chunks = [...retainedChunks, ...additions];
+  const updatedFiles = incomingFiles.map((file) => {
+    const old = oldFiles.find((item) => item.filename === file.filename);
+    return { ...file, ...(old?.storagePath ? { storagePath: old.storagePath } : {}), ...(old?.part ? { part: old.part } : {}) };
+  });
+  const sourceFiles = [
+    ...oldFiles.filter((file) => !incomingNames.has(file.filename)),
+    ...updatedFiles,
+  ];
+  return {
+    ...existing,
+    ...incoming,
+    id: existing.id,
+    lectureTitle: existing.lectureTitle || incoming.lectureTitle,
+    chunks,
+    fullText: chunks.map(chunkBody).filter(Boolean).join("\n\n"),
+    filename: sourceFiles.map((file) => file.filename).join(" + "),
+    sourceFiles,
+    combinedParts: sourceFiles.length,
+  };
+}
+
 /**
  * Build the lecture record from a PDF extraction (src/ingest/pdfText.js).
  *
