@@ -9,7 +9,7 @@
  * `callAIJSON`), so the whole sequence is testable without a network.
  */
 import { extractTypedHighYield } from "../../../engine/extractHighYield.js";
-import { generateFromAtoms } from "../../../engine/mcq.js";
+import { generateMcqs } from "../../../engine/mcq.js";
 import { getChunkBody } from "../../../lectureText.js";
 import { imageForAtom, isUsableImage, attachImagesToQuestions } from "../../../lectureImages.js";
 import { matchTextToCandidates } from "../../logic/examReportWeakConcepts.js";
@@ -104,7 +104,8 @@ export async function extractAtoms(lecture, text, deps = {}) {
 }
 
 /**
- * One Step-1 question per atom, in the school's style when exemplars exist.
+ * Objective-led questions grounded in lecture content. Atoms are supporting
+ * evidence, not one-question-per-atom targets.
  *
  * When the lecture has labelled figures, the atoms that have one are flagged before generation
  * so the stem can refer to the image, and the image is hung on the question afterwards so the
@@ -129,16 +130,21 @@ export async function quizFromAtoms(lecture, atoms, deps = {}) {
     });
   }
 
-  const result = await generateFromAtoms(
+  const objectives = deps.objectives || [];
+  const lectureText = String(deps.lectureText || lectureTextFrom(lecture));
+  const result = await generateMcqs(
     {
-      atoms: marked,
-      objectives: deps.objectives || [],
+      atoms: marked.slice(0, Math.max(5, Math.min(20, marked.length))),
+      objectives,
+      lectureText,
       subject: lecture?.lectureTitle || lecture?.title || "this lecture",
       difficulty,
+      count: Math.max(1, Number(deps.count) || ROUND_SIZE),
+      generationVersion: "v2",
       examples: exemplars,
       avoidStems,
       clinicalCorrelateLibrary,
-      orderBlueprint: buildOrderBlueprint({ objectives: deps.objectives || [], count: atoms.length }),
+      orderBlueprint: buildOrderBlueprint({ objectives, count: Math.max(1, Number(deps.count) || ROUND_SIZE) }),
     },
     { callAIJSON, reviewAIJSON: deps.reviewAIJSON, skipQuestionAudit: deps.skipQuestionAudit }
   );

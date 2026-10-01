@@ -50,7 +50,7 @@ const cacheKey = (userId, logicalKey) => `${userId || "anon"}:${logicalKey}`;
  * dropping them changes nothing for any consumer.
  */
 export function stripUndefined(value) {
-  if (Array.isArray(value)) return value.map(stripUndefined);
+  if (Array.isArray(value)) return value.filter((item) => item !== undefined).map(stripUndefined);
   if (value && typeof value === "object" && !(value instanceof Date)) {
     const out = {};
     for (const [k, v] of Object.entries(value)) {

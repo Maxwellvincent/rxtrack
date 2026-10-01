@@ -7,6 +7,7 @@ import {
   readCloud,
   readError,
   resetCloudStores,
+  stripUndefined,
   writeCloud,
   writeCloudAwait,
 } from "./cloudBase.js";
@@ -102,6 +103,12 @@ describe("readCloud", () => {
 });
 
 describe("writeCloud", () => {
+  it("removes undefined fields recursively, including undefined array entries", () => {
+    expect(stripUndefined({
+      atom: { term: "A", optional: undefined, cues: ["one", undefined, { note: undefined, text: "two" }] },
+    })).toEqual({ atom: { term: "A", cues: ["one", { text: "two" }] } });
+  });
+
   it("supports additive evidence writes without changing the default replacement policy", () => {
     const put = vi.spyOn(backend.api, "setDoc");
     writeCloud("u1", "rxt-model-repair-lec", { a: { stem: "Question" } }, { merge: true });

@@ -18,6 +18,7 @@ import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
 import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
 import { stripLectureBodyForLocalCache } from "./shell/logic/lectureMetaCache.js";
+import { stripUndefined } from "./stores/cloudBase.js";
 
 // SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
 // ALREADY merged by this module's own merge fns — whose argument order differs
@@ -246,7 +247,7 @@ export async function saveLectureAtoms(userId, lecId, atoms) {
   const list = Array.isArray(atoms) ? atoms : [];
   await setDoc(
     doc(db, "users", userId, "lectures", encodeDocId(lecId)),
-    { atoms: list, atomsUpdatedAt: serverTimestamp() },
+    stripUndefined({ atoms: list, atomsUpdatedAt: serverTimestamp() }),
     { merge: true }
   );
   return { saved: list.length };

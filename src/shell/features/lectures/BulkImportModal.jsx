@@ -16,8 +16,6 @@ import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { overwriteObjectivesInCloud, saveLectureAtoms, saveLectureToCloud, uploadLectureSource } from "../../../supabase.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
-import { analyzeLecture } from "../../../ingest/teachingMap.js";
-import { stripTeachingMap } from "../../../lectureTeachingMap.js";
 import { createObjectiveCommands } from "../../logic/objectives.js";
 import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
 import { callAIJSON } from "../../../aiClient.js";
@@ -44,7 +42,7 @@ const STATUS_LABEL = {
   queued: "queued",
   reading: "reading",
   objectives: "objectives…",
-  map: "teaching map…",
+  atoms: "lecture facts…",
   done: "done",
   error: "failed",
 };
@@ -151,31 +149,6 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
         setRow(entry.filename, { note: "objectives failed: " + (e?.message || String(e)) });
       }
 
-      setRow(entry.filename, { status: "map" });
-      let sections = 0;
-      try {
-        const map = await analyzeLecture(lecture, text);
-        sections = map?.sections?.length || 0;
-        if (sections) {
-          const teachingMapDate = new Date().toISOString();
-          // Body to Firestore, stub to the row. DeepLearnContainer folds the
-          // body back when DeepLearn opens; a block of maps in localStorage is
-          // a few hundred KB of a budget the objectives already fill.
-          const rows = lecturesStore.read(userId) || [];
-          lecturesStore.write(
-            userId,
-            rows.map((l) =>
-              l.id === lecture.id
-                ? stripTeachingMap({ ...l, teachingMap: map, teachingMapDate })
-                : l
-            )
-          );
-          if (userId) await saveLectureToCloud(userId, { ...lecture, teachingMap: map, teachingMapDate });
-        }
-      } catch (e) {
-        setRow(entry.filename, { note: "teaching map failed: " + (e?.message || String(e)) });
-      }
-
       setRow(entry.filename, { status: "atoms" });
       let atomCount = 0;
       let extractedAtoms = [];
@@ -215,9 +188,9 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
 
       setRow(entry.filename, {
         status: "done",
-        note: `${objectiveCount} objectives · ${sections} sections · ${atomCount} atoms${atomCount ? " · study assets ready" : ""}`,
+        note: `${objectiveCount} objectives · ${atomCount} supporting facts${atomCount ? " · study assets ready" : ""}`,
       });
-      return { objectiveCount, sections, atomCount };
+      return { objectiveCount, atomCount };
     },
     [blockId, termId, userId, useLlm, setRow]
   );
@@ -254,8 +227,8 @@ export function BulkImportModal({ blockId, termId = null, userId = null, onClose
           Point this at the folder you converted. It takes one file per lecture, preferring the markdown over
           the source PDF, and ignores marker&apos;s per-document subfolders — so a folder holding PDFs, markdown
           and subfolders all at once still imports cleanly. A lecture with no markdown yet falls back to OCR on
-          its PDF, which is minutes rather than a fraction of a second. Objectives and the teaching map then run
-          for every lecture, three at a time.
+          its PDF, which is minutes rather than a fraction of a second. Objective and supporting-fact extraction
+          then run for every lecture, three at a time.
         </div>
 
         {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}

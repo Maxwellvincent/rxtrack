@@ -1153,6 +1153,8 @@ export function LectureStudyFlow({
       callAIJSON,
       exemplars: schoolExemplars,
       objectives: [...objectiveById.values()],
+      lectureText: text,
+      count: ROUND_SIZE,
       difficulty,
       clinicalCorrelateLibrary,
       avoidStems: generatedHistory.map((q) => q.stem).filter(Boolean),

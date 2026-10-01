@@ -141,21 +141,29 @@ describe("extractAtoms", () => {
 });
 
 describe("quizFromAtoms", () => {
-  it("asks one question per atom, titled with the lecture", async () => {
+  it("uses objectives and lecture text as primary quiz scope, with atoms as supporting evidence", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({
       questions: [{ stem: "A patient presents. Which nerve?", choices: { A: "1", B: "2", C: "3", D: "4" }, correct: "A" }],
     });
 
-    const result = await quizFromAtoms({ lectureTitle: "Brachial Plexus" }, [atom()], { callAIJSON, skipQuestionAudit: true });
+    const result = await quizFromAtoms({ lectureTitle: "Brachial Plexus" }, [atom()], {
+      callAIJSON,
+      lectureText: "Brachial plexus lecture content. " .repeat(10),
+      objectives: [{ id: "o1", objective: "Explain the organization of the brachial plexus." }],
+      count: 5,
+      skipQuestionAudit: true,
+    });
 
     expect(result.questions).toHaveLength(1);
     expect(callAIJSON.mock.calls[0][1]).toContain("Brachial Plexus");
-    expect(callAIJSON.mock.calls[0][1]).toContain("[definition] Plexus: A nerve network.");
+    expect(callAIJSON.mock.calls[0][1]).toContain("LEARNING OBJECTIVES TO COVER");
+    expect(callAIJSON.mock.calls[0][1]).toContain("Brachial plexus lecture content.");
+    expect(callAIJSON.mock.calls[0][1]).toContain("KEY FACTS EXTRACTED FROM THE LECTURE");
   });
 
   it("passes the error through rather than throwing", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("model down"));
-    expect((await quizFromAtoms({}, [atom()], { callAIJSON })).error).toBe("model down");
+    expect((await quizFromAtoms({}, [atom()], { callAIJSON, lectureText: "Lecture details. ".repeat(12) })).error).toBe("model down");
   });
 });
 

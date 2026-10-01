@@ -3,8 +3,8 @@
  *
  * Markdown (pdf2md locally, drop the .md here) or the PDF itself, which runs
  * through the same extraction chain App uses — marker/datalab/mistral OCR,
- * falling back to pdfplumber. Objectives and the teaching map run as explicit
- * steps after the save, each costing one model call.
+ * falling back to pdfplumber. Objectives and supporting lecture facts run
+ * after save; quiz targets are selected from objectives.
  *
  * Uploading a lecture that already exists FILLS it rather than replacing it.
  * A block's lectures come from the schedule import first — right numbers, right
@@ -290,7 +290,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
    */
   const addAndProcess = useCallback(async () => {
     if (!preview) return;
-    setBusy(true); setError(""); setObjectiveResult(""); setMapResult(""); setAtomsResult(""); setAssetsResult("");
+    setBusy(true); setError(""); setObjectiveResult(""); setAtomsResult(""); setAssetsResult("");
     try {
       const incoming = { ...preview.lecture, lectureDate: lectureDate || null };
       const current = lecturesStore.read(userId) || [];
@@ -349,15 +349,17 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         detail: "Reading objectives…",
         run: async (update) => {
           const objectives = await extractObjectives(lecture);
-          update(`Mapped ${objectives.length} objectives · analyzing lecture…`);
-          await buildTeachingMap(lecture);
+          update(`Mapped ${objectives.length} objectives · extracting supporting facts…`);
           update("Extracting high-yield atoms…");
-          const atoms = await extractAtomsStep(lecture, true, update);
-          if (!atoms.length) throw new Error("No high-yield atoms were extracted. Open the lecture and run Atoms again.");
-          update(`${atoms.length} atoms · building study guide and mental map…`);
-          await buildStudyAssets(lecture, objectives, atoms);
+          const atoms = await extractAtomsStep(lecture, false, update);
+          if (atoms.length) {
+            update(`${atoms.length} supporting facts · building optional study assets…`);
+            await buildStudyAssets(lecture, objectives, atoms);
+          } else {
+            setAssetsResult("Skipped — objective-based quiz generation can still use the lecture content.");
+          }
           onAdded?.(lecture);
-          return `${objectives.length} objectives · ${atoms.length} atoms · study assets ready`;
+          return `${objectives.length} objectives · ${atoms.length} supporting facts`;
         },
       });
       onClose?.();
@@ -372,7 +374,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
       setBusy(false);
       setProgress("");
     }
-  }, [preview, lectureDate, userId, onAdded, extractObjectives, buildTeachingMap, extractAtomsStep, buildStudyAssets, targetLecture]);
+  }, [preview, lectureDate, userId, onAdded, extractObjectives, extractAtomsStep, buildStudyAssets, targetLecture]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { if (!busy) onClose?.(); }}>
@@ -459,9 +461,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             <div className={`mt-1 font-mono text-[13px] ${objectiveResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◇ {objectiveResult || (busy ? "reading objectives…" : "—")}
             </div>
-            <div className={`mt-1 font-mono text-[13px] ${mapResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
-              ◈ {mapResult || (busy ? "waiting on the teaching map…" : "—")}
-            </div>
             <div className={`mt-1 font-mono text-[13px] ${atomsResult.startsWith("⚠") ? "text-warn" : "text-good"}`}>
               ◆ {atomsResult || (busy ? "extracting high-yield atoms…" : "—")}
             </div>
@@ -471,9 +470,6 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
             <div className="mt-2 flex flex-wrap gap-2">
               <Button variant="outline" onClick={() => extractObjectives()} disabled={busy}>
                 ◇ Objectives again
-              </Button>
-              <Button variant="outline" onClick={() => buildTeachingMap()} disabled={busy}>
-                ◈ Analyze again
               </Button>
               <Button variant="outline" onClick={() => extractAtomsStep()} disabled={busy}>
                 ◆ Atoms again
