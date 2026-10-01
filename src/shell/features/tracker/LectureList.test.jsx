@@ -18,6 +18,7 @@ function makeLecture(id, title) {
 }
 
 const useTodayMock = vi.fn();
+const deleteLecturesFullyMock = vi.fn();
 vi.mock("../today/useToday.js", () => ({
   useToday: (...args) => useTodayMock(...args),
 }));
@@ -28,6 +29,11 @@ vi.mock("../../hooks/useLectures.js", () => ({
 
 vi.mock("../../hooks/useLectureQuestionStats.js", () => ({
   useLectureQuestionStats: () => ({ data: {} }),
+}));
+
+vi.mock("../../logic/deleteLecture.js", async (importOriginal) => ({
+  ...(await importOriginal()),
+  deleteLecturesFully: (...args) => deleteLecturesFullyMock(...args),
 }));
 
 const { LectureList } = await import("./LectureList.jsx");
@@ -64,6 +70,7 @@ function baseTodayReturn() {
 beforeEach(() => {
   installDomStorage();
   useTodayMock.mockReset();
+  deleteLecturesFullyMock.mockReset();
   useTodayMock.mockReturnValue(baseTodayReturn());
 });
 
@@ -204,5 +211,40 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     const restored = Array.from(reopened.host.querySelectorAll("button")).find((button) => /^Unscheduled \(/.test(button.textContent));
     expect(restored.getAttribute("aria-pressed")).toBe("true");
     reopened.unmount();
+  });
+
+  it("lets the learner select the current library view and review the exact delete set before confirmation", () => {
+    const { host, unmount } = render(
+      <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} />
+    );
+    act(() => Array.from(host.querySelectorAll("button")).find((button) => /Browse all/.test(button.textContent)).click());
+    const selectAll = host.querySelector('input[aria-label="Select all 2 lectures in this view"]');
+    act(() => selectAll.click());
+    expect(host.textContent).toMatch(/2 selected/);
+    act(() => Array.from(host.querySelectorAll("button")).find((button) => /Delete selected/.test(button.textContent)).click());
+    expect(host.querySelector('[role="dialog"]').textContent).toMatch(/Delete 2 selected lectures/);
+    expect(host.querySelector('[role="dialog"]').textContent).toMatch(/Lecture One/);
+    expect(host.querySelector('[role="dialog"]').textContent).toMatch(/Lecture Two/);
+    expect(deleteLecturesFullyMock).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("runs bulk deletion only after confirmation and reports the deleted count", async () => {
+    deleteLecturesFullyMock.mockImplementation(async ({ lectures, onProgress }) => {
+      onProgress(lectures.length);
+      return { deletedIds: lectures.map((lecture) => lecture.id), failures: [], objectivesSaved: true };
+    });
+    const { host, unmount } = render(
+      <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} />
+    );
+    act(() => Array.from(host.querySelectorAll("button")).find((button) => /Browse all/.test(button.textContent)).click());
+    act(() => host.querySelector('input[aria-label="Select all 2 lectures in this view"]').click());
+    act(() => Array.from(host.querySelectorAll("button")).find((button) => /Delete selected/.test(button.textContent)).click());
+    const confirm = Array.from(host.querySelectorAll('[role="dialog"] button')).find((button) => /Confirm delete 2/.test(button.textContent));
+    await act(async () => { confirm.click(); await Promise.resolve(); });
+    expect(deleteLecturesFullyMock).toHaveBeenCalledTimes(1);
+    expect(deleteLecturesFullyMock.mock.calls[0][0].lectures.map((lecture) => lecture.id)).toEqual(["lec-1", "lec-2"]);
+    expect(host.textContent).toMatch(/Deleted 2 selected lectures/);
+    unmount();
   });
 });

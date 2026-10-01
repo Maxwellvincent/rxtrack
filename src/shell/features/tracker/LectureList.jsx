@@ -14,7 +14,7 @@ import { useToday } from "../today/useToday.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
 import { ACTIVITY_TYPES, buildLectureRows, lectureCounts, scoreLectures, FILTERS } from "./lectureRows.js";
 import { PreReadModal } from "../lectures/PreReadModal.jsx";
-import { deleteLectureFully } from "../../logic/deleteLecture.js";
+import { deleteLectureFully, deleteLecturesFully } from "../../logic/deleteLecture.js";
 import { updateLectureDate } from "../../logic/lectureDate.js";
 import { localDateString } from "../../logic/completionLog.js";
 import { buildLectureWeeks, rowMatchesWeek } from "./lectureWeeks.js";
@@ -108,7 +108,7 @@ function DateEdit({ row, onUpdateDate }) {
   );
 }
 
-function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef }) {
+function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRead, onDelete, busy, deleting, focused, rowRef, selectable = false, selected = false, onToggleSelected }) {
   const answered = stats?.answered || 0;
   const accuracy = answered > 0 ? Math.round(((stats?.correct || 0) / answered) * 100) : null;
   const [logging, setLogging] = useState(null);
@@ -125,6 +125,14 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
       }
     >
       <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="flex min-w-0 items-start gap-2">
+          {selectable && <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelected(row.lectureId)}
+            aria-label={`Select ${row.title}`}
+            className="mt-1 h-4 w-4 shrink-0 accent-accent"
+          />}
         <div className="min-w-0">
           <span className="font-mono text-[12px] text-text-3">
             <span className="rounded bg-panel px-1.5 py-0.5 font-bold text-text-2">{row.type} {row.number ?? ""}</span>
@@ -155,6 +163,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
             </div>
           )}
           {row.repairCount > 0 && <div className="mt-1 text-xs font-semibold text-status-purple">◈ {row.repairCount} model repairs</div>}
+        </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-1.5">
           <div className="relative">
@@ -278,6 +287,14 @@ export function LectureList({
   const [visibleCount, setVisibleCount] = useState(18);
   const [showAllLectures, setShowAllLectures] = useState(false);
   const [deletingLectureId, setDeletingLectureId] = useState(null);
+  const [selectedLectureIds, setSelectedLectureIds] = useState(() => new Set());
+  const [bulkDeleteTargets, setBulkDeleteTargets] = useState(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState(0);
+  useEffect(() => {
+    setSelectedLectureIds(new Set());
+    setBulkDeleteTargets(null);
+  }, [blockId]);
 
   // Task 12, Part B2 — scroll the focused lecture's row into view and give
   // it a brief highlight on mount. Additive only: with no `focusLectureId`
@@ -307,6 +324,10 @@ export function LectureList({
   const rows = useMemo(
     () => buildLectureRows(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data, filter, activityType, search, sort }),
     [scores, context.completion, blockId, repairProgress.data, filter, activityType, search, sort]
+  );
+  const allRows = useMemo(
+    () => buildLectureRows(scores, { completion: context.completion, blockId, atomProgress: repairProgress.data, filter: "all", activityType: "all", search: "", sort: "lecture" }),
+    [scores, context.completion, blockId, repairProgress.data]
   );
   const weeks = useMemo(() => buildLectureWeeks(rows), [rows]);
   const weekRows = useMemo(() => rows.filter((row) => rowMatchesWeek(row, week)), [rows, week]);
@@ -405,6 +426,61 @@ export function LectureList({
     }
   }, [blockId, deletingLectureId, userId]);
 
+  const toggleSelected = useCallback((lectureId) => {
+    setSelectedLectureIds((current) => {
+      const next = new Set(current);
+      if (next.has(lectureId)) next.delete(lectureId);
+      else next.add(lectureId);
+      return next;
+    });
+  }, []);
+
+  const selectAllInView = useCallback(() => {
+    setSelectedLectureIds((current) => {
+      const next = new Set(current);
+      const allSelected = weekRows.length > 0 && weekRows.every((row) => next.has(row.lectureId));
+      weekRows.forEach((row) => allSelected ? next.delete(row.lectureId) : next.add(row.lectureId));
+      return next;
+    });
+  }, [weekRows]);
+
+  const confirmBulkDelete = useCallback(async () => {
+    if (!bulkDeleteTargets?.length || bulkDeleting) return;
+    setBulkDeleting(true);
+    setBulkProgress(0);
+    setLogged(null);
+    const targets = bulkDeleteTargets.map((row) => ({
+      id: row.lectureId,
+      lectureTitle: row.title,
+    }));
+    let deletedIds = [];
+    let failures = [];
+    let objectivesSaved = true;
+    let objectiveSaveError = null;
+    try {
+      ({ deletedIds, failures, objectivesSaved, objectiveSaveError } = await deleteLecturesFully({
+        userId,
+        lectures: targets,
+        blockId,
+        onProgress: (done) => setBulkProgress(done),
+      }));
+    } catch (error) {
+      objectiveSaveError = error;
+    }
+    setSelectedLectureIds((current) => {
+      const next = new Set(current);
+      deletedIds.forEach((id) => next.delete(id));
+      return next;
+    });
+    setLogged(failures.length
+      ? `Deleted ${deletedIds.length} of ${bulkDeleteTargets.length}; ${failures.length} failed. Failed: ${failures.map((item) => item.title).join(", ")}.`
+      : !objectivesSaved || objectiveSaveError
+        ? `Deleted ${deletedIds.length} lectures, but objective links could not be synced: ${objectiveSaveError?.message || "retry sync"}.`
+        : `Deleted ${deletedIds.length} selected lecture${deletedIds.length === 1 ? "" : "s"}.`);
+    setBulkDeleting(false);
+    setBulkDeleteTargets(null);
+  }, [blockId, bulkDeleteTargets, bulkDeleting, userId]);
+
   return (
     <div className="desk-page desk-lectures mx-auto w-full max-w-6xl p-4 sm:p-5">
       <div className="desk-page-heading mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -502,6 +578,18 @@ export function LectureList({
         </button>
       </section>
 
+      {showAllLectures && weekRows.length > 0 && <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-border bg-bg-elevated p-3">
+        <label className="flex items-center gap-2 text-sm text-text-2">
+          <input type="checkbox" checked={weekRows.every((row) => selectedLectureIds.has(row.lectureId))} onChange={selectAllInView} aria-label={`Select all ${weekRows.length} lectures in this view`} className="h-4 w-4 accent-accent" />
+          Select all {weekRows.length} in this view
+        </label>
+        <span className="font-mono text-xs text-text-3">{selectedLectureIds.size} selected</span>
+        <button type="button" disabled={!selectedLectureIds.size} onClick={() => setBulkDeleteTargets(allRows.filter((row) => selectedLectureIds.has(row.lectureId)))} className="rounded-lg border border-bad px-3 py-2 text-sm font-semibold text-bad hover:bg-bad/10 disabled:cursor-not-allowed disabled:opacity-50">
+          Delete selected…
+        </button>
+        {selectedLectureIds.size > 0 && <button type="button" onClick={() => setSelectedLectureIds(new Set())} className="text-sm text-text-3 hover:text-text-1">Clear selection</button>}
+      </div>}
+
       {displayRows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
       ) : (
@@ -522,6 +610,9 @@ export function LectureList({
               deleting={deletingLectureId}
               focused={row.lectureId === highlightId}
               rowRef={row.lectureId === focusLectureId ? focusRowRef : undefined}
+              selectable={showAllLectures}
+              selected={selectedLectureIds.has(row.lectureId)}
+              onToggleSelected={toggleSelected}
             />
           ))}
         </div>
@@ -544,6 +635,21 @@ export function LectureList({
           }}
         />
       )}
+
+      {bulkDeleteTargets && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="presentation">
+        <section role="dialog" aria-modal="true" aria-labelledby="bulk-delete-title" className="max-h-[85vh] w-full max-w-xl overflow-hidden rounded-xl border border-border bg-bg p-5 shadow-2xl">
+          <h3 id="bulk-delete-title" className="text-lg font-bold text-text-1">Delete {bulkDeleteTargets.length} selected lecture{bulkDeleteTargets.length === 1 ? "" : "s"}?</h3>
+          <p className="mt-2 text-sm leading-relaxed text-text-2">This permanently removes the lecture records and extracted content. Imported curriculum objectives will be kept but unlinked. This cannot be undone.</p>
+          <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto rounded-lg border border-border bg-bg-elevated p-3 text-sm text-text-2">
+            {bulkDeleteTargets.map((row) => <li key={row.lectureId}>{row.type} {row.number ?? ""} · {row.title}</li>)}
+          </ul>
+          {bulkDeleting && <p className="mt-3 text-sm text-text-2" role="status">Deleting {bulkProgress} of {bulkDeleteTargets.length}…</p>}
+          <div className="mt-4 flex justify-end gap-2">
+            <button type="button" disabled={bulkDeleting} onClick={() => setBulkDeleteTargets(null)} className="rounded-lg border border-border px-3 py-2 text-sm text-text-2 disabled:opacity-50">Cancel</button>
+            <button type="button" disabled={bulkDeleting} onClick={() => void confirmBulkDelete()} className="rounded-lg bg-bad px-3 py-2 text-sm font-bold text-white disabled:opacity-50">{bulkDeleting ? "Deleting…" : `Confirm delete ${bulkDeleteTargets.length}`}</button>
+          </div>
+        </section>
+      </div>}
     </div>
   );
 }
