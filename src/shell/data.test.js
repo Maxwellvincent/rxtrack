@@ -33,6 +33,13 @@ describe("flattenBlocks", () => {
     expect(out[0]).toMatchObject({ id: "cpr1", name: "CPR 1", termId: "t1", termName: "Term 1", termColor: "#3b82f6", lectureCount: 2 });
     expect(out[1].lectureCount).toBe(1);
   });
+
+  it("preserves optional sub-block group titles when flattening", () => {
+    const result = flattenBlocks([
+      { id: "t1", name: "Term 2", blocks: [{ id: "nb1", name: "NB 1", groupTitle: "Neuro & Behavior" }] },
+    ], []);
+    expect(result[0]).toMatchObject({ id: "nb1", name: "NB 1", groupTitle: "Neuro & Behavior" });
+  });
   it("handles missing blocks/lectures", () => {
     expect(flattenBlocks([], [])).toEqual([]);
     expect(flattenBlocks(null, null)).toEqual([]);

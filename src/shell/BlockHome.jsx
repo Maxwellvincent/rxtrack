@@ -97,6 +97,7 @@ export function BlockHome({
     <div className="p-5">
       {/* ── Block header ──────────────────────────────────── */}
       <div className="mb-5">
+        {block.groupTitle && <div className="mb-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-3">{block.groupTitle}</div>}
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 mb-1">
           <h1 className="font-condensed text-xl font-bold uppercase tracking-wide text-text-1">
             {block.name}

@@ -370,6 +370,7 @@ function ShellMain({ theme, toggle, userId }) {
         <Header
           termName={active?.termName}
           blockName={active?.name}
+          groupTitle={active?.groupTitle}
           lectureLabel={studyLecture ? formatLectureLabel(studyLecture) : ""}
           theme={theme}
           onToggleTheme={toggle}

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { blockCoverage } from "./data.js";
 import { useBlocks } from "./hooks/useBlocks.js";
 import { useObjectives } from "./hooks/useObjectives.js";
+import * as termsStore from "../stores/terms.js";
 import { StatusGlyph } from "../ui/Badge.jsx";
 import {
   readCollapsedTerms,
@@ -25,6 +26,11 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
   const objectives = useObjectives(null, userId);
   const [collapsed, setCollapsed] = useState(() => readCollapsedTerms());
   const [rail, setRail] = useState(() => readRail());
+  const [organizeTerm, setOrganizeTerm] = useState(null);
+  const [groupTitle, setGroupTitle] = useState("Neuro & Behavior");
+  const [childNames, setChildNames] = useState(["NB 1", "NB 2", "NB 3"]);
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [groupError, setGroupError] = useState("");
 
   const byTerm = useMemo(() => {
     const m = new Map();
@@ -161,8 +167,21 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                 </span>
               </button>
 
-              {open &&
-                term.blocks.map((b) => {
+              {open && (() => {
+                const groups = [];
+                const grouped = new Map();
+                for (const b of term.blocks) {
+                  if (!b.groupTitle) { groups.push({ key: b.id, blocks: [b] }); continue; }
+                  if (!grouped.has(b.groupTitle)) {
+                    const group = { key: `group:${b.groupTitle}`, title: b.groupTitle, blocks: [] };
+                    grouped.set(b.groupTitle, group);
+                    groups.push(group);
+                  }
+                  grouped.get(b.groupTitle).blocks.push(b);
+                }
+                return groups.map((group) => <div key={group.key}>
+                  {group.title && <div className="px-5 pb-1 pt-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-3">{group.title}</div>}
+                  {group.blocks.map((b) => {
                   const cov = blockCoverage(objectives.data, b.id);
                   const active = b.id === activeBlockId;
                   return (
@@ -190,7 +209,9 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                       )}
                     </button>
                   );
-                })}
+                  })}
+                </div>);
+              })()}
 
               {!open && hasActive && (
                 <div className="px-5 pb-1 font-mono text-[13px] text-text-3">(showing current)</div>
@@ -212,6 +233,55 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
           </button>
         )}
       </div>
+      {byTerm.length > 0 && <button type="button" onClick={() => {
+        const active = blocks.find((b) => b.id === activeBlockId);
+        const term = byTerm.find((t) => t.id === active?.termId) || byTerm[0];
+        if (!term) return;
+        setOrganizeTerm(term);
+        setGroupTitle("Neuro & Behavior");
+        setChildNames(["NB 1", "NB 2", "NB 3"]);
+        setGroupError("");
+      }} className="border-t border-border px-5 py-2 text-left text-xs text-text-3 hover:bg-bg-elevated hover:text-text-1">＋ Set up sub-blocks</button>}
+      {organizeTerm && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !savingGroup) setOrganizeTerm(null); }}>
+        <section role="dialog" aria-modal="true" aria-labelledby="subblock-title" className="w-full max-w-lg rounded-lg border border-border bg-panel p-5 shadow-xl">
+          <h2 id="subblock-title" className="text-lg font-semibold text-text-1">Set up sub-blocks</h2>
+          <p className="mt-1 text-sm text-text-3">The selected existing block keeps its ID and study data; two new empty blocks are added.</p>
+          <label className="mt-4 block text-xs text-text-2">Main title<input value={groupTitle} onChange={(e) => setGroupTitle(e.target.value)} className="mt-1 w-full rounded border border-border bg-bg px-3 py-2 text-sm text-text-1" /></label>
+          <div className="mt-3 grid grid-cols-1 gap-2">{childNames.map((name, i) => <label key={i} className="text-xs text-text-2">Sub-block {i + 1}<input value={name} onChange={(e) => setChildNames((old) => old.map((v, j) => j === i ? e.target.value : v))} className="mt-1 w-full rounded border border-border bg-bg px-3 py-2 text-sm text-text-1" /></label>)}</div>
+          {groupError && <p role="alert" className="mt-3 text-sm text-bad">{groupError}</p>}
+          <div className="mt-5 flex justify-end gap-2"><button type="button" disabled={savingGroup} onClick={() => setOrganizeTerm(null)} className="rounded border border-border px-3 py-2 text-sm">Cancel</button><button type="button" disabled={savingGroup} onClick={async () => {
+            const names = childNames.map((n) => n.trim());
+            if (!groupTitle.trim() || names.some((n) => !n)) { setGroupError("Enter a main title and all three sub-block names."); return; }
+            const current = blocks.find((b) => b.id === activeBlockId && b.termId === organizeTerm.id);
+            if (!current) { setGroupError("Select a block in this term first so its study data can be retained as the first sub-block."); return; }
+            setSavingGroup(true); setGroupError("");
+            try {
+              const terms = termsStore.read(userId) || [];
+              const next = terms.map((t) => {
+                if (t.id !== organizeTerm.id) return t;
+                let matched = false;
+                const updated = (t.blocks || []).map((b) => {
+                  if (b.id === current.id) { matched = true; return { ...b, name: names[0], groupTitle: groupTitle.trim() }; }
+                  return b;
+                });
+                if (!matched) throw new Error("The selected block changed. Reopen setup and try again.");
+                const existingSiblings = updated.filter((b) => b.id !== current.id && b.groupTitle === groupTitle.trim());
+                for (const [index, name] of names.slice(1).entries()) {
+                  const sibling = existingSiblings[index];
+                  if (sibling) {
+                    const siblingIndex = updated.findIndex((b) => b.id === sibling.id);
+                    updated[siblingIndex] = { ...sibling, name };
+                  } else updated.push({ id: crypto.randomUUID(), name, groupTitle: groupTitle.trim(), status: "active" });
+                }
+                return { ...t, blocks: updated };
+              });
+              await termsStore.write(userId, next);
+              setOrganizeTerm(null);
+            } catch (error) { setGroupError(error?.message || "Could not save sub-blocks."); }
+            finally { setSavingGroup(false); }
+          }} className="rounded bg-accent px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">{savingGroup ? "Saving…" : "Save sub-blocks"}</button></div>
+        </section>
+      </div>}
     </aside>
   );
 }

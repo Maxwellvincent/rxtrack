@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 
 export function Header({
-  termName, blockName, lectureLabel = "", theme, onToggleTheme,
+  termName, blockName, groupTitle = "", lectureLabel = "", theme, onToggleTheme,
   onAnki, onRecognize, onImportSchedule, onAddLecture, onBulkImport,
   onQuestionBanks, onRoutine, onDailyPlanSettings, onApiKeySettings, onFocusHudLink, onSignOut, onExamDate,
 }) {
@@ -47,6 +47,7 @@ export function Header({
         {termName ? (
           <>
             <span className="shrink-0">{termName}</span><span className="shrink-0 text-text-3 opacity-50">/</span>
+            {groupTitle && <><span className="shrink-0 text-text-1">{groupTitle}</span><span className="shrink-0 text-text-3 opacity-50">/</span></>}
             <span className="shrink-0 text-text-1">{blockName}</span>
             {lectureLabel && <><span className="shrink-0 text-text-3 opacity-50">/</span><span className="max-w-[48vw] truncate text-text-1" title={lectureLabel}>{lectureLabel}</span></>}
           </>

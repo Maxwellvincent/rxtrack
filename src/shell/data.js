@@ -16,6 +16,7 @@ export function flattenBlocks(terms, lectures) {
     (t.blocks || []).map((b) => ({
       id: b.id,
       name: b.name,
+      groupTitle: b.groupTitle || null,
       status: b.status,
       startDate: b.startDate ?? null,
       termId: t.id,
