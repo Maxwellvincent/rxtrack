@@ -1,9 +1,4 @@
-function textKey(objective) {
-  return String(objective?.objective || objective?.text || "")
-    .slice(0, 80)
-    .toLowerCase()
-    .replace(/\W/g, "");
-}
+import { isSmallGroupObjective } from "../../logic/objectives.js";
 
 /** Return the first valid SOM code, even when an old import joined two codes. */
 export function canonicalObjectiveCode(objective) {
@@ -33,7 +28,9 @@ export function reconcileOfficialObjectives(existing = [], incoming = []) {
   };
   const oldByCode = new Map();
   const uncoded = [];
+  const outOfScope = [];
   for (const row of existing) {
+    if (isSmallGroupObjective(row)) { outOfScope.push(row); continue; }
     const code = canonicalObjectiveCode(row);
     if (!code) { uncoded.push(row); continue; }
     const rows = oldByCode.get(code) || [];
@@ -43,14 +40,18 @@ export function reconcileOfficialObjectives(existing = [], incoming = []) {
 
   const incomingByCode = new Map();
   for (const row of incoming) {
+    if (isSmallGroupObjective(row)) continue;
     const code = canonicalObjectiveCode(row);
     if (code && !incomingByCode.has(code)) incomingByCode.set(code, row);
   }
 
-  const next = [...uncoded];
+  // Keep historical SG rows in storage for reversibility. They are filtered
+  // from the active objective read model and must not be treated as stale
+  // lecture-curriculum rows when an official objectives PDF is reconciled.
+  const next = [...uncoded, ...outOfScope];
   let added = 0;
   let updated = 0;
-  let removed = existing.length - uncoded.length;
+  let removed = existing.length - uncoded.length - outOfScope.length;
   for (const [code, fresh] of incomingByCode) {
     const candidates = oldByCode.get(code) || [];
     const old = candidates.sort((a, b) => evidenceScore(b) - evidenceScore(a))[0];

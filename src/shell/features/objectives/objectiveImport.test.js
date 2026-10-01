@@ -50,4 +50,15 @@ describe("official objective reconciliation", () => {
     expect(result.objectives).toHaveLength(1);
     expect(result.objectives[0]).toMatchObject({ id: "learned", status: "mastered", attempts: 5, objective: "Describe metabolism." });
   });
+
+  it("excludes small-group rows from the official set without deleting stored history", () => {
+    const oldLecture = incoming("old-lecture", "SOM.NB.1001", "Describe the lecture objective.");
+    const oldSg = { ...incoming("old-sg", "SOM.NB.1002", "Examine the small group case.", "imported"), activity: "SG", attempts: 3 };
+    const fresh = incoming("fresh", "SOM.NB.1001", "Describe the lecture objective.");
+    const rejectedIncomingSg = { ...incoming("new-sg", "SOM.NB.1003", "Examine another small group case."), activity: "SG" };
+    const result = reconcileOfficialObjectives([oldLecture, oldSg], [fresh, rejectedIncomingSg]);
+    expect(result).toMatchObject({ added: 0, updated: 0, removed: 0 });
+    expect(result.objectives.map((row) => row.id).sort()).toEqual(["old-lecture", "old-sg"]);
+    expect(result.objectives.find((row) => row.id === "old-sg")).toMatchObject({ activity: "SG", attempts: 3 });
+  });
 });

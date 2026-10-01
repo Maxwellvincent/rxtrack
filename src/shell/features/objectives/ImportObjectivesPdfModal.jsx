@@ -8,6 +8,7 @@ import { overwriteObjectivesInCloud } from "../../../supabase.js";
 import { useLectures } from "../../hooks/useLectures.js";
 import { useObjectives } from "../../hooks/useObjectives.js";
 import { canonicalObjectiveCode, reconcileOfficialObjectives } from "./objectiveImport.js";
+import { isSmallGroupObjective } from "../../logic/objectives.js";
 
 const ACTIVITY_COLORS = {
   LEC: "text-accent",
@@ -34,12 +35,14 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
   const [groups, setGroups] = useState([]);
   const [totalFound, setTotalFound] = useState(0);
   const [dupCount, setDupCount] = useState(0);
+  const [excludedSmallGroupCount, setExcludedSmallGroupCount] = useState(0);
   const [reconcileSummary, setReconcileSummary] = useState(null);
 
   const onFile = useCallback(
     async (file) => {
       if (!file) return;
       setError("");
+      setExcludedSmallGroupCount(0);
       setStep("processing");
       setProgress("Reading file…");
 
@@ -58,7 +61,10 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
         }
 
         setProgress("Extracting objectives…");
-        const extracted = await extractObjectivesFromStandaloneDoc(text, blockLectures || [], blockId);
+        const parsedObjectives = await extractObjectivesFromStandaloneDoc(text, blockLectures || [], blockId);
+        const excludedCount = parsedObjectives.filter(isSmallGroupObjective).length;
+        const extracted = parsedObjectives.filter((objective) => !isSmallGroupObjective(objective));
+        setExcludedSmallGroupCount(excludedCount);
         setTotalFound(extracted.length);
 
         // Compare against existing objectives by authoritative SOM code first.
@@ -76,7 +82,9 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
           return { ...obj, _duplicate: isDup };
         });
         setDupCount(dups);
-        setReconcileSummary(reconcileOfficialObjectives(existing, extracted));
+        // Avoid treating an all-SG document as an authoritative empty curriculum
+        // and accidentally marking every in-scope imported objective stale.
+        setReconcileSummary(extracted.length ? reconcileOfficialObjectives(existing, extracted) : null);
 
         // Group by matched lecture
         const byLec = new Map(); // lecId → { lecTitle, objectives[] }
@@ -101,7 +109,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
         setProgress("");
       }
     },
-    [blockId, userId, blockLectures, existingObjectivesEntry]
+    [blockId, userId, blockLectures, existingObjectivesEntry, useLlm]
   );
 
   const newObjectives = groups.flatMap((g) => g.objectives.filter((o) => !o._duplicate));
@@ -182,10 +190,19 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
                 {dupCount > 0 && (
                   <> · <span className="text-text-3">{dupCount} existing code{dupCount === 1 ? "" : "s"}</span></>
                 )}
+                {excludedSmallGroupCount > 0 && (
+                  <> · <span className="text-text-3">{excludedSmallGroupCount} small-group objective{excludedSmallGroupCount === 1 ? "" : "s"} excluded</span></>
+                )}
               </div>
               {reconcileSummary && (
                 <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-2">
                   Official reconciliation: {reconcileSummary.updated} repaired · {reconcileSummary.added} added · {reconcileSummary.removed} stale import{reconcileSummary.removed === 1 ? "" : "s"} removed. Learning history is preserved by SOM code.
+                </div>
+              )}
+
+              {!reconcileSummary && (
+                <div className="mb-3 rounded-lg border border-border bg-bg-elevated p-3 text-xs text-text-2">
+                  No in-scope lecture or DLA objectives were found. Nothing will be changed.
                 </div>
               )}
 
@@ -231,7 +248,7 @@ export function ImportObjectivesPdfModal({ blockId, userId, onClose, onImported 
         <div className="flex gap-2 border-t border-border px-5 py-3">
           {step === "preview" && (
             <Button onClick={onConfirm} disabled={changeCount === 0}>
-              {changeCount ? `Apply ${changeCount} change${changeCount === 1 ? "" : "s"}` : "Already up to date"}
+              {!reconcileSummary ? "No eligible objectives" : changeCount ? `Apply ${changeCount} change${changeCount === 1 ? "" : "s"}` : "Already up to date"}
             </Button>
           )}
           <Button variant="outline" onClick={onClose}>

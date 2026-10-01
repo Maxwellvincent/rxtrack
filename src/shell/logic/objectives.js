@@ -110,9 +110,20 @@ export function dedupeByText(objectives) {
   });
 }
 
-/** Flat objective list for a block, straight off a store map. */
+/** Active flat objective list for a block; out-of-scope small groups stay stored. */
 export function selectBlockObjectives(store, blockId) {
-  return flattenEntry(readEntry(store, blockId));
+  // Small-group sessions are not uploaded as lecture material. Keep their
+  // source rows in storage, but keep them out of the active study map,
+  // readiness totals, and the unlinked-objective inventory.
+  return flattenEntry(readEntry(store, blockId)).filter((objective) => !isSmallGroupObjective(objective));
+}
+
+/** Small-group objectives are out of scope for lecture-linked progress. */
+export function isSmallGroupObjective(objective) {
+  return [objective?.activity, objective?.lectureType].some((value) => {
+    const activity = String(value || "").trim().toLowerCase();
+    return activity === "sg" || /^small[\s_-]*group\b/.test(activity);
+  });
 }
 
 // ── Pure reducers ────────────────────────────────────────────────────

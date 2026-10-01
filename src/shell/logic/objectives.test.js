@@ -95,6 +95,16 @@ describe("storage shape", () => {
     expect(selectBlockObjectives({ b1: { imported: [{ id: "o1" }], extracted: [] } }, "b1"))
       .toEqual([{ id: "o1" }]);
   });
+
+  it("keeps small-group source rows stored but out of the active objective list", () => {
+    const store = { b1: { imported: [
+      { id: "lecture", activity: "LEC" },
+      { id: "sg", activity: "SG" },
+      { id: "legacy-sg", lectureType: "Small group NSCI" },
+    ], extracted: [] } };
+    expect(selectBlockObjectives(store, "b1").map((objective) => objective.id)).toEqual(["lecture"]);
+    expect(flattenEntry(readEntry(store, "b1"))).toHaveLength(3);
+  });
 });
 
 describe("reducers", () => {
