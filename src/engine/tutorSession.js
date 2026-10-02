@@ -6,7 +6,7 @@
 
 const BUDGETS = new Set([30, 45, 60]);
 
-const STEP_ORDER = ["diagnosis", "mechanism", "consequence", "contrast"];
+const STEP_ORDER = ["diagnosis", "translate", "depth", "mechanism", "consequence", "contrast"];
 
 export function tutorStepPrompt({ step = "retrieval", objectiveText = "this objective", atomTerms = [] } = {}) {
   const terms = atomTerms.filter(Boolean).slice(0, 4).join(", ");
@@ -14,6 +14,8 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
     retrieval: `Without looking at your notes, what do you already remember about ${objectiveText}? Start with the patient problem or syndrome.`,
     patient_case: `What is the most likely diagnosis or disease family? Name the syndrome first if you are not yet certain.`,
     diagnosis: `What is the most likely diagnosis or disease family? Name the syndrome first if you are not yet certain.`,
+    translate: "What exact thing is the question asking you to identify? Translate the key wording into a plain-language task.",
+    depth: "What level is being tested here: disease/state, pathway, mechanism, enzyme or structure, regulator/cofactor, or consequence?",
     delayed_retrieval: "Without looking at the earlier feedback, retrieve the diagnosis and explain the key mechanism in your own words.",
     mechanism: `Explain ${objectiveText} as a causal chain. What starts the process, what tissue or pathway is affected, and how does that produce the findings?`,
     consequence: `Given ${objectiveText}, what should happen next: a lab finding, symptom, complication, or treatment response? Explain why.`,
@@ -21,6 +23,8 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
   };
   const scaffoldByStep = {
     diagnosis: "Start with the organ system, time course, and the clue that best localizes the problem.",
+    translate: "Underline the task word and name the output the question wants, without solving it yet.",
+    depth: "Say whether the question wants a state, pathway, mechanism, structure/enzyme, regulator/cofactor, or consequence.",
     delayed_retrieval: "Try from memory first. Name the pattern, then connect it to the mechanism.",
     mechanism: `Trace cause → affected tissue or pathway → physiologic change.${terms ? ` Useful lecture terms: ${terms}.` : ""}`,
     consequence: `Use the mechanism to predict one finding, complication, or treatment response.${terms ? ` Useful lecture terms: ${terms}.` : ""}`,
@@ -67,7 +71,7 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     retrievalQueue: [...(retrievalQueue || [])],
     delayedReview: null,
     resumeObjectiveId: null,
-    learnerProfile: learnerProfile || { confirmedAnchors: [], recentMisses: [], confidenceEvents: [], reasoningSkillEvidence: [], stableReasoningSkills: [] },
+    learnerProfile: learnerProfile || { confirmedAnchors: [], recentMisses: [], confidenceEvents: [], reasoningSkillEvidence: [], stableReasoningSkills: [], diagnosticMisses: {} },
   };
 }
 
@@ -152,6 +156,7 @@ function updateLearnerProfile(state, turn, objectiveId, now) {
   const recentMisses = [...(prior.recentMisses || [])];
   const confidenceEvents = [...(prior.confidenceEvents || [])];
   const reasoningSkillEvidence = [...(prior.reasoningSkillEvidence || [])];
+  const diagnosticMisses = { ...(prior.diagnosticMisses || {}) };
   if (turn?.stepResolved && turn.response) {
     confirmedAnchors.push({
       objectiveId,
@@ -178,6 +183,9 @@ function updateLearnerProfile(state, turn, objectiveId, now) {
       at: now,
     });
   }
+  for (const type of (turn?.missTypes || [])) {
+    if (["comprehension", "depth", "content"].includes(type)) diagnosticMisses[type] = (diagnosticMisses[type] || 0) + 1;
+  }
   if (turn?.confidence) {
     confidenceEvents.push({
       objectiveId,
@@ -201,6 +209,7 @@ function updateLearnerProfile(state, turn, objectiveId, now) {
     confidenceEvents: confidenceEvents.slice(-32),
     reasoningSkillEvidence: recentSkillEvidence,
     stableReasoningSkills,
+    diagnosticMisses,
   };
 }
 
@@ -269,6 +278,10 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
       stem: state.patientCase.stem,
       expectedDiagnosis: state.patientCase.diagnosisCategory || "",
       mechanismTarget: state.patientCase.mechanismTarget || "",
+      questionIntent: state.patientCase.questionIntent || "",
+      requestedDepth: state.patientCase.requestedDepth || "",
+      choices: state.patientCase.choices || {},
+      correctChoice: state.patientCase.correctChoice || "",
       keyClues: state.patientCase.keyClues || [],
       dueAt: now + (24 * 60 * 60 * 1000),
     }];

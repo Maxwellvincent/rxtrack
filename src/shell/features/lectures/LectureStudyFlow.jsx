@@ -517,9 +517,9 @@ export function LectureStudyFlow({
       .join("\n");
     try {
       const generated = await callAIJSON(
-        "You are a warm, precise medical-school tutor. Assume a first-pass learner unless the learner has demonstrated mastery. Before testing, teach the smallest usable causal model needed for the case: deficiency or defect -> affected enzyme/transport step -> physiologic consequence -> clinical/lab finding. The openingModel must teach a case-relevant fact, not give generic encouragement. Then write one patient case with one answerable task that uses only the model just taught or facts explicitly present in the case. Do not test an unintroduced association. Keep caseTitle neutral (Patient 1); never place a diagnosis in a heading. Hide the target diagnosis until the learner attempts retrieval. For overlapping presentations, include the decisive separator. Stay grounded in the lecture; mark external facts as outside-scope in feedback. Use the supplied session pace to control case depth and length, but never rush the learner, claim uncovered objectives were taught, or weaken medical accuracy. Return valid JSON only.",
-        `Lecture: ${title}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"2-4 concise sentences that teach the specific mechanism/lab rule needed to reason through this case without naming its target diagnosis","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question answerable using the openingModel and explicit case clues; begin with system/pattern or one causal consequence, not an unexplained fact-recall demand","keyClues":["2-4 private clues for feedback; do not display separately"],"diagnosisCategory":"private expected diagnosis family; never display before learner attempts","mechanismTarget":"private expected mechanism; never display before learner attempts","acceptedAnswers":["private acceptable diagnosis aliases grounded in lecture"]}.`,
-        { openingModel: "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture model to identify the syndrome before naming the disease.`, task: "What is the presenting syndrome or most likely diagnosis? Which clue points you there?", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
+        "You are a warm, precise medical-school tutor following a question-reasoning diagnostic model. Generate one Step 1-style patient question tied directly to the supplied lecture objective. Do not write a generic lecture summary. The openingModel may provide only the smallest case-relevant scaffold and must not reveal the target diagnosis or answer. The question must have one clear requested depth (disease/state, pathway, mechanism, enzyme/structure, regulator/cofactor, or consequence) and wording that can later be translated explicitly. Include clinically meaningful distractor logic. Keep caseTitle neutral (Patient 1); hide the diagnosis and answer choices until the learner has reasoned through the case. Stay grounded in the lecture and return valid JSON only.",
+        `Lecture: ${title}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"1-2 concise case-relevant sentences without naming the answer","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question the learner can answer from the case","questionIntent":"plain-language description of the exact requested output","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence","choices":{"A":"...","B":"...","C":"...","D":"..."},"correctChoice":"private correct letter","keyClues":["2-4 private clues for feedback"],"diagnosisCategory":"private expected diagnosis family","mechanismTarget":"private expected mechanism","acceptedAnswers":["private acceptable aliases grounded in lecture"]}. Choices must be plausible and lecture-supported; do not reveal the correct choice in the stem or opening model.`,
+        { openingModel: "Start with the lecture’s organizing model and identify the clinical pattern before naming an answer.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture evidence to identify the pattern before naming the answer.`, task: "What do you think is happening to this patient?", questionIntent: "identify the clinical pattern before going one level deeper", requestedDepth: "disease", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
         2200,
         undefined,
         undefined,
@@ -539,6 +539,10 @@ export function LectureStudyFlow({
         diagnosisCategory: generated?.diagnosisCategory || "",
         mechanismTarget: generated?.mechanismTarget || "",
         acceptedAnswers: Array.isArray(generated?.acceptedAnswers) ? generated.acceptedAnswers.slice(0, 6) : [],
+        questionIntent: generated?.questionIntent || "identify the clinical pattern before going one level deeper",
+        requestedDepth: generated?.requestedDepth || "disease",
+        choices: generated?.choices && typeof generated.choices === "object" ? Object.fromEntries(Object.entries(generated.choices).slice(0, 5)) : {},
+        correctChoice: generated?.correctChoice || "",
       };
       if (tutorSessionRef.current?.sessionId === sessionId) {
         saveTutorSession(attachTutorCase(
@@ -704,8 +708,8 @@ export function LectureStudyFlow({
     setTutorNotice(isBlocked ? "Building a focused hint…" : "Checking your reasoning against the lecture…");
     try {
       const review = await callAIJSON(
-        "You are a Socratic medical-school tutor. Evaluate only the learner's current reasoning step. The lecture objective defines tested scope and the lecture material defines correctness. Do not dump the full solution when the learner is incomplete or stuck. Give one precise correction or confirmation, then one question that makes the learner perform the next reasoning move. Do not put questions in the feedback field; ask only one question in followUp. Set readyToAdvance true only when the learner independently completed this step. Respect the live time budget and coverage: adapt depth to the remaining time, avoid opening optional branches near the checkpoint, and explicitly preserve uncovered objectives for a later block. A clock checkpoint is not evidence of mastery. Return valid JSON only.",
-        `Lecture: ${title}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded yet."}\nStable reasoning skills demonstrated across topics: ${stableReasoningSkills.join(", ") || "none recorded"}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nCurrent step: ${reviewedStep}\nPrivate expected answer (never reveal before evaluating): diagnosis=${current.patientCase?.diagnosisCategory || "not recorded"}; accepted aliases=${(current.patientCase?.acceptedAnswers || []).join(", ") || "none recorded"}; mechanism=${current.patientCase?.mechanismTarget || "not recorded"}.\nConfidence before feedback: ${tutorConfidence || "not recorded"}\n${reviewedStep === "delayed_retrieval" ? `Earlier-case answer anchors: diagnosis=${current.delayedReview?.expectedDiagnosis || "not recorded"}; mechanism=${current.delayedReview?.mechanismTarget || "not recorded"}.` : ""}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences","followUp":"one Socratic question","missType":"recognition|mechanism|application|execution|null","repairLink":"the single missing or inaccurate link, or empty","reasoningSkill":"one concise skill label such as causal-chain, localization, discriminator, or pathway-link; empty if not demonstrated","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","readyToAdvance":boolean}. Grade against the private expected answer and lecture evidence, not a guessed alternative. Never call a high ferritin/high transferrin-saturation pattern iron deficiency; first preserve each correct proposition, then correct only the first wrong link. Do not invent a diagnosis that contradicts the expected answer or laboratory pattern. Let the learner commit before revealing the diagnosis. If incomplete, repair only the missing link using lecture evidence, define unfamiliar terms plainly, and ask one novel application question answerable from what has been taught. Do not immediately ask them to repeat a new association. If they ask for a hint, reveal one clue but not the answer and set readyToAdvance false. Keep feedback direct; do not narrate the study strategy or promise future review.`,
+        "You are a Socratic medical-school tutor following a question-reasoning diagnostic model. Evaluate only the learner's current step against the active lecture objective and source. Preserve every correct proposition, identify the first divergence, and teach only that missing connection. Do not dump a full solution or reveal the private answer before the learner commits. Ask exactly one next question. For translation and depth steps, do not solve the medical case; evaluate whether the learner correctly identified what the wording asks and how deep the answer must be. Return valid JSON only.",
+        `Lecture: ${title}\nSession pace and coverage: ${JSON.stringify(pacing)}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded."}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nQuestion intent: ${reviewCase?.questionIntent || "not recorded"}\nRequested depth: ${reviewCase?.requestedDepth || "not recorded"}\nCurrent step: ${reviewedStep}\nPrivate expected answer (never reveal before evaluating): diagnosis=${current.patientCase?.diagnosisCategory || "not recorded"}; accepted aliases=${(current.patientCase?.acceptedAnswers || []).join(", ") || "none recorded"}; mechanism=${current.patientCase?.mechanismTarget || "not recorded"}.\nConfidence before feedback: ${tutorConfidence || "not recorded"}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences preserving what was correct","preservedReasoning":["correct proposition 1"],"firstDivergence":"the earliest wrong or missing connection, or empty","followUp":"one Socratic question","questionIntent":"plain-language interpretation, if evaluated","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence|null","missTypes":["comprehension|depth|content"],"missType":"legacy recognition|mechanism|application|execution|null","repairLink":"the single missing connection, or empty","reasoningSkill":"causal-chain|localization|discriminator|pathway-link, or empty","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","readyToAdvance":boolean}. If the learner asks for a hint, reveal one clue but not the answer. Never reveal the diagnosis or correct choice until the diagnosis, translation, and depth reasoning steps have been attempted.`,
         fallback,
         1000
       );
@@ -721,6 +725,11 @@ export function LectureStudyFlow({
         assessment: review?.assessment || fallback.assessment,
         missType: review?.missType || null,
         repairLink: review?.repairLink || "",
+        missTypes: Array.isArray(review?.missTypes) ? review.missTypes.filter((type) => ["comprehension", "depth", "content"].includes(type)) : [],
+        preservedReasoning: Array.isArray(review?.preservedReasoning) ? review.preservedReasoning.slice(0, 4) : [],
+        firstDivergence: review?.firstDivergence || "",
+        questionIntent: review?.questionIntent || reviewCase?.questionIntent || "",
+        requestedDepth: review?.requestedDepth || reviewCase?.requestedDepth || "",
         reasoningSkill: review?.reasoningSkill || "",
         confidence: tutorConfidence || "",
         confidenceNote: review?.confidenceNote || "",
@@ -1853,7 +1862,7 @@ export function LectureStudyFlow({
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Guided case walkthrough · step {tutorSession.turns?.length + 1 || 1}</p>
               <h3 className="mt-1 font-semibold text-text-1">{tutorSession.delayedReview ? "Delayed retrieval" : `Objective ${tutorObjectiveIndex + 1} of ${lectureObjectives.length || 1}`}</h3>
             </div>
-            <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Patient → diagnosis → mechanism → consequence</span>
+            <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Recognize → translate → depth → connect → apply</span>
           </div>
           <details className="mt-3 rounded border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2" data-testid="tutor-coverage">
             <summary className="cursor-pointer font-semibold text-text-1">Coverage checkpoint · {tutorPacing.objectivesCompleted} complete · {tutorPacing.objectivesInProgress} in progress · {tutorPacing.objectivesNotYetReached} not yet reached</summary>
@@ -1865,10 +1874,10 @@ export function LectureStudyFlow({
             </div>
             <p className="mt-2 border-t border-border pt-2">Pacing target: about {Math.max(1, Math.round(tutorPacing.targetSecondsPerRemainingObjective / 60))} min per unfinished objective. {tutorPacing.closingGuidance}</p>
           </details>
-          <details className="mt-2 text-xs text-text-3">
-            <summary className="cursor-pointer hover:text-text-1">Show lecture objective</summary>
-            <p className="mt-1 leading-5">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
-          </details>
+          <div className="mt-3 rounded border border-accent/30 bg-accent/5 px-3 py-2">
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Practice objective</p>
+            <p className="mt-1 text-sm leading-5 text-text-1">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
+          </div>
           {tutorSession.openingModel && !tutorSession.delayedReview && (
             <div className="mt-4 rounded border border-good/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Start with the model</p>
@@ -1887,6 +1896,14 @@ export function LectureStudyFlow({
             <div className="mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{displayedTutorCase.caseTitle || "Patient case"}</p>
               <p className="mt-2 text-sm leading-6 text-text-1">{displayedTutorCase.stem}</p>
+              {Object.keys(displayedTutorCase.choices || {}).length > 0 && ["mechanism", "consequence", "contrast"].includes(normalizedTutorStep) && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-text-3">Answer choices · now test your model</p>
+                  <ul className="mt-2 grid gap-2 sm:grid-cols-2">
+                    {Object.entries(displayedTutorCase.choices).map(([letter, choice]) => <li key={letter} className="rounded border border-border px-2 py-2 text-sm"><strong className="mr-2 text-accent">{letter}</strong>{choice}</li>)}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">
@@ -1898,6 +1915,9 @@ export function LectureStudyFlow({
             <div className={`mt-3 rounded border p-3 ${latestTutorTurn.assessment === "correct" ? "border-good/30 bg-good/5" : "border-warn/30 bg-warn/5"}`}>
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-3">Tutor feedback · {latestTutorTurn.assessment?.replace(/_/g, " ") || "review"}</p>
               <p className="mt-1 text-sm leading-6 text-text-1">{latestTutorTurn.feedback}</p>
+              {latestTutorTurn.preservedReasoning?.length > 0 && <p className="mt-2 text-xs leading-5 text-good"><strong>Kept:</strong> {latestTutorTurn.preservedReasoning.join(" · ")}</p>}
+              {latestTutorTurn.firstDivergence && <p className="mt-1 text-xs leading-5 text-warn"><strong>First divergence:</strong> {latestTutorTurn.firstDivergence}</p>}
+              {(latestTutorTurn.missTypes?.length > 0 || latestTutorTurn.requestedDepth) && <p className="mt-1 text-xs leading-5 text-text-2"><strong>Diagnostic:</strong> {latestTutorTurn.missTypes?.length ? latestTutorTurn.missTypes.join(" + ") : "no miss recorded"}{latestTutorTurn.requestedDepth ? ` · depth: ${latestTutorTurn.requestedDepth.replace(/_/g, " ")}` : ""}</p>}
               {latestTutorTurn.confidenceNote && <p className="mt-2 border-t border-border pt-2 text-xs leading-5 text-text-2">{latestTutorTurn.confidenceNote}</p>}
             </div>
           )}

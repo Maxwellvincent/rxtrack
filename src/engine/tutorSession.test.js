@@ -27,6 +27,21 @@ describe("bounded tutor sessions", () => {
     });
   });
 
+  it("uses explicit question translation and depth prompts before mechanism", () => {
+    expect(tutorStepPrompt({ step: "translate", objectiveText: "glycolysis" }).nextStep).toBe("depth");
+    expect(tutorStepPrompt({ step: "depth", objectiveText: "glycolysis" })).toMatchObject({
+      prompt: expect.stringContaining("What level"),
+      nextStep: "mechanism",
+    });
+  });
+
+  it("tracks the diagnostic miss taxonomy without discarding legacy fields", () => {
+    const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 10 });
+    const next = recordTutorTurn(state, { objectiveId: "o1", missType: "mechanism", missTypes: ["depth", "content"] }, 20);
+    expect(next.learnerProfile.diagnosticMisses).toEqual({ depth: 1, content: 1 });
+    expect(next.learnerProfile.recentMisses[0].missType).toBe("mechanism");
+  });
+
   it("attaches a patient case and moves the session into diagnosis", () => {
     const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 10 });
     expect(attachTutorCase(state, { caseTitle: "Case", stem: "A patient presents." }, 20, "Start with a model.")).toMatchObject({
