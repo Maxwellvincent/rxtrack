@@ -1785,7 +1785,7 @@ export function LectureStudyFlow({
           ))}</ul>
         </section>
       )}
-      <div className="mt-4 rounded-lg border border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
+      <div className="desk-tutor-launcher mt-4 rounded-xl border border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-text-1">Guided tutor</span>
@@ -1854,7 +1854,7 @@ export function LectureStudyFlow({
         </div>
       </div>
       {tutorSession && (
-        <section id="guided-tutor-workspace" hidden={!tutorWorkspaceOpen} className="mt-3 rounded-lg border border-good/30 bg-good/5 p-3" data-testid="guided-tutor-workspace">
+        <section id="guided-tutor-workspace" hidden={!tutorWorkspaceOpen} className="desk-tutor-workspace mt-3 rounded-xl border border-good/30 bg-good/5 p-3 sm:p-4" data-testid="guided-tutor-workspace">
           {tutorSession.status !== "active" && (
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded border border-accent/30 bg-bg-elevated px-3 py-2">
               <p className="text-sm text-text-2">
@@ -1879,6 +1879,13 @@ export function LectureStudyFlow({
             </div>
             <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Recognize → translate → depth → connect → apply</span>
           </div>
+          <nav className="desk-tutor-phase-rail" aria-label="Tutor reasoning phases">
+            {[['diagnosis', 'Recognize'], ['translate', 'Translate'], ['depth', 'Depth'], ['mechanism', 'Connect'], ['consequence', 'Apply'], ['contrast', 'Contrast']].map(([step, label], index) => {
+              const phaseIndex = ['diagnosis', 'translate', 'depth', 'mechanism', 'consequence', 'contrast'].indexOf(normalizedTutorStep);
+              const state = index < phaseIndex ? 'done' : index === phaseIndex ? 'active' : 'next';
+              return <span key={step} className={`desk-tutor-phase desk-tutor-phase--${state}`}><span className="desk-tutor-phase__dot">{state === 'done' ? '✓' : index + 1}</span>{label}</span>;
+            })}
+          </nav>
           <details className="mt-3 rounded border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2" data-testid="tutor-coverage">
             <summary className="cursor-pointer font-semibold text-text-1">Coverage checkpoint · {tutorPacing.objectivesCompleted} complete · {tutorPacing.objectivesInProgress} in progress · {tutorPacing.objectivesNotYetReached} not yet reached</summary>
             <p className="mt-2 text-text-3">Time spent or an objective being reached is not mastery; only completed reasoning chains count as complete.</p>
@@ -1894,21 +1901,21 @@ export function LectureStudyFlow({
             <p className="mt-1 text-sm leading-5 text-text-1">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
           </div>
           {tutorSession.openingModel && !tutorSession.delayedReview && (
-            <div className="mt-4 rounded border border-good/30 bg-bg-elevated p-3">
+            <div className="desk-tutor-context mt-4 rounded border border-good/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Start with the model</p>
               <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.openingModel}</p>
               <p className="mt-2 text-xs text-text-3">The case asks what clinical job breaks when the process is disrupted.</p>
             </div>
           )}
           {tutorSession.delayedReview ? (
-            <div className="mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
+            <div className="desk-tutor-context mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Earlier patient · delayed retrieval</p>
               <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.delayedReview.stem}</p>
             </div>
           ) : tutorLoading && !tutorSession.patientCase ? (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">Building a patient case from this lecture and its objectives…</div>
           ) : tutorSession.patientCase ? (
-            <div className="mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
+            <div className="desk-tutor-context mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{displayedTutorCase.caseTitle || "Patient case"}</p>
               <p className="mt-2 text-sm leading-6 text-text-1">{displayedTutorCase.stem}</p>
               {Object.keys(displayedTutorCase.choices || {}).length > 0 && ["mechanism", "consequence", "contrast"].includes(normalizedTutorStep) && (
@@ -1927,7 +1934,7 @@ export function LectureStudyFlow({
             </div>
           )}
           {latestTutorTurn && String(latestTutorTurn.objectiveId) === String(tutorSession.activeObjectiveId) && latestTutorTurn.feedback && (
-            <div className={`mt-3 rounded border p-3 ${latestTutorTurn.assessment === "correct" ? "border-good/30 bg-good/5" : "border-warn/30 bg-warn/5"}`}>
+            <div className={`desk-tutor-feedback mt-3 rounded border p-3 ${latestTutorTurn.assessment === "correct" ? "border-good/30 bg-good/5" : "border-warn/30 bg-warn/5"}`}>
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-3">Tutor feedback · {latestTutorTurn.assessment?.replace(/_/g, " ") || "review"}</p>
               <p className="mt-1 text-sm leading-6 text-text-1">{latestTutorTurn.feedback}</p>
               {latestTutorTurn.preservedReasoning?.length > 0 && <p className="mt-2 text-xs leading-5 text-good"><strong>Kept:</strong> {latestTutorTurn.preservedReasoning.join(" · ")}</p>}
@@ -1960,7 +1967,7 @@ export function LectureStudyFlow({
                 placeholder="First name the syndrome or disease family, then explain your reasoning…"
                 disabled={tutorSession.status !== "active" || tutorLoading}
                 rows={3}
-                className="mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
+                className="desk-tutor-input mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button disabled={tutorSession.status !== "active" || tutorReviewing || tutorLoading} onClick={() => submitTutorTurn("response")} className="rounded bg-good px-3 py-1.5 text-xs font-semibold text-white hover:opacity-90 disabled:cursor-wait disabled:opacity-50">{tutorReviewing ? "Tutor is reviewing…" : "Check my reasoning"}</button>
