@@ -179,8 +179,13 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                   }
                   grouped.get(b.groupTitle).blocks.push(b);
                 }
-                return groups.map((group) => <div key={group.key}>
-                  {group.title && <div className="px-5 pb-1 pt-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-3">{group.title}</div>}
+                return groups.map((group) => <div
+                  key={group.key}
+                  role={group.title ? "group" : undefined}
+                  aria-label={group.title || undefined}
+                  className={group.title ? "mx-3 mt-1 border-l-2 border-accent/25 pl-2" : ""}
+                >
+                  {group.title && <div className="pb-1 pt-2 pl-2 font-mono text-[11px] font-bold uppercase tracking-wider text-text-2">{group.title}</div>}
                   {group.blocks.map((b) => {
                   const cov = blockCoverage(objectives.data, b.id);
                   const active = b.id === activeBlockId;
@@ -189,7 +194,8 @@ export function Sidebar({ activeBlockId, onSelectBlock, onOpenPalette, userId = 
                       key={b.id}
                       onClick={() => onSelectBlock(b.id)}
                       className={[
-                        "flex w-full items-center justify-between border-l-[3px] px-4 py-2 text-left text-xs transition-colors",
+                        "flex w-full items-center justify-between border-l-[3px] py-2 text-left text-xs transition-colors",
+                        group.title ? "pl-4 pr-2" : "px-4",
                         active
                           ? "border-accent bg-accent-soft text-text-1"
                           : "border-transparent text-text-2 hover:bg-bg-elevated hover:text-text-1",
