@@ -42,6 +42,15 @@ describe("bounded tutor sessions", () => {
     expect(next.learnerProfile.recentMisses[0].missType).toBe("mechanism");
   });
 
+  it("queues one targeted card draft per unique gap", () => {
+    let state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 10 });
+    const draft = { front: "What connects A to B?", back: "A causes B." };
+    state = recordTutorTurn(state, { objectiveId: "o1", ankiRecommendation: draft }, 20);
+    state = recordTutorTurn(state, { objectiveId: "o1", ankiRecommendation: draft }, 30);
+    expect(state.ankiQueue).toHaveLength(1);
+    expect(state.ankiQueue[0]).toMatchObject({ ...draft, status: "queued" });
+  });
+
   it("attaches a patient case and moves the session into diagnosis", () => {
     const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 10 });
     expect(attachTutorCase(state, { caseTitle: "Case", stem: "A patient presents." }, 20, "Start with a model.")).toMatchObject({

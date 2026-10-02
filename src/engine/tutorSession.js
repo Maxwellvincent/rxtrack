@@ -67,6 +67,7 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     currentStep: "retrieval",
     blockers: [],
     turns: [],
+    ankiQueue: [],
     nextAction: ids.length ? "retrieve_previous_state" : "build_patient_case",
     openingModel: null,
     patientCase: null,
@@ -220,6 +221,11 @@ function updateLearnerProfile(state, turn, objectiveId, now) {
 export function recordTutorTurn(state, turn, now = Date.now()) {
   if (!state || state.status !== "active") return state;
   const nextTurns = [...(state.turns || []), { ...turn, at: now }];
+  const priorAnki = Array.isArray(state.ankiQueue) ? state.ankiQueue : [];
+  const draft = turn?.ankiRecommendation;
+  const ankiQueue = draft?.front && draft?.back && !priorAnki.some((item) => item.front === draft.front)
+    ? [...priorAnki, { ...draft, objectiveId: turn?.objectiveId || state.activeObjectiveId, status: "queued", createdAt: now }].slice(-12)
+    : priorAnki;
   const reviewingEarlierCase = state.currentStep === "delayed_retrieval" && state.delayedReview;
   const objectiveId = turn?.objectiveId
     ? String(turn.objectiveId)
@@ -302,6 +308,7 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
   const finishedAllObjectives = Boolean(turn?.objectiveComplete && !nextObjectiveId && !delayedReview);
   return checkpoint(state, {
     turns: nextTurns,
+    ankiQueue,
     objectiveStartedIds,
     completedObjectiveIds: completed,
     activeObjectiveId: delayedReview?.objectiveId || nextObjectiveId || objectiveId || state.activeObjectiveId,
