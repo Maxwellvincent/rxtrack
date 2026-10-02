@@ -213,6 +213,40 @@ describe("LectureList focusLectureId (Task 12, Part B2)", () => {
     reopened.unmount();
   });
 
+  it("keeps future-dated lectures out of the focus queue until their date", () => {
+    useTodayMock.mockReturnValue({
+      ...baseTodayReturn(),
+      context: {
+        ...baseTodayReturn().context,
+        now: new Date("2026-10-02T10:00:00"),
+        lectures: [
+          makeLecture("lec-1", "Lecture One"),
+          makeLecture("lec-2", "Lecture Two"),
+          { ...makeLecture("lec-20", "Lecture Twenty"), lectureDate: "2026-10-20" },
+        ],
+      },
+    });
+    const { host, unmount } = render(
+      <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} />
+    );
+    expect(host.textContent).not.toContain("Lecture Twenty");
+    expect(host.textContent).toContain("2 next lectures to consider");
+    unmount();
+  });
+
+  it("restores Browse all after opening a lecture and reopening the list", () => {
+    const props = { blockId: BLOCK, userId: "u1", onStudyLecture: vi.fn(), onStartObjectiveQuiz: vi.fn(), onBack: vi.fn() };
+    const first = render(<LectureList {...props} />);
+    act(() => Array.from(first.host.querySelectorAll("button")).find((button) => /Browse all/.test(button.textContent)).click());
+    expect(first.host.textContent).toContain("Lecture library");
+    first.unmount();
+
+    const reopened = render(<LectureList {...props} />);
+    expect(reopened.host.textContent).toContain("Lecture library");
+    expect(Array.from(reopened.host.querySelectorAll("button")).some((button) => /Return to focus queue/.test(button.textContent))).toBe(true);
+    reopened.unmount();
+  });
+
   it("lets the learner select the current library view and review the exact delete set before confirmation", () => {
     const { host, unmount } = render(
       <LectureList blockId={BLOCK} userId="u1" onStudyLecture={vi.fn()} onStartObjectiveQuiz={vi.fn()} onBack={vi.fn()} />

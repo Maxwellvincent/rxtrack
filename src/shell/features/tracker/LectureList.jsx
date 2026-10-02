@@ -31,7 +31,7 @@ const FILTERS_STORAGE_KEY = "rxt-lecture-list-prefs";
 function filterPrefsKey(blockId) { return `${FILTERS_STORAGE_KEY}:${blockId || "default"}`; }
 
 function readFilterPrefs(blockId) {
-  const defaults = { filter: "active", activityType: "all", search: "", sort: "urgency", week: "all" };
+  const defaults = { filter: "active", activityType: "all", search: "", sort: "urgency", week: "all", showAllLectures: false };
   try {
     if (typeof localStorage === "undefined") return defaults;
     const saved = JSON.parse(localStorage.getItem(filterPrefsKey(blockId)) || "{}");
@@ -41,6 +41,7 @@ function readFilterPrefs(blockId) {
       search: typeof saved.search === "string" ? saved.search : defaults.search,
       sort: SORT_LABELS[saved.sort] ? saved.sort : defaults.sort,
       week: typeof saved.week === "string" ? saved.week : defaults.week,
+      showAllLectures: typeof saved.showAllLectures === "boolean" ? saved.showAllLectures : defaults.showAllLectures,
     };
   } catch { return defaults; }
 }
@@ -285,7 +286,7 @@ export function LectureList({
   const [logged, setLogged] = useState(null);
   const [preReadTarget, setPreReadTarget] = useState(null);
   const [visibleCount, setVisibleCount] = useState(18);
-  const [showAllLectures, setShowAllLectures] = useState(false);
+  const [showAllLectures, setShowAllLectures] = useState(() => readFilterPrefs(blockId).showAllLectures);
   const [deletingLectureId, setDeletingLectureId] = useState(null);
   const [selectedLectureIds, setSelectedLectureIds] = useState(() => new Set());
   const [bulkDeleteTargets, setBulkDeleteTargets] = useState(null);
@@ -332,9 +333,9 @@ export function LectureList({
   const weeks = useMemo(() => buildLectureWeeks(rows), [rows]);
   const weekRows = useMemo(() => rows.filter((row) => rowMatchesWeek(row, week)), [rows, week]);
   // The compact Focus queue is a recommendation surface, not a preview of the
-  // user's last library filter/sort. A persisted "unstarted + lecture no."
-  // preference used to relabel the first six numbered rows as recommendations.
-  // Browse all keeps those preferences; Focus always uses shared urgency.
+  // user's last library filter/sort. Future-dated lectures are not actionable
+  // yet, so reserve this queue for
+  // lectures already released (or with no schedule date).
   const priorityRows = useMemo(
     () => buildLectureRows(scores, {
       completion: context.completion,
@@ -344,7 +345,7 @@ export function LectureList({
       activityType: "all",
       search: "",
       sort: "urgency",
-    }).slice(0, 6),
+    }).filter((row) => !row.isFuture).slice(0, 6),
     [scores, context.completion, blockId, repairProgress.data]
   );
   const counts = useMemo(
@@ -573,7 +574,14 @@ export function LectureList({
           <strong>{showAllLectures ? `${weekRows.length} lectures in this view` : `${priorityRows.length} next lectures to consider`}</strong>
           <span>{showAllLectures ? "Use the filters above to narrow the library." : "Ranked by the same evidence-aware urgency as Today. Filters and custom sorting apply in the full library."}</span>
         </div>
-        <button type="button" className="desk-lecture-focus-toggle" onClick={() => { setShowAllLectures((value) => !value); setVisibleCount(18); }}>
+        <button type="button" className="desk-lecture-focus-toggle" onClick={() => {
+          setShowAllLectures((value) => {
+            const next = !value;
+            saveFilterPrefs(blockId, { showAllLectures: next });
+            return next;
+          });
+          setVisibleCount(18);
+        }}>
           {showAllLectures ? "Return to focus queue" : `Browse all ${weekRows.length} lectures`}
         </button>
       </section>
@@ -591,7 +599,7 @@ export function LectureList({
       </div>}
 
       {displayRows.length === 0 ? (
-        <div className="rounded-lg border border-border p-3 text-xs text-text-3">Nothing matches that filter.</div>
+        <div className="rounded-lg border border-border p-3 text-xs text-text-3">{showAllLectures ? "Nothing matches that filter." : "No released lectures need focus right now."}</div>
       ) : (
         <div className="desk-lecture-list rounded-xl border border-border bg-bg-elevated px-4">
           {visibleRows.map((row) => (
