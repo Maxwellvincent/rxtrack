@@ -1015,7 +1015,7 @@ export function LectureStudyFlow({
       }
       // Save once, after tagging. If it fails, keep the in-session atoms but
       // make the persistence failure visible so this can be retried.
-      try { await saveLectureAtoms(userId, lecture?.id, finalAtoms); }
+      try { await saveLectureAtoms(userId, lecture?.id, finalAtoms, lecture); }
       catch (e) { setError(`Atoms extracted, but their objective links did not save: ${e?.message || String(e)}`); }
       setAtoms(finalAtoms);
       setStage("quiz");
@@ -1069,7 +1069,7 @@ export function LectureStudyFlow({
     if (r.error) setError(`Partly tagged (${r.byTerm} by name): ${r.error}`);
     setAtoms(r.atoms);
     try {
-      await saveLectureAtoms(userId, lecture?.id, r.atoms);
+      await saveLectureAtoms(userId, lecture?.id, r.atoms, lecture);
     } catch (e) {
       setError(`Tagged, but saving failed: ${e?.message || String(e)}`);
     }

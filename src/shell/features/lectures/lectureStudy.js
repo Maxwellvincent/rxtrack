@@ -94,7 +94,7 @@ export async function extractAtoms(lecture, text, deps = {}) {
   let saved = false;
   if (saveAtoms && lecture?.id) {
     try {
-      await saveAtoms(userId, lecture.id, atoms);
+      await saveAtoms(userId, lecture.id, atoms, lecture);
       saved = true;
     } catch (e) {
       return { atoms, error: null, saved: false, saveError: e?.message || String(e) };

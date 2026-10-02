@@ -89,7 +89,8 @@ export async function runLectureDedupe({ userId, dryRun = false } = {}) {
     try {
       const source = await fetchLectureContent(userId, group.carryAtomsFrom);
       if (source?.atoms?.length) {
-        await saveLectureAtoms(userId, group.keep, source.atoms);
+        const survivor = lectures.find((lecture) => lecture.id === group.keep);
+        await saveLectureAtoms(userId, group.keep, source.atoms, survivor);
         report.atomsCarried += 1;
       }
     } catch { /* the survivor can be re-extracted */ }

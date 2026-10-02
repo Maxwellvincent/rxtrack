@@ -172,7 +172,7 @@ export function ReExtractAllModal({ blockId, userId, onClose, onDone }) {
             if (!lec.atoms?.length || !objectives.length) continue;
             atomLectures++;
             const result = await tagAtomsWithObjectives(lec.atoms, objectives, { callAIJSON });
-            await saveLectureAtoms(userId, lec.id, result.atoms || lec.atoms);
+            await saveLectureAtoms(userId, lec.id, result.atoms || lec.atoms, lec);
             linked += (result.atoms || []).filter(a => a.objectiveIds?.length).length;
           } catch (e) {
             progress(`${i + 1}/${lectures.length} · skipped ${localLecture.lectureTitle || "lecture"}: ${e?.message || e}`);

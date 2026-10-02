@@ -105,7 +105,7 @@ describe("extractAtoms", () => {
 
     expect(result).toMatchObject({ saved: true, error: null });
     expect(result.atoms).toHaveLength(1);
-    expect(saveAtoms).toHaveBeenCalledWith("u1", "lec1", result.atoms);
+    expect(saveAtoms).toHaveBeenCalledWith("u1", "lec1", result.atoms, { id: "lec1", lectureTitle: "Plexus" });
   });
 
   it("keeps the atoms when the save fails", async () => {
@@ -130,7 +130,7 @@ describe("extractAtoms", () => {
     expect(result.atoms).toHaveLength(1);
     expect(result.warning).toMatch(/facts were kept/i);
     expect(result.saved).toBe(true);
-    expect(saveAtoms).toHaveBeenCalledWith("u1", "heme", result.atoms);
+    expect(saveAtoms).toHaveBeenCalledWith("u1", "heme", result.atoms, { id: "heme", lectureTitle: "Heme Degradation" });
   });
 
   it("reports too-short text and an empty extraction", async () => {

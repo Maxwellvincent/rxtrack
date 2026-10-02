@@ -18,6 +18,7 @@ import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
 import { createSessionShape, sessionBytes, MAX_EXAM_SESSION_BYTES } from "./examSessions.js";
 import { stripLectureBodyForLocalCache } from "./shell/logic/lectureMetaCache.js";
+import { hasLectureMetadata } from "./shell/logic/lectureCloudRecord.js";
 import { stripUndefined } from "./stores/cloudBase.js";
 
 // SP1 T0.3: shared-data keys are owned by src/stores/*. Values reaching here are
@@ -242,11 +243,20 @@ export async function saveLectureToCloud(userId, lecture) {
  * localStorage on purpose: 40 atoms across 367 lectures would be ~1.8MB of a
  * budget that just had 794KB clawed back out of it.
  */
-export async function saveLectureAtoms(userId, lecId, atoms) {
+export async function saveLectureAtoms(userId, lecId, atoms, lecture = null) {
   if (!userId || !lecId) return { saved: 0 };
+  const ref = doc(db, "users", userId, "lectures", encodeDocId(lecId));
+  const existing = await getDoc(ref);
+  if (!hasLectureMetadata(existing.exists() ? existing.data() : null)) {
+    if (!lecture?.id || lecture.id !== lecId) {
+      throw new Error("Lecture metadata is missing; refusing to create an atoms-only lecture record.");
+    }
+    const metadataSave = await saveLectureToCloud(userId, lecture);
+    if (!metadataSave?.saved) throw new Error(`Lecture metadata could not be saved (${metadataSave?.reason || "unknown reason"}).`);
+  }
   const list = Array.isArray(atoms) ? atoms : [];
   await setDoc(
-    doc(db, "users", userId, "lectures", encodeDocId(lecId)),
+    ref,
     stripUndefined({ atoms: list, atomsUpdatedAt: serverTimestamp() }),
     { merge: true }
   );
@@ -722,7 +732,7 @@ export async function pullAllDataFromSupabase(userId) {
     // Belt and braces with the tombstone deletes on push: a doc this device
     // already buried must not walk back in from a stale cloud copy.
     const buried = readLectureTombstoneIds();
-    const fromCloud = lecsSnap.docs.filter((d) => !buried.has(decodeDocId(d.id))).map((d) => {
+    const fromCloud = lecsSnap.docs.filter((d) => !buried.has(decodeDocId(d.id)) && hasLectureMetadata(d.data())).map((d) => {
       const v = d.data();
       const lec = stripLectureBodyForLocalCache({ ...(v.data || {}), id: decodeDocId(d.id) });
       // Full slide text is fetched from the lecture document when Study opens.
