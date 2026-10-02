@@ -40,13 +40,15 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
   };
 }
 
-export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], objectivePlan = [], learnerProfile = null, retrievalQueue = [], now = Date.now() } = {}) {
+export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], objectivePlan = [], learnerProfile = null, retrievalQueue = [], sessionMode = "walkthrough", integrationSeed = "", now = Date.now() } = {}) {
   const budget = BUDGETS.has(Number(budgetMinutes)) ? Number(budgetMinutes) : 30;
   const ids = [...new Set((objectiveIds || []).map(String).filter(Boolean))];
   return {
     version: 1,
     sessionId: `tutor_${lectureId || "lecture"}_${now}`,
     lectureId: lectureId || null,
+    sessionMode: sessionMode === "integration" ? "integration" : "walkthrough",
+    integrationSeed: integrationSeed || null,
     budgetMinutes: budget,
     status: "active",
     phase: "resume",
@@ -106,6 +108,8 @@ export function tutorPacingContext(state) {
       : "Continue at the planned pace; do not rush a learner who is actively processing.";
   return {
     mode,
+    sessionMode: state?.sessionMode === "integration" ? "integration" : "walkthrough",
+    coverageLabel: state?.sessionMode === "integration" ? "All lecture objectives covered · integration/application" : null,
     budgetMinutes,
     elapsedSeconds: Math.max(0, Number(state?.elapsedSeconds) || 0),
     remainingSeconds,

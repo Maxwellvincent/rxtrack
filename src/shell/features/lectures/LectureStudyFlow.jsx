@@ -517,8 +517,8 @@ export function LectureStudyFlow({
       .join("\n");
     try {
       const generated = await callAIJSON(
-        "You are a warm, precise medical-school tutor following a question-reasoning diagnostic model. Generate one Step 1-style patient question tied directly to the supplied lecture objective. Do not write a generic lecture summary. The openingModel may provide only the smallest case-relevant scaffold and must not reveal the target diagnosis or answer. The question must have one clear requested depth (disease/state, pathway, mechanism, enzyme/structure, regulator/cofactor, or consequence) and wording that can later be translated explicitly. Include clinically meaningful distractor logic. Keep caseTitle neutral (Patient 1); hide the diagnosis and answer choices until the learner has reasoned through the case. Stay grounded in the lecture and return valid JSON only.",
-        `Lecture: ${title}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"1-2 concise case-relevant sentences without naming the answer","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question the learner can answer from the case","questionIntent":"plain-language description of the exact requested output","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence","choices":{"A":"...","B":"...","C":"...","D":"..."},"correctChoice":"private correct letter","keyClues":["2-4 private clues for feedback"],"diagnosisCategory":"private expected diagnosis family","mechanismTarget":"private expected mechanism","acceptedAnswers":["private acceptable aliases grounded in lecture"]}. Choices must be plausible and lecture-supported; do not reveal the correct choice in the stem or opening model.`,
+        "You are a warm, precise medical-school tutor following a question-reasoning diagnostic model. Generate one Step 1-style patient question tied directly to the supplied lecture objective. Do not write a generic lecture summary. If sessionMode is integration, assume first-pass coverage is complete: connect multiple lecture objectives in one clinical/anatomical problem and do not restart with definitions or immediately repeat a fact just taught. The openingModel may provide only the smallest case-relevant scaffold and must not reveal the target diagnosis or answer. The question must have one clear requested depth and wording that can later be translated explicitly. Include clinically meaningful distractor logic. Keep caseTitle neutral (Patient 1); hide the diagnosis and answer choices until the learner has reasoned through the case. Stay grounded in the lecture and return valid JSON only.",
+        `Lecture: ${title}\nSession mode: ${tutorSessionRef.current?.sessionMode || "walkthrough"}\nIntegration instruction: ${tutorSessionRef.current?.integrationSeed || "none"}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective anchor: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"1-2 concise case-relevant sentences without naming the answer","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question the learner can answer from the case","questionIntent":"plain-language description of the exact requested output","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence","choices":{"A":"...","B":"...","C":"...","D":"..."},"correctChoice":"private correct letter","keyClues":["2-4 private clues for feedback"],"diagnosisCategory":"private expected diagnosis family","mechanismTarget":"private expected mechanism","acceptedAnswers":["private acceptable aliases grounded in lecture"]}. Choices must be plausible and lecture-supported; do not reveal the correct choice in the stem or opening model.`,
         { openingModel: "Start with the lecture’s organizing model and identify the clinical pattern before naming an answer.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture evidence to identify the pattern before naming the answer.`, task: "What do you think is happening to this patient?", questionIntent: "identify the clinical pattern before going one level deeper", requestedDepth: "disease", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
         2200,
         undefined,
@@ -574,6 +574,10 @@ export function LectureStudyFlow({
         return (stateRank[a.state] ?? 4) - (stateRank[b.state] ?? 4);
       })
       .map((objective) => String(objective.id));
+    const allObjectivesCovered = lectureObjectives.length > 0 && objectivePractice.rows.length > 0 && objectivePractice.rows.every((objective) => objective.worked);
+    const integrationSeed = /general morphology.*nervous system/i.test(title) || /cerebral aqueduct|ventricular system/i.test(`${title} ${text}`)
+      ? "Start with an integrated cerebral aqueduct obstruction case. Ask the learner to trace lateral ventricles → interventricular foramina → third ventricle → cerebral aqueduct → fourth ventricle, then reason which spaces enlarge and why. Do not restart with definitions."
+      : "Connect two or more covered objectives in one patient or anatomical problem. Require localization, mechanism, and one predicted consequence.";
     const previous = tutorSessionsStore.get(userId, lecture?.id);
     const now = Date.now();
     const retrievalQueue = (previous?.retrievalQueue || []).map((review) => ({
@@ -590,6 +594,8 @@ export function LectureStudyFlow({
       })),
       learnerProfile: tutorSessionsStore.getLearnerProfile(userId),
       retrievalQueue,
+      sessionMode: allObjectivesCovered ? "integration" : "walkthrough",
+      integrationSeed: allObjectivesCovered ? integrationSeed : "",
       now,
     });
     setTutorResponse("");
@@ -606,7 +612,7 @@ export function LectureStudyFlow({
     }
     next.retrievalQueue = retrievalQueue;
     saveTutorSession(next);
-  }, [lecture?.id, lectureObjectives, objectivePractice.rows, saveTutorSession, userId]);
+  }, [lecture?.id, lectureObjectives, objectivePractice.rows, saveTutorSession, text, title, userId]);
 
   useEffect(() => {
     if (tutorSession?.status !== "active" || tutorSession.patientCase || tutorSession.delayedReview || (!text && !atoms.length)) return;
@@ -1874,8 +1880,8 @@ export function LectureStudyFlow({
           )}
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Guided case walkthrough · step {tutorSession.turns?.length + 1 || 1}</p>
-              <h3 className="mt-1 font-semibold text-text-1">{tutorSession.delayedReview ? "Delayed retrieval" : `Objective ${tutorObjectiveIndex + 1} of ${lectureObjectives.length || 1}`}</h3>
+            <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">{tutorSession.sessionMode === "integration" ? "Integrated application · step" : "Guided case walkthrough · step"} {tutorSession.turns?.length + 1 || 1}</p>
+              <h3 className="mt-1 font-semibold text-text-1">{tutorSession.delayedReview ? "Delayed retrieval" : tutorSession.sessionMode === "integration" ? "Connect the lecture" : `Objective ${tutorObjectiveIndex + 1} of ${lectureObjectives.length || 1}`}</h3>
             </div>
             <span className="rounded border border-good/30 px-2 py-1 font-mono text-[11px] text-good">Recognize → translate → depth → connect → apply</span>
           </div>
@@ -1887,8 +1893,8 @@ export function LectureStudyFlow({
             })}
           </nav>
           <details className="mt-3 rounded border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2" data-testid="tutor-coverage">
-            <summary className="cursor-pointer font-semibold text-text-1">Coverage checkpoint · {tutorPacing.objectivesCompleted} complete · {tutorPacing.objectivesInProgress} in progress · {tutorPacing.objectivesNotYetReached} not yet reached</summary>
-            <p className="mt-2 text-text-3">Time spent or an objective being reached is not mastery; only completed reasoning chains count as complete.</p>
+            <summary className="cursor-pointer font-semibold text-text-1">{tutorPacing.coverageLabel || `Coverage checkpoint · ${tutorPacing.objectivesCompleted} complete · ${tutorPacing.objectivesInProgress} in progress · ${tutorPacing.objectivesNotYetReached} not yet reached`}</summary>
+            <p className="mt-2 text-text-3">{tutorSession.sessionMode === "integration" ? "First-pass teaching is complete for this lecture. This block tests whether you can connect the objectives in new patient and anatomy problems." : "Time spent or an objective being reached is not mastery; only completed reasoning chains count as complete."}</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
               <div><p className="font-semibold text-good">Complete</p>{tutorPacing.completed.map((label, index) => <p key={`done-${index}`} className="mt-1">{label}</p>)}</div>
               <div><p className="font-semibold text-accent">In progress</p>{tutorPacing.inProgress.map((label, index) => <p key={`progress-${index}`} className="mt-1">{label}</p>)}</div>

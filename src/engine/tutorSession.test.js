@@ -59,6 +59,12 @@ describe("bounded tutor sessions", () => {
     expect(tutorPacingContext(state)).toMatchObject({ mode: "balanced walkthrough", objectivesNotYetReached: 2, notYetReached: ["First", "Second"] });
   });
 
+  it("preserves integration mode for lectures whose first-pass objectives are complete", () => {
+    const state = createTutorSession({ lectureId: "nb02", objectiveIds: ["o1"], sessionMode: "integration", integrationSeed: "aqueduct obstruction", now: 100 });
+    expect(state).toMatchObject({ sessionMode: "integration", integrationSeed: "aqueduct obstruction" });
+    expect(tutorPacingContext(state)).toMatchObject({ sessionMode: "integration", coverageLabel: "All lecture objectives covered · integration/application" });
+  });
+
   it("does not consume the study budget until a patient case or delayed-retrieval case exists", () => {
     const state = createTutorSession({ lectureId: "lec", objectiveIds: ["o1"], now: 100 });
     expect(tickTutorSession(state, 30, 130)).toBe(state);
