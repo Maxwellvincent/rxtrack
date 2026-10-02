@@ -309,6 +309,11 @@ describe("upsertLecture", () => {
     expect(result.lecture.id).toBe("old");
     expect(result.lecture.fullText).toBe("new");
   });
+
+  it("refuses to silently add a new row when an explicitly selected target is missing", () => {
+    expect(() => upsertLecture([], incoming, { targetId: "stale-target" }))
+      .toThrow(/selected lecture is no longer in this block/i);
+  });
 });
 
 describe("findFillTarget / fillLecture — the schedule stub case", () => {

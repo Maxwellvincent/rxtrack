@@ -25,7 +25,7 @@ import * as objectivesStore from "../../../stores/blockObjectives.js";
 import { assessTextQuality, extractWithSmartFallback } from "../../../ingest/pdfText.js";
 import { extractObjectivesFromLecture } from "../../../ingest/objectives.js";
 import { analyzeLecture } from "../../../ingest/teachingMap.js";
-import { createObjectiveCommands } from "../../logic/objectives.js";
+import { createObjectiveCommands, selectBlockObjectives } from "../../logic/objectives.js";
 import { extractAtoms as extractAtomsForLecture, MIN_TEXT } from "./lectureStudy.js";
 import { callAIJSON } from "../../../aiClient.js";
 import { generateStudyGuide } from "../../../engine/studyGuide.js";
@@ -143,6 +143,18 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
     async (lecture) => {
       const lec = lecture || saved;
       if (!lec) return;
+      // A source-PDF refresh must not replace the school's linked objectives
+      // with whatever an extractor happens to infer from slide text. Those
+      // links are the curriculum/progress source of truth.
+      if (targetLecture) {
+        const linked = selectBlockObjectives(objectivesStore.read(userId) || {}, blockId)
+          .filter((objective) => objective?.linkedLecId === lec.id ||
+            (lec.mergedFrom || []).some((source) => source?.id === objective?.linkedLecId));
+        if (linked.length) {
+          setObjectiveResult(`${linked.length} existing school objective${linked.length === 1 ? " link" : " links"} preserved; source refresh did not replace them.`);
+          return linked;
+        }
+      }
       setProgress("Reading the objectives out of the lecture…");
       try {
         const found = await extractObjectivesFromLecture(lectureText(lec), lec, blockId);
@@ -169,7 +181,7 @@ export function AddLectureModal({ blockId, termId = null, userId = null, onClose
         setProgress("");
       }
     },
-    [saved, blockId, userId]
+    [saved, blockId, userId, targetLecture]
   );
 
   /**

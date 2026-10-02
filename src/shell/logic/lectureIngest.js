@@ -366,6 +366,13 @@ export function upsertLecture(lectures, lecture, { mode = "fill", targetId = nul
     ? list.find((candidate) => candidate?.id === targetId) || null
     : findFillTarget(list, lecture);
 
+  // An explicit target is a promise from the caller (for example, “re-extract
+  // this lecture”), not a best-effort hint. Silently falling through to `added`
+  // mints a new id and strands objective/session links on the original row.
+  if (targetId && !existing) {
+    throw new Error("The selected lecture is no longer in this block. Refresh the lecture list and try again.");
+  }
+
   if (!existing) {
     return { lectures: [...list, lecture], replacedId: null, filledId: null, action: "added" };
   }
