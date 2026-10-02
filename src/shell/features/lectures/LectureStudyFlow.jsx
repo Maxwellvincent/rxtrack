@@ -19,7 +19,7 @@ import {
 } from "../../../supabase.js";
 import { HY_TYPES } from "../../../engine/highYield.js";
 import { locallyValidClinicalQuestions } from "../../../engine/mcq.js";
-import { reasoningGuidance } from "../../../engine/questionReasoning.js";
+import { normalizeMissDiagnostic, reasoningGuidance } from "../../../engine/questionReasoning.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { tagAtomsWithObjectives } from "../../../engine/tagAtoms.js";
 import { createObjectiveCommands, selectBlockObjectives, setStatus, storageKeyFor, toEntry } from "../../logic/objectives.js";
@@ -561,14 +561,19 @@ export function LectureStudyFlow({
   }, [atoms, lecture?.id, lectureObjectives, mentalModel?.bigPicture, saveTutorSession, text, title]);
 
   const startTutorSession = useCallback((budgetMinutes) => {
-    const objectiveIds = lectureObjectives
-      .map((objective) => objective?.id || objective?.code || objective?.objective)
-      .filter(Boolean)
-      .map(String);
-    for (let index = objectiveIds.length - 1; index > 0; index -= 1) {
-      const swapIndex = Math.floor(Math.random() * (index + 1));
-      [objectiveIds[index], objectiveIds[swapIndex]] = [objectiveIds[swapIndex], objectiveIds[index]];
+    const profile = tutorSessionsStore.getLearnerProfile(userId) || {};
+    const openMisses = new Map();
+    for (const miss of profile.recentMisses || []) {
+      if (miss.status !== "resolved") openMisses.set(String(miss.objectiveId), (openMisses.get(String(miss.objectiveId)) || 0) + 1);
     }
+    const objectiveIds = [...objectivePractice.rows]
+      .sort((a, b) => {
+        const missDelta = (openMisses.get(String(b.id)) || 0) - (openMisses.get(String(a.id)) || 0);
+        if (missDelta) return missDelta;
+        const stateRank = { struggling: 0, untested: 1, developing: 2, ready: 3 };
+        return (stateRank[a.state] ?? 4) - (stateRank[b.state] ?? 4);
+      })
+      .map((objective) => String(objective.id));
     const previous = tutorSessionsStore.get(userId, lecture?.id);
     const now = Date.now();
     const retrievalQueue = (previous?.retrievalQueue || []).map((review) => ({
@@ -601,7 +606,7 @@ export function LectureStudyFlow({
     }
     next.retrievalQueue = retrievalQueue;
     saveTutorSession(next);
-  }, [lecture?.id, lectureObjectives, saveTutorSession, userId]);
+  }, [lecture?.id, lectureObjectives, objectivePractice.rows, saveTutorSession, userId]);
 
   useEffect(() => {
     if (tutorSession?.status !== "active" || tutorSession.patientCase || tutorSession.delayedReview || (!text && !atoms.length)) return;
@@ -709,12 +714,21 @@ export function LectureStudyFlow({
     try {
       const review = await callAIJSON(
         "You are a Socratic medical-school tutor following a question-reasoning diagnostic model. Evaluate only the learner's current step against the active lecture objective and source. Preserve every correct proposition, identify the first divergence, and teach only that missing connection. Do not dump a full solution or reveal the private answer before the learner commits. Ask exactly one next question. For translation and depth steps, do not solve the medical case; evaluate whether the learner correctly identified what the wording asks and how deep the answer must be. Return valid JSON only.",
-        `Lecture: ${title}\nSession pace and coverage: ${JSON.stringify(pacing)}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded."}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nQuestion intent: ${reviewCase?.questionIntent || "not recorded"}\nRequested depth: ${reviewCase?.requestedDepth || "not recorded"}\nCurrent step: ${reviewedStep}\nPrivate expected answer (never reveal before evaluating): diagnosis=${current.patientCase?.diagnosisCategory || "not recorded"}; accepted aliases=${(current.patientCase?.acceptedAnswers || []).join(", ") || "none recorded"}; mechanism=${current.patientCase?.mechanismTarget || "not recorded"}.\nConfidence before feedback: ${tutorConfidence || "not recorded"}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences preserving what was correct","preservedReasoning":["correct proposition 1"],"firstDivergence":"the earliest wrong or missing connection, or empty","followUp":"one Socratic question","questionIntent":"plain-language interpretation, if evaluated","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence|null","missTypes":["comprehension|depth|content"],"missType":"legacy recognition|mechanism|application|execution|null","repairLink":"the single missing connection, or empty","reasoningSkill":"causal-chain|localization|discriminator|pathway-link, or empty","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","readyToAdvance":boolean}. If the learner asks for a hint, reveal one clue but not the answer. Never reveal the diagnosis or correct choice until the diagnosis, translation, and depth reasoning steps have been attempted.`,
+        `Lecture: ${title}\nSession pace and coverage: ${JSON.stringify(pacing)}\nOpening mental model: ${current.openingModel || mentalModel?.bigPicture || "none saved"}\nEstablished learner anchors:\n${knownAnchors || "None recorded yet."}\nRecent repair history:\n${recentMisses || "No repeated miss pattern recorded."}\nRecent confidence history:\n${recentConfidence || "None recorded."}\nObjective: ${objectiveText}\nPatient case: ${caseText}\nQuestion intent: ${reviewCase?.questionIntent || "not recorded"}\nRequested depth: ${reviewCase?.requestedDepth || "not recorded"}\nCurrent step: ${reviewedStep}\nPrivate expected answer (never reveal before evaluating): diagnosis=${current.patientCase?.diagnosisCategory || "not recorded"}; accepted aliases=${(current.patientCase?.acceptedAnswers || []).join(", ") || "none recorded"}; mechanism=${current.patientCase?.mechanismTarget || "not recorded"}.\nConfidence before feedback: ${tutorConfidence || "not recorded"}\nLearner response: ${response || "The learner asked for a hint."}\nLecture material:\n${source}\n\nReturn {"assessment":"correct|partial|needs_repair","feedback":"1-3 concise sentences preserving what was correct","preservedReasoning":["correct proposition 1"],"firstDivergence":"the earliest wrong or missing connection, or empty","followUp":"one Socratic question","questionIntent":"plain-language interpretation, if evaluated","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence|null","missTypes":["comprehension|depth|content"],"missType":"legacy recognition|mechanism|application|execution|null","repairLink":"the single missing connection, or empty","reasoningSkill":"causal-chain|localization|discriminator|pathway-link, or empty","confidenceNote":"brief coaching only if confidence and performance clearly mismatch; otherwise empty","anki":{"kind":"comprehension|depth|content|none","front":"one atomic recall question about the actual gap","back":"the concise answer and lecture connection"},"readyToAdvance":boolean}. If the learner asks for a hint, reveal one clue but not the answer. Never reveal the diagnosis or correct choice until the diagnosis, translation, and depth reasoning steps have been attempted. Do not recommend Anki for a step the learner already demonstrated.`,
         fallback,
         1000
       );
       const latest = tutorSessionRef.current;
       if (!latest || latest.sessionId !== current.sessionId || latest.activeObjectiveId !== current.activeObjectiveId || latest.currentStep !== current.currentStep) return;
+      const diagnostic = normalizeMissDiagnostic({
+        primaryType: review?.missTypes?.[0] || null,
+        secondaryType: review?.missTypes?.[1] || null,
+        depth: review?.requestedDepth || null,
+        preserved: review?.preservedReasoning || [],
+        breakPoint: review?.firstDivergence || "",
+        asksFor: review?.questionIntent || reviewCase?.questionIntent || "",
+        anki: review?.anki || {},
+      });
       const readyToAdvance = !isBlocked && review?.readyToAdvance === true;
       const delayedReviewComplete = reviewedStep === "delayed_retrieval" && readyToAdvance;
       const objectiveComplete = readyToAdvance && reviewedStep === "contrast";
@@ -730,6 +744,7 @@ export function LectureStudyFlow({
         firstDivergence: review?.firstDivergence || "",
         questionIntent: review?.questionIntent || reviewCase?.questionIntent || "",
         requestedDepth: review?.requestedDepth || reviewCase?.requestedDepth || "",
+        ankiRecommendation: diagnostic.anki.kind !== "none" && diagnostic.anki.front && diagnostic.anki.back ? diagnostic.anki : null,
         reasoningSkill: review?.reasoningSkill || "",
         confidence: tutorConfidence || "",
         confidenceNote: review?.confidenceNote || "",
@@ -1918,6 +1933,7 @@ export function LectureStudyFlow({
               {latestTutorTurn.preservedReasoning?.length > 0 && <p className="mt-2 text-xs leading-5 text-good"><strong>Kept:</strong> {latestTutorTurn.preservedReasoning.join(" · ")}</p>}
               {latestTutorTurn.firstDivergence && <p className="mt-1 text-xs leading-5 text-warn"><strong>First divergence:</strong> {latestTutorTurn.firstDivergence}</p>}
               {(latestTutorTurn.missTypes?.length > 0 || latestTutorTurn.requestedDepth) && <p className="mt-1 text-xs leading-5 text-text-2"><strong>Diagnostic:</strong> {latestTutorTurn.missTypes?.length ? latestTutorTurn.missTypes.join(" + ") : "no miss recorded"}{latestTutorTurn.requestedDepth ? ` · depth: ${latestTutorTurn.requestedDepth.replace(/_/g, " ")}` : ""}</p>}
+              {latestTutorTurn.ankiRecommendation && <div className="mt-2 rounded border border-accent/30 bg-accent/5 p-2 text-xs leading-5 text-text-2"><p><strong>Targeted Anki card:</strong> {latestTutorTurn.ankiRecommendation.front}</p><p className="mt-1"><strong>Back:</strong> {latestTutorTurn.ankiRecommendation.back}</p><button type="button" className="mt-2 rounded border border-accent/40 px-2 py-1 font-semibold text-accent hover:bg-accent/10" onClick={() => navigator.clipboard?.writeText(`${latestTutorTurn.ankiRecommendation.front}\n\n${latestTutorTurn.ankiRecommendation.back}`)}>Copy card draft</button></div>}
               {latestTutorTurn.confidenceNote && <p className="mt-2 border-t border-border pt-2 text-xs leading-5 text-text-2">{latestTutorTurn.confidenceNote}</p>}
             </div>
           )}
