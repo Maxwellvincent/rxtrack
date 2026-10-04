@@ -83,6 +83,7 @@ import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
 import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
+import { buildTeachingBlocks, lectureModelFromBlocks } from "../../../engine/lectureTutorPlan.js";
 
 const TYPE_META = {
   definition: { label: "Definitions", hint: "what it is", accent: "border-l-accent" },
@@ -389,6 +390,8 @@ export function LectureStudyFlow({
     () => objectivePracticePlan(lectureObjectives, learnerEvidence.data),
     [lectureObjectives, learnerEvidence.data]
   );
+  const teachingBlocks = useMemo(() => buildTeachingBlocks(lectureObjectives, atoms), [atoms, lectureObjectives]);
+  const lectureModel = useMemo(() => lectureModelFromBlocks(teachingBlocks, title), [teachingBlocks, title]);
   const [round, setRound] = useState(0);
   // Rounds already finished, read once on mount — this component is keyed by lecture id, so it
   // remounts (and re-reads) whenever you switch lectures.
@@ -549,7 +552,7 @@ export function LectureStudyFlow({
           tutorSessionRef.current,
           patientCase,
           Date.now(),
-          mentalModel?.bigPicture || generated?.openingModel || "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted."
+          tutorSessionRef.current?.lectureModel || mentalModel?.bigPicture || generated?.openingModel || "Start with the lecture’s organizing model, then ask what clinical job breaks when a process is disrupted."
         ));
       }
     } catch (error) {
@@ -596,6 +599,8 @@ export function LectureStudyFlow({
       retrievalQueue,
       sessionMode: allObjectivesCovered ? "integration" : "walkthrough",
       integrationSeed: allObjectivesCovered ? integrationSeed : "",
+      teachingBlocks,
+      lectureModel,
       now,
     });
     setTutorResponse("");
@@ -612,7 +617,7 @@ export function LectureStudyFlow({
     }
     next.retrievalQueue = retrievalQueue;
     saveTutorSession(next);
-  }, [lecture?.id, lectureObjectives, objectivePractice.rows, saveTutorSession, text, title, userId]);
+  }, [lecture?.id, lectureModel, lectureObjectives, objectivePractice.rows, saveTutorSession, teachingBlocks, text, title, userId]);
 
   useEffect(() => {
     if (tutorSession?.status !== "active" || tutorSession.patientCase || tutorSession.delayedReview || (!text && !atoms.length)) return;
@@ -1894,6 +1899,10 @@ export function LectureStudyFlow({
               return <span key={step} className={`desk-tutor-phase desk-tutor-phase--${state}`}><span className="desk-tutor-phase__dot">{state === 'done' ? '✓' : index + 1}</span>{label}</span>;
             })}
           </nav>
+          {tutorSession.sessionMode === "walkthrough" && tutorSession.teachingBlocks?.length > 0 && <section className="desk-tutor-block-plan mt-3" aria-label="Lecture teaching plan">
+            <div className="desk-tutor-block-plan__header"><span>Teaching plan</span><strong>{tutorPacing.blocksComplete}/{tutorPacing.blocksTotal} blocks complete</strong></div>
+            <div className="desk-tutor-block-plan__list">{tutorSession.teachingBlocks.map((block, index) => <div key={block.id} className={`desk-tutor-block ${block.id === tutorSession.activeBlockId ? "desk-tutor-block--active" : ""} ${block.status === "complete" ? "desk-tutor-block--complete" : ""}`}><span>{block.status === "complete" ? "✓" : index + 1}</span><p>{block.title}</p></div>)}</div>
+          </section>}
           <details className="mt-3 rounded border border-border bg-bg-elevated px-3 py-2 text-xs text-text-2" data-testid="tutor-coverage">
             <summary className="cursor-pointer font-semibold text-text-1">{tutorPacing.coverageLabel || `Coverage checkpoint · ${tutorPacing.objectivesCompleted} complete · ${tutorPacing.objectivesInProgress} in progress · ${tutorPacing.objectivesNotYetReached} not yet reached`}</summary>
             <p className="mt-2 text-text-3">{tutorSession.sessionMode === "integration" ? "First-pass teaching is complete for this lecture. This block tests whether you can connect the objectives in new patient and anatomy problems." : "Time spent or an objective being reached is not mastery; only completed reasoning chains count as complete."}</p>

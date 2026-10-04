@@ -107,6 +107,16 @@
 .desk-tutor-bubble--student { justify-self: end; border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border)); background: color-mix(in srgb, var(--accent) 9%, var(--bg-elevated)); }
 .desk-tutor-bubble--tutor { justify-self: start; border: 1px solid var(--border); background: var(--panel); }
 .desk-tutor-bubble__question { color: var(--accent-text); font-weight: 700; }
+.desk-tutor-block-plan { padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg-elevated) 78%, transparent); }
+.desk-tutor-block-plan__header { display: flex; justify-content: space-between; gap: 12px; color: var(--text-3); font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.desk-tutor-block-plan__header strong { color: var(--accent); font-size: .68rem; letter-spacing: .02em; }
+.desk-tutor-block-plan__list { display: grid; gap: 6px; margin-top: 9px; }
+.desk-tutor-block { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 5px 7px; border-radius: 8px; color: var(--text-3); font-size: .78rem; }
+.desk-tutor-block > span { display: grid; width: 19px; height: 19px; flex: 0 0 auto; place-items: center; border: 1px solid var(--border); border-radius: 50%; font-size: .65rem; }
+.desk-tutor-block p { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desk-tutor-block--active { color: var(--accent-text); background: color-mix(in srgb, var(--accent) 9%, transparent); font-weight: 700; }
+.desk-tutor-block--active > span { border-color: var(--accent); color: var(--accent); }
+.desk-tutor-block--complete { color: var(--status-green); }
 @media (min-width: 900px) {
   .desk-tutor-phase-rail { justify-content: space-between; }
   .desk-tutor-phase { flex: 1; justify-content: center; }

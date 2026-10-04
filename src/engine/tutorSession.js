@@ -40,7 +40,7 @@ export function tutorStepPrompt({ step = "retrieval", objectiveText = "this obje
   };
 }
 
-export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], objectivePlan = [], learnerProfile = null, retrievalQueue = [], sessionMode = "walkthrough", integrationSeed = "", now = Date.now() } = {}) {
+export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds = [], objectivePlan = [], learnerProfile = null, retrievalQueue = [], sessionMode = "walkthrough", integrationSeed = "", teachingBlocks = [], lectureModel = "", now = Date.now() } = {}) {
   const budget = BUDGETS.has(Number(budgetMinutes)) ? Number(budgetMinutes) : 30;
   const ids = [...new Set((objectiveIds || []).map(String).filter(Boolean))];
   return {
@@ -49,6 +49,10 @@ export function createTutorSession({ lectureId, budgetMinutes = 30, objectiveIds
     lectureId: lectureId || null,
     sessionMode: sessionMode === "integration" ? "integration" : "walkthrough",
     integrationSeed: integrationSeed || null,
+    lectureModel: lectureModel || null,
+    teachingBlocks: Array.isArray(teachingBlocks) ? teachingBlocks : [],
+    activeBlockId: teachingBlocks?.[0]?.id || null,
+    blockPhase: sessionMode === "integration" ? "application" : "orient",
     budgetMinutes: budget,
     status: "active",
     phase: "resume",
@@ -111,6 +115,10 @@ export function tutorPacingContext(state) {
     mode,
     sessionMode: state?.sessionMode === "integration" ? "integration" : "walkthrough",
     coverageLabel: state?.sessionMode === "integration" ? "All lecture objectives covered · integration/application" : null,
+    blocksTotal: Array.isArray(state?.teachingBlocks) ? state.teachingBlocks.length : 0,
+    blocksComplete: Array.isArray(state?.teachingBlocks) ? state.teachingBlocks.filter((block) => block.status === "complete").length : 0,
+    activeBlock: state?.teachingBlocks?.find((block) => block.id === state?.activeBlockId)?.title || null,
+    blockPhase: state?.blockPhase || null,
     budgetMinutes,
     elapsedSeconds: Math.max(0, Number(state?.elapsedSeconds) || 0),
     remainingSeconds,
@@ -233,6 +241,13 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
   const completed = turn?.objectiveComplete && objectiveId
     ? [...new Set([...(state.completedObjectiveIds || []), objectiveId])]
     : state.completedObjectiveIds || [];
+  const teachingBlocks = (state.teachingBlocks || []).map((block) => {
+    const blockComplete = block.objectiveIds?.length > 0 && block.objectiveIds.every((id) => completed.includes(String(id)));
+    const active = block.objectiveIds?.map(String).includes(String(objectiveId));
+    return active ? { ...block, status: blockComplete ? "complete" : "teaching", phase: blockComplete ? "complete" : (turn?.stepResolved ? "guided_reasoning" : block.phase || "orient"), internalProgress: blockComplete ? 100 : Math.max(Number(block.internalProgress) || 0, turn?.stepResolved ? 35 : 10) } : block;
+  });
+  const activeBlockId = teachingBlocks.find((block) => block.status !== "complete")?.id || teachingBlocks.at(-1)?.id || state.activeBlockId || null;
+  const blockPhase = teachingBlocks.find((block) => block.id === activeBlockId)?.phase || state.blockPhase;
   const objectiveStartedIds = objectiveId
     ? [...new Set([...(state.objectiveStartedIds || []), objectiveId])]
     : state.objectiveStartedIds || [];
@@ -260,6 +275,9 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
       completedObjectiveIds: reviewCompletedObjectives,
       blockers,
       learnerProfile,
+      teachingBlocks,
+      activeBlockId,
+      blockPhase,
       delayedReview: reviewComplete ? null : state.delayedReview,
       activeObjectiveId: resumedObjectiveId || state.delayedReview.objectiveId,
       resumeObjectiveId: reviewComplete ? null : resumedObjectiveId,
@@ -319,6 +337,9 @@ export function recordTutorTurn(state, turn, now = Date.now()) {
     resumeObjectiveId,
     blockers,
     learnerProfile,
+    teachingBlocks,
+    activeBlockId,
+    blockPhase,
     status: finishedAllObjectives ? "finished" : state.status,
     phase: finishedAllObjectives ? "summary" : state.phase,
     nextAction: finishedAllObjectives
