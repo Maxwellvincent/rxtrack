@@ -682,6 +682,10 @@ export function LectureStudyFlow({
         ? tutorPrompt.prompt
         : (normalizedTutorStep === "diagnosis" ? (tutorSession?.patientCase?.guidedQuestion || tutorSession?.patientCase?.task) : tutorPrompt.prompt)));
   const tutorHasCurrentCase = Boolean(tutorSession?.delayedReview || tutorSession?.patientCase);
+  const walkthroughNeedsModelResponse = tutorSession?.sessionMode === "walkthrough"
+    && Boolean(tutorSession?.patientCase)
+    && !tutorSession?.delayedReview
+    && !(tutorSession?.turns || []).length;
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
     const response = tutorResponse.trim();
@@ -1940,7 +1944,7 @@ export function LectureStudyFlow({
             </div>
           ) : tutorLoading && !tutorSession.patientCase ? (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">Building a patient case from this lecture and its objectives…</div>
-          ) : tutorSession.patientCase ? (
+          ) : tutorSession.patientCase && !walkthroughNeedsModelResponse ? (
             <div className="desk-tutor-context mt-4 rounded border border-accent/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">{displayedTutorCase.caseTitle || "Patient case"}</p>
               <p className="mt-2 text-sm leading-6 text-text-1">{displayedTutorCase.stem}</p>
@@ -1952,6 +1956,11 @@ export function LectureStudyFlow({
                   </ul>
                 </div>
               )}
+            </div>
+          ) : walkthroughNeedsModelResponse ? (
+            <div className="mt-4 rounded border border-good/30 bg-good/5 px-3 py-4 text-sm text-text-2">
+              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Model check before application</p>
+              <p className="mt-2 leading-6">Explain the minimum model in your own words first. Once you connect it to the objective, the patient example will open.</p>
             </div>
           ) : (
             <div className="mt-4 rounded border border-border bg-bg-elevated px-3 py-4 text-sm text-text-2">
