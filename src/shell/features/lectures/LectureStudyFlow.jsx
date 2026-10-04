@@ -509,6 +509,8 @@ export function LectureStudyFlow({
     const objective = lectureObjectives.find((candidate) => String(candidate?.id || candidate?.code || candidate?.objective) === String(activeObjectiveId))
       || lectureObjectives[0];
     const objectiveText = objective?.objective || objective?.text || title;
+    const activeBlock = tutorSessionRef.current?.teachingBlocks?.find((block) => block.id === tutorSessionRef.current.activeBlockId) || null;
+    const walkthroughTeaching = tutorSessionRef.current?.sessionMode === "walkthrough" && tutorSessionRef.current?.blockPhase !== "application";
     const pacing = tutorPacingContext(tutorSessionRef.current);
     const source = String(text || atoms.map((atom) => `${atom.term || ""}: ${atom.content || ""}`).join("\n")).slice(0, 9000);
     const knownAnchors = [
@@ -520,9 +522,9 @@ export function LectureStudyFlow({
       .join("\n");
     try {
       const generated = await callAIJSON(
-        "You are a warm, precise medical-school tutor following a question-reasoning diagnostic model. Generate one Step 1-style patient question tied directly to the supplied lecture objective. Do not write a generic lecture summary. If sessionMode is integration, assume first-pass coverage is complete: connect multiple lecture objectives in one clinical/anatomical problem and do not restart with definitions or immediately repeat a fact just taught. The openingModel may provide only the smallest case-relevant scaffold and must not reveal the target diagnosis or answer. The question must have one clear requested depth and wording that can later be translated explicitly. Include clinically meaningful distractor logic. Keep caseTitle neutral (Patient 1); hide the diagnosis and answer choices until the learner has reasoned through the case. Stay grounded in the lecture and return valid JSON only.",
-        `Lecture: ${title}\nSession mode: ${tutorSessionRef.current?.sessionMode || "walkthrough"}\nIntegration instruction: ${tutorSessionRef.current?.integrationSeed || "none"}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective anchor: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"openingModel":"1-2 concise case-relevant sentences without naming the answer","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question the learner can answer from the case","questionIntent":"plain-language description of the exact requested output","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence","choices":{"A":"...","B":"...","C":"...","D":"..."},"correctChoice":"private correct letter","keyClues":["2-4 private clues for feedback"],"diagnosisCategory":"private expected diagnosis family","mechanismTarget":"private expected mechanism","acceptedAnswers":["private acceptable aliases grounded in lecture"]}. Choices must be plausible and lecture-supported; do not reveal the correct choice in the stem or opening model.`,
-        { openingModel: "Start with the lecture’s organizing model and identify the clinical pattern before naming an answer.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture evidence to identify the pattern before naming the answer.`, task: "What do you think is happening to this patient?", questionIntent: "identify the clinical pattern before going one level deeper", requestedDepth: "disease", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
+        "You are a warm, precise medical-school tutor following a question-reasoning diagnostic model. Generate one lecture-grounded teaching turn. In walkthrough mode, teach the active block before testing it: give a short orientation, the minimum mental model needed for this objective, and one guided question. Do not open with an unfamiliar diagnosis or a generic lecture summary. Then provide a simple example case that lets the learner apply that model without revealing the diagnosis. In integration mode, assume first-pass coverage is complete and use a Step 1-style patient or anatomy problem that connects multiple objectives. The question must have one clear requested depth and wording that can later be translated explicitly. Include clinically meaningful distractor logic. Keep caseTitle neutral (Patient 1); hide the diagnosis and answer choices until the learner has reasoned through the case. Stay grounded in the lecture and return valid JSON only.",
+        `Lecture: ${title}\nSession mode: ${tutorSessionRef.current?.sessionMode || "walkthrough"}\nWalkthrough teaching first: ${walkthroughTeaching ? "yes" : "no"}\nActive teaching block: ${activeBlock?.title || "none"}\nBlock objectives: ${(activeBlock?.objectives || []).join(" | ") || objectiveText}\nIntegration instruction: ${tutorSessionRef.current?.integrationSeed || "none"}\nSession pace and coverage (live state; follow it): ${JSON.stringify(pacing)}\nObjective anchor: ${objectiveText}\nExisting lecture mental model (use this when available): ${mentalModel?.bigPicture || "none saved"}\nLearner's established anchors:\n${knownAnchors || "No stable anchors recorded yet."}\nLecture material:\n${source}\n\nReturn {"blockOrientation":"one plain-language orientation to the active block","minimumModel":"the smallest causal model needed before testing","guidedQuestion":"one low-load question that checks the model before the case","openingModel":"1-2 concise case-relevant sentences without naming the answer","caseTitle":"Patient 1","stem":"a clinically coherent 3-5 sentence vignette; do not state the diagnosis","task":"one question the learner can answer from the case","questionIntent":"plain-language description of the exact requested output","requestedDepth":"disease|pathway|mechanism|enzyme_or_structure|regulator_or_cofactor|consequence","choices":{"A":"...","B":"...","C":"...","D":"..."},"correctChoice":"private correct letter","keyClues":["2-4 private clues for feedback"],"diagnosisCategory":"private expected diagnosis family","mechanismTarget":"private expected mechanism","acceptedAnswers":["private acceptable aliases grounded in lecture"]}. Choices must be plausible and lecture-supported; do not reveal the correct choice in the stem, guided question, or opening model.`,
+        { blockOrientation: "Orient to the lecture objective, then connect it to the clinical pattern.", minimumModel: "Start with the smallest causal relationship in the objective before naming a disease.", guidedQuestion: "What is the key relationship this objective is asking you to recognize?", openingModel: "Start with the lecture’s organizing model and identify the clinical pattern before naming an answer.", caseTitle: "Patient 1", stem: `A patient presents with findings relevant to ${objectiveText}. Use the lecture evidence to identify the pattern before naming the answer.`, task: "What do you think is happening to this patient?", questionIntent: "identify the clinical pattern before going one level deeper", requestedDepth: "disease", keyClues: [], diagnosisCategory: "", mechanismTarget: "" },
         2200,
         undefined,
         undefined,
@@ -536,6 +538,9 @@ export function LectureStudyFlow({
       const patientCase = {
         // Never trust model-generated headings to be reveal-safe.
         caseTitle: "Patient 1",
+        blockOrientation: generated?.blockOrientation || "Orient to the lecture objective, then connect it to the clinical pattern.",
+        minimumModel: generated?.minimumModel || "Start with the smallest causal relationship in the objective before naming a disease.",
+        guidedQuestion: generated?.guidedQuestion || "What is the key relationship this objective is asking you to recognize?",
         stem: generated?.stem || "Start by identifying the presenting syndrome.",
         task: generated?.task || "What is the most likely diagnosis or disease family?",
         keyClues: Array.isArray(generated?.keyClues) ? generated.keyClues.slice(0, 4) : [],
@@ -642,6 +647,7 @@ export function LectureStudyFlow({
       || lectureObjectives[0]
       || null;
   }, [lectureObjectives, tutorSession?.activeObjectiveId, tutorSession?.delayedReview?.objectiveId]);
+  const activeTutorBlock = useMemo(() => tutorSession?.teachingBlocks?.find((block) => block.id === tutorSession.activeBlockId) || null, [tutorSession?.activeBlockId, tutorSession?.teachingBlocks]);
   const activeTutorAtoms = useMemo(() => {
     const activeId = tutorSession?.delayedReview?.objectiveId || tutorSession?.activeObjectiveId;
     const matched = activeId
@@ -674,7 +680,7 @@ export function LectureStudyFlow({
       ? latestTutorTurn.followUp
       : (normalizedTutorStep === "delayed_retrieval"
         ? tutorPrompt.prompt
-        : (normalizedTutorStep === "diagnosis" ? tutorSession?.patientCase?.task : tutorPrompt.prompt)));
+        : (normalizedTutorStep === "diagnosis" ? (tutorSession?.patientCase?.guidedQuestion || tutorSession?.patientCase?.task) : tutorPrompt.prompt)));
   const tutorHasCurrentCase = Boolean(tutorSession?.delayedReview || tutorSession?.patientCase);
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
@@ -1915,13 +1921,16 @@ export function LectureStudyFlow({
           </details>
           <div className="mt-3 rounded border border-accent/30 bg-accent/5 px-3 py-2">
             <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">Practice objective</p>
+            {activeTutorBlock?.title && <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-text-3">Block: {activeTutorBlock.title}</p>}
             <p className="mt-1 text-sm leading-5 text-text-1">{activeTutorObjective?.objective || activeTutorObjective?.text || "Build the patient case from the lecture material."}</p>
           </div>
           {tutorSession.openingModel && !tutorSession.delayedReview && (
             <div className="desk-tutor-context mt-4 rounded border border-good/30 bg-bg-elevated p-3">
               <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-good">Start with the model</p>
+              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.blockOrientation && <p className="mt-2 text-sm font-semibold leading-6 text-text-1">{tutorSession.patientCase.blockOrientation}</p>}
+              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.minimumModel && <p className="mt-2 text-sm leading-6 text-text-1"><strong>Minimum model:</strong> {tutorSession.patientCase.minimumModel}</p>}
               <p className="mt-2 text-sm leading-6 text-text-1">{tutorSession.openingModel}</p>
-              <p className="mt-2 text-xs text-text-3">The case asks what clinical job breaks when the process is disrupted.</p>
+              {tutorSession.sessionMode === "walkthrough" && tutorSession.patientCase?.guidedQuestion ? <p className="mt-2 rounded border border-accent/20 bg-accent/5 px-2 py-2 text-sm leading-6 text-accent"><strong>Before the case:</strong> {tutorSession.patientCase.guidedQuestion}</p> : <p className="mt-2 text-xs text-text-3">The case asks what clinical job breaks when the process is disrupted.</p>}
             </div>
           )}
           {tutorSession.delayedReview ? (
@@ -1990,7 +1999,7 @@ export function LectureStudyFlow({
               <textarea
                 value={tutorResponse}
                 onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
-                placeholder="First name the syndrome or disease family, then explain your reasoning…"
+                placeholder={tutorSession.sessionMode === "walkthrough" ? "Explain the model in your own words, then apply it to the example…" : "First name the syndrome or disease family, then explain your reasoning…"}
                 disabled={tutorSession.status !== "active" || tutorLoading}
                 rows={3}
                 className="desk-tutor-input mt-3 w-full rounded border border-border bg-bg-elevated px-3 py-2 text-sm text-text-1 outline-none focus:border-accent disabled:opacity-70"
