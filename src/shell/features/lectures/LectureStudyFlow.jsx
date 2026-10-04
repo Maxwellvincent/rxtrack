@@ -568,7 +568,7 @@ export function LectureStudyFlow({
     }
   }, [atoms, lecture?.id, lectureObjectives, mentalModel?.bigPicture, saveTutorSession, text, title]);
 
-  const startTutorSession = useCallback((budgetMinutes) => {
+  const startTutorSession = useCallback((budgetMinutes, modeOverride = null) => {
     const profile = tutorSessionsStore.getLearnerProfile(userId) || {};
     const openMisses = new Map();
     for (const miss of profile.recentMisses || []) {
@@ -592,6 +592,7 @@ export function LectureStudyFlow({
       ...review,
       dueAt: review.dueAt || ((previous?.lastCheckpointAt || previous?.startedAt || now) + (24 * 60 * 60 * 1000)),
     }));
+    const sessionMode = modeOverride === "integration" || allObjectivesCovered ? "integration" : "walkthrough";
     const next = createTutorSession({
       lectureId: lecture?.id,
       budgetMinutes,
@@ -602,8 +603,8 @@ export function LectureStudyFlow({
       })),
       learnerProfile: tutorSessionsStore.getLearnerProfile(userId),
       retrievalQueue,
-      sessionMode: allObjectivesCovered ? "integration" : "walkthrough",
-      integrationSeed: allObjectivesCovered ? integrationSeed : "",
+      sessionMode,
+      integrationSeed: sessionMode === "integration" ? integrationSeed : "",
       teachingBlocks,
       lectureModel,
       now,
@@ -1870,7 +1871,10 @@ export function LectureStudyFlow({
             </>
           )}
           {tutorSession && tutorSession.status === "finished" && (
-            <button onClick={() => setTutorSession(null)} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start another block</button>
+            <>
+              {tutorSession.sessionMode === "walkthrough" && tutorSession.completedObjectiveIds?.length > 0 && <button onClick={() => startTutorSession(30, "integration")} className="rounded bg-accent px-2 py-1 font-mono text-[11px] font-semibold text-white hover:bg-accent/90">Start integration case</button>}
+              <button onClick={() => setTutorSession(null)} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start another block</button>
+            </>
           )}
           {tutorSession && tutorCloudStatus === "error" && (
             <button onClick={() => saveTutorSession(tutorSessionRef.current)} className="rounded border border-bad/40 px-2 py-1 font-mono text-[11px] text-bad hover:bg-bad/5">Retry cloud save</button>
