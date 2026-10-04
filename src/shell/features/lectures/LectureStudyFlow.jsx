@@ -479,6 +479,16 @@ export function LectureStudyFlow({
     return Boolean(saved);
   }, [userId]);
 
+  const startFreshTutor = useCallback(() => {
+    tutorCaseGenerationRef.current = null;
+    tutorSessionRef.current = null;
+    setTutorSession(null);
+    setTutorResponse("");
+    setTutorConfidence("");
+    setTutorNotice("Fresh lecture walkthrough ready. Choose a time block to begin.");
+    if (lecture?.id) tutorSessionsStore.clear(userId, lecture.id);
+  }, [lecture?.id, userId]);
+
   useEffect(() => {
     if (!userId) {
       setTutorStoreHydrated(true);
@@ -690,6 +700,10 @@ export function LectureStudyFlow({
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
     const response = tutorResponse.trim();
+    if (kind === "response" && /^(let'?s?\s+)?(start\s+)?fresh|^reset\s+(the\s+)?tutor|^new\s+(session|start)/i.test(response)) {
+      startFreshTutor();
+      return;
+    }
     if (kind === "response" && response.length < 3) {
       setTutorNotice("Write a short explanation first, even if it is incomplete.");
       return;
@@ -793,7 +807,7 @@ export function LectureStudyFlow({
     } finally {
       setTutorReviewing(false);
     }
-  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing, mentalModel?.bigPicture, tutorConfidence]);
+  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, startFreshTutor, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing, mentalModel?.bigPicture, tutorConfidence]);
 
   // Advance the clock in a ref so typing does not rerender this large study view every second.
   // The isolated countdown renders seconds; session state is persisted every 30 seconds/boundary.
@@ -1850,6 +1864,7 @@ export function LectureStudyFlow({
             <>
               <TutorCountdown key={`${tutorSession.sessionId}:${tutorSession.remainingSeconds}`} remainingSeconds={tutorSession.remainingSeconds} active />
               <button onClick={pauseCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-2 hover:border-accent">Pause</button>
+              <button onClick={startFreshTutor} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start fresh</button>
               <button onClick={finishCurrentTutorSession} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-bad hover:text-bad">End block</button>
             </>
           )}
@@ -1873,6 +1888,7 @@ export function LectureStudyFlow({
           {tutorSession && tutorSession.status === "finished" && (
             <>
               {tutorSession.sessionMode === "walkthrough" && tutorSession.completedObjectiveIds?.length > 0 && <button onClick={() => startTutorSession(30, "integration")} className="rounded bg-accent px-2 py-1 font-mono text-[11px] font-semibold text-white hover:bg-accent/90">Start integration case</button>}
+              <button onClick={startFreshTutor} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start fresh</button>
               <button onClick={() => setTutorSession(null)} className="rounded border border-border px-2 py-1 font-mono text-[11px] text-text-3 hover:border-accent">Start another block</button>
             </>
           )}
@@ -1991,21 +2007,10 @@ export function LectureStudyFlow({
             <div className="desk-tutor-thread__messages">
               {tutorSession.turns.slice(-8).map((turn, index) => <div key={`${turn.at || index}-${index}`} className="desk-tutor-exchange">
                 <div className="desk-tutor-bubble desk-tutor-bubble--student"><span className="desk-tutor-bubble__label">You</span><p>{turn.response}</p></div>
-                {turn.feedback && <div className="desk-tutor-bubble desk-tutor-bubble--tutor"><span className="desk-tutor-bubble__label">Tutor</span><p>{turn.feedback}</p>{turn.followUp && <p className="desk-tutor-bubble__question">{turn.followUp}</p>}</div>}
+                {turn.feedback && <div className="desk-tutor-bubble desk-tutor-bubble--tutor"><span className="desk-tutor-bubble__label">Tutor · {turn.assessment?.replace(/_/g, " ") || "feedback"}</span><p>{turn.feedback}</p>{turn.preservedReasoning?.length > 0 && <p className="mt-2 text-xs leading-5 text-good"><strong>Kept:</strong> {turn.preservedReasoning.join(" · ")}</p>}{turn.firstDivergence && <p className="mt-1 text-xs leading-5 text-warn"><strong>First divergence:</strong> {turn.firstDivergence}</p>}{turn.missTypes?.length > 0 && <p className="mt-1 text-xs leading-5 text-text-2"><strong>Diagnostic:</strong> {turn.missTypes.join(" + ")}</p>}{turn.ankiRecommendation && <div className="mt-2 rounded border border-accent/30 bg-accent/5 p-2 text-xs leading-5 text-text-2"><p><strong>Targeted card:</strong> {turn.ankiRecommendation.front}</p><p className="mt-1"><strong>Back:</strong> {turn.ankiRecommendation.back}</p><button type="button" className="mt-2 rounded border border-accent/40 px-2 py-1 font-semibold text-accent hover:bg-accent/10" onClick={() => navigator.clipboard?.writeText(`${turn.ankiRecommendation.front}\n\n${turn.ankiRecommendation.back}`)}>Copy card draft</button></div>}{turn.followUp && <p className="desk-tutor-bubble__question">{turn.followUp}</p>}</div>}
               </div>)}
             </div>
           </section>}
-          {latestTutorTurn && String(latestTutorTurn.objectiveId) === String(tutorSession.activeObjectiveId) && latestTutorTurn.feedback && (
-            <div className={`desk-tutor-feedback mt-3 rounded border p-3 ${latestTutorTurn.assessment === "correct" ? "border-good/30 bg-good/5" : "border-warn/30 bg-warn/5"}`}>
-              <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-text-3">Tutor feedback · {latestTutorTurn.assessment?.replace(/_/g, " ") || "review"}</p>
-              <p className="mt-1 text-sm leading-6 text-text-1">{latestTutorTurn.feedback}</p>
-              {latestTutorTurn.preservedReasoning?.length > 0 && <p className="mt-2 text-xs leading-5 text-good"><strong>Kept:</strong> {latestTutorTurn.preservedReasoning.join(" · ")}</p>}
-              {latestTutorTurn.firstDivergence && <p className="mt-1 text-xs leading-5 text-warn"><strong>First divergence:</strong> {latestTutorTurn.firstDivergence}</p>}
-              {(latestTutorTurn.missTypes?.length > 0 || latestTutorTurn.requestedDepth) && <p className="mt-1 text-xs leading-5 text-text-2"><strong>Diagnostic:</strong> {latestTutorTurn.missTypes?.length ? latestTutorTurn.missTypes.join(" + ") : "no miss recorded"}{latestTutorTurn.requestedDepth ? ` · depth: ${latestTutorTurn.requestedDepth.replace(/_/g, " ")}` : ""}</p>}
-              {latestTutorTurn.ankiRecommendation && <div className="mt-2 rounded border border-accent/30 bg-accent/5 p-2 text-xs leading-5 text-text-2"><p><strong>Targeted Anki card:</strong> {latestTutorTurn.ankiRecommendation.front}</p><p className="mt-1"><strong>Back:</strong> {latestTutorTurn.ankiRecommendation.back}</p><button type="button" className="mt-2 rounded border border-accent/40 px-2 py-1 font-semibold text-accent hover:bg-accent/10" onClick={() => navigator.clipboard?.writeText(`${latestTutorTurn.ankiRecommendation.front}\n\n${latestTutorTurn.ankiRecommendation.back}`)}>Copy card draft</button></div>}
-              {latestTutorTurn.confidenceNote && <p className="mt-2 border-t border-border pt-2 text-xs leading-5 text-text-2">{latestTutorTurn.confidenceNote}</p>}
-            </div>
-          )}
           {tutorHasCurrentCase && (
             <>
               <p className="mt-4 text-sm font-semibold leading-6 text-text-1">{currentTutorQuestion || tutorPrompt.prompt}</p>
