@@ -1,10 +1,12 @@
 export const ERROR_REASONS = [
-  ["knowledge-gap", "Knowledge gap"],
-  ["misread-lead-in", "Misread the lead-in"],
-  ["missed-key-clue", "Missed a key clue"],
-  ["distractor-confusion", "Distractor confusion"],
-  ["overthinking", "Overthought it"],
-  ["time-pressure", "Time pressure"],
+  ["K", "K · Knowledge"],
+  ["C", "C · Concept"],
+  ["M", "M · Mechanism"],
+  ["R", "R · Reasoning"],
+  ["Q", "Q · Question language"],
+  ["D", "D · Discrimination"],
+  ["A", "A · Attention"],
+  ["E", "E · Endurance"],
 ];
 
 export function extractLeadIn(stem) {

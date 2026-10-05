@@ -138,7 +138,7 @@ function LeadInCue({ stem }) {
   );
 }
 
-function MissReflection({ userId }) {
+function MissReflection({ userId, onSelect }) {
   const [selected, setSelected] = useState(null);
   return (
     <div className="mt-2 rounded border border-border bg-panel p-2.5">
@@ -149,6 +149,7 @@ function MissReflection({ userId }) {
             if (selected === value) return;
             recordReflection(userId, value, selected);
             setSelected(value);
+            onSelect?.(value);
           }} aria-pressed={selected === value} className={`rounded border-2 px-2.5 py-1.5 text-[12px] font-medium ${selected === value ? "border-accent bg-accent/15 text-text-1 ring-2 ring-accent/40" : "border-border text-text-3 hover:border-border-strong hover:text-text-1"}`}>
             {selected === value ? "✓ " : ""}{label}
           </button>
@@ -156,6 +157,25 @@ function MissReflection({ userId }) {
       </div>
     </div>
   );
+}
+
+function AnswerEvidenceControls({ value, onChange, disabled = false }) {
+  const evidence = value || { confidence: "unsure", topicIdentified: false, assisted: false };
+  return <fieldset disabled={disabled} className="mb-3 rounded-lg border border-border bg-panel p-2.5">
+    <legend className="px-1 font-mono text-[11px] font-bold uppercase tracking-wider text-text-3">Reasoning quality</legend>
+    <div className="flex flex-wrap gap-1.5">
+      {[
+        ["confident", "Can explain"],
+        ["unsure", "Uncertain"],
+        ["guess", "Guess"],
+      ].map(([confidence, label]) => <button key={confidence} type="button" aria-pressed={evidence.confidence === confidence} onClick={() => onChange({ ...evidence, confidence })} className={`min-h-9 rounded border px-2 text-xs ${evidence.confidence === confidence ? "border-accent bg-accent/15 text-text-1" : "border-border text-text-3"}`}>{label}</button>)}
+    </div>
+    <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-xs text-text-2">
+      <label className="flex min-h-9 items-center gap-2"><input type="checkbox" checked={!!evidence.topicIdentified} onChange={(event) => onChange({ ...evidence, topicIdentified: event.target.checked })} />I identified the disease/state first</label>
+      <label className="flex min-h-9 items-center gap-2"><input type="checkbox" checked={!!evidence.assisted} onChange={(event) => onChange({ ...evidence, assisted: event.target.checked })} />Used a hint or help</label>
+    </div>
+    <p className="mt-1 text-[11px] text-text-3">Correct + explain = quality 3 · correct but uncertain/assisted = 2 · lucky/guess = 1 · incorrect = 0. Quality 1 never advances mastery.</p>
+  </fieldset>;
 }
 
 // Small, unobtrusive autosave-status readout — deliberately no more visually
@@ -315,6 +335,14 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
   const questions = session.questions || [];
   const q = questions[currentIndex];
   const answeredCount = (session.answers || []).length;
+  const [evidenceByQuestion, setEvidenceByQuestion] = useState({});
+  const evidence = q ? evidenceByQuestion[q.questionId] || { confidence: "unsure", topicIdentified: false, assisted: false } : null;
+  const updateEvidence = (next) => {
+    if (!q) return;
+    setEvidenceByQuestion((current) => ({ ...current, [q.questionId]: next }));
+    const picked = pickedFor(session, q.questionId);
+    if (picked != null) answerQuestion(q.questionId, picked, next);
+  };
 
   return (
     <div className="space-y-3" onKeyDown={(event) => advanceOnEnter(event, () => setCurrentIndex((i) => Math.min(questions.length - 1, i + 1)), !!q && pickedFor(session, q.questionId) != null && currentIndex < questions.length - 1 && !submitting)}>
@@ -342,6 +370,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
           <LeadInCue stem={q.stem} />
           <QuestionStem text={q.stem} questionId={q.questionId} />
           <SchoolQuestionFigure question={q} />
+          <AnswerEvidenceControls value={evidence} onChange={updateEvidence} />
           <ChoiceList
             questionId={q.questionId}
             choices={q.choices}
@@ -349,7 +378,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
             choiceLayout={q.choiceLayout}
             picked={pickedFor(session, q.questionId)}
             revealed={false}
-            onPick={(letter) => answerQuestion(q.questionId, letter)}
+            onPick={(letter) => answerQuestion(q.questionId, letter, evidence)}
           />
         </div>
       )}
@@ -401,6 +430,13 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
   const diagnosed = !!diagnostics[q?.questionId];
   const showAnswer = revealed && (isCorrect || diagnosed);
   const [draftChoice, setDraftChoice] = useState(picked);
+  const [evidenceByQuestion, setEvidenceByQuestion] = useState({});
+  const evidence = q ? evidenceByQuestion[q.questionId] || { confidence: "unsure", topicIdentified: false, assisted: false } : null;
+  const updateEvidence = (next) => {
+    if (!q) return;
+    setEvidenceByQuestion((current) => ({ ...current, [q.questionId]: next }));
+    if (picked != null) answerQuestion(q.questionId, picked, next);
+  };
   useEffect(() => setDraftChoice(picked), [q?.questionId, picked]);
   if (!q) return session.fillStatus === "generating" ? <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated p-4 text-sm text-text-2">Preparing questions for this scope…</div> : null;
 
@@ -418,6 +454,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         <LeadInCue stem={q.stem} />
         <QuestionStem text={q.stem} questionId={q.questionId} />
         <SchoolQuestionFigure question={q} />
+        <AnswerEvidenceControls value={evidence} onChange={updateEvidence} disabled={revealed && isCorrect} />
         <ChoiceList
           questionId={q.questionId}
           choices={q.choices}
@@ -432,16 +469,16 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 
         {!revealed && (
           <div className="mt-3">
-            <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, draftChoice)} disabled={!draftChoice}>
+            <Button data-testid="check-answer" onClick={() => answerQuestion(q.questionId, draftChoice, evidence)} disabled={!draftChoice}>
               Check answer
             </Button>
           </div>
         )}
 
-        {revealed && !isCorrect && <MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onComplete={(diagnostic) => {
+        {revealed && !isCorrect && <><MissReflection userId={userId} onSelect={(errorCode) => updateEvidence({ ...evidence, errorCode })} /><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onComplete={(diagnostic) => {
           recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
           setDiagnostics(current => ({ ...current, [q.questionId]: diagnostic }));
-        }} />}
+        }} /></>}
 
         {showAnswer && (
           <div className="mt-3 space-y-2">

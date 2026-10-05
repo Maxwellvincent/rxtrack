@@ -18,6 +18,7 @@ import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
 import { ChoiceValue, hasTableChoices } from "../ui/ChoiceValue.jsx";
 import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../engine/questionOrder.js";
 import { orderedChoiceEntries } from "./features/exam/choiceOrder.js";
+import { answerQuality, masteryStageForTask } from "../engine/examReadiness.js";
 
 const nowMs = () => Date.now();
 
@@ -204,10 +205,14 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       atomKey: q.atomKey || null,
       correct: isCorrect,
       confidence: level,
+      answerQuality: answerQuality({ correct: isCorrect, confidence: level >= 4 ? "confident" : level <= 2 ? "guess" : "unsure" }),
       difficulty: q.difficulty || null,
       misconception: !isCorrect ? (level >= 4 ? "landmine" : "knowledge-gap") : null,
       responseMs,
       taskType: classifyLeadIn(q.stem),
+      masteryStage: masteryStageForTask(q.taskType || classifyLeadIn(q.stem), q.reasoningDepth),
+      trainingPhase: q.trainingPhase || null,
+      delayMs: q.delayMs || 0,
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
     });
     // Source-grounded fallbacks preserve access when AI generation is unavailable,

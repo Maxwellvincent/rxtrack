@@ -28,6 +28,16 @@ import { formatLectureLabel } from "../../../lectureTitle.js";
 import { scopeLabel } from "../../logic/weekScope.js";
 import { buildWeakAreaMap } from "./weakAreaMap.js";
 import { selectLinkedObjectives } from "../../logic/objectives.js";
+import * as examBenchmarksStore from "../../../stores/examBenchmarks.js";
+import {
+  ERROR_TAXONOMY,
+  comparePredictionToActual,
+  computeEnduranceAnalytics,
+  computeObjectiveMastery,
+  computeSecondStepAccuracy,
+  eventsFromSessions,
+  forecastExam,
+} from "../../../engine/examReadiness.js";
 
 const EMPTY_MANUAL_ENTRIES = [];
 
@@ -250,6 +260,8 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   // fetch failure left "Loading…" up forever (plus an unhandled rejection).
   const [error, setError] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [benchmarkMessage, setBenchmarkMessage] = useState("");
+  const [savingBenchmark, setSavingBenchmark] = useState(false);
   const [learnerProfile, setLearnerProfile] = useState(() => learnerEvidenceStore.read(userId));
   const [studyAnswers, setStudyAnswers] = useState(() => calibrationStore.readBlock(userId, blockId));
   useEffect(() => {
@@ -257,6 +269,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     return calibrationStore.subscribe(() => setStudyAnswers(calibrationStore.readBlock(userId, blockId)));
   }, [userId, blockId]);
   const manualPractice = useStoreResource(manualPracticeStore, userId);
+  const benchmarkResource = useStoreResource(examBenchmarksStore, userId);
+  useEffect(() => {
+    examBenchmarksStore.ensureSeeded(userId).catch(() => {});
+  }, [userId]);
   const manualEntries = manualPractice.data?.[blockId] || EMPTY_MANUAL_ENTRIES;
   const progress = useMemo(() => questionProgress(studyAnswers, sessions, {}, manualEntries), [studyAnswers, sessions, manualEntries]);
   const modelActivity=useStoreResource(modelImpactStore,userId);
@@ -317,6 +333,24 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     [integratedSessions, actionableObjectives]
   );
   const pacing = useMemo(() => computePacingMetrics(integratedSessions), [integratedSessions]);
+  const readinessEvents = useMemo(() => eventsFromSessions(integratedSessions), [integratedSessions]);
+  const objectiveMastery = useMemo(
+    () => computeObjectiveMastery({ objectives: actionableObjectives, events: readinessEvents }),
+    [actionableObjectives, readinessEvents]
+  );
+  const secondStep = useMemo(() => computeSecondStepAccuracy(readinessEvents), [readinessEvents]);
+  const endurance = useMemo(() => computeEnduranceAnalytics(integratedSessions), [integratedSessions]);
+  const benchmarkComparison = useMemo(
+    () => comparePredictionToActual(benchmarkResource.data?.records || []),
+    [benchmarkResource.data]
+  );
+  const forecast = useMemo(() => forecastExam({
+    objectiveRows: objectiveMastery,
+    sessions: integratedSessions,
+    secondStep,
+    endurance,
+    benchmarks: benchmarkResource.data?.records || [],
+  }), [objectiveMastery, integratedSessions, secondStep, endurance, benchmarkResource.data]);
   const process = learnerProfile?.testTaking || {};
   const reasonRows = useMemo(() =>
     ERROR_REASONS
@@ -324,6 +358,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
       .filter((row) => row.count > 0)
       .sort((a, b) => b.count - a.count),
   [process.reasons]);
+  const errorCodeRows = useMemo(() => Object.entries(process.errorCodes || {})
+    .map(([id, count]) => ({ id, label: ERROR_TAXONOMY[id] || id, count: Number(count) || 0 }))
+    .filter((row) => row.count > 0)
+    .sort((a, b) => b.count - a.count), [process.errorCodes]);
   const taskRows = useMemo(() => Object.entries(learnerProfile?.taskTypes || {})
     .map(([id, stat]) => ({ id, ...stat, accuracy: stat.attempts ? stat.correct / stat.attempts : null }))
     .sort((a, b) => (a.accuracy ?? 1) - (b.accuracy ?? 1)), [learnerProfile?.taskTypes]);
@@ -338,6 +376,52 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     learnerEvidence: learnerProfile,
   }), [lectures, objectives, questionStats, learnerProfile]);
   const priorityAreas = weakAreas.filter((row) => row.objectivesUntested > 0 || row.strugglingObjectives > 0 || (row.accuracy != null && row.accuracy < 0.8));
+
+  async function saveBenchmark(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const actualRaw = String(data.get("actualPercent") || "").trim();
+    const actualPercent = actualRaw === "" ? null : Number(actualRaw);
+    const name = String(data.get("name") || "").trim();
+    const date = String(data.get("date") || "");
+    if (!name || !/^\d{4}-\d{2}-\d{2}$/.test(date) || (actualPercent != null && (!Number.isFinite(actualPercent) || actualPercent < 0 || actualPercent > 100))) {
+      setBenchmarkMessage("Enter an exam name, valid date, and—when available—an actual score from 0 to 100.");
+      return;
+    }
+    setSavingBenchmark(true);
+    setBenchmarkMessage("");
+    try {
+      const current = examBenchmarksStore.withBaseline(benchmarkResource.data);
+      const existingIndex = current.records.findIndex((record) => record.blockId === blockId && record.date === date && String(record.name || "").toLowerCase() === name.toLowerCase());
+      const existing = existingIndex >= 0 ? current.records[existingIndex] : null;
+      const record = {
+        ...(existing || {}),
+        id: existing?.id || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${blockId}:${date}:${name}`),
+        benchmarkNumber: existing?.benchmarkNumber || current.records.length + 1,
+        name,
+        date,
+        kind: "exam",
+        blockId,
+        ...(actualPercent == null ? {} : { actualPercent }),
+        predictedPercent: existing?.predictedPercent ?? forecast.predictedPercent,
+        predictedRange: existing?.predictedRange ?? forecast.range,
+        predictionEvidenceCount: existing?.predictionEvidenceCount ?? forecast.evidenceCount,
+        predictionConfidence: existing?.predictionConfidence ?? forecast.confidence,
+        source: actualPercent == null ? "pre-exam RXtrack prediction snapshot" : existing ? "prediction snapshot with later actual" : "prediction and actual entered together",
+      };
+      const records = existingIndex >= 0
+        ? current.records.map((item, index) => index === existingIndex ? record : item)
+        : [...current.records, record];
+      await examBenchmarksStore.write(userId, { ...current, records });
+      setBenchmarkMessage(actualPercent == null ? "Pre-exam prediction saved. Use the same name and date after the exam to attach the actual score." : existing ? "Actual score attached to the saved pre-exam prediction." : "Benchmark saved; future accuracy improves when predictions are saved before the exam.");
+      form.reset();
+    } catch (saveError) {
+      setBenchmarkMessage(saveError?.message || "Could not save the benchmark.");
+    } finally {
+      setSavingBenchmark(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -378,6 +462,65 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         <p className="mt-2 text-xs text-text-3">Cumulative recorded practice in this block. Repeat attempts count; unanswered items do not. Exam and homework sessions count after submission; deleted sessions are excluded. Integrated-exam accuracy stays separate below; practice volume is not a predicted exam grade.</p>
       </section>
       <ConfidenceCalibration records={studyAnswers}/>
+      <section className="mb-5 rounded-xl border-2 border-accent/40 bg-panel p-4" aria-label="Exam readiness forecast">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="font-mono text-[12px] uppercase tracking-wider text-text-3">80+ exam readiness</div>
+            <div className="mt-1 text-3xl font-black text-text-1">{forecast.predictedPercent.toFixed(1)}% <span className="text-base font-semibold text-text-3">predicted</span></div>
+            <p className="mt-1 text-sm text-text-2">Likely range {forecast.range[0]}–{forecast.range[1]}% · {forecast.confidence} confidence · {forecast.evidenceCount} scored evidence points</p>
+          </div>
+          <div className={`rounded-lg border px-3 py-2 text-sm font-bold ${forecast.range[0] >= 80 ? "border-good text-good" : forecast.predictedPercent >= 80 ? "border-warn text-text-1" : "border-bad/50 text-bad"}`}>
+            {forecast.range[0] >= 80 ? "80+ supported" : forecast.predictedPercent >= 80 ? "80+ possible; range still crosses target" : "Below 80 target"}
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-6">
+          {[
+            ["Strong", forecast.counts.strong],
+            ["Borderline", forecast.counts.borderline],
+            ["Weak", forecast.counts.weak],
+            ["Untested", forecast.counts.untested],
+            ["Second-step", secondStep.accuracy == null ? "—" : `${Math.round(secondStep.accuracy * 100)}%`],
+            ["Late-block change", endurance.accuracyDrop == null ? "—" : `${endurance.accuracyDrop > 0 ? "−" : "+"}${Math.round(Math.abs(endurance.accuracyDrop) * 100)} pts`],
+          ].map(([label, value]) => <div key={label} className="rounded-lg border border-border bg-bg-elevated p-2"><div className="font-mono text-[11px] text-text-3">{label}</div><div className="mt-1 text-lg font-bold text-text-1">{value}</div></div>)}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-border bg-bg-elevated p-3">
+            <div className="font-mono text-[11px] font-bold uppercase tracking-wider text-text-3">Score limiters</div>
+            <p className="mt-2 text-sm text-text-1"><b>Primary:</b> {forecast.primaryLimiter?.label || "No evidence-based limiter yet"}</p>
+            <p className="mt-1 text-sm text-text-2"><b>Secondary:</b> {forecast.secondaryLimiter?.label || "More mixed evidence needed"}</p>
+            {errorCodeRows.length > 0 && <p className="mt-2 text-xs text-text-3">Recurring error profile: {errorCodeRows.slice(0, 3).map((row) => `${row.id} ${row.label} (${row.count})`).join(" · ")}</p>}
+          </div>
+          <div className="rounded-lg border border-border bg-bg-elevated p-3">
+            <div className="font-mono text-[11px] font-bold uppercase tracking-wider text-text-3">Highest-ROI objectives</div>
+            {forecast.highestRoi.length ? <ol className="mt-2 space-y-1 text-sm text-text-2">{forecast.highestRoi.map((row) => <li key={row.id}><button type="button" className="text-left underline decoration-border underline-offset-2 hover:text-accent" onClick={() => {
+              const objective = actionableObjectives.find((item) => item.id === row.id);
+              const lectureId = objective?.linkedLecId || objective?.lectureId;
+              if (lectureId) onNavigateToLecture?.(lectureId, { focusObjectiveIds: [row.id] });
+            }}>{row.label}</button> · {row.state}</li>)}</ol> : <p className="mt-2 text-sm text-text-3">No objective priorities yet.</p>}
+          </div>
+        </div>
+        <details className="mt-3 rounded-lg border border-border px-3">
+          <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">Objective mastery ladder</summary>
+          <p className="mb-2 text-xs text-text-3">Exposure → Recognition → Recall → Mechanism → Application → Discrimination → Stable. Exam Ready requires quality ≥2 evidence across sessions and task types, ≥80% mechanism and application/discrimination performance, delayed PROVE retrieval, and no recurring error code.</p>
+          <div className="max-h-72 space-y-1 overflow-y-auto pb-3">{objectiveMastery.map((row) => <div key={row.id} className="flex flex-wrap justify-between gap-2 rounded bg-bg-elevated p-2 text-sm"><span className="min-w-0"><b>{row.code}</b>{row.text ? ` · ${row.text}` : ""}</span><span className={row.state === "strong" ? "text-good" : row.state === "weak" ? "text-bad" : "text-text-3"}>{row.stage}{row.examReady ? " · Exam Ready" : ""}</span></div>)}</div>
+        </details>
+        <details className="mt-3 rounded-lg border border-border px-3" aria-label="Prediction benchmark history">
+          <summary className="min-h-11 cursor-pointer py-3 text-sm font-semibold">Prediction vs actual benchmarks</summary>
+          <div className="pb-3 text-sm text-text-2">{(benchmarkResource.data?.records || []).map((row) => {
+            const compared = benchmarkComparison.rows.find((item) => item.id === row.id);
+            return <div key={row.id} className="mb-2 rounded bg-bg-elevated p-2"><b>Benchmark #{row.benchmarkNumber || "—"} · {row.name}</b> · {row.date}{Number.isFinite(row.actualPercent) ? ` · actual ${Number(row.actualPercent).toFixed(2)}%` : " · actual pending"}{Number.isFinite(row.predictedPercent) ? ` · predicted ${row.predictedPercent}%${compared?.predictionError != null ? ` · error ${compared.predictionError >= 0 ? "+" : ""}${compared.predictionError.toFixed(1)} pts` : ""}` : " · baseline only (no prior RXtrack prediction)"}
+            {row.categories && <div className="mt-1 text-xs text-text-3">{Object.entries(row.categories).map(([name, score]) => `${name} ${score}%`).join(" · ")}</div>}
+          </div>})}<p className="text-xs text-text-3">Save the prediction before the exam, then submit the same name and date with the actual score. Calibration bias and mean absolute error update only after a true prediction/actual pair exists.</p>
+          <form onSubmit={saveBenchmark} className="mt-3 grid gap-2 border-t border-border pt-3 sm:grid-cols-3">
+            <label className="text-xs">Exam name<input name="name" required className="mt-1 block min-h-11 w-full rounded border border-border bg-bg p-2" placeholder="BPM2 exam" /></label>
+            <label className="text-xs">Exam date<input name="date" required type="date" className="mt-1 block min-h-11 w-full rounded border border-border bg-bg p-2" /></label>
+            <label className="text-xs">Actual score (add after exam)<input name="actualPercent" type="number" min="0" max="100" step="0.01" className="mt-1 block min-h-11 w-full rounded border border-border bg-bg p-2" /></label>
+            <button disabled={savingBenchmark || !userId} className="min-h-11 rounded border border-border px-3 text-sm font-semibold sm:col-span-3">{savingBenchmark ? "Saving…" : `Save / update benchmark · current prediction ${forecast.predictedPercent.toFixed(1)}%`}</button>
+          </form>
+          {benchmarkMessage && <p role="status" className="mt-2 text-xs">{benchmarkMessage}</p>}
+          </div>
+        </details>
+      </section>
       <section className="mb-5 rounded-xl border border-border bg-panel p-4" aria-label="Overall weak-area map">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <div>

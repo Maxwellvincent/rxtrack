@@ -2,7 +2,7 @@ import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait } from ".
 import { readJson, writeJson } from "./base.js";
 
 export const key = "rxt-learner-evidence-v1";
-const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, missTypes: {}, diagnosticKeys: [], positionStats: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
+const fallback = { version: 2, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, trainingPhases: {}, testTaking: { reasons: {}, errorCodes: {}, missTypes: {}, diagnosticKeys: [], positionStats: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0, secondStep: { attempts: 0, correct: 0 } } };
 
 export function read(userId) {
   return userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
@@ -72,19 +72,44 @@ function bumpObjective(bucket, id, event) {
   const nextQuestionKeys = questionKey
     ? [...new Set([...questionKeys, questionKey])].slice(-200)
     : questionKeys;
-  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys } };
+  const masteryStages = { ...(previous.masteryStages || {}) };
+  if (event.masteryStage) {
+    const stage = masteryStages[event.masteryStage] || { attempts: 0, correct: 0, qualityPoints: 0 };
+    masteryStages[event.masteryStage] = {
+      attempts: stage.attempts + 1,
+      correct: stage.correct + (event.correct && Number(event.answerQuality) >= 2 ? 1 : 0),
+      qualityPoints: stage.qualityPoints + Math.max(0, Math.min(3, Number(event.answerQuality) || 0)),
+    };
+  }
+  const errorCodes = { ...(previous.errorCodes || {}) };
+  if (event.errorCode) errorCodes[event.errorCode] = (errorCodes[event.errorCode] || 0) + 1;
+  return { ...next, [id]: {
+    ...entry,
+    sessions,
+    taskTypes,
+    sources,
+    questionKeys: nextQuestionKeys,
+    masteryStages,
+    errorCodes,
+    qualityPoints: (previous.qualityPoints || 0) + Math.max(0, Math.min(3, Number(event.answerQuality) || 0)),
+    delayedRetrievals: (previous.delayedRetrievals || 0) + (event.trainingPhase === "prove" && Number(event.delayMs) >= 86_400_000 && event.correct && Number(event.answerQuality) >= 2 ? 1 : 0),
+  } };
 }
 
 export function applyEvidence(model, rawEvent) {
   const current = model || fallback;
-  const event = { ...rawEvent, at: rawEvent?.at || Date.now() };
+  const event = {
+    ...rawEvent,
+    at: rawEvent?.at || Date.now(),
+    answerQuality: Number.isFinite(rawEvent?.answerQuality) ? Math.max(0, Math.min(3, rawEvent.answerQuality)) : (rawEvent?.correct ? 2 : 0),
+  };
   let objectives = current.objectives || {};
   for (const id of [...new Set(event.objectiveIds || [])]) objectives = bumpObjective(objectives, id, event);
   const process = current.testTaking || fallback.testTaking;
   const responseMs = Number.isFinite(event.responseMs) ? Math.max(0, event.responseMs) : null;
   return {
     ...current,
-    version: 1,
+    version: 2,
     total: (current.total || 0) + 1,
     correct: (current.correct || 0) + (event.correct ? 1 : 0),
     updatedAt: event.at,
@@ -93,10 +118,15 @@ export function applyEvidence(model, rawEvent) {
     lectures: bump(current.lectures || {}, event.lectureId, event),
     sources: bump(current.sources || {}, event.source || "quiz", event),
     taskTypes: bump(current.taskTypes || {}, event.taskType, event),
-      orderLevels: bump(current.orderLevels || {}, event.orderLevel, event),
+    orderLevels: bump(current.orderLevels || {}, event.orderLevel, event),
+    trainingPhases: bump(current.trainingPhases || {}, event.trainingPhase, event),
       testTaking: {
       ...process,
       reasons: process.reasons || {},
+      errorCodes: event.errorCode ? {
+        ...(process.errorCodes || {}),
+        [event.errorCode]: ((process.errorCodes || {})[event.errorCode] || 0) + 1,
+      } : (process.errorCodes || {}),
       missTypes: process.missTypes || {},
       diagnosticKeys: process.diagnosticKeys || [],
       positionStats: (() => {
@@ -122,6 +152,12 @@ export function applyEvidence(model, rawEvent) {
       timedAnswers: (process.timedAnswers || 0) + (responseMs == null ? 0 : 1),
       totalResponseMs: (process.totalResponseMs || 0) + (responseMs || 0),
       answerChanges: (process.answerChanges || 0) + (event.answerChanges || 0),
+      secondStep: event.topicIdentified === true && ["mechanism", "application", "discrimination"].includes(event.masteryStage)
+        ? {
+            attempts: (process.secondStep?.attempts || 0) + 1,
+            correct: (process.secondStep?.correct || 0) + (event.correct && Number(event.answerQuality) >= 2 ? 1 : 0),
+          }
+        : (process.secondStep || { attempts: 0, correct: 0 }),
     },
   };
 }

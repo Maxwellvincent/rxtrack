@@ -157,11 +157,11 @@ export function ExamLaunchModal({
           <div>
             <div className="mb-1 font-mono text-[12px] font-bold uppercase tracking-wider text-text-3">Question focus</div>
             <div className="grid grid-cols-2 gap-2">
-              {[{ value: "balanced", label: "Balanced exam", note: "Broad block coverage" }, { value: "repair", label: "Focused repair", note: "Weak objectives first" }].map((option) => <button type="button" key={option.value} onClick={() => setStudyMode(option.value)} className={`rounded-lg border p-2 text-left ${studyMode === option.value ? "border-accent bg-panel" : "border-border"}`}>
+              {[{ value: "balanced", label: "Balanced exam", note: "Broad block coverage" }, { value: "repair", label: "BUILD → BREAK → PROVE", note: "Repair, stress-test, then delayed proof" }].map((option) => <button type="button" key={option.value} onClick={() => setStudyMode(option.value)} className={`rounded-lg border p-2 text-left ${studyMode === option.value ? "border-accent bg-panel" : "border-border"}`}>
                 <span className="block text-sm font-semibold text-text-1">{option.label}</span><span className="block text-xs text-text-3">{option.note}</span>
               </button>)}
             </div>
-            {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">Cycles recognition → mechanism → clinical application → fresh retest. An objective leaves this queue after at least 5 recent answers reach 78%.</p>}
+            {studyMode === "repair" && <p className="mt-2 text-xs text-text-2">BUILD the causal model → BREAK it with close mimics and varied clues → PROVE it later with mixed, unlabeled clinical application. A lucky quality-1 answer never counts as mastery.</p>}
           </div>
 
           <div>
@@ -337,7 +337,7 @@ export function ExamLaunchModal({
             disabled={!canLaunch || launching}
             className="rounded bg-accent px-3 py-1.5 font-mono text-xs font-bold text-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {launching ? "Opening…" : studyMode === "repair" ? "Start focused repair" : "Start quiz / exam now"}
+            {launching ? "Opening…" : studyMode === "repair" ? "Start BUILD → BREAK → PROVE" : "Start quiz / exam now"}
           </button>
         </div>
       </div>

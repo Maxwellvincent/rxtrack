@@ -24,6 +24,7 @@ import { pendingStatsQuestionIds, computeWeakConceptEntry } from "./finalizeLogi
 import { recordEvidenceAwait } from "../../../stores/learnerEvidence.js";
 import { classifyLeadIn } from "./questionReading.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";
+import { masteryStageForTask } from "../../../engine/examReadiness.js";
 
 export async function finalizeExamSession(
   userId,
@@ -94,8 +95,15 @@ export async function finalizeExamSession(
           misconception: wasCorrect ? null : "exam-error",
           responseMs: answer?.responseMs,
           answerChanges: answer?.answerChanges || 0,
+          answerQuality: Number.isFinite(answer?.answerQuality) ? answer.answerQuality : (wasCorrect ? 2 : 0),
+          confidence: answer?.confidence || null,
+          topicIdentified: answer?.topicIdentified === true,
+          errorCode: answer?.errorCode || null,
           taskType: question?.taskType || classifyLeadIn(question?.stem),
           reasoningDepth: question?.reasoningDepth || null,
+          masteryStage: masteryStageForTask(question?.taskType || classifyLeadIn(question?.stem), question?.reasoningDepth),
+          trainingPhase: question?.trainingPhase || null,
+          delayMs: question?.delayMs || (Number.isFinite(question?.generatedAt) && Number.isFinite(answer?.answeredAt) ? Math.max(0, answer.answeredAt - question.generatedAt) : 0),
           questionNumber,
         });
       }

@@ -2,7 +2,7 @@ import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDiff
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
 import { withDeadline } from "../../../asyncDeadline.js";
-import { repairTaskForIndex } from "./focusedRepair.js";
+import { repairPhaseForIndex, repairTaskForIndex } from "./focusedRepair.js";
 import { canonicalObjectiveIds } from "../../../engine/objectiveLinks.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
 import { questionMatchesObjectiveDomain } from "../../../engine/mcq.js";
@@ -128,8 +128,9 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         const qualityIssues = questionQualityIssues(q, objectives);
         if (!isValidPoolQuestion(q) || (enforceQuality && (qualityIssues.length || !questionMatchesObjectiveDomain({ ...q, objectiveIds }, { objectives, atoms }) || alreadyUsed(q, [...history, ...accepted])))) continue;
-        const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId,
+        const stamped = { ...q, difficulty, questionId: crypto.randomUUID(), blockId, lectureId, generatedAt: q.generatedAt || Date.now(),
           taskType: studyMode === "repair" ? repairTaskForIndex(obtained) : (q.taskType || null),
+          trainingPhase: studyMode === "repair" ? repairPhaseForIndex(obtained) : (q.trainingPhase || null),
           objectiveIds,
           fingerprint: questionFingerprint(q), schoolStyleScore: schoolStyleSimilarity(q, exemplars),
           source: exemplars.length ? "school-style generated" : "lecture generated" };

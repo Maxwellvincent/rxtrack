@@ -1,7 +1,14 @@
 import { flattenWeakConcepts } from "../tracker/weakConcepts.js";
 import { SCHOOL_EXAM_TARGET_RATE } from "../../logic/performanceTargets.js";
 
-export const REPAIR_TASK_CYCLE = ["recognition", "mechanism", "clinical-application", "fresh-retest"];
+export const REPAIR_TASK_CYCLE = [
+  "build-recognition",
+  "build-mechanism",
+  "break-application",
+  "break-discrimination",
+  "prove-application",
+  "prove-discrimination",
+];
 export const REPAIR_MIN_FRESH_ANSWERS = 5;
 
 const statusOf = (objective) => String(objective?.status || "untested").toLowerCase();
@@ -50,4 +57,9 @@ export function buildFocusedRepairScope({ eligibleLectures = [], objectivesByLec
 
 export function repairTaskForIndex(index) {
   return REPAIR_TASK_CYCLE[Math.abs(Number(index) || 0) % REPAIR_TASK_CYCLE.length];
+}
+
+export function repairPhaseForIndex(index) {
+  const task = repairTaskForIndex(index);
+  return task.split("-")[0];
 }

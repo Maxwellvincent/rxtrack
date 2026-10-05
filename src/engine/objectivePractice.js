@@ -27,6 +27,10 @@ function normalizedEvidence(objective, entry) {
     sessionCount: useEvidence ? (entry?.sessions || []).length : 0,
     taskTypeCount: useEvidence ? countKeys(entry?.taskTypes) : 0,
     sources: useEvidence ? entry?.sources || {} : {},
+    masteryStages: useEvidence ? entry?.masteryStages || {} : {},
+    delayedRetrievals: useEvidence ? Number(entry?.delayedRetrievals) || 0 : 0,
+    errorCodes: useEvidence ? entry?.errorCodes || {} : {},
+    qualityPoints: useEvidence ? Number(entry?.qualityPoints) || 0 : 0,
   };
 }
 
@@ -58,7 +62,27 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const progress = normalizedEvidence(objective, evidenceModel?.objectives?.[objective.id]);
     const remaining = minimumQuestionsToObjectiveReadiness(progress);
     const accuracy = progress.attempts ? progress.correct / progress.attempts : null;
-    const ready = remaining === 0;
+    const stageAccuracy = (stage) => {
+      const stat = progress.masteryStages?.[stage];
+      return stat?.attempts ? stat.correct / stat.attempts : null;
+    };
+    const applicationAttempts = (progress.masteryStages?.application?.attempts || 0) + (progress.masteryStages?.discrimination?.attempts || 0);
+    const applicationCorrect = (progress.masteryStages?.application?.correct || 0) + (progress.masteryStages?.discrimination?.correct || 0);
+    const applicationAccuracy = applicationAttempts ? applicationCorrect / applicationAttempts : null;
+    const recurringError = Object.values(progress.errorCodes || {}).some((count) => Number(count) >= 2);
+    const examReady = remaining === 0
+      && (stageAccuracy("mechanism") ?? 0) >= 0.8
+      && applicationAttempts >= 2
+      && (applicationAccuracy ?? 0) >= 0.8
+      && progress.delayedRetrievals >= 1
+      && !recurringError;
+    const stageOrder = ["recognition", "recall", "mechanism", "application", "discrimination"];
+    let masteryStage = "exposure";
+    for (const stage of stageOrder) {
+      if ((stageAccuracy(stage) ?? 0) >= 0.7) masteryStage = stage;
+    }
+    if (examReady) masteryStage = "stable";
+    const ready = examReady;
     const worked = progress.attempts > 0 || ![null, undefined, "", "untested"].includes(objective.status);
     const struggling = progress.attempts >= 2 && accuracy < 0.6;
     return {
@@ -69,6 +93,10 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       accuracy,
       remaining,
       ready,
+      examReady,
+      masteryStage,
+      mechanismAccuracy: stageAccuracy("mechanism"),
+      applicationAccuracy,
       worked,
       state: ready ? "ready" : struggling ? "struggling" : worked ? "developing" : "untested",
     };

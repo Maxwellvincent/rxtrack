@@ -183,10 +183,10 @@ describe("ExamLaunchModal", () => {
     const onLaunch = vi.fn();
     const { host, unmount } = render(<ExamLaunchModal blockId="b1" userId="u1" eligibleLectures={ELIGIBLE}
       defaultQuestionCount={10} onLaunch={onLaunch} onCancel={vi.fn()} />);
-    const repair = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Focused repair"));
+    const repair = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("BUILD"));
     act(() => repair.click());
-    expect(host.textContent).toContain("fresh retest");
-    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Start focused repair");
+    expect(host.textContent).toContain("PROVE it later");
+    const start = Array.from(host.querySelectorAll("button")).find((button) => button.textContent.includes("Start BUILD"));
     act(() => start.click());
     expect(onLaunch).toHaveBeenCalledWith(expect.objectContaining({ format: "exam", examName: expect.stringMatching(/^Timed exam ·/), studyMode: "repair", questionCount: 10, durationMinutes: 15, startWhilePreparing: true }));
     unmount();

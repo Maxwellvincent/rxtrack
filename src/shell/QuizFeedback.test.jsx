@@ -82,11 +82,11 @@ describe("quiz feedback", () => {
     const { host, close } = render(<AtomQuiz userId={null} questions={[{ stem: "A sample question?", choices: { A: "Correct", B: "Wrong" }, correct: "A" }]} />);
     click(host, "Wrong");
     click(host, "Certain");
-    click(host, "Knowledge gap");
-    click(host, "Time pressure");
-    expect(recordReflection.mock.calls[1]).toEqual([null, "time-pressure", "knowledge-gap"]);
-    expect([...host.querySelectorAll('[aria-pressed="true"]')].some((b) => b.textContent === "Time pressure")).toBe(true);
-    click(host, "Time pressure");
+    click(host, "K · Knowledge");
+    click(host, "E · Endurance");
+    expect(recordReflection.mock.calls[1]).toEqual([null, "E", "K"]);
+    expect([...host.querySelectorAll('[aria-pressed="true"]')].some((b) => b.textContent === "E · Endurance")).toBe(true);
+    click(host, "E · Endurance");
     expect(recordReflection).toHaveBeenCalledTimes(2);
     close();
   });

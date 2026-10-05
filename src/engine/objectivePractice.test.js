@@ -36,9 +36,16 @@ describe("objective practice planning", () => {
         sessions: ["quiz-1", "exam-1"],
         taskTypes: { mechanism: 2, "clinical-application": 1 },
         sources: { quiz: 2, "integrated-exam": 1 },
+        masteryStages: {
+          mechanism: { attempts: 1, correct: 1 },
+          application: { attempts: 1, correct: 1 },
+          discrimination: { attempts: 1, correct: 1 },
+        },
+        delayedRetrievals: 1,
       } } }
     );
     expect(plan).toMatchObject({ worked: 1, ready: 1, minimumRemaining: 0 });
+    expect(plan.rows[0]).toMatchObject({ examReady: true, masteryStage: "stable" });
     expect(plan.rows[0].sources).toEqual({ quiz: 2, "integrated-exam": 1 });
   });
 

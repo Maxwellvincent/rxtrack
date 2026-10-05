@@ -35,7 +35,7 @@ describe("focused repair", () => {
     expect(scope.objectivesByLecture.l1[0].repairPriority).toBeGreaterThan(scope.objectivesByLecture.l2[0].repairPriority);
   });
 
-  it("clears an objective only after five fresh answers meet the 78 percent target", () => {
+  it("clears an objective only after five fresh answers meet the 80 percent target", () => {
     expect(objectiveRepairEvidence({ recent: [true, true, true, true] }).cleared).toBe(false);
     expect(objectiveRepairEvidence({ recent: [true, true, true, true, false] }).cleared).toBe(true);
     expect(objectiveRepairEvidence({ recent: [true, true, true, false, false] }).cleared).toBe(false);
@@ -47,9 +47,9 @@ describe("focused repair", () => {
     expect(scope.objectiveCount).toBe(0);
   });
 
-  it("cycles from recognition through a fresh transfer retest", () => {
-    expect(Array.from({ length: 5 }, (_, index) => repairTaskForIndex(index))).toEqual([
-      "recognition", "mechanism", "clinical-application", "fresh-retest", "recognition",
+  it("cycles through BUILD, BREAK, and PROVE", () => {
+    expect(Array.from({ length: 7 }, (_, index) => repairTaskForIndex(index))).toEqual([
+      "build-recognition", "build-mechanism", "break-application", "break-discrimination", "prove-application", "prove-discrimination", "build-recognition",
     ]);
   });
 });

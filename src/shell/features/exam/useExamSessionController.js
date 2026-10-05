@@ -22,6 +22,7 @@ import { getExamSession, updateExamSessionTransaction } from "../../../supabase.
 import { mergeAnswer } from "../../../examSessions.js";
 import { finalizeExamSession } from "./finalize.js";
 import { releaseUnansweredQuestions } from "../../../questionPool.js";
+import { answerQuality } from "../../../engine/examReadiness.js";
 
 function newWriterId() {
   return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
@@ -211,7 +212,7 @@ export function useExamSessionController(sessionId, userId) {
   // (rather than throwing/rejecting) when the answer is refused; callers
   // that care can branch on the return value.
   const answerQuestion = useCallback(
-    (questionId, value) => {
+    (questionId, value, evidence = {}) => {
       if (!session) return false;
       if (session.status !== "in_progress") return false;
       if (session.format === "exam" && remainingMs != null && remainingMs <= 0) return false;
@@ -222,9 +223,22 @@ export function useExamSessionController(sessionId, userId) {
       // "pending" forever.
       if (autosaveStoppedRef.current) return false;
 
+      const question = session.questions?.find((item) => item.questionId === questionId);
+      const correct = value === question?.correct;
       const answer = {
         questionId,
         value,
+        confidence: evidence.confidence || session.answers?.find((a) => a.questionId === questionId)?.confidence || "unsure",
+        topicIdentified: evidence.topicIdentified ?? session.answers?.find((a) => a.questionId === questionId)?.topicIdentified ?? false,
+        assisted: evidence.assisted ?? session.answers?.find((a) => a.questionId === questionId)?.assisted ?? false,
+        reasoningCorrect: evidence.reasoningCorrect ?? session.answers?.find((a) => a.questionId === questionId)?.reasoningCorrect ?? null,
+        errorCode: evidence.errorCode || session.answers?.find((a) => a.questionId === questionId)?.errorCode || null,
+        answerQuality: answerQuality({
+          correct,
+          confidence: evidence.confidence || session.answers?.find((a) => a.questionId === questionId)?.confidence || "unsure",
+          assisted: evidence.assisted ?? session.answers?.find((a) => a.questionId === questionId)?.assisted ?? false,
+          reasoningCorrect: evidence.reasoningCorrect ?? session.answers?.find((a) => a.questionId === questionId)?.reasoningCorrect ?? null,
+        }),
         answeredAt: Date.now(),
         seq: seqRef.current++,
         writerId: writerIdRef.current,

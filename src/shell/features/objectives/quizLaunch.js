@@ -533,7 +533,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 1));
   let lastError = "";
   let consecutiveEmptyRounds = 0;
-  const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
+  const isProviderFailure = (message = "") => {
+    const text = String(message);
+    if (/returned no valid|returned no usable items|empty response|no usable questions/i.test(text)) return false;
+    return /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(text);
+  };
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
