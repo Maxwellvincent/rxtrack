@@ -744,14 +744,15 @@ export function LectureStudyFlow({
       .map((event) => `${event.confidence} confidence / ${event.assessment}${event.confidenceNote ? `: ${event.confidenceNote}` : ""}`)
       .join("\n");
     const recentConversation = (current.turns || []).slice(-6).map((turn, index) => `Turn ${index + 1} (${turn.reviewedStep || "step"}): learner=${turn.response || ""}; tutor=${turn.feedback || ""}; next=${turn.followUp || ""}`).join("\n");
+    const objectiveFact = activeTutorAtoms.find((atom) => atom.content)?.content || "Use the lecture objective and its linked facts as your source of truth.";
     const fallback = {
       assessment: isBlocked ? "needs_repair" : "unreviewed",
       feedback: isBlocked
         ? "Start with the organ system, time course, and the finding that is hardest to explain."
-        : "Your checkpoint was saved, but live tutor feedback was unavailable. Continue the reasoning chain and verify this step against the lecture.",
+        : `I heard your answer. Anchor it to the objective: ${objectiveText}. The linked lecture fact to use first is: ${String(objectiveFact).slice(0, 220)}`,
       followUp: isBlocked
         ? "Which single finding best localizes the process?"
-        : "What downstream finding should follow if your reasoning is correct?",
+        : `What part of the objective does that fact help you explain: ${objectiveText}?`,
       readyToAdvance: false,
     };
     setTutorReviewing(true);
