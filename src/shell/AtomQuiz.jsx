@@ -186,6 +186,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       responseMs,
       taskType: q.taskType || classifyLeadIn(q.stem),
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
+      reasoningVerified: q.reasoningAudit?.status === "verified",
       difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
@@ -209,6 +210,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       responseMs,
       taskType: classifyLeadIn(q.stem),
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
+      reasoningVerified: q.reasoningAudit?.status === "verified",
     });
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
@@ -233,6 +235,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         difficulty: q.difficulty || null,
         taskType: classifyLeadIn(q.stem),
         orderLevel: q.orderLevel || classifyQuestionOrder(q),
+      reasoningVerified: q.reasoningAudit?.status === "verified",
         stem: q.stem,
       });
       // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
@@ -408,6 +411,15 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 whyWrong={q.whyWrong}
                 choices={q.choices}
               />
+            )}
+            {q.reasoningAudit?.status === "verified" && (
+              <details className="rounded border border-border p-3 text-sm" data-testid="verified-reasoning">
+                <summary className="cursor-pointer font-semibold">Why this is {q.reasoningAudit.orderLevel.replace("-order", " order")} reasoning</summary>
+                <ol className="mt-2 list-decimal space-y-1 pl-5 text-text-2">
+                  {q.reasoningAudit.steps.map((step, index) => <li key={index}>{step}</li>)}
+                </ol>
+                <p className="mt-2 text-xs text-text-3">Checked against this lecture’s source. The chain is shown after your answer.</p>
+              </details>
             )}
             <QuestionQualityRating userId={userId} question={q} />
             <div className="rounded border border-border p-3 text-sm">

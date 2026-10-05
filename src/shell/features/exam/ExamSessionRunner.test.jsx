@@ -524,7 +524,7 @@ describe("ExamSessionRunner", () => {
       expect(score.textContent).toMatch(/1\/2 correct · 50%/);
       expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
       expect(host.textContent).not.toContain("Because reasons.");
-      expect(host.querySelector("details")).toBeFalsy();
+      expect(Array.from(host.querySelectorAll("details")).every(detail => detail.querySelector("summary")?.textContent.includes("Question/Source Issue"))).toBe(true);
       // Tutor panel itself stays gated behind tutorModeEnabled.
       expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
 

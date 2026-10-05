@@ -19,6 +19,8 @@ import { getLecText } from "../../../lectureText.js";
 import { selectAtomsForQuiz } from "../lectures/lectureStudy.js";
 import { areNearDuplicateQuestions, questionSimilarity } from "../../../engine/questionSimilarity.js";
 import { buildClinicalCorrelateLibrary } from "../../../engine/clinicalCorrelates.js";
+import { objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
+import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js";
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
 import { buildStyleProfile, STYLE_PROFILE_VERSION } from "../../../engine/styleProfile.js";
 
@@ -62,7 +64,9 @@ function objectiveStatus(objective) {
  * capped before the plan cycles so one label cannot consume the whole quiz.
  */
 export function buildAdaptiveObjectivePlan(objectives, questionCount) {
-  const ordered = sortWeakestFirst(objectives);
+  const pool = objectives || [];
+  const hasUnready = pool.some(objective => objectiveStatus(objective) !== "mastered");
+  const ordered = sortWeakestFirst(hasUnready ? pool.filter(objective => objectiveStatus(objective) !== "mastered") : pool);
   const count = Math.max(1, Number(questionCount) || 1);
   const targets = new Map();
   const addRoundRobin = (items, slots, cap) => {
@@ -300,12 +304,14 @@ export function buildQuizConfig({
   clinicalCorrelateLibrary = null,
   styleProfile = null,
   focusNotes = "",
+  evidenceModel = null,
+  objectiveAllocation = null,
 }) {
-  const pool = sortWeakestFirst(objectives);
+  const pool = sortWeakestFirst(objectivesWithPracticeEvidence(objectives, evidenceModel || readLearnerEvidence(userId)));
   const count = resolveQuestionCount(questionCount, Math.max(pool.length, 1));
 
   // When no objectives, fall through to atom/text-based generation
-  const selected = buildAdaptiveObjectivePlan(pool, count);
+  const selected = objectiveAllocation || buildAdaptiveObjectivePlan(pool, count);
   const lecture = (lectureIdHint && (lectures || []).find((item) => item?.id === lectureIdHint))
     || (pool.map((objective) => objective?.linkedLecId).find(Boolean)
       ? (lectures || []).find((item) => item?.id === pool.map((objective) => objective?.linkedLecId).find(Boolean))
@@ -340,10 +346,11 @@ export function buildQuizConfig({
       studyMode,
       clinicalCorrelateLibrary: recurringClinicalCorrelates,
       orderBlueprint: buildOrderBlueprint({ objectives: selected, count }),
+      requireReasoningAudit: true,
       focusNotes: [
         String(focusNotes || "").trim(),
         selected.length
-          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}`).join("\n")}`
+          ? `ADAPTIVE OBJECTIVE ALLOCATION — follow these item counts before broad coverage:\n${selected.map((objective) => `- [${objective.id || objective.code}] ${objective._adaptiveStatus}: ${objective._targetQuestionCount} question${objective._targetQuestionCount === 1 ? "" : "s"}; target ${objective._targetOrder || "second-order"}; ${objective._neededTaskTypes?.length ? `use a different task from ${objective._neededTaskTypes.join(", ")}` : "vary the final ask"}`).join("\n")}`
           : "",
       ].filter(Boolean).join("\n\n"),
     },
@@ -482,8 +489,10 @@ export async function startObjectiveQuiz(args, deps = {}) {
   if (hasText || atoms.length || hasObjectives) {
     // Keep each request small and fast: atoms are retrieval evidence, not one-question-per-atom
     // targets. Preparation rotates this bounded evidence window across batches.
+    const selectedIds = new Set(config.objectives.map(objective => objective.id || objective.code));
+    const relevantAtoms = [...atoms.filter(atom => atom.objectiveIds?.some(id => selectedIds.has(id))), ...atoms.filter(atom => !atom.objectiveIds?.some(id => selectedIds.has(id)))];
     const evidenceAtoms = atoms.length
-      ? atoms.slice(0, Math.max(1, config.count))
+      ? relevantAtoms.slice(0, selectedIds.size ? Math.max(12, config.count * 4) : Math.max(1, config.count))
       : objectivesAsAtoms(config.objectives || []);
     const result = await generateMcqs({ ...config, atoms: evidenceAtoms, generationVersion: args.generationVersion }, deps);
     return { ...result, lectureId };
@@ -513,6 +522,25 @@ export async function startObjectiveQuiz(args, deps = {}) {
   };
 }
 
+export function remainingObjectiveAllocation(plan = [], answered = [], limit = 5) {
+  const used = new Map();
+  for (const question of answered) {
+    const id = question.objectiveIds?.[0];
+    if (id) used.set(id, (used.get(id) || 0) + 1);
+  }
+  const allocations = new Map();
+  for (let pass = 0; pass < limit; pass += 1) {
+    for (const objective of plan) {
+      if ([...allocations.values()].reduce((sum, n) => sum + n, 0) >= limit) break;
+      const id = objective.id || objective.code;
+      const assigned = allocations.get(id) || 0;
+      if ((used.get(id) || 0) + assigned < objective._targetQuestionCount) allocations.set(id, assigned + 1);
+    }
+  }
+  return plan.filter(objective => allocations.has(objective.id || objective.code))
+    .map(objective => ({ ...objective, _targetQuestionCount: allocations.get(objective.id || objective.code) }));
+}
+
 /**
  * Prepare the complete question set the learner requested. Quality review is allowed to reject
  * weak items, but that must never silently turn a 10-question quiz into a one-question quiz.
@@ -520,6 +548,9 @@ export async function startObjectiveQuiz(args, deps = {}) {
  */
 export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {}) {
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
+  const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
+  const allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
+  const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";
   const accepted = [];
   const seen = new Set();
   const normalizeStem = (stem) => String(stem || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -533,7 +564,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 1));
   let lastError = "";
   let consecutiveEmptyRounds = 0;
-  const isProviderFailure = (message = "") => /provider|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
+  const isProviderFailure = (message = "") => /provider\s+(?:unavailable|failure|error)|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
@@ -544,7 +575,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // Ask for a full replacement batch even when only one or two slots remain. The spare
     // candidates are discarded after deduplication, but they prevent a repeated concept from
     // consuming the last requested slot and leaving a 21/25 quiz.
-    const batchCount = Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, Math.max(remaining, PREPARE_BATCH_SIZE));
+    const batchAllocation = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], Math.min(remaining, PREPARE_BATCH_SIZE));
+    const batchCount = enforceAllocation
+      ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
+      : Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, Math.max(remaining, PREPARE_BATCH_SIZE));
+    if (!batchCount) break;
     const rotate = (items = []) => {
       if (!items.length) return items;
       const offset = ((attempt - 1) * PREPARE_BATCH_SIZE) % items.length;
@@ -555,7 +590,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       {
         ...args,
         atoms: rotate(args.atoms || []),
-        objectives: rotate(args.objectives || []),
+        objectives: enforceAllocation ? batchAllocation : rotate(args.objectives || []),
+        objectiveAllocation: enforceAllocation ? batchAllocation : null,
         questionCount: batchCount,
         avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
       },
@@ -565,6 +601,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const newlyAccepted = [];
     for (const question of result.questions || []) {
       const key = normalizeStem(question?.stem);
+      if (enforceAllocation) {
+        const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
+        const levels = ["first-order", "second-order", "third-order"];
+        if (!target || question.reasoningAudit?.status !== "verified" || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) continue;
+      }
       const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
       // Repeated practice of one topic/objective is valid: a quiz count is a hard
       // request. Reject duplicate or near-duplicate questions, not distinct tasks

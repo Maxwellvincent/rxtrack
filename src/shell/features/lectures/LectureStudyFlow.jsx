@@ -82,7 +82,7 @@ import { LectureRetrievalEnrollment } from "./LectureRetrievalEnrollment.jsx";
 import { ObjectiveCoverage } from "./ObjectiveCoverage.jsx";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
-import { objectivePracticePlan } from "../../../engine/objectivePractice.js";
+import { objectivePracticePlan, objectivesWithPracticeEvidence } from "../../../engine/objectivePractice.js";
 import { buildTeachingBlocks, lectureModelFromBlocks } from "../../../engine/lectureTutorPlan.js";
 
 const TYPE_META = {
@@ -1266,18 +1266,19 @@ export function LectureStudyFlow({
    * and after that, it's a priority order, not a filter.
    */
   const orderedObjectives = useMemo(() => {
-    if (!focusObjectiveIds?.length) return lectureObjectives;
+    const adaptiveObjectives = objectivesWithPracticeEvidence(lectureObjectives, learnerEvidence.data);
+    if (!focusObjectiveIds?.length) return adaptiveObjectives;
     const rank = (o) => {
       const i = focusObjectiveIds.indexOf(o.id || o.code);
       return i === -1 ? Number.MAX_SAFE_INTEGER : i;
     };
-    return lectureObjectives
+    return adaptiveObjectives
       .map((objective) => ({
         ...objective,
         _focusPriority: rank(objective) === Number.MAX_SAFE_INTEGER ? 1 : 0,
       }))
       .sort((a, b) => rank(a) - rank(b));
-  }, [lectureObjectives, focusObjectiveIds]);
+  }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
   const runQuiz = useCallback(async (count, difficulty) => {
     const generationVersion = "v2";
@@ -1296,10 +1297,13 @@ export function LectureStudyFlow({
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const adaptivePlan = buildAdaptiveObjectivePlan(orderedObjectives, count);
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
+    const reserveCounts = new Map();
     const reserve = priorQuestions
       .filter((question) => question.generationMode !== "grounded-fallback")
       .filter((question) => (question.generationVersion || "v2") === generationVersion)
       .filter((question) => validReserve.has(question))
+      .filter((question) => question.reasoningAudit?.status === "verified")
+      .filter((question) => !questionRatingsStore.ratingFor(userId, question)?.sourceIssue)
       .filter((question) => (Number(question.timesAnswered) || 0) === 0)
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => {
@@ -1309,6 +1313,15 @@ export function LectureStudyFlow({
         );
         return questionRank(a) - questionRank(b)
           || String(a.createdAt || "").localeCompare(String(b.createdAt || ""));
+      })
+      .filter(question => {
+        const objective = adaptivePlan.find(item => question.objectiveIds?.includes(item.id || item.code));
+        if (!objective || ["first-order", "second-order", "third-order"].indexOf(question.orderLevel) < ["first-order", "second-order", "third-order"].indexOf(objective._targetOrder || "second-order")) return false;
+        const id = objective.id || objective.code;
+        const used = reserveCounts.get(id) || 0;
+        if (used >= objective._targetQuestionCount) return false;
+        reserveCounts.set(id, used + 1);
+        return true;
       })
       .slice(0, count);
     const missing = Math.max(0, count - reserve.length);
@@ -1339,6 +1352,9 @@ export function LectureStudyFlow({
     const result = await prepareObjectiveQuiz(
       {
         objectives: orderedObjectives,
+        evidenceModel: learnerEvidence.data,
+        initialQuestions: reserve,
+        plannedCount: count,
         lectureTitle: title,
         lectureIdHint: lecture?.id,
         blockId,
@@ -2191,15 +2207,15 @@ export function LectureStudyFlow({
           {lectureObjectives.length > 0 && (
             <details className="px-4 py-2.5 text-sm">
               <summary className="flex min-h-8 cursor-pointer list-none items-center justify-between gap-3 text-text-2">
-                <span className="font-semibold">Questions to finish each objective</span>
+                <span className="font-semibold">Your next objective practice</span>
                 <span className="font-mono text-[11px] text-text-3">
                   {objectivePractice.minimumRemaining === 0
                     ? "readiness floor met"
-                    : `${objectivePractice.minimumRemaining} minimum remaining`}
+                    : `at least ${objectivePractice.minimumRemaining} fresh correct answers`}
                 </span>
               </summary>
               <p className="mt-1 text-[12px] leading-relaxed text-text-3">
-                Minimum assumes the next answers are correct and varied. Lecture quizzes and submitted generated Exam Mode questions both count when linked to an objective.
+                This is an estimate, not a completion promise. It assumes fresh correct answers across sessions and question types. Lecture quizzes and submitted generated Exam Mode questions both count when linked to an objective.
               </p>
               <ol className="mt-2 divide-y divide-border/60">
                 {objectivePractice.rows.map((row) => (
@@ -2208,7 +2224,9 @@ export function LectureStudyFlow({
                       <div className="font-mono text-[11px] font-semibold text-accent-text">{row.code}</div>
                       {row.text && <div className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-text-2">{row.text}</div>}
                       <div className="mt-1 font-mono text-[11px] text-text-3">
-                        {row.attempts} answered · {row.correct} correct
+                        {row.attempts} distinct questions · {row.correct} correct
+                        <div className="mt-1">{row.missingRequirements.length ? row.missingRequirements.join(" · ") : "Readiness floor met · spaced maintenance"}</div>
+                        <div className="mt-1">Verified reasoning: {row.demonstrated.length ? row.demonstrated.map(order => order.replace("-order", " order")).join(", ") : "not established yet"} · Next: {row.targetOrder.replace("-order", " order")}</div>
                       </div>
                     </div>
                     <span className={`shrink-0 rounded-full border px-2 py-1 font-mono text-[11px] ${row.ready ? "border-good/40 text-good" : row.state === "struggling" ? "border-bad/40 text-bad" : "border-border text-text-2"}`}>

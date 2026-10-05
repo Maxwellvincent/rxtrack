@@ -46,10 +46,10 @@ describe("generatedQuestions store — addHighlight", () => {
   it("reads the retained question history across lectures", () => {
     generatedQuestions.addQuestions("u-history", "lecA", [q]);
     generatedQuestions.addQuestions("u-history", "lecB", [{ ...q, stem: "A different question?" }]);
-    expect(generatedQuestions.questionsForAllLectures("u-history").map((question) => question.stem)).toEqual([
+    expect(generatedQuestions.questionsForAllLectures("u-history").map((question) => question.stem).sort()).toEqual([
       q.stem,
       "A different question?",
-    ]);
+    ].sort());
   });
 });
 

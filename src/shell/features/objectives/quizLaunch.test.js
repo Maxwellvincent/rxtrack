@@ -3,6 +3,7 @@ import { installDomStorage } from "../../../stores/testEnv.js";
 import {
   sortWeakestFirst,
   buildAdaptiveObjectivePlan,
+  remainingObjectiveAllocation,
   resolveQuestionCount,
   findLectureForQuiz,
   readExemplars,
@@ -642,5 +643,26 @@ describe("resolveDefaultDifficulty", () => {
   it("bumps to expert at 90% cumulative accuracy", () => {
     expect(resolveDefaultDifficulty(0.9)).toBe("expert");
     expect(resolveDefaultDifficulty(1)).toBe("expert");
+  });
+});
+
+describe("live evidence allocation", () => {
+  it("does not spend intensive slots on ready objectives while gaps remain", () => {
+    expect(buildAdaptiveObjectivePlan([{ id: "easy", status: "ready" }, { id: "gap", status: "developing" }], 5).map(row => row.id)).toEqual(["gap"]);
+  });
+  it("preserves per-objective quotas across generation and reserve batches", () => {
+    const plan = [{ id: "gap", _targetQuestionCount: 3 }, { id: "new", _targetQuestionCount: 2 }];
+    const batch = remainingObjectiveAllocation(plan, [{ objectiveIds: ["gap"] }, { objectiveIds: ["gap"] }], 3);
+    expect(batch.map(row => [row.id, row._targetQuestionCount])).toEqual([["gap", 1], ["new", 2]]);
+  });
+  it("builds the same plan as the evidence panel instead of trusting stale status", () => {
+    const result = buildQuizConfig({ objectives: [{ id: "easy", status: "struggling" }, { id: "gap", status: "mastered" }], questionCount: 5,
+      atoms: [{ term: "Source", content: "Source-supported relationship" }], evidenceModel: { objectives: {
+        easy: { attempts: 3, correct: 3, recent: [true], sessions: ["one", "two"], taskTypes: { mechanism: 2, recognition: 1 } },
+        gap: { attempts: 3, correct: 1, recent: [false], sessions: ["one"], taskTypes: { mechanism: 3 } },
+      } } });
+    expect(result.config.objectives.map(objective => objective.id)).toEqual(["gap"]);
+    expect(result.config.requireReasoningAudit).toBe(true);
+    expect(result.config.orderBlueprint.targets["first-order"]).toBe(0);
   });
 });

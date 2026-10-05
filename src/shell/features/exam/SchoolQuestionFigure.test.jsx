@@ -23,7 +23,7 @@ describe("SchoolQuestionFigure", () => {
     expect(host.querySelector("img").getAttribute("src")).toBe("https://example.com/original.png");
     expect(host.textContent).toContain("may include the answer choices or key");
     expect(host.textContent).toContain("Use cropped figure");
-    expect(host.textContent).toContain("IMCQ.pdf · page 6");
+    expect(host.textContent).toContain("IMCQ.pdf · visual page 6");
     act(() => host.querySelector("img").dispatchEvent(new window.Event("error")));
     expect(host.querySelector('[role="status"]').textContent).toContain("Do not answer");
   });

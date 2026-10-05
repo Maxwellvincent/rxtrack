@@ -22,3 +22,17 @@ describe('school evidence alignment',()=>{
    expect(buildMcqPrompt({lectureText:text,objectives:[objective],examples:[question]})).toContain('school-code');
  });
 });
+
+it("keeps repeated objective slides from displacing the explanatory lecture evidence", () => {
+  const index = "Lecture objectives\nSOM.MK.001 Describe CSF.\nSOM.MK.002 Describe hydrocephalus.\nSOM.MK.003 Describe communicating hydrocephalus.";
+  const source = [...Array(10).fill(index), "Communicating hydrocephalus can arise from impaired absorption of CSF through arachnoid villi. A tracer injected into a lateral ventricle appears in lumbar CSF."].join("\f");
+  const evidence = retrieveLectureEvidence(source, [{ objective: "Describe communicating hydrocephalus" }]);
+  expect(evidence).toContain("impaired absorption");
+  expect(evidence).not.toContain("SOM.MK.001");
+});
+
+it("preserves explanatory text when the extraction has no page separators", () => {
+  const index = "SOM.MK.001 Describe CSF. SOM.MK.002 Describe hydrocephalus. SOM.MK.003 Describe ICP. ";
+  const source = index.repeat(15) + "Communicating hydrocephalus arises from impaired absorption of CSF through the arachnoid villi. ".repeat(15);
+  expect(retrieveLectureEvidence(source, [{ objective: "Describe communicating hydrocephalus" }])).toContain("impaired absorption");
+});

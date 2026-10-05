@@ -51,10 +51,13 @@ export function buildOrderBlueprint({ objectives = [], count = 10 } = {}) {
     id: objective?.id || objective?.code || null,
     text: objective?.objective || objective?.text || "",
     ...objectiveOrderProfile(objective),
+    nextOrder: objective?._targetOrder || null,
+    demonstratedOrders: objective?._demonstratedOrders || [],
   }));
   const hasHighOrderObjective = profiles.some((profile) => profile.bloomLevel >= 3);
   const hasThirdOrderObjective = profiles.some((profile) => profile.allowed.includes("third-order"));
-  const first = total <= 3 ? 1 : Math.max(1, Math.round(total * 0.2));
+  const adaptive = profiles.some(profile => profile.nextOrder);
+  const first = adaptive ? 0 : total <= 3 ? 1 : Math.max(1, Math.round(total * 0.2));
   // Keep the target mix bounded for tiny quizzes: a one-question quiz cannot
   // simultaneously contain both its first- and third-order target.
   const third = hasThirdOrderObjective
@@ -97,4 +100,22 @@ export function stampQuestionOrders(questions = [], objectives = []) {
     const orderLevel = profile.allowed.includes(classified) ? classified : profile.primary;
     return { ...question, orderLevel, bloomLevel: profile.bloomLevel };
   });
+}
+
+/** Validate a separate review's reasoning claim against the actual supplied source. */
+export function verifyReasoningReview(review, question, cfg = {}) {
+  const reasoning = review?.reasoning;
+  const orderLevel = normalizeQuestionOrder(reasoning?.orderLevel);
+  const required = { "first-order": 1, "second-order": 2, "third-order": 3 }[orderLevel];
+  const steps = Array.isArray(reasoning?.steps) ? reasoning.steps.map(String).map(step => step.trim()).filter(Boolean) : [];
+  const quotes = Array.isArray(reasoning?.sourceQuotes) ? reasoning.sourceQuotes.map(String).map(quote => quote.trim()).filter(Boolean) : [];
+  const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const source = normalize([cfg.lectureText || "", ...(cfg.atoms || []).map(atom => `${atom.term || ""} ${atom.content || ""}`)].join(" "));
+  const objective = (cfg.objectives || []).find(item => (question.objectiveIds || []).includes(String(item.id || item.code)));
+  if (!required || reasoning.allStepsRequired !== true || steps.length < required || new Set(steps.map(normalize)).size < required) return null;
+  if (!objectiveOrderProfile(objective || {}).allowed.includes(orderLevel)) return null;
+  const quoteFloor = orderLevel === "third-order" ? 2 : 1;
+  const supportedQuotes = [...new Set(quotes.map(normalize))].filter(quote => quote.length >= 16 && source.includes(quote));
+  if (supportedQuotes.length < quoteFloor || supportedQuotes.length !== new Set(quotes.map(normalize)).size) return null;
+  return { status: "verified", version: 1, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
 }

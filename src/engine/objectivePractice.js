@@ -1,3 +1,5 @@
+import { objectiveOrderProfile } from "./questionOrder.js";
+
 export const OBJECTIVE_MIN_ATTEMPTS = 3;
 export const OBJECTIVE_MIN_ACCURACY = 0.8;
 export const OBJECTIVE_MIN_SESSIONS = 2;
@@ -7,7 +9,7 @@ const countKeys = (value) => Object.keys(value || {}).filter((key) => (value[key
 
 function normalizedEvidence(objective, entry) {
   const evidenceAttempts = Math.max(0, Number(entry?.attempts) || 0);
-  const useEvidence = evidenceAttempts > 0;
+  const useEvidence = entry != null;
   const attempts = useEvidence
     ? evidenceAttempts
     : Math.max(0, Number(objective?.attempts ?? objective?.totalAttempts) || 0);
@@ -27,6 +29,8 @@ function normalizedEvidence(objective, entry) {
     sessionCount: useEvidence ? (entry?.sessions || []).length : 0,
     taskTypeCount: useEvidence ? countKeys(entry?.taskTypes) : 0,
     sources: useEvidence ? entry?.sources || {} : {},
+    taskTypes: useEvidence ? entry?.taskTypes || {} : {},
+    orderLevels: useEvidence ? entry?.orderLevels || {} : {},
   };
 }
 
@@ -59,7 +63,18 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const remaining = minimumQuestionsToObjectiveReadiness(progress);
     const accuracy = progress.attempts ? progress.correct / progress.attempts : null;
     const ready = remaining === 0;
-    const worked = progress.attempts > 0 || ![null, undefined, "", "untested"].includes(objective.status);
+    const worked = progress.attempts > 0;
+    const profile = objectiveOrderProfile(objective);
+    const demonstrated = Object.entries(progress.orderLevels).filter(([, stats]) => stats.correct > 0).map(([order]) => order);
+    const targetOrder = profile.allowed.includes("third-order") && demonstrated.includes("second-order")
+      ? "third-order" : "second-order";
+    const missingRequirements = [
+      ...(progress.attempts < OBJECTIVE_MIN_ATTEMPTS ? ["more distinct questions"] : []),
+      ...(accuracy != null && accuracy < OBJECTIVE_MIN_ACCURACY ? ["repair missed connections"] : []),
+      ...(!progress.latestCorrect && progress.attempts ? ["a correct fresh retest"] : []),
+      ...(progress.sessionCount < OBJECTIVE_MIN_SESSIONS ? ["another session"] : []),
+      ...(progress.taskTypeCount < OBJECTIVE_MIN_TASK_TYPES ? ["a different question type"] : []),
+    ];
     const struggling = progress.attempts >= 2 && accuracy < 0.6;
     return {
       ...progress,
@@ -67,6 +82,9 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
       code: objective.code || objective.objectiveCode || `Objective ${index + 1}`,
       text: objective.objective || objective.text || objective.title || "",
       accuracy,
+      demonstrated,
+      targetOrder,
+      missingRequirements,
       remaining,
       ready,
       worked,
@@ -83,4 +101,19 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     untested: rows.filter((row) => row.state === "untested").length,
     minimumRemaining: rows.reduce((sum, row) => sum + row.remaining, 0),
   };
+}
+
+/** The display and quiz allocator share this projection; persisted legacy labels are not authority. */
+export function objectivesWithPracticeEvidence(objectives = [], evidenceModel = {}) {
+  const rows = new Map(objectivePracticePlan(objectives, evidenceModel).rows.map(row => [row.id, row]));
+  return objectives.map(objective => {
+    const row = rows.get(objective.id);
+    if (!row) return objective;
+    return { ...objective, status: row.ready ? "mastered" : row.state,
+      attempts: row.attempts, correctCount: row.correct,
+      _practiceRemaining: row.remaining, _targetOrder: row.targetOrder,
+      _demonstratedOrders: row.demonstrated,
+      _neededTaskTypes: row.taskTypeCount < 2 ? Object.keys(row.taskTypes) : [],
+      _practiceRequirements: row.missingRequirements };
+  });
 }

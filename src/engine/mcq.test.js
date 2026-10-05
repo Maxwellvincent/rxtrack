@@ -718,3 +718,29 @@ describe("five options", () => {
     expect(p).not.toMatch(/D: undefined/);
   });
 });
+
+describe("separate reasoning review gate", () => {
+  const question = { stem: "A patient develops increasing ventricular pressure after a narrowing interrupts the passage between the third and fourth ventricles. Production of fluid continues. What upstream change is expected?",
+    choices: { A: "Expansion of upstream ventricles", B: "Collapse of upstream ventricles", C: "Isolated fourth ventricle enlargement", D: "No ventricular change" }, correct: "A",
+    explanation: "An obstruction interrupts the passage of CSF, and continued production expands the upstream ventricular spaces.", objectiveIds: ["o1"], orderLevel: "third-order" };
+  const cfg = { requireReasoningAudit: true, objectives: [{ id: "o1", objective: "Analyze CSF obstruction", bloom_level: 3 }],
+    atoms: [{ term: "Obstruction", content: "Aqueduct obstruction prevents CSF passage into the fourth ventricle." }, { term: "Expansion", content: "Continued CSF production expands the spaces upstream of an obstruction." }] };
+  it("withholds self-labeled advanced questions if the separate review has no chain", async () => {
+    const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });
+    expect(result.questions).toEqual([]);
+  });
+  it("attaches the separately verified chain and actual order to accepted questions", async () => {
+    const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [], reasoning: {
+      orderLevel: "third-order", steps: ["Localize aqueduct obstruction", "Trace the upstream CSF route", "Predict expansion with continuing secretion"],
+      sourceQuotes: cfg.atoms.map(atom => atom.content), allStepsRequired: true,
+    } }] }), skipRepair: true });
+    expect(result.questions[0]?.reasoningAudit).toMatchObject({ status: "verified", orderLevel: "third-order" });
+  });
+});
+
+it("sends the objective facet and task to the separate reviewer", () => {
+  const prompt = buildQuestionAuditPrompt([{ stem: "Case?", choices: { A: "One", B: "Two" }, correct: "A", objectiveIds: ["o1"],
+    objectiveFacet: "Infer impaired CSF absorption from cellular content", taskType: "clinical-application" }], { objectives: [{ id: "o1", objective: "Correlate CSF composition with disease" }] });
+  expect(prompt).toContain('"objectiveFacet":"Infer impaired CSF absorption from cellular content"');
+  expect(prompt).toContain('"taskType":"clinical-application"');
+});

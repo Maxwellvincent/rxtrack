@@ -7,7 +7,7 @@ import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
 import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
-import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription } from "./questionOrder.js";
+import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview } from "./questionOrder.js";
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
 
@@ -437,6 +437,7 @@ export function normalizeQuestions(raw) {
       taskType: q.taskType ? String(q.taskType).trim() : null,
       reasoningDepth: ["state-recognition", "pathway-process", "mechanism", "enzyme-structure", "regulation-cofactor", "clinical-consequence"].includes(q.reasoningDepth) ? q.reasoningDepth : null,
       orderLevel: normalizeQuestionOrder(q.orderLevel || q.questionOrder),
+      reasoningSteps: Array.isArray(q.reasoningSteps) ? q.reasoningSteps.map(String).slice(0, 6) : [],
       bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
       clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,
       clinicalCueUsed: q.clinicalCueUsed ? String(q.clinicalCueUsed).trim() : null,
@@ -576,7 +577,7 @@ export function selectStyleExemplars(examples = [], limit = 5, _difficulty = "me
   return selected;
 }
 
-export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null } = {}) {
+export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficulty = "medium", examples = [], styleProfile = null, avoidStems = [], subject = "this lecture", studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false } = {}) {
   const diff = String(difficulty).toLowerCase();
   // A fact with `hasImage` gets a photomicrograph rendered above its question. The model is
   // told an image is coming so the stem can point at it, but never told what it shows —
@@ -618,7 +619,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
   const taskSection = taskVariationPrompt(styleFingerprint, diff, "atom-question batch");
   const orderSection = `ORDER-OF-REASONING BLUEPRINT (separate from difficulty): ${JSON.stringify(resolvedOrderBlueprint.targets)}\n` +
     `${resolvedOrderBlueprint.rationale}\n` +
-    `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
+    `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration. ${requireReasoningAudit ? "Return reasoningSteps for every item: the shortest necessary cue-to-relationship-to-answer chain. Follow objective nextOrder targets; second-order needs one relationship after interpreting clues, third-order needs two distinct lecture-supported relationships. Do not manufacture complexity through stem length." : ""}\n`;
   return (
     objectiveFacetCoveragePrompt(objectives, atoms.length) +
     v2Blueprint + styleProfilePrompt(styleProfile, atoms.length) + orderSection + taskSection +
@@ -636,7 +637,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     examplesSection + schoolEvidencePrompt(styleExamples, objectives, atoms) + homeworkEvidencePrompt(examples) + clickerEvidencePrompt(examples) + clinicalSection + focusSection + feedbackSection + avoidSection +
     `\n\nBefore returning JSON, reject and rewrite any draft whose stem is shorter or less clinically dense than the school examples, reveals its keyed answer, uses a generic recall template, or can be answered without applying the numbered fact. ` +
     depthSection + `\nReturn ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...",${WHY_WRONG_JSON},"topic":"the fact's term","objectiveIds":["primary objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"difficulty":"${diff}"}]}`
   );
 }
 
@@ -698,8 +699,11 @@ function auditQuestionPayload(question, index) {
     explanation: question.explanation,
     whyWrong: question.whyWrong,
     objectiveIds: question.objectiveIds,
+    objectiveFacet: question.objectiveFacet || null,
+    taskType: question.taskType || null,
     topic: question.topic,
     orderLevel: question.orderLevel,
+    reasoningSteps: question.reasoningSteps || [],
     bloomLevel: question.bloomLevel,
     clinicalCorrelate: question.clinicalCorrelate,
     clinicalCueUsed: question.clinicalCueUsed,
@@ -717,7 +721,8 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     content: String(atom.content || ""),
     objectiveIds: atom.objectiveIds || [],
   }));
-  const evidence = retrieveLectureEvidence(String(cfg.lectureText || ""), cfg.objectives || [], cfg.atoms || []);
+  const reviewQuery = questions.map(question => ({ term: question.topic || "", content: `${question.stem || ""} ${Object.values(question.choices || {}).join(" ")} ${question.explanation || ""}` }));
+  const evidence = retrieveLectureEvidence(String(cfg.lectureText || ""), cfg.objectives || [], [...(cfg.atoms || []), ...reviewQuery], cfg.requireReasoningAudit ? 14000 : 7000);
   const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Do not rewrite or repair it. Approve it only when ALL checks pass:\n` +
@@ -733,6 +738,8 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `10. Compare the final asks across the batch. The school style may use "Which" often, but the target must vary. For batches of five or more, expect at least three supported task families and at least half of the items to require a second-order clue -> mechanism or lesion -> downstream finding/relationship step. Flag a repetitive generic ending or first-order-only batch as repetitive_task_ending when it materially reduces practice value.\n` +
     `11. Treat orderLevel as a reasoning claim, not a synonym for difficulty: first-order recognizes one supplied fact; second-order applies one supplied relationship; third-order integrates at least two supplied relationships before selecting a downstream result. The stated order must be supported by the item's objective and lecture facts. Flag order_level_mismatch when it is overstated or the item is mislabeled.\n` +
     `12. If the mapped objective explicitly names multiple imaging modalities or clinical settings (for example CT, MRI, and radiologic images), preserve that scope across the batch when the requested count permits. Reject an item only when it claims modality-specific findings absent from the supplied evidence; do not treat a single modality as complete coverage of a multi-modality objective.\n` +
+    (cfg.requireReasoningAudit ? `REASONING VERIFICATION: In each review return reasoning: {"orderLevel":"first-order|second-order|third-order","steps":["cue interpretation","apply the supplied relationship","integrate another relationship if required"],"sourceQuotes":["exact lecture excerpt"],"allStepsRequired":true}. Evaluate the ACTUAL shortest route to the key. Second-order needs cue interpretation plus one relationship; third-order needs at least two distinct relationships after interpreting the clues. All steps must be necessary: a padded stem or an answer obtainable by one recalled label is first-order. Quote the supplied lecture facts/text supporting the relationship(s), at least two distinct quotes for third-order. Never use the objective wording as factual evidence. If you cannot verify the order, omit reasoning and reject as order_level_mismatch.\n` : "") +
+    `OBJECTIVE ALIGNMENT: An objective's action verb is a guide to scope, not a ban on applying its supporting lecture relationships. For example, an objective identifying causes of brain edema can be tested by inferring the cause from the source's barrier, composition, and distribution relationships. An objective correlating CSF composition with disease can require linking cellular content to impaired absorption and downstream findings. Flag objective_mismatch only for a different curricular target, not because an application question goes beyond repeating the verbatim objective. For every rejection include a brief rationale naming the unsupported fact or mismatched target.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
     `SUBJECT: ${cfg.subject || "this lecture"}\nDIFFICULTY: ${cfg.difficulty || "medium"}\n` +
     `OBJECTIVES:\n${JSON.stringify(objectives)}\n` +
@@ -742,7 +749,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `RECURRENT CLINICAL CORRELATES (optional; use only when supported by the lecture facts):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question with 4-6 choices, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
-    `{"reviews":[{"index":0,"approved":true,"issues":[],"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
+    `{"reviews":[{"index":0,"approved":true,"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
     `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending.`
   );
 }
@@ -884,7 +891,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   const locallyUsableSet = new Set(locallyUsable);
   const keepLocallyValidated = (reason) => {
     const deferred = locallyValid.length ? [] : locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
-    const candidates = locallyValid.length ? locallyValid : deferred;
+    const candidates = cfg.requireReasoningAudit ? [] : locallyValid.length ? locallyValid : deferred;
     return {
     questions: candidates.map((question) => ({
       ...question,
@@ -901,7 +908,9 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         ? `${candidates.length} question${candidates.length === 1 ? "" : "s"} passed structural checks; independent medical review was unavailable (${reason}).`
         : `${candidates.length} question${candidates.length === 1 ? "" : "s"} retained with basic structural checks while independent medical review was unavailable (${reason}).`)
       : null,
-    error: candidates.length ? null : `Independent question review was unavailable (${reason}), and no generated questions passed structural checks.`,
+    error: candidates.length ? null : cfg.requireReasoningAudit
+      ? `Reasoning verification failed (${reason}). No unverified items were counted as advanced practice.`
+      : `Independent question review was unavailable (${reason}), and no generated questions passed structural checks.`,
   };
   };
   if (typeof reviewer !== "function") return keepLocallyValidated("reviewer not configured");
@@ -919,6 +928,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     const approved = questions.flatMap((question, index) => {
       const review = byIndex.get(index);
       if (!review) {
+        if (cfg.requireReasoningAudit) return [];
         return locallyValid.includes(question) ? [{
           ...question,
           qualityAudit: { version: 1, status: "local-validated", checks: ["clinical-structure", "valid-key", "distinct-choices", "no-answer-leak"] },
@@ -934,8 +944,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       // leak, and explanation failures remain blocking.
       const acceptedWithNotes = review?.approved !== true && issues.length > 0 && blockingIssues.length === 0;
       if ((!acceptedWithNotes && review?.approved !== true) || blockingIssues.length || !locallyUsableSet.has(question)) return [];
+      const reasoningAudit = verifyReasoningReview(review, question, cfg);
+      if (cfg.requireReasoningAudit && !reasoningAudit) return [];
       return [{
         ...question,
+        ...(reasoningAudit ? { orderLevel: reasoningAudit.orderLevel, reasoningAudit } : {}),
         qualityAudit: {
           version: 1,
           status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",
@@ -948,7 +961,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     // rejected batch entered the repair path. Let the independent reviewer
     // return an in-place correction, then apply the same deterministic
     // structure/domain screens before it can enter the quiz.
-    const reviewerReplacements = reviews.flatMap((review) => {
+    const reviewerReplacements = cfg.requireReasoningAudit && deps.skipRepair ? [] : reviews.flatMap((review) => {
       if (review?.approved === true || !review?.replacement) return [];
       const normalized = stampQuestionOrders(
         ensureObjectiveAttribution(normalizeQuestions({ questions: [review.replacement] }), cfg.objectives || []),
@@ -966,7 +979,10 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           },
         }));
     });
-    const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...reviewerReplacements]));
+    const verifiedReplacements = cfg.requireReasoningAudit && reviewerReplacements.length
+      ? (await auditGeneratedQuestions(reviewerReplacements, cfg, { ...deps, skipRepair: true })).questions || []
+      : reviewerReplacements;
+    const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...verifiedReplacements]));
     // A strict reviewer can reject every item when the local/cloud reviewer is
     // unavailable or over-sensitive. Do not strand the learner in an endless
     // replacement loop: retain questions that passed deterministic safety
@@ -1027,7 +1043,7 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null } = {}) {
+export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
@@ -1083,7 +1099,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
   const taskSection = taskVariationPrompt(styleFingerprint, diff, "question batch");
   const orderSection = `ORDER-OF-REASONING BLUEPRINT (separate from difficulty): ${JSON.stringify(resolvedOrderBlueprint.targets)}\n` +
     `${resolvedOrderBlueprint.rationale}\n` +
-    `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration.\n`;
+    `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration. ${requireReasoningAudit ? "Return reasoningSteps for every item: the shortest necessary cue-to-relationship-to-answer chain. Follow objective nextOrder targets; second-order needs one relationship after interpreting clues, third-order needs two distinct lecture-supported relationships. Do not manufacture complexity through stem length." : ""}\n`;
   return (
     objectiveFacetsSection + v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
@@ -1099,6 +1115,6 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `\n\nDRAFT QUALITY CHECK: rewrite any item with a repeated sentence, repeated answer choice, answer wording revealed in the stem, ambiguous best answer, physiology that is only partly true, an unsupported named diagnosis/syndrome/finding, or an explanation that does not name the mechanism and connect it to the objective. Match the typical stem length and clue density of the school examples. A separate independent reviewer will decide whether each completed item may be used.\n` +
     `RULES: every question UNIQUE; vary format/demographics and final task family; base strictly on the lecture content; set objectiveIds to the exact ID/code of the ONE primary objective tested; distribute correct answers evenly across A/B/C/D/E — no single letter should be correct more than 30% of the time.\n` + depthSection + `\n` +
     `Return ONLY valid JSON:\n` +
-    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","difficulty":"${diff}"}]}`
+    `{"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"choiceLayout":null,"choiceColumns":null,"topic":"<3-6 word specific medical concept tested, e.g. zona glomerulosa aldosterone control>","objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["interpret clue","apply supplied relationship","integrate a second relationship only when needed"],"difficulty":"${diff}"}]}`
   );
 }

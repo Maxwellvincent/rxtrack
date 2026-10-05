@@ -96,6 +96,8 @@ export async function finalizeExamSession(
           answerChanges: answer?.answerChanges || 0,
           taskType: question?.taskType || classifyLeadIn(question?.stem),
           reasoningDepth: question?.reasoningDepth || null,
+          orderLevel: question?.orderLevel || null,
+          reasoningVerified: question?.reasoningAudit?.status === "verified",
           questionNumber,
         });
       }

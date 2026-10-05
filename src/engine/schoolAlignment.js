@@ -33,7 +33,19 @@ export function schoolEvidencePrompt(examples, objectives, atoms) {
 }
 
 export function retrieveLectureEvidence(text, objectives = [], atoms = [], budget = 7000) {
-  const chunks = String(text || '').match(/[\s\S]{1,900}/g) || [];
+  // Repeated objective/index slides establish scope, not factual support. They used to
+  // occupy the entire retrieval budget and hide the explanatory (blue) slides.
+  const pages = String(text || '').split(/\f/);
+  const source = pages.length > 1
+    ? pages.filter(page => (page.match(/SOM\.[A-Z0-9.]+/g) || []).length < 3).join('\n')
+    : pages[0];
+  const seen = new Set();
+  const chunks = (source.match(/[\s\S]{1,900}/g) || []).filter(chunk => {
+    if ((chunk.match(/SOM\.[A-Z0-9.]+/g) || []).length >= 3) return false;
+    const key = chunk.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
   const wanted = tokens([...objectives.map(textOf), ...atoms.map(a => `${a.term} ${a.content}`)].join(' '));
   const ranked = chunks.map((text,index) => ({ text,index,score:[...tokens(text)].filter(w=>wanted.has(w)).length }))
     .sort((a,b)=>b.score-a.score || a.index-b.index).slice(0, Math.max(1,Math.floor(budget/930))).sort((a,b)=>a.index-b.index);

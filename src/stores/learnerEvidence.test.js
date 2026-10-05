@@ -88,3 +88,12 @@ describe("learner evidence", () => {
     expect(repeatedMiss.objectives.o1.reinforcements).toBe(1);
   });
 });
+
+it("records order performance only for separately verified, distinct questions", () => {
+  const event = { objectiveIds: ["o1"], questionKey: "q1", correct: true, orderLevel: "second-order", reasoningVerified: true };
+  const first = applyEvidence(null, event);
+  const repeat = applyEvidence(first, event);
+  expect(repeat.objectives.o1.orderLevels["second-order"]).toEqual({ attempts: 1, correct: 1 });
+  const unverified = applyEvidence(repeat, { ...event, questionKey: "q2", reasoningVerified: false, orderLevel: "third-order" });
+  expect(unverified.objectives.o1.orderLevels["third-order"]).toBeUndefined();
+});

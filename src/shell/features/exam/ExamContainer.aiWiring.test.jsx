@@ -53,7 +53,7 @@ const LECTURE = {
   lectureTitle: "Real Wiring Lecture",
   // >=150 chars so generateMcqs's lecture-text floor is met and it actually
   // calls callAIJSON instead of short-circuiting on "not enough text".
-  extractedText: "A".repeat(200),
+  extractedText: "Low C-peptide demonstrates reduced endogenous insulin secretion. Insulin deficiency causes hyperglycemia and osmotic diuresis. ".repeat(3),
 };
 
 vi.mock("../../hooks/useLectures.js", () => ({
@@ -160,7 +160,7 @@ beforeEach(() => {
   createExamSessionMock.mockResolvedValue({ ok: true });
   callAIJSONMock.mockImplementation((_system, prompt) => {
     if (String(prompt).includes("Independently audit every generated question")) {
-      return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [] }] });
+      return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true } }] });
     }
     return Promise.resolve({
       questions: [validClinicalQuestion()],
@@ -214,7 +214,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     let generationCalls = 0;
     callAIJSONMock.mockImplementation((_system, prompt) => {
       if (String(prompt).includes("Independently audit every generated question")) {
-        return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [] }] });
+        return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true } }] });
       }
       generationCalls += 1;
       return Promise.resolve(generationCalls === 1

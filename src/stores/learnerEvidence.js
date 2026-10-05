@@ -14,7 +14,15 @@ export function read(userId) {
   for (const event of stored.evidenceJournal) {
     if (!contested.has(questionEvidenceKey(event.questionKey))) projected = applyEvidence(projected, event);
   }
-  return { ...stored, ...projected, evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
+  // An excluded-only objective still has an authoritative zero entry. Otherwise
+  // UI fallback to legacy counters would revive the contested attempt.
+  const objectives = { ...(projected.objectives || {}) };
+  for (const event of stored.evidenceJournal) {
+    for (const id of event.objectiveIds || []) {
+      if (!objectives[id]) objectives[id] = { attempts: 0, correct: 0, recent: [], sessions: [], taskTypes: {}, orderLevels: {} };
+    }
+  }
+  return { ...stored, ...projected, objectives, evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
     testTaking: { ...projected.testTaking, reasons: stored.testTaking?.reasons || {}, missTypes: stored.testTaking?.missTypes || {}, diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
 
 }
@@ -83,7 +91,12 @@ function bumpObjective(bucket, id, event) {
   const nextQuestionKeys = questionKey
     ? [...new Set([...questionKeys, questionKey])].slice(-200)
     : questionKeys;
-  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys } };
+  const orderLevels = { ...(previous.orderLevels || {}) };
+  if (event.reasoningVerified && ["first-order", "second-order", "third-order"].includes(event.orderLevel)) {
+    const prior = orderLevels[event.orderLevel] || { attempts: 0, correct: 0 };
+    orderLevels[event.orderLevel] = { attempts: prior.attempts + 1, correct: prior.correct + (event.correct ? 1 : 0) };
+  }
+  return { ...next, [id]: { ...entry, sessions, taskTypes, sources, questionKeys: nextQuestionKeys, orderLevels } };
 }
 
 export function applyEvidence(model, rawEvent) {

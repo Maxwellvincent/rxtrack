@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildOrderBlueprint, classifyQuestionOrder, objectiveOrderProfile, stampQuestionOrders } from "./questionOrder.js";
+import { buildOrderBlueprint, classifyQuestionOrder, objectiveOrderProfile, stampQuestionOrders, verifyReasoningReview } from "./questionOrder.js";
 
 describe("question order blueprint", () => {
   it("uses objective Bloom levels as an order ceiling", () => {
@@ -33,5 +33,26 @@ describe("question order blueprint", () => {
     expect(classifyQuestionOrder({ stem: question.stem, taskType: question.taskType }, { bloom_level: 4 })).toBe("third-order");
     expect(question.orderLevel).toBe("second-order");
     expect(question.bloomLevel).toBe(2);
+  });
+});
+
+describe("reasoning verification", () => {
+  const cfg = { objectives: [{ id: "o1", bloom_level: 3 }], atoms: [
+    { content: "Blockage of the cerebral aqueduct prevents CSF from reaching the fourth ventricle." },
+    { content: "Continued CSF production causes expansion of the ventricles upstream of an obstruction." },
+  ] };
+  const question = { objectiveIds: ["o1"] };
+  const review = { reasoning: { orderLevel: "third-order", allStepsRequired: true,
+    steps: ["Localize the obstructed passage", "Trace the upstream CSF spaces", "Predict expansion with continued production"],
+    sourceQuotes: cfg.atoms.map(atom => atom.content),
+  } };
+  it("verifies integration only with a necessary chain and both source relationships", () => {
+    expect(verifyReasoningReview(review, question, cfg)).toMatchObject({ status: "verified", orderLevel: "third-order" });
+  });
+  it("rejects padded recall, duplicate steps, invented quotes and unsupported third-order labels", () => {
+    expect(verifyReasoningReview({ reasoning: { ...review.reasoning, allStepsRequired: false } }, question, cfg)).toBeNull();
+    expect(verifyReasoningReview({ reasoning: { ...review.reasoning, steps: ["Recall aqueduct", "Recall aqueduct", "Recall aqueduct"] } }, question, cfg)).toBeNull();
+    expect(verifyReasoningReview({ reasoning: { ...review.reasoning, sourceQuotes: ["A made-up source relationship with no support."] } }, question, cfg)).toBeNull();
+    expect(verifyReasoningReview(review, question, { ...cfg, objectives: [{ id: "o1", bloom_level: 1 }] })).toBeNull();
   });
 });
