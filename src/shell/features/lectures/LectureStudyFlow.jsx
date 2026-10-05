@@ -450,12 +450,13 @@ export function LectureStudyFlow({
   const [tutorSession, setTutorSession] = useState(() => userId ? null : tutorSessionsStore.get(userId, lecture?.id));
   const [tutorStoreHydrated, setTutorStoreHydrated] = useState(() => tutorSessionsStore.isHydrated(userId));
   const [tutorCloudStatus, setTutorCloudStatus] = useState(() => tutorSessionsStore.syncStatus(userId, lecture?.id));
-  const [tutorResponse, setTutorResponse] = useState("");
+  const tutorResponseInputRef = useRef(null);
   const [tutorConfidence, setTutorConfidence] = useState("");
   const [tutorNotice, setTutorNotice] = useState("");
   const [tutorWorkspaceOpen, setTutorWorkspaceOpen] = useState(true);
   const [tutorLoading, setTutorLoading] = useState(false);
   const [tutorReviewing, setTutorReviewing] = useState(false);
+  const [pendingTutorTurn, setPendingTutorTurn] = useState(null);
   const tutorCaseGenerationRef = useRef(null);
   const [mentalModel, setMentalModel] = useState(() => mentalModelStore.read(userId, lecture?.id));
   const [generatingModel, setGeneratingModel] = useState(false);
@@ -483,7 +484,7 @@ export function LectureStudyFlow({
     tutorCaseGenerationRef.current = null;
     tutorSessionRef.current = null;
     setTutorSession(null);
-    setTutorResponse("");
+    if (tutorResponseInputRef.current) tutorResponseInputRef.current.value = "";
     setTutorConfidence("");
     setTutorNotice("Fresh lecture walkthrough ready. Choose a time block to begin.");
     if (lecture?.id) tutorSessionsStore.clear(userId, lecture.id);
@@ -624,7 +625,7 @@ export function LectureStudyFlow({
       lectureModel,
       now,
     });
-    setTutorResponse("");
+    if (tutorResponseInputRef.current) tutorResponseInputRef.current.value = "";
     setTutorConfidence("");
     const dueReviewIndex = retrievalQueue.findIndex((review) => review.dueAt <= now && objectiveIds.includes(String(review.objectiveId)));
     if (dueReviewIndex >= 0) {
@@ -706,7 +707,7 @@ export function LectureStudyFlow({
     && !(tutorSession?.turns || []).length;
 
   const submitTutorTurn = useCallback(async (kind = "response") => {
-    const response = tutorResponse.trim();
+    const response = String(tutorResponseInputRef.current?.value || "").trim();
     if (kind === "response" && /^(let'?s?\s+)?(start\s+)?fresh|^reset\s+(the\s+)?tutor|^new\s+(session|start)/i.test(response)) {
       startFreshTutor();
       return;
@@ -754,6 +755,7 @@ export function LectureStudyFlow({
       readyToAdvance: false,
     };
     setTutorReviewing(true);
+    setPendingTutorTurn({ response: response || "Give me one hint", kind });
     setTutorNotice(isBlocked ? "Building a focused hint…" : "Checking your reasoning against the lecture…");
     try {
       const review = await callAIJSON(
@@ -806,15 +808,16 @@ export function LectureStudyFlow({
           : null,
       });
       const saved = saveTutorSession(next);
-      setTutorResponse("");
+      if (tutorResponseInputRef.current) tutorResponseInputRef.current.value = "";
       setTutorConfidence("");
       setTutorNotice(saved ? "" : "Your answer was checked, but browser storage is full. This progress remains in this tab; free local storage before leaving to ensure it persists.");
     } catch (error) {
       setTutorNotice(`Tutor review failed: ${error?.message || "save your response and retry"}`);
     } finally {
       setTutorReviewing(false);
+      setPendingTutorTurn(null);
     }
-  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, startFreshTutor, text, title, tutorPrompt.nextStep, tutorResponse, tutorReviewing, mentalModel?.bigPicture, tutorConfidence]);
+  }, [activeTutorAtoms, activeTutorObjective, saveTutorSession, startFreshTutor, text, title, tutorPrompt.nextStep, tutorReviewing, mentalModel?.bigPicture, tutorConfidence]);
 
   // Advance the clock in a ref so typing does not rerender this large study view every second.
   // The isolated countdown renders seconds; session state is persisted every 30 seconds/boundary.
@@ -2011,13 +2014,14 @@ export function LectureStudyFlow({
               <button type="button" onClick={generateTutorCase} className="mt-2 rounded border border-accent/40 px-2 py-1 text-xs text-accent hover:bg-accent/10">Build patient case</button>
             </div>
           )}
-          {tutorSession.turns?.length > 0 && <section className="desk-tutor-thread mt-4" aria-label="Tutor conversation">
+          {(tutorSession.turns?.length > 0 || pendingTutorTurn) && <section className="desk-tutor-thread mt-4" aria-label="Tutor conversation">
             <div className="desk-tutor-thread__label">Conversation</div>
             <div className="desk-tutor-thread__messages">
               {tutorSession.turns.slice(-4).map((turn, index) => <div key={`${turn.at || index}-${index}`} className="desk-tutor-exchange">
                 <div className="desk-tutor-bubble desk-tutor-bubble--student"><span className="desk-tutor-bubble__label">You</span><p>{turn.response}</p></div>
                 {turn.feedback && <div className="desk-tutor-bubble desk-tutor-bubble--tutor"><span className="desk-tutor-bubble__label">Tutor · {turn.assessment?.replace(/_/g, " ") || "feedback"}</span><p>{turn.feedback}</p>{turn.preservedReasoning?.length > 0 && <p className="mt-2 text-xs leading-5 text-good"><strong>Kept:</strong> {turn.preservedReasoning.join(" · ")}</p>}{turn.firstDivergence && <p className="mt-1 text-xs leading-5 text-warn"><strong>First divergence:</strong> {turn.firstDivergence}</p>}{turn.missTypes?.length > 0 && <p className="mt-1 text-xs leading-5 text-text-2"><strong>Diagnostic:</strong> {turn.missTypes.join(" + ")}</p>}{turn.ankiRecommendation && <div className="mt-2 rounded border border-accent/30 bg-accent/5 p-2 text-xs leading-5 text-text-2"><p><strong>Targeted card:</strong> {turn.ankiRecommendation.front}</p><p className="mt-1"><strong>Back:</strong> {turn.ankiRecommendation.back}</p><button type="button" className="mt-2 rounded border border-accent/40 px-2 py-1 font-semibold text-accent hover:bg-accent/10" onClick={() => navigator.clipboard?.writeText(`${turn.ankiRecommendation.front}\n\n${turn.ankiRecommendation.back}`)}>Copy card draft</button></div>}{turn.followUp && <p className="desk-tutor-bubble__question">{turn.followUp}</p>}</div>}
               </div>)}
+              {pendingTutorTurn && <div className="desk-tutor-exchange desk-tutor-exchange--pending"><div className="desk-tutor-bubble desk-tutor-bubble--student"><span className="desk-tutor-bubble__label">You</span><p>{pendingTutorTurn.response}</p></div><div className="desk-tutor-bubble desk-tutor-bubble--tutor"><span className="desk-tutor-bubble__label">Tutor</span><p className="text-text-3">Reading your reasoning against this objective…</p></div></div>}
             </div>
           </section>}
           {tutorHasCurrentCase && (
@@ -2038,8 +2042,9 @@ export function LectureStudyFlow({
                 ))}
               </div>
               <textarea
-                value={tutorResponse}
-                onChange={(event) => { setTutorResponse(event.target.value); setTutorNotice(""); }}
+                ref={tutorResponseInputRef}
+                defaultValue=""
+                onChange={() => { if (tutorNotice) setTutorNotice(""); }}
                 placeholder={tutorSession.sessionMode === "walkthrough" ? "Explain the model in your own words, then apply it to the example…" : "First name the syndrome or disease family, then explain your reasoning…"}
                 disabled={tutorSession.status !== "active" || tutorLoading}
                 rows={3}
