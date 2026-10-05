@@ -1,6 +1,8 @@
-import { readCloud, writeCloud } from "./cloudBase.js";
+import { readCloud, subscribeToCloudStore, writeCloud } from "./cloudBase.js";
 
 export const key = "rxt-question-ratings-v1";
+import { readJson, writeJson } from "./base.js";
+
 const empty = { ratings: {} };
 
 function idFor(question) {
@@ -11,7 +13,7 @@ function idFor(question) {
 }
 
 export function read(userId) {
-  return readCloud(userId, key, empty) || empty;
+  return (userId ? readCloud(userId, key, empty) : readJson(userId, key, empty)) || empty;
 }
 
 export function ratingFor(userId, question) {
@@ -19,18 +21,22 @@ export function ratingFor(userId, question) {
 }
 
 export function rateQuestion(userId, question, patch) {
-  if (!userId || !question?.generationVersion) return null;
+  if (!question?.generationVersion && !("sourceIssue" in patch)) return null;
+  if (!question?.id && !question?.questionId && !question?.stem) return null;
   const current = read(userId);
   const id = idFor(question);
   const nextRating = {
     ...(current.ratings?.[id] || {}),
     ...patch,
     questionId: question.id || question.questionId || null,
-    generationVersion: question.generationVersion,
+    generationVersion: question.generationVersion || null,
+    evidenceKey: question.poolId || question.id || question.questionId || `stem:${question.stem || ""}`,
     lectureId: question.lectureId || null,
     updatedAt: new Date().toISOString(),
   };
-  writeCloud(userId, key, { ...current, ratings: { ...(current.ratings || {}), [id]: nextRating } });
+  const next = { ...current, ratings: { ...(current.ratings || {}), [id]: nextRating } };
+  if (userId) writeCloud(userId, key, next);
+  else writeJson(userId, key, next);
   return nextRating;
 }
 
@@ -53,7 +59,9 @@ export function feedbackFor(userId, lectureId = null, generationVersion = null) 
     (!lectureId || rating.lectureId === lectureId) && (!generationVersion || rating.generationVersion === generationVersion)
   );
   const issueCounts = {};
-  for (const rating of ratings) if (rating.issue) issueCounts[rating.issue] = (issueCounts[rating.issue] || 0) + 1;
+  for (const rating of ratings) {
+    for (const issue of [rating.issue, rating.sourceIssue].filter(Boolean)) issueCounts[issue] = (issueCounts[issue] || 0) + 1;
+  }
   return {
     sampleSize: ratings.length,
     fairNo: ratings.filter((r) => r.fair === false).length,
@@ -61,3 +69,5 @@ export function feedbackFor(userId, lectureId = null, generationVersion = null) 
     issueCounts: Object.fromEntries(Object.entries(issueCounts).sort((a, b) => b[1] - a[1]).slice(0, 8)),
   };
 }
+
+export function subscribe(cb) { return subscribeToCloudStore(key, cb); }

@@ -1,11 +1,22 @@
 import { readCloud, subscribeToCloudStore, writeCloud, writeCloudAwait } from "./cloudBase.js";
 import { readJson, writeJson } from "./base.js";
 
+import * as questionRatings from "./questionRatings.js";
+
 export const key = "rxt-learner-evidence-v1";
 const fallback = { version: 1, total: 0, correct: 0, objectives: {}, atoms: {}, lectures: {}, sources: {}, taskTypes: {}, orderLevels: {}, testTaking: { reasons: {}, missTypes: {}, diagnosticKeys: [], positionStats: {}, timedAnswers: 0, totalResponseMs: 0, answerChanges: 0 } };
 
 export function read(userId) {
-  return userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  if (!stored.evidenceJournal) return stored;
+  const contested = new Set(Object.values(questionRatings.read(userId).ratings || {}).filter(r => r.sourceIssue).map(r => questionEvidenceKey(r.evidenceKey)));
+  let projected = stored.evidenceBaseline || fallback;
+  for (const event of stored.evidenceJournal) {
+    if (!contested.has(questionEvidenceKey(event.questionKey))) projected = applyEvidence(projected, event);
+  }
+  return { ...stored, ...projected, evidenceBaseline: stored.evidenceBaseline, evidenceJournal: stored.evidenceJournal,
+    testTaking: { ...projected.testTaking, reasons: stored.testTaking?.reasons || {}, missTypes: stored.testTaking?.missTypes || {}, diagnosticKeys: stored.testTaking?.diagnosticKeys || [] } };
+
 }
 
 /** Compact, stable identity used to keep exact-item history durable without storing full stems. */
@@ -171,14 +182,20 @@ export function recordReflection(userId, reason, previousReason = null) {
 }
 
 export function recordEvidence(userId, event) {
-  const next = applyEvidence(read(userId), event);
+  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const baseline = stored.evidenceBaseline || stored;
+  const journal = [...(stored.evidenceJournal || []), { ...event, at: event.at || Date.now() }];
+  const next = { ...applyEvidence(stored, event), evidenceBaseline: baseline, evidenceJournal: journal };
   if (userId) writeCloud(userId, key, next);
   else writeJson(userId, key, next);
   return next;
 }
 
 export async function recordEvidenceAwait(userId, event) {
-  const next = applyEvidence(read(userId), event);
+  const stored = userId ? readCloud(userId, key, fallback) || fallback : readJson(userId, key, fallback) || fallback;
+  const baseline = stored.evidenceBaseline || stored;
+  const journal = [...(stored.evidenceJournal || []), { ...event, at: event.at || Date.now() }];
+  const next = { ...applyEvidence(stored, event), evidenceBaseline: baseline, evidenceJournal: journal };
   if (userId) await writeCloudAwait(userId, key, next);
   else writeJson(userId, key, next);
   return next;
@@ -199,5 +216,7 @@ export async function recordMissTypeAwait(userId, missType, diagnosticKey) {
 }
 
 export function subscribe(cb) {
-  return subscribeToCloudStore(key, cb);
+  const unsubEvidence = subscribeToCloudStore(key, cb);
+  const unsubRatings = questionRatings.subscribe(cb);
+  return () => { unsubEvidence(); unsubRatings(); };
 }
