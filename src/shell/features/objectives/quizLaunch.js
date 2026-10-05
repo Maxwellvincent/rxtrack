@@ -1,3 +1,4 @@
+import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 /**
  * SP1 T1.3 — the objective-quiz launch contract for the shell.
  *
@@ -609,7 +610,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       if (enforceAllocation) {
         const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
         const levels = ["first-order", "second-order", "third-order"];
-        if (!target || question.reasoningAudit?.status !== "verified" || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) continue;
+        if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) continue;
       }
       const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
       // Repeated practice of one topic/objective is valid: a quiz count is a hard

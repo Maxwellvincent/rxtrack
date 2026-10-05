@@ -70,6 +70,12 @@ describe("evidence-driven objective progression", () => {
     expect(row.targetOrder).toBe("third-order");
     expect(row.demonstrated).toEqual(["second-order"]);
   });
+  it("returns to fresh application after recent misses instead of advancing on one old success", () => {
+    const [row] = objectivePracticePlan([{ id: "o1", bloom_level: 3 }], { objectives: { o1: {
+      attempts: 4, correct: 1, recent: [true, false, false, false], orderLevels: { "second-order": { attempts: 4, correct: 1 } },
+    } } }).rows;
+    expect(row.targetOrder).toBe("second-order");
+  });
   it("does not revive stale objective counters when all journal evidence was excluded", () => {
     const [row] = objectivePracticePlan([{ id: "o1", attempts: 10, correctCount: 10, status: "mastered" }], { objectives: { o1: { attempts: 0, correct: 0 } } }).rows;
     expect(row.attempts).toBe(0);

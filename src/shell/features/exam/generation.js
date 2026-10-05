@@ -1,3 +1,4 @@
+import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { readClinicalAnalysesForBlock, readExemplarsForBlock, resolveDefaultDifficulty, startObjectiveQuiz } from "../objectives/quizLaunch.js";
 import { isSemanticDuplicate, questionFingerprint, schoolStyleSimilarity, questionQualityIssues } from "./questionQuality.js";
 import { questionPoolKey, isValidPoolQuestion } from "../../../questionPool.js";
@@ -94,7 +95,7 @@ export async function generateExamQuestions({ allocation, lecturesById, objectiv
         if (obtained >= requested) break;
         const objectiveIds = resolveQuestionObjectiveIds(q, objectives);
         const cached = { ...q, objectiveIds };
-        if (enforceQuality && (alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
+        if (enforceQuality && (!hasCurrentReasoningAudit(q) || alreadyUsed(q, [...history, ...accepted]) || questionQualityIssues(q, objectives).length || !questionMatchesObjectiveDomain(cached, { objectives, atoms }))) continue;
         accepted.push(cached); questions.push(cached); obtained++; cacheHits++;
         await deps.onQuestionReady?.(cached);
       }

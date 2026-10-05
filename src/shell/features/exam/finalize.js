@@ -1,3 +1,4 @@
+import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 /**
  * Integrated Exam finalization: the I/O orchestrator.
  *
@@ -97,7 +98,7 @@ export async function finalizeExamSession(
           taskType: question?.taskType || classifyLeadIn(question?.stem),
           reasoningDepth: question?.reasoningDepth || null,
           orderLevel: question?.orderLevel || null,
-          reasoningVerified: question?.reasoningAudit?.status === "verified",
+          reasoningVerified: hasCurrentReasoningAudit(question),
           questionNumber,
         });
       }

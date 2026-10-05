@@ -1,3 +1,4 @@
+import { QuestionExplanation } from "../ui/QuestionExplanation.jsx";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "../ui/Button.jsx";
 import { advanceOnEnter } from "../ui/nextQuestion.js";
@@ -16,81 +17,10 @@ import { useFocusHudSignal } from "./hooks/useFocusHudSignal.js";
 import { recordAttempt as recordMentalModelAttempt } from "../stores/mentalModelImpact.js";
 import { QuestionQualityRating } from "../ui/QuestionQualityRating.jsx";
 import { ChoiceValue, hasTableChoices } from "../ui/ChoiceValue.jsx";
-import { classifyQuestionOrder, QUESTION_ORDER_LABELS } from "../engine/questionOrder.js";
+import { classifyQuestionOrder, hasCurrentReasoningAudit, QUESTION_ORDER_LABELS } from "../engine/questionOrder.js";
 import { orderedChoiceEntries } from "./features/exam/choiceOrder.js";
 
 const nowMs = () => Date.now();
-
-// Split explanation into: lead (correct answer) + per-wrong-choice bullets.
-// Handles patterns like "(A) text", "(B) text" anywhere in the string.
-function parseExplanation(text) {
-  if (!text) return { lead: "", bullets: [] };
-  // Split on "(Letter)" markers, keeping the letter
-  const parts = text.split(/\s*\(([A-E])\)\s*/);
-  // parts: [lead, "A", text_A, "B", text_B, ...]
-  const lead = (parts[0] || "").trim();
-  const bullets = [];
-  for (let i = 1; i + 1 < parts.length; i += 2) {
-    const letter = parts[i];
-    const body = (parts[i + 1] || "").trim();
-    if (body) bullets.push({ letter, body });
-  }
-  return { lead, bullets };
-}
-
-/**
- * Per-choice bullets, structured first.
- *
- * New questions carry `whyWrong` keyed by letter, which survives the answer shuffle. Questions
- * generated before that field existed only have prose, so their letters are recovered from
- * "(A)" markers in the text — worse, but better than dropping the breakdown for a bank the
- * student already paid to generate.
- */
-function choiceBullets(whyWrong, parsedBullets, choices) {
-  const letters = Object.keys(whyWrong || {}).filter((l) => l in (choices || {}));
-  if (letters.length) return letters.sort().map((letter) => ({ letter, body: whyWrong[letter] }));
-  return parsedBullets;
-}
-
-function ExplanationBlock({ text, correctLetter, whyWrong, choices = {} }) {
-  const { lead, bullets: parsed } = parseExplanation(text);
-  const bullets = choiceBullets(whyWrong, parsed, choices);
-  return (
-    <div className="rounded border-l-2 border-accent bg-panel p-3 text-[13px] leading-relaxed text-text-2 space-y-2">
-      {lead && <LabAnnotatedText text={lead} className="block" />}
-      {bullets.length > 0 && (
-        <ul className="flex flex-col gap-1.5 pt-1 border-t border-border/40">
-          {bullets.map(({ letter, body }) => {
-            const isCorrect = letter === correctLetter;
-            const optionText = choices?.[letter];
-            return (
-              <li key={letter} className="flex items-start gap-2">
-                <span className={[
-                  "mt-0.5 flex-shrink-0 flex items-center gap-0.5 font-mono text-[11px] font-bold px-1 py-0.5 rounded border",
-                  isCorrect
-                    ? "border-border bg-bg text-text-1"
-                    : "border-border bg-bg text-text-3 line-through",
-                ].join(" ")}>
-                  {isCorrect ? "✓" : "✕"} {letter}
-                </span>
-                <span className="flex-1 text-[13px]">
-                  {/* The option is repeated here so the bullet reads on its own — after a reveal
-                      you are looking at the reasoning, not back up at the list. */}
-                  {optionText && (
-                    <span className={isCorrect ? "font-semibold text-text-1" : "font-semibold text-text-2"}>
-                      <ChoiceValue value={optionText} table={optionText && typeof optionText === "object"} /> —{" "}
-                    </span>
-                  )}
-                  <LabAnnotatedText text={body} className={isCorrect ? "text-text-2" : "text-text-3"} />
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 const CONF = [
   { level: 1, label: "Guess" },
@@ -186,7 +116,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       responseMs,
       taskType: q.taskType || classifyLeadIn(q.stem),
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
-      reasoningVerified: q.reasoningAudit?.status === "verified",
+      reasoningVerified: hasCurrentReasoningAudit(q),
       difficulty: q.difficulty || null,
     };
     appendCalibration(userId, blockId, rec);
@@ -210,7 +140,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
       responseMs,
       taskType: classifyLeadIn(q.stem),
       orderLevel: q.orderLevel || classifyQuestionOrder(q),
-      reasoningVerified: q.reasoningAudit?.status === "verified",
+      reasoningVerified: hasCurrentReasoningAudit(q),
     });
     // Source-grounded fallbacks preserve access when AI generation is unavailable,
     // but foundational recognition is not equivalent to an independently reviewed
@@ -235,7 +165,7 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
         difficulty: q.difficulty || null,
         taskType: classifyLeadIn(q.stem),
         orderLevel: q.orderLevel || classifyQuestionOrder(q),
-      reasoningVerified: q.reasoningAudit?.status === "verified",
+      reasoningVerified: hasCurrentReasoningAudit(q),
         stem: q.stem,
       });
       // Only questions generated one-per-atom carry an exact atomKey (Quiz mode's free-form
@@ -405,7 +335,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
               </div>
             )}
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
-              <ExplanationBlock
+              <QuestionExplanation
+                selectedLetter={picked}
+                sourceType={q.sourceType}
                 text={q.explanation}
                 correctLetter={q.correct}
                 whyWrong={q.whyWrong}
@@ -414,11 +346,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
             )}
             {q.reasoningAudit?.status === "verified" && (
               <details className="rounded border border-border p-3 text-sm" data-testid="verified-reasoning">
-                <summary className="cursor-pointer font-semibold">Why this is {q.reasoningAudit.orderLevel.replace("-order", " order")} reasoning</summary>
+                <summary className="cursor-pointer font-semibold">Reasoning chain</summary>
                 <ol className="mt-2 list-decimal space-y-1 pl-5 text-text-2">
                   {q.reasoningAudit.steps.map((step, index) => <li key={index}>{step}</li>)}
                 </ol>
-                <p className="mt-2 text-xs text-text-3">Checked against this lecture’s source. The chain is shown after your answer.</p>
+                <p className="mt-2 text-xs text-text-3">{hasCurrentReasoningAudit(q) ? "Checked against this lecture’s source and the current reasoning standard." : "This saved question used an earlier review standard. Fresh quizzes use the updated checks."}</p>
               </details>
             )}
             <QuestionQualityRating userId={userId} question={q} />

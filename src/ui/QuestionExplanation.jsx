@@ -47,13 +47,14 @@ function condensedSourcePoint(text, correctText = "") {
 }
 
 /** Shared answer reasoning for lecture quizzes, Practice, and submitted Exams. */
-export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {}, sourceType = null }) {
+export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {}, sourceType = null, selectedLetter = null }) {
   const parsed = parsedBullets(text);
   const structured = Object.keys(whyWrong || {})
     .filter((letter) => letter in choices)
     .sort()
     .map((letter) => ({ letter, body: cleanText(whyWrong[letter]) }));
   const bullets = structured.length ? structured : parsed.bullets;
+  const selectedContrast = selectedLetter !== correctLetter ? bullets.find(item => item.letter === selectedLetter) : null;
   const isSourceBank = sourceType === "question-bank";
   const condensed = isSourceBank ? condensedSourcePoint(text, choices[correctLetter]) : "";
 
@@ -62,7 +63,13 @@ export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {
       {isSourceBank && <div className="font-mono text-[10px] font-semibold uppercase tracking-wide text-text-3">Source key preserved · source rationale not independently medically verified</div>}
       {isSourceBank && condensed && <div className="rounded border border-border/60 bg-bg-elevated p-2.5"><div className="mb-1 font-semibold text-text-1">Key point · condensed from source</div><LabAnnotatedText text={condensed} className="block" /></div>}
       {!isSourceBank && parsed.lead && <div className="rounded border border-border/60 bg-bg-elevated p-2.5"><LabAnnotatedText text={parsed.lead} className="block" /></div>}
+      {!isSourceBank && selectedContrast && <div className="rounded border border-border/60 bg-bg-elevated p-2.5">
+        <div className="mb-1 font-semibold text-text-1">Your choice · {selectedLetter}</div>
+        <LabAnnotatedText text={selectedContrast.body} className="block" />
+      </div>}
       {bullets.length > 0 && !isSourceBank && (
+        <details className="rounded border border-border/60 bg-bg-elevated p-2.5">
+        <summary className="cursor-pointer font-semibold text-text-2">Compare answer choices</summary>
         <ul className="flex flex-col gap-2 border-t border-border/40 pt-2" aria-label="Answer-choice reasoning">
           {bullets.map(({ letter, body }) => {
             const correct = letter === correctLetter;
@@ -79,6 +86,7 @@ export function QuestionExplanation({ text, correctLetter, whyWrong, choices = {
             );
           })}
         </ul>
+        </details>
       )}
       {isSourceBank && (parsed.lead || bullets.length > 0) && <details className="rounded border border-border/60 bg-bg-elevated p-2.5">
         <summary className="cursor-pointer font-semibold text-text-2">Full source rationale{bullets.length ? " and choice notes" : ""}</summary>

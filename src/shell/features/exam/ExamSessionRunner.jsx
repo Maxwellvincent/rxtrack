@@ -449,7 +449,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
               {isCorrect ? "✓ Correct" : "✕ Incorrect"}
             </div>
             {(q.explanation || Object.keys(q.whyWrong || {}).length > 0) && (
-              <QuestionExplanation text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
+              <QuestionExplanation selectedLetter={picked} text={q.explanation} correctLetter={q.correct} whyWrong={q.whyWrong} choices={q.choices} sourceType={q.sourceType || session.sourceType} />
             )}
             <QuestionQualityRating userId={userId} question={q} />
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}

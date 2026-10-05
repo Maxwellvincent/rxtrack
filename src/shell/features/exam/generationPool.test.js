@@ -2,7 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { generateExamQuestions, alreadyUsed } from "./generation.js";
 const generate = vi.hoisted(() => vi.fn());
 vi.mock("../objectives/quizLaunch.js", () => ({ startObjectiveQuiz: (...a) => generate(...a), readClinicalAnalysesForBlock: () => [], readExemplarsForBlock: () => [], resolveDefaultDifficulty: () => "medium" }));
-const q = stem => ({ stem, choices: { A: "yes", B: "no" }, correct: "A" });
+const q = stem => ({ reasoningAudit: { status: "verified", version: 2, connectedChain: true, singleEndpoint: true, choiceShortcut: false }, stem, choices: { A: "yes", B: "no" }, correct: "A" });
 const args = { allocation: { l1: 1, l2: 1, l3: 1 }, lecturesById: {}, objectivesByLecture: {}, atomsByLecture: {}, blockId: "b", lectures: [], userId: null, generationId: "g" };
 const pool = () => ({ history: vi.fn(async () => []), ready: vi.fn(async () => []), save: vi.fn(async question => ({ ...question, poolId: question.questionId })) });
 beforeEach(() => { generate.mockReset(); });
@@ -76,6 +76,16 @@ describe("parallel generation with durable reuse", () => {
     expect(result.questions).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
   });
+  it("withholds old cached reasoning claims from a new saved-only exam", async () => {
+    const storage = pool();
+    storage.ready.mockResolvedValue([{ ...q("Old review"), reasoningAudit: { status: "verified", version: 1 } }]);
+    const result = await generateExamQuestions({ ...args, allocation: { l1: 1 } }, { pool: storage, savedOnly: true });
+    expect(result.cacheHits).toBe(0);
+    expect(result.questions).toEqual([]);
+    expect(result.errors).toHaveLength(1);
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("rejects repeated and overgenerated questions across workers", async () => {
     generate.mockResolvedValue({ questions: [q("Identical"), q("Identical")] });
     const result = await generateExamQuestions({ ...args, allocation: { l1: 1, l2: 1 } });

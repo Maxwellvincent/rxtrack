@@ -66,7 +66,9 @@ export function objectivePracticePlan(objectives = [], evidenceModel = {}) {
     const worked = progress.attempts > 0;
     const profile = objectiveOrderProfile(objective);
     const demonstrated = Object.entries(progress.orderLevels).filter(([, stats]) => stats.correct > 0).map(([order]) => order);
-    const targetOrder = profile.allowed.includes("third-order") && demonstrated.includes("second-order")
+    const secondOrder = progress.orderLevels["second-order"];
+    const applicationSecure = secondOrder?.correct > 0 && secondOrder.correct / Math.max(1, secondOrder.attempts || 0) >= OBJECTIVE_MIN_ACCURACY;
+    const targetOrder = profile.allowed.includes("third-order") && applicationSecure && progress.latestCorrect
       ? "third-order" : "second-order";
     const missingRequirements = [
       ...(progress.attempts < OBJECTIVE_MIN_ATTEMPTS ? ["more distinct questions"] : []),

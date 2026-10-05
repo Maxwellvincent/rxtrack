@@ -27,3 +27,18 @@ describe("QuestionExplanation", () => {
     act(() => root.unmount());
   });
 });
+
+it("shows the decisive explanation and selected misconception without expanding every distractor", () => {
+  installDomStorage();
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  act(() => root.render(<QuestionExplanation text="The intact barrier and intracellular swelling indicate pump failure." correctLetter="B" selectedLetter="A"
+    choices={{ A: "Permeability", B: "Pump failure", C: "CSF secretion", D: "Absorption" }}
+    whyWrong={{ A: "Permeability causes extracellular leakage.", B: "The pump depends on ATP.", C: "CSF secretion does not explain cellular swelling.", D: "Absorption affects ventricular size." }} />));
+  expect(host.querySelector("details").open).toBe(false);
+  expect(host.querySelector("summary").textContent).toBe("Compare answer choices");
+  expect(host.querySelector("details").previousElementSibling.textContent).toContain("Your choice · A");
+  expect(host.querySelector("details").previousElementSibling.textContent).toContain("extracellular leakage");
+  expect(host.querySelector("details").textContent).toContain("Absorption affects ventricular size");
+  act(() => root.unmount());
+});

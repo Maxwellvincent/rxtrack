@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
+import { questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -740,10 +740,27 @@ describe("separate reasoning review gate", () => {
   it("attaches the separately verified chain and actual order to accepted questions", async () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [], reasoning: {
       orderLevel: "third-order", steps: ["Localize aqueduct obstruction", "Trace the upstream CSF route", "Predict expansion with continuing secretion"],
-      sourceQuotes: cfg.atoms.map(atom => atom.content), allStepsRequired: true,
+      sourceQuotes: cfg.atoms.map(atom => atom.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
     } }] }), skipRepair: true });
     expect(result.questions[0]?.reasoningAudit).toMatchObject({ status: "verified", orderLevel: "third-order" });
   });
+});
+
+it("accepts a source-reviewed semantic objective link without requiring the objective's literal words", async () => {
+  const cfg = { requireReasoningAudit: true, objectives: [{ id: "o1", objective: "Correlate composition of CSF with disease processes", bloom_level: 3 }],
+    lectureText: "Accumulations of cells in subarachnoid fluid impede passage through arachnoid villi. Impaired absorption enlarges ventricles." };
+  const question = { stem: "A patient has increased cells in lumbar fluid. Ventricles are enlarged and their passages remain patent. Which structure has impaired drainage?",
+    choices: { A: "Arachnoid villi", B: "Aqueduct", C: "Choroid plexus", D: "Central canal" }, correct: "A",
+    explanation: "Cellular accumulation impedes arachnoid-villus passage, reducing drainage despite patent ventricular passages.", objectiveIds: ["o1"] };
+  expect(questionMatchesObjectiveDomain(question, cfg)).toBe(false);
+  const review = { index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: { orderLevel: "second-order",
+    steps: ["Interpret the cellular accumulation", "Connect cells to impaired drainage at the villi"], sourceQuotes: ["Accumulations of cells in subarachnoid fluid impede passage through arachnoid villi."],
+    allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } };
+  const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [review] }), skipRepair: true });
+  expect(result.questions).toHaveLength(1);
+  expect(questionMatchesObjectiveDomain(result.questions[0], cfg)).toBe(true);
+  const withheld = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ ...review, objectiveAligned: false }] }), skipRepair: true });
+  expect(withheld.questions).toEqual([]);
 });
 
 it("sends the objective facet and task to the separate reviewer", () => {

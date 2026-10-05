@@ -160,7 +160,7 @@ beforeEach(() => {
   createExamSessionMock.mockResolvedValue({ ok: true });
   callAIJSONMock.mockImplementation((_system, prompt) => {
     if (String(prompt).includes("Independently audit every generated question")) {
-      return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true } }] });
+      return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } }] });
     }
     return Promise.resolve({
       questions: [validClinicalQuestion()],
@@ -214,7 +214,7 @@ describe("ExamContainer -> real AI transport wiring (final-review fix C1)", () =
     let generationCalls = 0;
     callAIJSONMock.mockImplementation((_system, prompt) => {
       if (String(prompt).includes("Independently audit every generated question")) {
-        return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true } }] });
+        return Promise.resolve({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", steps: ["Interpret low C-peptide", "Infer reduced endogenous insulin secretion"], sourceQuotes: ["Low C-peptide demonstrates reduced endogenous insulin secretion."], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false } }] });
       }
       generationCalls += 1;
       return Promise.resolve(generationCalls === 1

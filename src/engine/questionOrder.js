@@ -57,7 +57,21 @@ export function buildOrderBlueprint({ objectives = [], count = 10 } = {}) {
   const hasHighOrderObjective = profiles.some((profile) => profile.bloomLevel >= 3);
   const hasThirdOrderObjective = profiles.some((profile) => profile.allowed.includes("third-order"));
   const adaptive = profiles.some(profile => profile.nextOrder);
-  const first = adaptive ? 0 : total <= 3 ? 1 : Math.max(1, Math.round(total * 0.2));
+  if (adaptive) {
+    const targets = { "first-order": 0, "second-order": 0, "third-order": 0 };
+    // Respect the allocator's objective quotas and actual next target. A fixed
+    // 20% integration quota could otherwise contradict the learner's next step.
+    const slots = (objectives || []).flatMap((objective, index) => {
+      const profile = profiles[index];
+      const requested = normalizeQuestionOrder(profile.nextOrder) || profile.primary;
+      const order = profile.allowed.includes(requested) ? requested : profile.primary;
+      return Array.from({ length: Math.max(1, Math.ceil(Number(objective._targetQuestionCount) || 1)) }, () => order);
+    });
+    for (let i = 0; i < total; i += 1) targets[slots[i % slots.length]] += 1;
+    return { targets, objectiveTargets: profiles, hasThirdOrderObjective,
+      rationale: "Follow each objective's demonstrated understanding and next practice target. Advance successful application to supported integration; repair recent misses before increasing depth." };
+  }
+  const first = total <= 3 ? 1 : Math.max(1, Math.round(total * 0.2));
   // Keep the target mix bounded for tiny quizzes: a one-question quiz cannot
   // simultaneously contain both its first- and third-order target.
   const third = hasThirdOrderObjective
@@ -112,10 +126,18 @@ export function verifyReasoningReview(review, question, cfg = {}) {
   const normalize = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
   const source = normalize([cfg.lectureText || "", ...(cfg.atoms || []).map(atom => `${atom.term || ""} ${atom.content || ""}`)].join(" "));
   const objective = (cfg.objectives || []).find(item => (question.objectiveIds || []).includes(String(item.id || item.code)));
+  if (reasoning?.connectedChain !== true || reasoning?.singleEndpoint !== true || reasoning?.choiceShortcut !== false) return null;
   if (!required || reasoning.allStepsRequired !== true || steps.length < required || new Set(steps.map(normalize)).size < required) return null;
   if (!objectiveOrderProfile(objective || {}).allowed.includes(orderLevel)) return null;
   const quoteFloor = orderLevel === "third-order" ? 2 : 1;
   const supportedQuotes = [...new Set(quotes.map(normalize))].filter(quote => quote.length >= 16 && source.includes(quote));
   if (supportedQuotes.length < quoteFloor || supportedQuotes.length !== new Set(quotes.map(normalize)).size) return null;
-  return { status: "verified", version: 1, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
+  return { status: "verified", version: 2, connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel, steps: steps.slice(0, 6), sourceQuotes: quotes.slice(0, 6) };
+}
+
+/** Old saved questions remain stored, but cannot bypass the updated advanced-reasoning gate. */
+export function hasCurrentReasoningAudit(question) {
+  const audit = question?.reasoningAudit;
+  return audit?.status === "verified" && audit.version >= 2 && audit.connectedChain === true
+    && audit.singleEndpoint === true && audit.choiceShortcut === false;
 }

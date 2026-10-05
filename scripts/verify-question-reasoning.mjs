@@ -15,7 +15,7 @@ const { stdout: lectureText } = await promisify(execFile)('pdftotext', ['-layout
 const objectiveLines = lectureText.split(/\f/).find(page => /Lecture objectives/i.test(page)) || '';
 const objectives = [...objectiveLines.matchAll(/(SOM\.[A-Z0-9.]+)\s+([\s\S]*?)(?=SOM\.[A-Z0-9.]+|$)/g)]
   .map((match) => ({ id: match[1], objective: match[2].replace(/\s+/g, ' ').trim() }));
-const chosen = objectives.filter(objective => /hydrocephalus|composition.*disease|intracranial pressure/i.test(objective.objective));
+const chosen = process.argv.includes("--all-objectives") ? objectives : objectives.filter(objective => /hydrocephalus|composition.*disease|intracranial pressure/i.test(objective.objective));
 if (!chosen.length) throw new Error('No relevant objectives found; provide a PDF with extractable lecture objectives.');
 const bridge = process.env.RXT_BRIDGE_URL || 'http://127.0.0.1:4319';
 const calls = [];
@@ -34,7 +34,7 @@ const callAIJSON = async (system, prompt, fallback, maxTokens = 7000) => {
   return parsed || fallback;
 };
 const config = { subject: 'NB 06 Transport within the CNS', lectureText,
-  objectives: chosen, count: 4, difficulty: 'hard', generationVersion: 'v2', requireReasoningAudit: true,
+  objectives: chosen, count: Math.max(1, Number(option("--count", 4)) || 4), difficulty: 'hard', generationVersion: 'v2', requireReasoningAudit: true,
   focusNotes: 'Generate exactly two second-order and two third-order questions. Third-order must integrate two distinct supplied relationships; select an objective permitting integration. Explicitly list the shortest necessary reasoningSteps. Use clinical-application and mechanism tasks with different final asks.',
 };
 const repairFrom = option('--repair-from', null);

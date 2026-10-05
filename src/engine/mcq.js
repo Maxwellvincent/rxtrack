@@ -1,3 +1,4 @@
+import { questionWritingBenchmarkPrompt } from "./questionWritingStandard.js";
 // mcq.js — pure MCQ generation helpers (port of the monolith's
 // genTopicVignettesWithContext prompt + validation into the shell/engine).
 // Verified ExamSoft/IMCQ questions become few-shot STYLE exemplars; Homework
@@ -7,7 +8,7 @@ import { canonicalObjectiveIds } from "./objectiveLinks.js";
 import { alignSchoolQuestions, schoolEvidencePrompt, retrieveLectureEvidence } from "./schoolAlignment.js";
 import { uniqueQuestions } from "./questionSimilarity.js";
 import { renderClinicalCorrelateLibrary } from "./clinicalCorrelates.js";
-import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview } from "./questionOrder.js";
+import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, questionOrderDescription, verifyReasoningReview, hasCurrentReasoningAudit } from "./questionOrder.js";
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
 
@@ -623,6 +624,7 @@ export function buildAtomQuestionsPrompt({ atoms = [], objectives = [], difficul
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration. ${requireReasoningAudit ? "Return reasoningSteps for every item: the shortest necessary cue-to-relationship-to-answer chain. Follow objective nextOrder targets; second-order needs one relationship after interpreting clues, third-order needs two distinct lecture-supported relationships. Do not manufacture complexity through stem length." : ""}\n`;
   return (
+    CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt({ objectives, atoms }) +
     objectiveFacetCoveragePrompt(objectives, atoms.length) +
     v2Blueprint + styleProfilePrompt(styleProfile, atoms.length) + orderSection + taskSection +
     `Write ONE USMLE Step 1 clinical-vignette question that tests EACH numbered fact below, in order — one question per fact.\n` +
@@ -728,11 +730,11 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
   const clinicalCorrelates = renderClinicalCorrelateLibrary(cfg.clinicalCorrelateLibrary || []);
   return (
     `Independently audit every generated question. Approve it only when ALL checks pass:\n` +
-    CONNECTED_REASONING_CONTRACT +
+    CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt(cfg) +
     `SCHOOL COMPARISON EXAMPLES (style only; never factual authority):\n${JSON.stringify(selectStyleExemplars(cfg.examples || [], 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map(q => ({ sourceFile: q.sourceFile || q.filename, sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nCompare clue density, focused lead-in, and plausible distractor distinctions to these actual uploads. Reject material departures as school_style_mismatch. Homework informs task patterns, not official exam style.\n` +
     `1. The keyed answer is medically correct and is the single best answer.\n` +
     `2. The stem, key, and explanation are supported by the supplied lecture facts or objective.\n` +
-    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied. Reject gross domain mismatches even if the item is otherwise medically correct (for example, an isolated peripheral nerve lesion question is not evidence for an amino-acid metabolism objective). objectiveFacet must name the specific clause/task actually tested. For broad objectives, compare the batch against every independently assessable clause; when the requested count and evidence permit, distinct clauses must be represented by distinct questions before a facet is repeated.\n` +
+    `3. Its one objectiveIds value genuinely tests that objective's requested task; [] is acceptable only when no objective was supplied. Reject gross domain mismatches even if the item is otherwise medically correct (for example, an isolated peripheral nerve lesion question is not evidence for an amino-acid metabolism objective). Return objectiveAligned true only when the specific medical relationship actually tests the mapped objective; judge meaning, not exact keyword overlap. objectiveFacet must name the specific clause/task actually tested. For broad objectives, compare the batch against every independently assessable clause; when the requested count and evidence permit, distinct clauses must be represented by distinct questions before a facet is repeated.\n` +
     `4. No choices are duplicates or medically equivalent, and the stem does not reveal the answer.\n` +
     `5. The explanation states the decisive mechanism or reasoning, not merely that the answer is correct.\n` +
     `6. The vignette is internally consistent and contains enough discriminating information to answer. Symptoms or an anatomic region must actually distinguish the key from every plausible alternative; generic pain or tenderness alone is not enough.\n` +
@@ -742,7 +744,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `10. Compare the final asks across the batch. The school style may use "Which" often, but the target must vary. For batches of five or more, expect at least three supported task families and at least half of the items to require a second-order clue -> mechanism or lesion -> downstream finding/relationship step. Flag a repetitive generic ending or first-order-only batch as repetitive_task_ending when it materially reduces practice value.\n` +
     `11. Treat orderLevel as a reasoning claim, not a synonym for difficulty: first-order recognizes one supplied fact; second-order applies one supplied relationship; third-order integrates at least two supplied relationships before selecting a downstream result. The stated order must be supported by the item's objective and lecture facts. Flag order_level_mismatch when it is overstated or the item is mislabeled.\n` +
     `12. If the mapped objective explicitly names multiple imaging modalities or clinical settings (for example CT, MRI, and radiologic images), preserve that scope across the batch when the requested count permits. Reject an item only when it claims modality-specific findings absent from the supplied evidence; do not treat a single modality as complete coverage of a multi-modality objective.\n` +
-    (cfg.requireReasoningAudit ? `REASONING VERIFICATION: In each review return reasoning: {"orderLevel":"first-order|second-order|third-order","steps":["cue interpretation","apply the supplied relationship","integrate another relationship if required"],"sourceQuotes":["exact lecture excerpt"],"allStepsRequired":true}. Evaluate the ACTUAL shortest route to the key. Second-order needs cue interpretation plus one relationship; third-order needs at least two distinct relationships after interpreting the clues. Each step must depend on the preceding inference. Explicitly test whether the choices allow a one-fact shortcut. All steps must be necessary: a padded stem or an answer obtainable by one recalled label is first-order. Quote the supplied lecture facts/text supporting the relationship(s), at least two distinct quotes for third-order. Never use the objective wording as factual evidence. If you cannot verify the order, omit reasoning and reject as order_level_mismatch.\n` : "") +
+    (cfg.requireReasoningAudit ? `REASONING VERIFICATION: In each review return reasoning: {"orderLevel":"first-order|second-order|third-order","steps":["cue interpretation","apply the supplied relationship","integrate another relationship if required"],"sourceQuotes":["exact lecture excerpt"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}. Evaluate the ACTUAL shortest route to the key. Second-order needs cue interpretation plus one relationship; third-order needs at least two distinct relationships after interpreting the clues. Set connectedChain true only when each relationship depends on the preceding inference, singleEndpoint true only for one focused requested result, and choiceShortcut false only after checking that the options do not reveal the answer through a one-fact shortcut. These fields are explicit judgments, not defaults. Each step must depend on the preceding inference. Explicitly test whether the choices allow a one-fact shortcut. All steps must be necessary: a padded stem or an answer obtainable by one recalled label is first-order. Copy short, verbatim, contiguous excerpts from the supplied lecture facts/text supporting the relationship(s), at least two distinct quotes for third-order. Prefer 20-160 character prose excerpts; never paraphrase or merge separate table columns into a quotation. Never use the objective wording as factual evidence. If you cannot verify the order, omit reasoning and reject as order_level_mismatch.\n` : "") +
     homeworkEvidencePrompt(cfg.examples || []) +
     `OBJECTIVE ALIGNMENT: An objective's action verb is a guide to scope, not a ban on applying its supporting lecture relationships. For example, an objective identifying causes of brain edema can be tested by inferring the cause from the source's barrier, composition, and distribution relationships. An objective correlating CSF composition with disease can require linking cellular content to impaired absorption and downstream findings. Flag objective_mismatch only for a different curricular target, not because an application question goes beyond repeating the verbatim objective. For every rejection include a brief rationale naming the unsupported fact or mismatched target.\n` +
     `Fail uncertain items. Never infer approval from writing quality alone.\n\n` +
@@ -754,7 +756,7 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
     `RECURRENT CLINICAL CORRELATES (optional; use only when supported by the lecture facts):\n${clinicalCorrelates || "none"}\n\n` +
     `QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}\n\n` +
     `Return exactly one review for every question index. When approved is false, also return a corrected replacement that fixes every issue while testing the same supplied objective. The replacement must be a complete question with 4-6 choices, one valid key, explanation, whyWrong for every option, objectiveIds, objectiveFacet, topic, taskType, and orderLevel. Do not return a replacement when the supplied evidence cannot support one.\n` +
-    `{"reviews":[{"index":0,"approved":true,"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
+    `{"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"issues":[],"reasoning":{"orderLevel":"second-order","steps":["interpret a discriminating clue","apply the supplied relationship to choose the key"],"sourceQuotes":["exact supporting quote from lecture facts or text"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false},"replacement":null},{"index":1,"approved":false,"issues":["weak_explanation"],"replacement":{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"objectiveIds":["exact objective id"],"objectiveFacet":"...","topic":"...","taskType":"mechanism","orderLevel":"second-order"}}]}\n` +
     `Use short issue codes from: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending, school_style_mismatch, disconnected_recall_tasks, answer_choice_shortcut.`
   );
 }
@@ -828,6 +830,12 @@ export function locallyUsableQuestions(questions = []) {
 }
 
 export function questionMatchesObjectiveDomain(question, cfg = {}) {
+  // Wording overlap is a fallback screen, not semantic authority. Broad
+  // objectives such as CSF composition can legitimately be tested via cells.
+  const reviewedObjective = question?.qualityAudit?.objectiveId;
+  if (hasCurrentReasoningAudit(question) && question.qualityAudit?.semanticObjectiveAlignment === true
+    && (question.objectiveIds || []).length === 1 && question.objectiveIds[0] === reviewedObjective
+    && (cfg.objectives || []).some(o => String(o.id || o.code) === reviewedObjective)) return true;
   const objectiveIds = Array.isArray(question?.objectiveIds) ? question.objectiveIds.map(String) : [];
   if (!objectiveIds.length) return true;
   const linkedObjectives = (cfg.objectives || []).filter((objective) => objectiveIds.includes(String(objective.id || objective.code || "")));
@@ -892,6 +900,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   // An explicit independent approval is stronger than the conservative clinical-shape screen.
   // Keep the basic structural guard, but do not discard an approved question merely because it
   // is a shorter anatomy/mechanism item or uses a school-specific stem shape.
+  const structurallyUsableSet = new Set(locallyUsableQuestions(questions));
   const locallyUsable = locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
   const locallyUsableSet = new Set(locallyUsable);
   const keepLocallyValidated = (reason) => {
@@ -948,8 +957,12 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       // structural/domain screen passes; medical, ambiguity, grounding, answer-
       // leak, and explanation failures remain blocking.
       const acceptedWithNotes = review?.approved !== true && issues.length > 0 && blockingIssues.length === 0;
-      if ((!acceptedWithNotes && review?.approved !== true) || blockingIssues.length || !locallyUsableSet.has(question)) return [];
       const reasoningAudit = verifyReasoningReview(review, question, cfg);
+      const semanticObjectiveAlignment = review.objectiveAligned === true && !!reasoningAudit
+        && (question.objectiveIds || []).length === 1
+        && (cfg.objectives || []).some(o => String(o.id || o.code) === question.objectiveIds[0]);
+      if ((!acceptedWithNotes && review?.approved !== true) || blockingIssues.length
+        || !structurallyUsableSet.has(question) || (!locallyUsableSet.has(question) && !semanticObjectiveAlignment)) return [];
       if (cfg.requireReasoningAudit && !reasoningAudit) return [];
       return [{
         ...question,
@@ -957,6 +970,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
         qualityAudit: {
           version: 1,
           status: acceptedWithNotes || issues.length ? "approved-with-notes" : "approved",
+          ...(semanticObjectiveAlignment ? { semanticObjectiveAlignment: true, objectiveId: question.objectiveIds[0] } : {}),
           checks: ["medical-correctness", "single-best-answer", "objective-alignment", "explanation-quality"],
           ...(issues.length ? { notes: issues } : {}),
         },
@@ -1106,7 +1120,7 @@ export function buildMcqPrompt({ subject = "this lecture", lectureText = "", exa
     `${resolvedOrderBlueprint.rationale}\n` +
     `For each item set orderLevel to first-order, second-order, or third-order. First-order = ${questionOrderDescription("first-order")}; second-order = ${questionOrderDescription("second-order")}; third-order = ${questionOrderDescription("third-order")}. Objective targets: ${JSON.stringify(resolvedOrderBlueprint.objectiveTargets)}. Use each objective's allowed orders as its ceiling; never label a question third-order when its objective/facts cannot support integration. ${requireReasoningAudit ? "Return reasoningSteps for every item: the shortest necessary cue-to-relationship-to-answer chain. Follow objective nextOrder targets; second-order needs one relationship after interpreting clues, third-order needs two distinct lecture-supported relationships. Do not manufacture complexity through stem length." : ""}\n`;
   return (
-    CONNECTED_REASONING_CONTRACT + objectiveFacetsSection + v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
+    CONNECTED_REASONING_CONTRACT + questionWritingBenchmarkPrompt({ objectives, atoms, lectureText }) + objectiveFacetsSection + v2Blueprint + styleProfilePrompt(styleProfile, count) + orderSection + taskSection +
     `Generate exactly ${count} NEW SGU Basic Principles of Medicine questions on "${subject}".\n\n` +
     `DIFFICULTY: ${diff.toUpperCase()}\n${DIFF_LINE[diff] || DIFF_LINE.medium}\n` +
     `Each stem: an ExamSoft-structured, STEP 1-style clinical, anatomic, imaging, procedure, or laboratory scenario whose details do real reasoning work, ending in one precise foundational-science question. For clinical-application or third-order items, target 4–6 sentences: age/context, timeline, discriminating symptoms or examination, and only the relevant laboratory, imaging, or physiologic data before the final ask. For narrow recognition/mechanism items, 2–4 sentences is acceptable. Do not pad stems with irrelevant comorbidities or force a disease absent from the supplied evidence; match the reference bank's clue density while preserving a realistic board-style vignette. The final sentence should ask for the mechanism, downstream consequence, structure, pathway, or best comparison—not simply repeat the diagnosis already made obvious by the stem.\n` +
