@@ -197,7 +197,12 @@ export function selectExemplarsForBlock(banks = {}, _meta = {}, _blockId = null)
         const upload = metaByFilename.get(filename);
         // Older imported rows did not carry blockId on every question. Stamp it
         // from the upload metadata so clinical evidence can be scoped safely.
-        return upload?.blockId && !question.blockId ? { ...question, blockId: upload.blockId } : question;
+        return {
+          ...question,
+          sourceFile: question.sourceFile || filename,
+          sourceKind: question.sourceKind || upload?.sourceKind || null,
+          ...(upload?.blockId && !question.blockId ? { blockId: upload.blockId } : {}),
+        };
       })
   );
 }

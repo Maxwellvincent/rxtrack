@@ -465,6 +465,14 @@ describe("independent generated-question audit", () => {
     expect(prompt).toContain("single best answer");
   });
 
+  it("reviews against actual school examples and rejects disconnected recall shortcuts", () => {
+    const prompt = buildQuestionAuditPrompt(questions, { examples: [{ sourceFile: "NB ExamSoft.pdf", stem: "School comparison case?", choices: { A: "A", B: "B", C: "C", D: "D" }, correct: "A" }] });
+    expect(prompt).toContain("School comparison case?");
+    expect(prompt).toContain("two unrelated recall tasks");
+    expect(prompt).toContain("one label or giveaway");
+    expect(prompt).toContain("school_style_mismatch");
+  });
+
   it("keeps only explicitly approved items and stamps the completed audit", async () => {
     const reviewAIJSON = vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, issues: [] }] });
     const result = await auditGeneratedQuestions(questions, {}, { reviewAIJSON });

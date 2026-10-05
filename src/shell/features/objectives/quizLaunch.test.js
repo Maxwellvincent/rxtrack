@@ -611,6 +611,13 @@ describe("objective-first atom coverage", () => {
     expect(selected.filter((atom) => atom.objectiveIds.includes("o2"))).toHaveLength(5);
   });
 
+  it("restores source identity from upload metadata for older bank rows", () => {
+    const result = selectExemplarsForBlock({ "old-bank": [{ stem: "Case?", choices: { A: "Yes" } }] }, {
+      upload: { filename: "old-bank", sourceKind: "supplemental", blockId: "nb" },
+    }, "nb");
+    expect(result[0]).toMatchObject({ sourceFile: "old-bank", sourceKind: "supplemental", blockId: "nb" });
+  });
+
   it("keeps supplemental student material available for task-pattern evidence", () => {
     const banks = {
       official: [{ stem: "Official?", choices: { A: "Yes" }, sourceKind: "school" }],
