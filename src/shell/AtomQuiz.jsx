@@ -349,6 +349,9 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 choices={q.choices}
               />
             )}
+            <details key={`review-tools-${currentIndex}-${q.id}`} className="text-sm">
+              <summary className="cursor-pointer py-2 text-text-3 hover:text-text-1">Review tools · optional</summary>
+              <div className="mt-2 space-y-2">
             {q.reasoningAudit?.status === "verified" && (
               <details className="rounded border border-border p-3 text-sm" data-testid="verified-reasoning">
                 <summary className="cursor-pointer font-semibold">Reasoning chain</summary>
@@ -387,6 +390,8 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
                 </div>
               </div>
             )}
+              </div>
+            </details>
             <Button className="quiz-next-button" onClick={next} disabled={preparing && currentIndex + 1 >= questions.length}>
               {preparing && currentIndex + 1 >= questions.length ? "Preparing next question…" : currentIndex + 1 >= questions.length ? "See results" : "Next →"}
             </Button>
