@@ -4,6 +4,10 @@ const normalize = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9
 
 /** Extract explicit course/lecture labels from the uploaded question itself. */
 export function sourceLectureClue(question = {}) {
+  const section = String(question.sourceSection || "").match(/^NB\s+(\d+)$/i);
+  if (section && question.sourceSectionTitle) {
+    return { number: Number(section[1]), title: question.sourceSectionTitle, label: `${question.sourceSection}: ${question.sourceSectionTitle}` };
+  }
   const text = `${question.stem || ""} ${question.explanation || ""}`;
   const match = text.match(/\b(?:lecture|lec)\s*(\d+)\s*[:.\-–—]\s*([^.!?\n]{3,120})/i);
   if (!match) return null;
@@ -34,7 +38,7 @@ function attachCurriculumHints(question, item, index) {
     candidateLinkBasis: item?.objectiveBasis || (links.length ? "lecture-content-overlap" : null),
     sourceKeyReviewStatus: item?.correctnessStatus || null,
     sourceKeyCritique: Array.isArray(item?.critique) ? item.critique[0] : item?.critique || null,
-    sourceQuestionNumber: question?.num ?? index + 1,
+    sourceQuestionNumber: question?.sourceQuestionNumber ?? question?.num ?? index + 1,
   };
 }
 

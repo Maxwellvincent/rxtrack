@@ -257,7 +257,62 @@ export function parseMadcowPages(pages, examTitle = "") {
  * `QN: A - explanation`. The parser intentionally requires several blocks before claiming the
  * document so unrelated prose containing one "Question 1" falls through to the AI parser.
  */
+// Lecture compilations restart local numbering and repeat keyed copies later.
+// Isolate both boundaries before invoking the ordinary single-question parser.
+export function parseLectureCompilationText(fullText, examTitle = "") {
+  const source = String(fullText || "").replace(/\r/g, "").replace(/\[PAGE_BREAK:\d+\]/g, "\f");
+  const split = source.search(/Questions with Answers(?: and Explanations)?/i);
+  if (split < 0) return null;
+  const sections = (text) => {
+    const headings = [...text.matchAll(/(?:^|[\n\f])[ \t]*(NB[ \t]+\d{2})[ \t]*[–—-][ \t]*([^\n\f]+)/g)];
+    return headings.map((heading, index) => ({
+      code: heading[1].replace(/\s+/g, " ").trim(), title: heading[2].trim(),
+      offset: heading.index + heading[0].length,
+      body: text.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? text.length),
+    }));
+  };
+  const originals = sections(source.slice(0, split));
+  const keyed = sections(source.slice(split));
+  if (originals.length < 2) return null;
+  const blocks = (body) => {
+    const headings = [...body.matchAll(/(?:^|[\n\f])[ \t]*(\d{1,3})[.)][ \t]*(?=[A-Z])/g)];
+    return headings.map((heading, index) => ({ num: Number(heading[1]), start: heading.index + heading[0].length,
+      body: body.slice(heading.index + heading[0].length, headings[index + 1]?.index ?? body.length) }));
+  };
+  const result = [];
+  for (const section of originals) {
+    const answerSections = keyed.filter((candidate) => candidate.code === section.code);
+    const answers = answerSections.flatMap((candidate) => blocks(candidate.body));
+    const originalsForSection = blocks(section.body);
+    if (answers.length !== originalsForSection.length || new Set(originalsForSection.map((item) => item.num)).size !== originalsForSection.length) {
+      throw new Error(`Source/key question count mismatch: ${section.code}`);
+    }
+    for (const block of originalsForSection) {
+      const matches = answers.filter((answer) => answer.num === block.num);
+      const keys = matches.map((answer) => answer.body.match(/\bAnswer:[ \t]*([A-H])\./i)?.[1]?.toUpperCase()).filter(Boolean);
+      const correct = keys.length === 1 ? keys[0] : null;
+      const question = parseNumberedQuestionBankText(`1. ${block.body}\n${correct ? `Answer Key: 1 ${correct}` : ""}`, examTitle,
+        { singleSet: true, allowSingle: true, skipLectureSections: true })[0];
+      if (!question) throw new Error(`Incomplete source question: ${section.code} Q${block.num}`);
+      const originalStem = block.body.split(/(?:^|[\n\f])[ \t]*A[.)][ \t]*/)[0].replace(/\s+/g, " ").trim();
+      const answerStem = matches[0]?.body.split(/\bAnswer:/i)[0].split(/(?:^|[\n\f])[ \t]*A[.)][ \t]*/)[0].replace(/\s+/g, " ").trim();
+      if (correct && originalStem !== answerStem) throw new Error(`Source/key stem mismatch: ${section.code} Q${block.num}`);
+      const page = source.slice(0, section.offset + block.start).split("\f").length;
+      result.push({ ...question, id: `${section.code.replace(/ /g, "").toLowerCase()}-q${block.num}`,
+        num: result.length + 1, sourceQuestionNumber: block.num, sourceSection: section.code,
+        sourceSectionTitle: section.title, sourcePage: page,
+        sourceEndPage: page + block.body.trimEnd().split("\f").length - 1, correct,
+        explanation: matches[0]?.body.match(/\bAnswer:[^\n]*\n([\s\S]*)/i)?.[1]?.replace(/\s+/g, " ").trim() || null });
+    }
+  }
+  return result;
+}
+
 export function parseNumberedQuestionBankText(fullText, examTitle = "", options = {}) {
+  if (!options.skipLectureSections) {
+    const compilation = parseLectureCompilationText(fullText, examTitle);
+    if (compilation) return compilation;
+  }
   const source = String(fullText || "").replace(/\r/g, "").replace(/\f/g, "\n")
     .replace(/(^|\n)[ \t]*Q(\d{1,3})[.)][ \t]+/gim, "$1$2. ")
     .replace(/^[ \t]*\d*[ \t]*Click here to enter text\.?[ \t]*$/gim, "");
@@ -565,7 +620,7 @@ export function parseNumberedQuestionBankText(fullText, examTitle = "", options 
       choices[embedded[1].toUpperCase()] = embedded[2].trim();
     }
     const visualOnly = Object.keys(choices).length < 2 && answer?.correct
-      && /\b(?:graph|figure|image|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
+      && /\b(?:graph|figures?|images?|micrograph|photomicrograph|histolog|slide|shown|arrow|labeled)\b/i.test(`${stem} ${body}`);
     if (visualOnly) {
       const finalLetter = Math.max(4, "ABCDEFGH".indexOf(answer.correct));
       for (let optionIndex = 0; optionIndex <= finalLetter; optionIndex++) {
@@ -693,10 +748,12 @@ export function mergePdfQuestionCandidates(candidateLists = []) {
       result.push(question);
     }
   }
-  return result.map((question, index) => ({ ...question, id: `q${index + 1}`, num: index + 1 }));
+  return result.map((question, index) => ({ ...question, id: question.sourceSection ? question.id : `q${index + 1}`, num: index + 1 }));
 }
 
 export function expectedQuestionCountFromAnswerKey(fullText) {
+  const compilation = parseLectureCompilationText(fullText);
+  if (compilation) return compilation.length;
   const normalizedText = String(fullText || "").replace(/\f/g, "\n");
   const deterministicKeyed = parseNumberedQuestionBankText(normalizedText)
     .filter((question) => question.correct && question.choices?.[question.correct]).length;
@@ -1599,6 +1656,38 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
       crop.height = bottom - top;
       crop.getContext("2d").drawImage(canvas, 0, top, canvas.width, crop.height, 0, 0, crop.width, crop.height);
       question.sourceImageDataUrl = crop.toDataURL("image/jpeg", 0.9);
+    }
+  } else if (pdf && questions.some((question) => question.sourceSection && question.hasImage)) {
+    for (const question of questions.filter((item) => item.sourceSection && item.hasImage)) {
+      const canvases = [];
+      for (let pageNumber = question.sourcePage; pageNumber <= question.sourceEndPage; pageNumber++) {
+        const page = await pdf.getPage(pageNumber);
+        const viewport = page.getViewport({ scale: 1.35 });
+        const content = await page.getTextContent();
+        const text = pdfItemsToLayoutText(content.items);
+        let height = viewport.height;
+        if (/Questions with Answers/i.test(text)) {
+          const heading = content.items.find((item) => /Questions/i.test(item.str));
+          if (!heading) throw new Error("Cannot safely hide the answer section in the source figure.");
+          height = Math.floor(viewport.convertToViewportPoint(0, heading.transform[5] + Math.abs(heading.transform[0]) * 1.5)[1]);
+          if (height <= 0) throw new Error("Source figure overlaps the answer section.");
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+        const crop = document.createElement("canvas");
+        crop.width = canvas.width;
+        crop.height = height;
+        crop.getContext("2d").drawImage(canvas, 0, 0);
+        canvases.push(crop);
+      }
+      const combined = document.createElement("canvas");
+      combined.width = Math.max(...canvases.map((canvas) => canvas.width));
+      combined.height = canvases.reduce((height, canvas) => height + canvas.height, 0);
+      let top = 0;
+      for (const canvas of canvases) { combined.getContext("2d").drawImage(canvas, 0, top); top += canvas.height; }
+      question.sourceImageDataUrl = combined.toDataURL("image/jpeg", 0.82);
     }
   } else if (format !== "report" && pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
     const pageData = new Map();

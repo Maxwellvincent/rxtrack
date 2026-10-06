@@ -289,12 +289,13 @@ export async function processQuestionBankFiles({
       for (const question of parsed?.questions || []) {
         let sourceImageUrl = question.sourceImageUrl || null;
         const visualPage = Number(question.sourceVisualPage || question.sourcePage) || null;
+        const visualKey = question.sourceSection ? `${visualPage}-${question.id}` : visualPage;
         if (question.sourceImageDataUrl && visualPage && userId) {
-          if (!pageUrls.has(visualPage)) {
+          if (!pageUrls.has(visualKey)) {
             update(`${index + 1}/${files.length} · saving figure from ${file.name}, page ${visualPage}…`);
-            pageUrls.set(visualPage, await uploadQuestionBankPage(userId, bankTitle, visualPage, question.sourceImageDataUrl));
+            pageUrls.set(visualKey, await uploadQuestionBankPage(userId, bankTitle, visualKey, question.sourceImageDataUrl));
           }
-          sourceImageUrl = pageUrls.get(visualPage);
+          sourceImageUrl = pageUrls.get(visualKey);
         }
         const { sourceImageDataUrl: _sourceImageDataUrl, ...storedQuestion } = question;
         withDurableImages.push({
