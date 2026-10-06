@@ -575,72 +575,85 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const isProviderFailure = (message = "") => /provider\s+(?:unavailable|failure|error)|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
-  for (let attempt = 1; attempt <= attempts && accepted.length < requested; attempt += 1) {
-    const remaining = requested - accepted.length;
-    // Replacement rounds intentionally ask for a few spare candidates. One larger refill is
-    // materially faster than several generator -> reviewer round trips when the reviewer is
-    // rejecting a high share of the batch; only the requested number can ever be accepted.
-    // Ask for a full replacement batch even when only one or two slots remain. The spare
-    // candidates are discarded after deduplication, but they prevent a repeated concept from
-    // consuming the last requested slot and leaving a 21/25 quiz.
-    const allocationOffset = ((attempt - 1) * PREPARE_BATCH_SIZE) % Math.max(1, allocationPlan.length);
-    const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
-    const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted], Math.min(remaining, PREPARE_BATCH_SIZE));
-    const batchCount = enforceAllocation
-      ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
-      : Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, Math.max(remaining, PREPARE_BATCH_SIZE));
-    if (!batchCount) break;
-    const rotate = (items = []) => {
-      if (!items.length) return items;
-      const offset = ((attempt - 1) * PREPARE_BATCH_SIZE) % items.length;
-      return [...items.slice(offset), ...items.slice(0, offset)];
-    };
-    onProgress({ requested, ready: accepted.length, attempt, phase: attempt === 1 ? "generating" : "refilling" });
-    const result = await startObjectiveQuiz(
-      {
+  const concurrency = Math.min(2, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
+  let stopPreparation = false;
+  for (let wave = 1; wave <= attempts && accepted.length < requested && !stopPreparation; wave += concurrency) {
+    const jobs = [];
+    const reserved = [];
+    for (let slot = 0; slot < concurrency && wave + slot <= attempts; slot += 1) {
+      const attempt = wave + slot;
+      const remaining = requested - accepted.length - reserved.length;
+      if (remaining <= 0) break;
+      const allocationOffset = ((attempt - 1) * PREPARE_BATCH_SIZE) % Math.max(1, allocationPlan.length);
+      const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
+      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, PREPARE_BATCH_SIZE));
+      const batchCount = enforceAllocation
+        ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
+        : Math.min(remaining, PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP);
+      if (!batchCount) break;
+      if (enforceAllocation) {
+        for (const objective of batchAllocation) {
+          for (let n = 0; n < objective._targetQuestionCount; n += 1) reserved.push({ objectiveIds: [objective.id || objective.code] });
+        }
+      } else {
+        reserved.push(...Array.from({ length: batchCount }, () => ({})));
+      }
+      const rotate = (items = []) => {
+        if (!items.length) return items;
+        const offset = ((attempt - 1) * PREPARE_BATCH_SIZE) % items.length;
+        return [...items.slice(offset), ...items.slice(0, offset)];
+      };
+      onProgress({ requested, ready: accepted.length, attempt, phase: wave === 1 ? "generating" : "refilling" });
+      jobs.push(startObjectiveQuiz({
         ...args,
         atoms: rotate(args.atoms || []),
         objectives: enforceAllocation ? batchAllocation : rotate(args.objectives || []),
         objectiveAllocation: enforceAllocation ? batchAllocation : null,
         questionCount: batchCount,
-        avoidStems: [...(args.avoidStems || []), ...accepted.map((question) => question.stem)],
-      },
-      deps
-    );
-    lastError = result.error || lastError;
-    const newlyAccepted = [];
-    for (const question of result.questions || []) {
-      const key = normalizeStem(question?.stem);
-      if (enforceAllocation) {
-        const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
-        const levels = ["first-order", "second-order", "third-order"];
-        if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) continue;
-      }
-      const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
-      // Repeated practice of one topic/objective is valid: a quiz count is a hard
-      // request. Reject duplicate or near-duplicate questions, not distinct tasks
-      // solely because they share an atom/topic label.
-      if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
-      seen.add(key);
-      accepted.push(question);
-      newlyAccepted.push(question);
-      if (accepted.length >= requested) break;
+        avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
+      }, deps).then(result => ({ attempt, result })));
     }
-    if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
-    consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
-    onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
-    // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
-    // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
-    // cannot improve inside this preparation run, so stop those immediately.
-    // An empty/rejected batch is recoverable: the next round rotates objective and atom evidence
-    // and gives the model a fresh chance. Stop immediately only for transport/provider failures;
-    // otherwise a single over-strict audit response used to strand the whole quiz at 0/N.
-    if (!result.questions?.length && result.error && isProviderFailure(result.error)) break;
-    // Allow a complete rotation through the objective plan before concluding that
-    // empty batches cannot recover; one difficult group must not starve the rest.
-    // Stop instead of making the learner wait through several more minute-long
-    // generation and review calls.
-    if (consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / PREPARE_BATCH_SIZE))) break;
+    if (!jobs.length) break;
+    // Independent drafts and reviews overlap, but allocation, duplicate checks, and
+    // persistence merge sequentially so concurrent batches cannot double-credit a slot.
+    const results = await Promise.all(jobs);
+    for (const { attempt, result } of results) {
+      lastError = result.error || lastError;
+      const newlyAccepted = [];
+      for (const question of result.questions || []) {
+        if (accepted.length >= requested) break;
+        const key = normalizeStem(question?.stem);
+        if (enforceAllocation) {
+          const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
+          const levels = ["first-order", "second-order", "third-order"];
+          if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) continue;
+        }
+        const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
+        // Repeated practice of one topic/objective is valid: a quiz count is a hard
+        // request. Reject duplicate or near-duplicate questions, not distinct tasks
+        // solely because they share an atom/topic label.
+        if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
+        seen.add(key);
+        accepted.push(question);
+        newlyAccepted.push(question);
+        if (accepted.length >= requested) break;
+      }
+      if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
+      consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
+      onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
+      // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
+      // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
+      // cannot improve inside this preparation run, so stop those immediately.
+      // An empty/rejected batch is recoverable: the next round rotates objective and atom evidence
+      // and gives the model a fresh chance. Stop immediately only for transport/provider failures;
+      // otherwise a single over-strict audit response used to strand the whole quiz at 0/N.
+      if (!result.questions?.length && result.error && isProviderFailure(result.error)) stopPreparation = true;
+      // Allow a complete rotation through the objective plan before concluding that
+      // empty batches cannot recover; one difficult group must not starve the rest.
+      // Stop instead of making the learner wait through several more minute-long
+      // generation and review calls.
+    }
+    if (consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / PREPARE_BATCH_SIZE))) stopPreparation = true;
   }
 
   if (accepted.length < requested) {

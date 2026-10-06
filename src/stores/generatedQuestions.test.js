@@ -54,6 +54,20 @@ describe("generatedQuestions store — addHighlight", () => {
 });
 
 describe("generatedQuestions store — durable reserve", () => {
+  it("excludes a displayed but unanswered question without granting answer credit", () => {
+    installDomStorage();
+    const q = { stem: "An unseen question?", choices: { A: "One", B: "Two" }, correct: "A" };
+    generatedQuestions.addQuestions("u-seen", "lecture-seen", [q]);
+    expect(generatedQuestions.isQuestionUnseen(generatedQuestions.questionsForLecture("u-seen", "lecture-seen")[0])).toBe(true);
+    generatedQuestions.recordPresentation("u-seen", "lecture-seen", q.stem);
+    const first = generatedQuestions.questionsForLecture("u-seen", "lecture-seen")[0];
+    expect(generatedQuestions.isQuestionUnseen(first)).toBe(false);
+    expect(first.timesAnswered).toBe(0);
+    expect(first.timesCorrect).toBe(0);
+    generatedQuestions.recordPresentation("u-seen", "lecture-seen", q.stem);
+    expect(generatedQuestions.questionsForLecture("u-seen", "lecture-seen")[0].firstPresentedAt).toBe(first.firstPresentedAt);
+  });
+
   beforeEach(() => installDomStorage());
 
   it("deduplicates normalized stems and records how often a question was answered", () => {

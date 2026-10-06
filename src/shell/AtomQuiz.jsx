@@ -53,6 +53,11 @@ export function AtomQuiz({ questions, blockId = "lecture-extract", blockName = "
   const evidenceSessionKeyRef = useRef(`quiz:${lectureId || blockId}:${evidenceSessionId}`);
   useEffect(() => { questionStartedAtRef.current = nowMs(); }, [i]);
   const currentIndex = Math.min(i, Math.max(0, questions.length - 1));
+  const presentedStem = !done ? questions[currentIndex]?.stem : null;
+  useEffect(() => {
+    if (lectureId && presentedStem) generatedQuestionsStore.recordPresentation(userId, lectureId, presentedStem);
+  }, [lectureId, userId, presentedStem]);
+
   // Keyed by stem (same key generatedQuestions dedupes on) — select text in
   // the stem to mark it, like underlining on a real exam. Seeded from
   // this quiz session only. New quizzes should not silently reopen old marks;

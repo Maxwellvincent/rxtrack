@@ -1297,6 +1297,11 @@ export function LectureStudyFlow({
       : [];
     const generatedHistory = generatedQuestionsStore.questionsForAllLectures(userId);
 
+    // Older checkpoints predate firstPresentedAt. Exclude their displayed prefix
+    // too, so abandoning an unanswered question cannot make it "new" again.
+    const previouslyPresented = new Set(lectureQuizSessionsStore.read(userId, lecture?.id, blockId)
+      .flatMap(session => (session.questions || []).slice(0, Math.max(0, Number(session.progress?.i) || 0) + 1))
+      .map(question => question.stem));
     const validReserve = new Set(locallyValidClinicalQuestions(priorQuestions));
     const adaptivePlan = buildAdaptiveObjectivePlan(orderedObjectives, count);
     const adaptiveRank = new Map(adaptivePlan.map((objective, index) => [objective.id || objective.code, index]));
@@ -1307,7 +1312,8 @@ export function LectureStudyFlow({
       .filter((question) => validReserve.has(question))
       .filter(hasCurrentReasoningAudit)
       .filter((question) => !questionRatingsStore.ratingFor(userId, question)?.sourceIssue)
-      .filter((question) => (Number(question.timesAnswered) || 0) === 0)
+      .filter(generatedQuestionsStore.isQuestionUnseen)
+      .filter(question => !previouslyPresented.has(question.stem))
       .filter((question) => !question.difficulty || String(question.difficulty).toLowerCase() === difficulty)
       .sort((a, b) => {
         const questionRank = (question) => Math.min(
@@ -1375,6 +1381,7 @@ export function LectureStudyFlow({
       },
       {
         callAIJSON,
+        prepareConcurrency: 2,
         onAccepted: (questions) => {
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
           appendPrepared(questions);
@@ -1412,7 +1419,7 @@ export function LectureStudyFlow({
       const matching = priorQuestions.filter((q) =>
         q.generationMode !== "grounded-fallback" &&
         (q.generationVersion || "v2") === generationVersion &&
-        (Number(q.timesAnswered) || 0) === 0 &&
+        generatedQuestionsStore.isQuestionUnseen(q) && !previouslyPresented.has(q.stem) &&
         validReserve.has(q) &&
         String(q?.difficulty || "").toLowerCase() === difficulty &&
         (!orderedObjectives.length || q.objectiveIds?.length)
@@ -1452,7 +1459,37 @@ export function LectureStudyFlow({
     setAdHocQuiz(true);
     startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data?.testTaking?.missTypes]);
+  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data]);
+
+  // Prepare at most one small reserve batch per active quiz, never on page load.
+  // Background work only saves unseen questions; it does not create a session or grade answers.
+  const prefetchQuizRef = useRef(null);
+  const prefetchInFlightRef = useRef(false);
+  useEffect(() => {
+    if (!questions?.length || !lecture?.id || !userId || schoolExamplesLoading || prefetchInFlightRef.current) return;
+    const key = `${userId}:${lecture.id}:${quizSessionId}`;
+    if (prefetchQuizRef.current === key) return;
+    prefetchQuizRef.current = key;
+    const history = generatedQuestionsStore.questionsForAllLectures(userId);
+    const activeStems = new Set(questions.map(question => question.stem));
+    const pool = generatedQuestionsStore.questionsForLecture(userId, lecture.id);
+    const unused = pool.filter(question => generatedQuestionsStore.isQuestionUnseen(question)
+      && hasCurrentReasoningAudit(question) && !activeStems.has(question.stem));
+    if (unused.length >= PREPARE_BATCH_SIZE * 2) return;
+    prefetchInFlightRef.current = true;
+    void prepareObjectiveQuiz({
+      objectives: orderedObjectives, evidenceModel: learnerEvidence.data,
+      lectureTitle: title, lectureIdHint: lecture.id, blockId, atoms, userId,
+      difficulty: questions[0]?.difficulty || resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2",
+      questionCount: PREPARE_BATCH_SIZE, exemplars: schoolExemplars, clinicalCorrelateLibrary,
+      avoidStems: [...history, ...questions].map(question => question.stem).filter(Boolean),
+      avoidQuestions: [...history, ...questions],
+    }, {
+      callAIJSON, maxPrepareAttempts: 2,
+      onAccepted: batch => generatedQuestionsStore.addQuestions(userId, lecture.id, batch),
+    }).catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
+  }, [questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
+    learnerEvidence.data, title, blockId, atoms, schoolExemplars, clinicalCorrelateLibrary, qStats.accuracy]);
 
   const reviewableQuizQuestions = lecture?.id
     ? locallyValidClinicalQuestions(generatedQuestionsStore.questionsForLecture(userId, lecture.id))
@@ -2290,7 +2327,7 @@ export function LectureStudyFlow({
                 {busyLabel || "▸ Quiz this lecture"}
               </Button>
               <span className="text-[12px] text-text-3">
-                {lecture?.id ? `${generatedQuestionsStore.countForLecture(userId, lecture.id)} reviewed questions saved` : "Questions are saved for reuse"}
+                {lecture?.id ? `${generatedQuestionsStore.questionsForLecture(userId, lecture.id).filter(question => generatedQuestionsStore.isQuestionUnseen(question) && hasCurrentReasoningAudit(question)).length} unseen questions ready` : "Questions are saved for reuse"}
                 {schoolExamplesLoading
                   ? " · loading school examples…"
                   : schoolExemplars.length

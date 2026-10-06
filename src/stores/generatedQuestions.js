@@ -71,6 +71,25 @@ export function addQuestions(userId, lectureId, newQuestions) {
   return capped;
 }
 
+/** Seen is separate from answered: displaying an item never awards performance credit. */
+export function isQuestionUnseen(question) {
+  return (Number(question?.timesAnswered) || 0) === 0 && !question?.firstPresentedAt;
+}
+
+export function recordPresentation(userId, lectureId, stem) {
+  const current = read(userId);
+  const entry = current[lectureId];
+  if (!entry || !stem) return current;
+  const stemKey = normalizedStem(stem);
+  const target = entry.questions.find(question => normalizedStem(question.stem) === stemKey);
+  if (!target || target.firstPresentedAt) return current;
+  const questions = entry.questions.map(question => question === target
+    ? { ...question, firstPresentedAt: new Date().toISOString() } : question);
+  const next = { ...current, [lectureId]: { ...entry, questions } };
+  writeCloud(userId, key, next);
+  return next;
+}
+
 /** Record reserve usage so future quizzes serve unseen questions first. */
 export function recordUse(userId, lectureId, stem, correct) {
   if (!lectureId || !stem) return read(userId);

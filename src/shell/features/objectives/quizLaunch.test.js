@@ -258,6 +258,35 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
+  it("merges overlapping parallel outputs once without exceeding the requested count", async () => {
+    const question = { stem: "A patient develops reduced gastric acid secretion after a histamine receptor antagonist. Which signaling mechanism accounts for this finding?",
+      choices: { A: "Reduced cyclic AMP", B: "Increased calcium", C: "Nuclear transcription", D: "Increased chloride transport" }, correct: "A" };
+    const onAccepted = vi.fn();
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [question] });
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Histamine", content: "Histamine stimulates cyclic AMP in parietal cells." }], questionCount: 10 },
+      { callAIJSON, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true, onAccepted }
+    );
+    expect(result.questions).toHaveLength(1);
+    expect(onAccepted).toHaveBeenCalledTimes(1);
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts two independent batches before awaiting either and preserves provider errors", async () => {
+    const pending = [];
+    const callAIJSON = vi.fn().mockImplementation(() => new Promise(resolve => pending.push(resolve)));
+    const preparation = prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Source", content: "Lecture evidence." }], questionCount: 10 },
+      { callAIJSON, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+    for (const resolve of pending) resolve({ error: "provider unavailable" });
+    const result = await preparation;
+    expect(result.questions).toEqual([]);
+    expect(result.error).toMatch(/provider unavailable/);
+    expect(result.incomplete).toBe(true);
+  });
+
   it("tries later objectives when the first group produces no usable questions", async () => {
     const objectives = Array.from({ length: 15 }, (_, index) => ({
       id: `rotation-${index + 1}`, objective: `Explain source relationship ${index + 1}.`,
@@ -275,7 +304,7 @@ describe("prepareObjectiveQuiz", () => {
     expect(callAIJSON).toHaveBeenCalledTimes(3);
   });
 
-  it.each([4, 2])("fills 15 slots when only %i candidates per round survive", async (yieldPerRound) => {
+  it.each([[4, 1], [2, 1], [4, 2]])("fills 15 slots with %i candidates per round and concurrency %i", async (yieldPerRound, prepareConcurrency) => {
     const contexts = [
       "postprandial intestinal motility after vagal stimulation",
       "sphincter contraction after sympathetic discharge",
@@ -312,7 +341,7 @@ describe("prepareObjectiveQuiz", () => {
     });
     const result = await prepareObjectiveQuiz(
       { objectives, atoms: [{ term: "Mechanism", content: "A supported mechanism." }], questionCount: 15 },
-      { callAIJSON, skipQuestionAudit: true }
+      { callAIJSON, skipQuestionAudit: true, prepareConcurrency }
     );
     expect(callAIJSON).toHaveBeenCalledTimes(Math.ceil(15 / yieldPerRound));
     expect(result.questions).toHaveLength(15);
