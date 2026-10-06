@@ -566,8 +566,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   // Preparation actually requests PREPARE_BATCH_SIZE items at a time. Using the
   // larger engine cap here gave a 15-item quiz only three total attempts: just
   // enough to draft 15 candidates, with no refill capacity after review.
+  // Budget for roughly one-third acceptance, plus two recovery rounds. Stop as soon
+  // as the requested set is complete; this is a ceiling, not mandatory work.
   const plannedBatches = Math.max(1, Math.ceil(requested / PREPARE_BATCH_SIZE));
-  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches + 1));
+  const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches * 3 + 2));
   let lastError = "";
   let consecutiveEmptyRounds = 0;
   const isProviderFailure = (message = "") => /provider\s+(?:unavailable|failure|error)|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
@@ -581,7 +583,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // Ask for a full replacement batch even when only one or two slots remain. The spare
     // candidates are discarded after deduplication, but they prevent a repeated concept from
     // consuming the last requested slot and leaving a 21/25 quiz.
-    const batchAllocation = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], Math.min(remaining, PREPARE_BATCH_SIZE));
+    const allocationOffset = ((attempt - 1) * PREPARE_BATCH_SIZE) % Math.max(1, allocationPlan.length);
+    const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
+    const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted], Math.min(remaining, PREPARE_BATCH_SIZE));
     const batchCount = enforceAllocation
       ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
       : Math.min(PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP, Math.max(remaining, PREPARE_BATCH_SIZE));
@@ -632,11 +636,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     // and gives the model a fresh chance. Stop immediately only for transport/provider failures;
     // otherwise a single over-strict audit response used to strand the whole quiz at 0/N.
     if (!result.questions?.length && result.error && isProviderFailure(result.error)) break;
-    // Two rounds without one new usable question is a strong signal that the
-    // current evidence/model combination will not improve during this run.
+    // Allow a complete rotation through the objective plan before concluding that
+    // empty batches cannot recover; one difficult group must not starve the rest.
     // Stop instead of making the learner wait through several more minute-long
     // generation and review calls.
-    if (consecutiveEmptyRounds >= 2) break;
+    if (consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / PREPARE_BATCH_SIZE))) break;
   }
 
   if (accepted.length < requested) {

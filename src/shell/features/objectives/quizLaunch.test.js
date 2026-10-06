@@ -258,7 +258,24 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
-  it("budgets a refill round after the three base batches for a 15-question quiz", async () => {
+  it("tries later objectives when the first group produces no usable questions", async () => {
+    const objectives = Array.from({ length: 15 }, (_, index) => ({
+      id: `rotation-${index + 1}`, objective: `Explain source relationship ${index + 1}.`,
+    }));
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    const result = await prepareObjectiveQuiz(
+      { objectives, atoms: [{ term: "Source", content: "Lecture evidence." }], questionCount: 15, generationVersion: "v2" },
+      { callAIJSON, skipQuestionAudit: true }
+    );
+    expect(result.incomplete).toBe(true);
+    const prompts = callAIJSON.mock.calls.map(call => call[1]);
+    expect(prompts[0]).toContain("[rotation-1]");
+    expect(prompts[1]).toContain("[rotation-6]");
+    expect(prompts[2]).toContain("[rotation-11]");
+    expect(callAIJSON).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([4, 2])("fills 15 slots when only %i candidates per round survive", async (yieldPerRound) => {
     const contexts = [
       "postprandial intestinal motility after vagal stimulation",
       "sphincter contraction after sympathetic discharge",
@@ -289,15 +306,15 @@ describe("prepareObjectiveQuiz", () => {
     });
     let round = 0;
     const callAIJSON = vi.fn().mockImplementation(() => {
-      const start = round * 4;
+      const start = round * yieldPerRound;
       round += 1;
-      return { questions: contexts.slice(start, start + 4).map((_, offset) => made(start + offset)) };
+      return { questions: contexts.slice(start, start + yieldPerRound).map((_, offset) => made(start + offset)) };
     });
     const result = await prepareObjectiveQuiz(
       { objectives, atoms: [{ term: "Mechanism", content: "A supported mechanism." }], questionCount: 15 },
       { callAIJSON, skipQuestionAudit: true }
     );
-    expect(callAIJSON).toHaveBeenCalledTimes(4);
+    expect(callAIJSON).toHaveBeenCalledTimes(Math.ceil(15 / yieldPerRound));
     expect(result.questions).toHaveLength(15);
     expect(result.incomplete).toBe(false);
   });
@@ -479,14 +496,14 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.questions.length).toBeGreaterThan(0);
   });
 
-  it("stops after two empty replacement rounds instead of grinding through every retry", async () => {
+  it("stops after three empty replacement rounds instead of grinding through every retry", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
     const result = await prepareObjectiveQuiz(
       { objectives: [{ id: "o1", objective: "Explain one." }], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 10 },
       { callAIJSON, skipQuestionAudit: true }
     );
     expect(result.incomplete).toBe(true);
-    expect(callAIJSON).toHaveBeenCalledTimes(2);
+    expect(callAIJSON).toHaveBeenCalledTimes(3);
   });
 
   it("builds large reserves in five-question batches instead of one oversized response", async () => {
