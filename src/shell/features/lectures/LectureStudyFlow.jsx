@@ -921,6 +921,7 @@ export function LectureStudyFlow({
   // "review this atom" click from a quiz Summary, cleared once the highlight has had its moment.
   const [reviewAtomKey, setReviewAtomKey] = useState(null);
   const atomsDetailsRef = useRef(null);
+  const referenceDetailsRef = useRef(null);
 
   // Study guide — auto-generated searchable topic list, one per lecture mount
   const [studyGuide, setStudyGuide] = useState(null);
@@ -949,6 +950,7 @@ export function LectureStudyFlow({
   // as useless as no highlight.
   useEffect(() => {
     if (!reviewAtomKey || questions) return;
+    if (referenceDetailsRef.current) referenceDetailsRef.current.open = true;
     if (atomsDetailsRef.current) atomsDetailsRef.current.open = true;
     const el = document.getElementById(`atom-${reviewAtomKey}`);
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1891,7 +1893,9 @@ export function LectureStudyFlow({
           ))}</ul>
         </section>
       )}
-      <div className="desk-tutor-launcher mt-4 rounded-xl border border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
+      <details open={tutorSession?.status === "active"} className="mt-4 rounded-xl border border-border bg-bg-elevated">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-1">Guided tutor <span className="ml-2 font-normal text-text-3">{tutorSession?.status === "active" ? "In progress" : "Open to learn this lecture"}</span></summary>
+      <div className="desk-tutor-launcher rounded-b-xl border-t border-accent/30 bg-accent/5 px-3 py-3 sm:flex sm:items-center sm:justify-between sm:gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-text-1">Guided tutor</span>
@@ -2116,42 +2120,13 @@ export function LectureStudyFlow({
           )}
         </section>
       )}
+      </details>
       <details className="mt-2 w-fit text-sm text-text-3">
         <summary className="cursor-pointer py-1 hover:text-text-1">Lecture settings</summary>
         <div className="mt-2 min-w-72 rounded-lg border border-border bg-bg-elevated p-3"><RenameLecture userId={userId} lectureId={lecture?.id} title={renamedTitle || title} onRenamed={(name) => { setRenamedTitle(name); onLectureRenamed?.(name); }} /></div>
       </details>
       </header>
 
-      <details className="mt-5 rounded-xl border border-border bg-bg-elevated">
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-          <span><span className="block font-semibold text-text-1">Learning plan</span><span className="text-sm text-text-3">Mental-model setup, repairs, and objective links</span></span>
-          <span className="font-mono text-[12px] text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts</span>
-        </summary>
-        <div className="space-y-4 border-t border-border p-4">
-          <div className="grid items-start gap-4 lg:grid-cols-2">
-            <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
-            <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
-          </div>
-          <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
-          {clinicalCorrelateLibrary.length > 0 && (
-            <details className="rounded-lg border border-border bg-bg-elevated p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-text-1">
-                Recurring clinical correlates ({clinicalCorrelateLibrary.length})
-              </summary>
-              <p className="mt-2 text-xs text-text-3">Signals repeated in this lecture and/or its uploaded question sets. They are available as optional clue patterns during question generation.</p>
-              <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                {clinicalCorrelateLibrary.map((entry) => (
-                  <div key={`${entry.label}-${entry.sourceKinds?.join("-")}`} className="rounded border border-border p-2 text-sm">
-                    <div className="font-medium text-text-1">{entry.label}</div>
-                    <div className="mt-1 text-xs text-text-3">{entry.sourceKinds?.join(" · ")} · {entry.frequency} references</div>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
-          {onGoDeep && <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>}
-        </div>
-      </details>
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">
@@ -2171,6 +2146,8 @@ export function LectureStudyFlow({
             <div><p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Practice</p><h3 className="text-lg font-semibold text-text-1">Test this lecture</h3></div>
             <span className="font-mono text-[12px] text-text-3">Objective-first quiz</span>
           </div>
+          <details className="px-4 py-2">
+            <summary className="cursor-pointer py-1 text-sm text-text-2">Progress &amp; objective readiness <span className="ml-2 text-xs text-text-3">{qStats.answered > 0 ? `${qStats.answered} answered · ${accuracyPct}% correct` : "Not yet practiced"}</span></summary>
           {/* Primary progress: objectives determine quiz coverage and mastery. */}
           {lectureObjectives.length > 0 && (
           <div className="flex items-center gap-4 px-4 py-2.5">
@@ -2282,14 +2259,14 @@ export function LectureStudyFlow({
             <span>Supporting lecture facts</span>
             <span className="font-mono">{atomMastery.masteredCount}/{atomMastery.totalCount} reviewed · {atoms.length} available</span>
           </div>
-        </section>
-      )}
-      {stage === "quiz" && atoms.length > 0 && (
         <details className="border-x border-accent/40 bg-bg-elevated px-4 pb-2 text-[12px] text-text-3">
           <summary className="cursor-pointer py-2">How progress is counted</summary>
           Questions answered here, in Study, Quiz, or submitted generated Exam Mode count when they carry this lecture's objective link. Readiness needs at least 3 attempts, 80% accuracy, a correct latest answer, 2 sessions, and 2 question types.
         </details>
+          </details>
+        </section>
       )}
+
 
       {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
 
@@ -2473,13 +2450,41 @@ export function LectureStudyFlow({
 
       {figuresPrompt}
 
-      {stage === "quiz" && atoms.length > 0 && (
-        <div className="mt-7 mb-2">
-          <p className="font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-text-3">Review &amp; reference</p>
-          <p className="text-sm text-text-3">Open only what you need after practice.</p>
-        </div>
-      )}
+      <details ref={referenceDetailsRef} className="mt-5 rounded-xl border border-border bg-bg-elevated p-3">
+        <summary className="cursor-pointer px-1 py-1 text-sm font-semibold text-text-2">Review &amp; reference <span className="ml-2 font-normal text-text-3">Models, guide &amp; lecture facts</span></summary>
+        <div className="mt-3">
 
+
+      <details className="mt-5 rounded-xl border border-border bg-bg-elevated">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+          <span><span className="block font-semibold text-text-1">Learning plan</span><span className="text-sm text-text-3">Mental-model setup, repairs, and objective links</span></span>
+          <span className="font-mono text-[12px] text-text-3">{lectureObjectives.length} objectives · {atoms.length} facts</span>
+        </summary>
+        <div className="space-y-4 border-t border-border p-4">
+          <div className="grid items-start gap-4 lg:grid-cols-2">
+            <LectureRetrievalEnrollment key={`${userId}:${blockId}:${lecture?.id}`} userId={userId} blockId={blockId} lectureId={lecture?.id} title={renamedTitle || title} reference={mentalModel?.bigPicture || ''} />
+            <ModelRepairs userId={userId} lectureId={lecture?.id} title={renamedTitle || title} atoms={atoms} objectives={lectureObjectives} chunks={lecture?.chunks || []} />
+          </div>
+          <ObjectiveCoverage atoms={atoms} objectives={lectureObjectives} examples={schoolExemplars} />
+          {clinicalCorrelateLibrary.length > 0 && (
+            <details className="rounded-lg border border-border bg-bg-elevated p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-text-1">
+                Recurring clinical correlates ({clinicalCorrelateLibrary.length})
+              </summary>
+              <p className="mt-2 text-xs text-text-3">Signals repeated in this lecture and/or its uploaded question sets. They are available as optional clue patterns during question generation.</p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {clinicalCorrelateLibrary.map((entry) => (
+                  <div key={`${entry.label}-${entry.sourceKinds?.join("-")}`} className="rounded border border-border p-2 text-sm">
+                    <div className="font-medium text-text-1">{entry.label}</div>
+                    <div className="mt-1 text-xs text-text-3">{entry.sourceKinds?.join(" · ")} · {entry.frequency} references</div>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+          {onGoDeep && <Button variant="outline" onClick={() => onGoDeep(lecture?.id)}>Deep lecture study</Button>}
+        </div>
+      </details>
       {/* Mental model — the reasoning framework this lecture's atoms attach to. Not a summary:
           big picture -> components -> relationships -> mechanisms -> cause/effect -> clinical
           application, each node linked back to the atoms that support it. */}
@@ -2644,6 +2649,8 @@ export function LectureStudyFlow({
           </div>
         </details>
       )}
+        </div>
+      </details>
     </main>
   );
 }
