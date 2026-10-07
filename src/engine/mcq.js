@@ -454,6 +454,15 @@ export function normalizeQuestions(raw) {
       reasoningDepth: ["state-recognition", "pathway-process", "mechanism", "enzyme-structure", "regulation-cofactor", "clinical-consequence"].includes(q.reasoningDepth) ? q.reasoningDepth : null,
       orderLevel: normalizeQuestionOrder(q.orderLevel || q.questionOrder),
       reasoningSteps: Array.isArray(q.reasoningSteps) ? q.reasoningSteps.map(String).slice(0, 6) : [],
+      questionPlan: q.questionPlan && typeof q.questionPlan === "object" && !Array.isArray(q.questionPlan) ? {
+        relationship: String(q.questionPlan.relationship || "").slice(0, 800),
+        perturbation: String(q.questionPlan.perturbation || "").slice(0, 500),
+        inference: String(q.questionPlan.inference || "").slice(0, 800),
+        endpoint: String(q.questionPlan.endpoint || "").slice(0, 300),
+        nearestDistractor: String(q.questionPlan.nearestDistractor || "").slice(0, 500),
+        discriminator: String(q.questionPlan.discriminator || "").slice(0, 500),
+        sourceQuotes: Array.isArray(q.questionPlan.sourceQuotes) ? q.questionPlan.sourceQuotes.map(String).slice(0, 3) : [],
+      } : null,
       bloomLevel: Number.isFinite(Number(q.bloomLevel)) ? Math.max(1, Math.min(6, Number(q.bloomLevel))) : null,
       clinicalCorrelate: q.clinicalCorrelate ? String(q.clinicalCorrelate).trim() : null,
       clinicalCueUsed: q.clinicalCueUsed ? String(q.clinicalCueUsed).trim() : null,
@@ -723,6 +732,7 @@ function auditQuestionPayload(question, index) {
     topic: question.topic,
     orderLevel: question.orderLevel,
     reasoningSteps: question.reasoningSteps || [],
+    questionPlan: question.questionPlan || null,
     bloomLevel: question.bloomLevel,
     clinicalCorrelate: question.clinicalCorrelate,
     clinicalCueUsed: question.clinicalCueUsed,
@@ -783,6 +793,7 @@ function buildRepairPrompt(items, cfg = {}) {
   const examples = selectStyleExemplars(cfg.examples || [], cfg.promptProfile === "compact" ? 2 : 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map((q) => ({ stem: q.stem, choices: q.choices, correct: q.correct }));
   return `Repair every rejected question below. Preserve the tested objective when it is valid, but change the stem, choices, key, explanation, and objectiveIds as needed to correct every listed issue. Use only the supplied lecture facts/objectives; do not add outside medical facts. Match the concise clinical/anatomic SGU ExamSoft/IMCQ style and use plausible same-category distractors. Return exactly one repaired question for each input item in the same order.
 ${CONNECTED_REASONING_CONTRACT}
+${QUESTION_PLAN_CONTRACT}
 Honor each objective's targetOrder. Replace recall with an actual lecture-supported perturbation and downstream prediction when application is requested. Do not decorate a definition with a vague symptom. Correct the causal sequence using the supplied lecture evidence. Return reasoningSteps and a concise whyWrong rationale for EVERY choice, including the key. An independent reviewer will verify each repair; a repaired item is not automatically approved.
 
 OBJECTIVES:\n${JSON.stringify(objectives)}
@@ -791,7 +802,7 @@ LECTURE EVIDENCE:\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectiv
 STYLE EXAMPLES:\n${JSON.stringify(examples)}
 REJECTED ITEMS:\n${JSON.stringify(items)}
 
-Return ONLY: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","topic":"...","taskType":"recognition|mechanism|clinical-application","orderLevel":"first-order|second-order|third-order"}]}`;
+Return ONLY: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"A","explanation":"...","whyWrong":{},"reasoningSteps":["required inference","downstream relationship when required"],"objectiveIds":["exact objective id"],"objectiveFacet":"specific clause tested","topic":"...","taskType":"recognition|mechanism|clinical-application","orderLevel":"first-order|second-order|third-order"}]}`;
 }
 
 function normalizedComparableText(value) {
@@ -1144,10 +1155,16 @@ function compactStyle(cfg) {
   return `OFFICIAL SCHOOL STYLE (style only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nSOURCE TASK PATTERNS (homework/clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
 }
 
+const QUESTION_PLAN_CONTRACT = `Before drafting EACH item, build its questionPlan from the supplied lecture evidence in the same response (no separate request). Identify: relationship (the taught causal rule), perturbation (what changes or is observed), inference (the required hidden intermediate and its downstream effect), endpoint (ONE thing the lead-in asks), nearestDistractor (a plausible competing explanation), discriminator (the observation that separates it from the key), and sourceQuotes (short exact contiguous lecture/fact excerpts supporting the relationships). Then write the stem and choices from that plan.
+For second-order, make the learner interpret an observation and apply a taught relationship to infer the requested endpoint. For third-order, require a second connected relationship to predict a further consequence. A normal application of a causal rule can be second-order even if the rule is familiar; a verbatim named-definition lookup is first-order. Do not count extra words or separately recalled labels as extra steps.
+Perform a choice-blind solve, then a choice-visible shortcut check: would the key still require the inference? All alternatives should compete at the SAME endpoint; do not put one ion-channel answer among four G-protein answers when fast-versus-slow wording gives the key away. Add a meaningful competing alternative and its discriminating observation, not more filler. Do not state the hidden intermediate in the stem. If the supplied evidence cannot support the requested depth, do not invent a mechanism or relabel recall. The plan is untrusted drafting metadata, not evidence of correctness.`;
+const QUESTION_PLAN_JSON = '"questionPlan":{"relationship":"lecture causal rule","perturbation":"change or observation","inference":"hidden intermediate to endpoint","endpoint":"one requested output","nearestDistractor":"plausible rival","discriminator":"decisive observation","sourceQuotes":["exact lecture excerpt"]}';
+
 function buildCompactMcqPrompt(cfg) {
   const count = cfg.count || 5;
   const order = cfg.orderBlueprint || buildQuestionSourceBlueprint(cfg.examples || [], cfg.objectives || [], count).order;
   return `${CONNECTED_REASONING_CONTRACT}
+${QUESTION_PLAN_CONTRACT}
 Write exactly ${count} NEW ${cfg.difficulty || "medium"} SGU/ExamSoft-style Step 1 questions for ${cfg.subject || "this lecture"}.
 Objectives define the target; lecture facts/excerpts alone establish factual truth. Use one primary objective per item. Honor each targetCount and targetOrder. Do not copy source cases. Prioritize second/third-order application where the objective supports it, never invent extra causal steps to label recall advanced.
 Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; otherwise use five choices A-E. Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
@@ -1165,7 +1182,7 @@ LEARNER EMPHASIS:\n${cfg.focusNotes || "none"}
 PRIOR FEEDBACK:\n${JSON.stringify(cfg.feedback || {})}
 AVOID REPEATING THESE PRIOR STEMS:\n${JSON.stringify((cfg.avoidStems || []).slice(-10).map(s => String(s).slice(0, 180)))}
 ${compactSource(cfg)}
-Return ONLY JSON: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"objectiveIds":["exact id"],"objectiveFacet":"specific clause tested","topic":"specific concept","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["clue interpretation","required relationship","second relationship only if required"],"difficulty":"${cfg.difficulty || "medium"}"}]}`;
+Return ONLY JSON: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"objectiveIds":["exact id"],"objectiveFacet":"specific clause tested","topic":"specific concept","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["clue interpretation","required relationship","second relationship only if required"],"difficulty":"${cfg.difficulty || "medium"}"}]}`;
 }
 
 function buildCompactAuditPrompt(questions, cfg) {
@@ -1173,6 +1190,7 @@ function buildCompactAuditPrompt(questions, cfg) {
   return `Independently audit every generated question. Fail uncertain items; never infer approval from writing quality.
 ${CONNECTED_REASONING_CONTRACT}
 Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied official school style; homework/clickers establish task patterns only. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
+Treat questionPlan as an untrusted hypothesis: verify its quoted relationships against the actual lecture source, and check that its hidden inference and discriminator are required in the FINAL stem and choices. Reject fabricated plans or plans that describe reasoning the question itself gives away. Do not reject causal application merely because one taught rule supplies the relationship: interpreting a novel perturbation then predicting its consequence can be second-order. Reject direct definition lookup or a keyed option identifiable solely by category mismatch.
 Verify the ACTUAL shortest route to the answer with choices visible. First-order needs one fact; second-order needs clue interpretation plus one relationship; third-order needs clue interpretation plus TWO distinct connected relationships and a downstream prediction. Every step must be required, connected and have one endpoint; reject one-fact choice shortcuts. Copy short EXACT contiguous lecture/fact quotes (16+ characters), never paraphrase or use objective text as factual evidence. Third-order requires two distinct quotes. Unsupported/mislabeled depth must be rejected, not credited.
 Reject an item below its objective's explicit targetOrder even when the recalled fact is correct. Do not certify a researcher/patient story as application if the final ask simply repeats a named fact.
 Return exactly ${questions.length} reviews for indexes ${JSON.stringify(questions.map((_, index) => index))}. Give a concise rationale and issues for rejections. Do not generate replacements here: repair is a separate request followed by independent review. This review must never teach or rewrite the questions.

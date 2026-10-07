@@ -843,3 +843,14 @@ it("sends the objective facet and task to the separate reviewer", () => {
   expect(prompt).toContain('"objectiveFacet":"Infer impaired CSF absorption from cellular content"');
   expect(prompt).toContain('"taskType":"clinical-application"');
 });
+
+it("preserves a drafting plan for independent review without treating it as approval", async () => {
+  const plan = { relationship: "Release follows calcium entry", perturbation: "Calcium entry blocked", inference: "Less release", endpoint: "Postsynaptic response", nearestDistractor: "Increased release", discriminator: "Calcium entry absent", sourceQuotes: ["Release follows calcium entry"] };
+  const [question] = normalizeQuestions([{ stem: "An experiment blocks calcium entry. What happens next?", choices: { A: "Release decreases", B: "Release increases" }, correct: "A", questionPlan: plan }]);
+  expect(question.questionPlan).toEqual(plan);
+  const prompt = buildQuestionAuditPrompt([question], { promptProfile: "compact" });
+  expect(prompt).toContain('"questionPlan":');
+  expect(prompt).toContain("untrusted hypothesis");
+  const result = await auditGeneratedQuestions([question], { requireReasoningAudit: true, promptProfile: "compact" }, { skipRepair: true, reviewAIJSON: async () => ({ reviews: [] }) });
+  expect(result.questions).toEqual([]);
+});
