@@ -309,7 +309,7 @@ export async function callAIJSON(
 ) {
   if (options.timeoutMs) {
     return withDeadline(signal => callAIJSON(systemPrompt, userPrompt, fallback, maxTokens, explicitProvider, temperature,
-      { ...options, timeoutMs: null, signal }), options.timeoutMs, options.signal);
+      { ...options, timeoutMs: null, bridgeTimeoutMs: Math.min(Number(options.bridgeTimeoutMs) || options.timeoutMs, options.timeoutMs), signal }), options.timeoutMs, options.signal);
   }
   options.signal?.throwIfAborted();
   const safeFallback = fallback !== undefined && fallback !== null ? fallback : {};

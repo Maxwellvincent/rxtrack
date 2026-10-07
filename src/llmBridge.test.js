@@ -22,8 +22,9 @@ it("forwards the requested output budget to the local bridge", async () => {
     .mockResolvedValueOnce({ ok: true })
     .mockResolvedValueOnce({ ok: true, json: async () => ({ text: "ok", backend: "ollama" }) });
   vi.stubGlobal("fetch", fetchMock);
-  await bridgeComplete({ prompt: "ten questions", maxTokens: 8000 });
+  await bridgeComplete({ prompt: "ten questions", maxTokens: 8000, timeoutMs: 2500 });
   expect(JSON.parse(fetchMock.mock.calls[1][1].body).maxTokens).toBe(8000);
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).timeoutMs).toBe(2500);
 });
 
 const NOW = 1_000_000;

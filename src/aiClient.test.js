@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-const { call } = vi.hoisted(() => ({ call: vi.fn() }));
+const { call, bridgeCall } = vi.hoisted(() => ({ call: vi.fn(), bridgeCall: vi.fn() }));
 vi.mock("firebase/functions", () => ({ getFunctions: () => ({}), httpsCallable: () => call }));
 vi.mock("./firebase.js", () => ({ app: {} }));
-vi.mock("./llmBridge.js", () => ({ bridgeComplete: async () => null, parseBridgeJSON: JSON.parse }));
+vi.mock("./llmBridge.js", () => ({ bridgeComplete: bridgeCall, parseBridgeJSON: JSON.parse }));
 import { callAIJSON } from "./aiClient.js";
-beforeEach(() => { call.mockReset(); });
+beforeEach(() => { call.mockReset(); bridgeCall.mockReset().mockResolvedValue(null); });
 describe("AI JSON failure handling", () => {
   it("retains fallback behavior for existing callers", async () => {
     call.mockRejectedValue(new Error("service unavailable"));
@@ -18,4 +18,12 @@ describe("AI JSON failure handling", () => {
     call.mockResolvedValue({ data: {} });
     await expect(callAIJSON("s", "u", {}, 4000, undefined, undefined, { throwOnError: true })).rejects.toThrow("invalid JSON");
   });
+});
+
+
+it("passes the shared preparation deadline into the bridge instead of leaving a five-minute orphan", async () => {
+  bridgeCall.mockResolvedValue('{"ok":true}');
+  expect(await callAIJSON("s", "u", {}, 1000, undefined, undefined, { timeoutMs: 100, bridgeTimeoutMs: 500 })).toEqual({ ok: true });
+  expect(bridgeCall.mock.calls[0][0].timeoutMs).toBe(100);
+  expect(call).not.toHaveBeenCalled();
 });

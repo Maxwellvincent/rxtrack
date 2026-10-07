@@ -1,0 +1,33 @@
+--- a/remote-proxy.mjs
++++ b/remote-proxy.mjs
+@@ -78,6 +78,9 @@
+       return send(res, 429, { error: 'The local bridge is busy. Retry shortly.' }, { 'retry-after': '5' });
+ 
+     active += 1;
++    const controller = new AbortController();
++    const onClose = () => { if (!res.writableEnded) controller.abort(); };
++    res.on('close', onClose);
+     try {
+       const contentLength = Number(req.headers['content-length'] || 0);
+       if (contentLength > MAX_BODY_BYTES)
+@@ -87,7 +90,7 @@
+         method: req.method,
+         headers: req.method === 'GET' ? {} : { 'content-type': 'application/json' },
+         body,
+-        signal: AbortSignal.timeout(300000),
++        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(300000)]),
+       });
+       const responseBody = Buffer.from(await upstream.arrayBuffer());
+       res.writeHead(upstream.status, {
+@@ -98,9 +101,10 @@
+       res.end(responseBody);
+     } catch (error) {
+       console.error('remote proxy request failed:', error?.message || error);
+-      if (!res.headersSent)
++      if (!res.headersSent && !res.destroyed)
+         send(res, error?.status || 503, { error: 'The local LLM Bridge is offline or unavailable.' });
+     } finally {
++      res.removeListener('close', onClose);
+       active -= 1;
+     }
+   });

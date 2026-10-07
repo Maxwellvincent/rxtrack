@@ -1,0 +1,101 @@
+--- a/server.mjs
++++ b/server.mjs
+@@ -91,14 +91,14 @@
+   return process.platform === 'win32' ? r !== name : true;
+ }
+ 
+-function run(cmd, argv, { input, env, cwd, timeout = TIMEOUT } = {}) {
++function run(cmd, argv, { input, env, cwd, timeout = TIMEOUT, signal } = {}) {
+   return new Promise((resolve, reject) => {
+     let bin = resolveCmd(cmd), args = argv;
+     if (/\.(cmd|bat)$/i.test(bin)) {           // Node refuses .cmd without a shell
+       args = ['/d', '/s', '/c', bin, ...argv];
+       bin = process.env.COMSPEC || 'cmd.exe';
+     }
+-    const p = spawn(bin, args, { shell: false, cwd: cwd || process.cwd(), env: { ...process.env, ...env } });
++    const p = spawn(bin, args, { shell: false, cwd: cwd || process.cwd(), env: { ...process.env, ...env }, signal });
+     let out = '', err = '';
+     const timer = setTimeout(() => { p.kill(); reject(new Error(cmd + ' timed out')); }, timeout);
+     p.stdout.on('data', d => out += d);
+@@ -229,7 +229,7 @@
+       '-p', text,
+       ...(files.length ? ['--allowedTools', 'Read'] : []),
+       '--output-format', 'text'
+-    ], { env: { ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' } });
++    ], { env: { ANTHROPIC_API_KEY: '', ANTHROPIC_AUTH_TOKEN: '' }, signal: req.signal });
+   },
+ 
+   // Codex CLI — ChatGPT subscription. Prompt over stdin so long text never has to survive
+@@ -238,14 +238,14 @@
+     const files = writeImages(req.images, dir);
+     const argv = ['exec', '--skip-git-repo-check'];
+     for (const f of files) argv.push('--image', f);
+-    return run('codex', argv, { input: composePrompt(req) });
++    return run('codex', argv, { input: composePrompt(req), signal: req.signal });
+   },
+ 
+   // Gemini CLI — @ only resolves inside cwd, so run from the image folder with bare names.
+   async gemini(req, dir) {
+     const files = writeImages(req.images, dir);
+     const refs = files.map(f => '@' + basename(f)).join(' ');
+-    return run('gemini', ['-p', `${refs}\n\n${composePrompt(req)}`], { cwd: files.length ? dirname(files[0]) : dir });
++    return run('gemini', ['-p', `${refs}\n\n${composePrompt(req)}`], { cwd: files.length ? dirname(files[0]) : dir, signal: req.signal });
+   },
+ 
+   // Local model — free, offline, no account.
+@@ -263,7 +263,7 @@
+       ...(req.json ? { format: 'json' } : {})
+     };
+     const r = await fetch(`${OLLAMA_URL}/api/generate`, {
+-      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body)
++      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body), signal: req.signal
+     });
+     if (!r.ok) throw new Error('ollama ' + r.status + ': ' + (await r.text()).slice(0, 200));
+     const payload = await r.json();
+@@ -278,6 +278,7 @@
+     const requested = req.backend && BACKENDS.includes(req.backend) ? [req.backend] : [];
+     const order = [...requested, ...BACKENDS.filter((name) => !requested.includes(name))];
+     for (const name of order) {
++      req.signal?.throwIfAborted();
+       const fn = backends[name];
+       if (!fn) { errors.push(`${name}: unknown backend`); continue; }
+       const t0 = Date.now();
+@@ -287,6 +288,7 @@
+         console.log(`  OK ${name} (${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+         return { text, backend: name };
+       } catch (e) {
++        req.signal?.throwIfAborted();
+         errors.push(`${name}: ${e.message}`);
+         console.log(`  - ${name} failed — ${e.message.slice(0, 140)}`);
+       }
+@@ -450,11 +452,18 @@
+     let raw = '';
+     req.on('data', d => raw += d);
+     req.on('end', async () => {
++      const controller = new AbortController();
++      const onClose = () => { if (!res.writableEnded) controller.abort(new Error('Client disconnected')); };
++      res.on('close', onClose);
++      let requestTimer;
+       try {
+         const body = JSON.parse(raw || '{}');
++        const requestTimeout = Math.max(1, Math.min(TIMEOUT, Number(body.timeoutMs) || TIMEOUT));
++        requestTimer = setTimeout(() => controller.abort(new Error('Bridge request deadline exceeded')), requestTimeout);
+         const input = req.url === '/complete'
+           ? { system: body.system || '', prompt: body.prompt || '', images: body.images || [], json: !!body.json, maxTokens: body.maxTokens, backend: body.backend }
+           : fromOpenAI(body);
++        input.signal = controller.signal;
+         if (!input.prompt && !input.images.length) return json(res, 400, { error: 'no prompt' });
+ 
+         console.log(`→ ${new Date().toISOString().slice(11, 19)} ${input.images.length} image(s), ${input.prompt.length} chars`);
+@@ -471,7 +480,10 @@
+         });
+       } catch (e) {
+         console.error('request failed:', e.message);
+-        json(res, 502, { error: { message: e.message } });
++        if (!res.destroyed) json(res, controller.signal.aborted ? 504 : 502, { error: { message: e.message } });
++      } finally {
++        clearTimeout(requestTimer);
++        res.removeListener('close', onClose);
+       }
+     });
+     return;

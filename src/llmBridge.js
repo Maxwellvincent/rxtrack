@@ -91,6 +91,7 @@ export async function bridgeComplete(req) {
         images: req.images || [],
         json: !!req.json,
         maxTokens: req.maxTokens,
+        timeoutMs: req.timeoutMs || 300_000,
         ...(req.backend ? { backend: req.backend } : {}),
       }),
     });

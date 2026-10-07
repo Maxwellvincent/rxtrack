@@ -1386,7 +1386,9 @@ export function LectureStudyFlow({
       },
       {
         callAIJSON,
-        prepareConcurrency: 2,
+        // Ollama queues competing drafts ahead of reviews; finish and save one
+        // verified batch before submitting another local batch.
+        prepareConcurrency: 1,
         onAccepted: (questions) => {
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
           appendPrepared(questions);
