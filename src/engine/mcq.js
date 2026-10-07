@@ -12,6 +12,17 @@ import { buildOrderBlueprint, normalizeQuestionOrder, stampQuestionOrders, quest
 import { objectiveFacetCoveragePrompt } from "./objectiveFacets.js";
 import { buildReasoningDepthPlan } from "./questionReasoning.js";
 
+// Prefer local Ollama for every question-writing stage, including independent review
+// and repair. Otherwise the bridge's Codex-first default can exhaust the browser
+// deadline before Ollama gets a turn, sending routine quizzes to paid APIs.
+export function withQuestionAIRouting(call) {
+  if (typeof call !== "function") return call;
+  return (system, prompt, fallback, maxTokens, provider, temperature, options = {}) => call(
+    system, prompt, fallback, maxTokens, provider, temperature,
+    { ...options, bridgeBackend: options.bridgeBackend || "ollama" }
+  );
+}
+
 const LETTERS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 
 const CONNECTED_REASONING_CONTRACT = `CONNECTED REASONING CONTRACT: Ask for one focused endpoint. Second-order requires discriminating findings -> inferred process -> requested mechanism/structure. Third-order requires findings -> inferred process -> mechanism -> a new downstream prediction. These are causal dependencies, not a count of recalled facts. Reject two unrelated recall tasks joined together (for example, an ICP cutoff plus a measurement-method ranking). Do not manufacture order with bundled mechanism/tracer/ventricle combinations that let one recalled fact reveal the key. All options should answer the same focused lead-in at comparable specificity. Mentally hide the options: the vignette and lead-in must support an answer. Then test the shortest route with the options visible: if one label or giveaway eliminates every distractor, downgrade or rewrite. Preserve legitimate school table formats when supported, but never count extra columns as extra reasoning. Relevant clinical, experimental, imaging, or laboratory clues must change the inference; a long patient story is not required.\n`;
@@ -266,7 +277,8 @@ function withSchoolContext(questions, cfg) {
 
 /** Generate MCQs via an injected callAIJSON (testable without a live model). */
 export async function generateMcqs(cfg = {}, deps = {}) {
-  const { callAIJSON, maxTokens = 8000 } = deps;
+  const { maxTokens = 8000 } = deps;
+  const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   const text = String(cfg.lectureText || "");
   const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
   if (text.trim().length < 150 && !atoms.length) return { error: "Not enough lecture text — convert/upload the lecture first.", questions: [] };
@@ -484,7 +496,8 @@ export function buildExemplarParsePrompt(md) {
 }
 
 export async function parseExemplarsFromMd(md, deps = {}) {
-  const { callAIJSON, maxTokens = 4000 } = deps;
+  const { maxTokens = 4000 } = deps;
+  const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   if (String(md || "").trim().length < 100) return { error: "Too short to hold questions.", questions: [] };
   try {
     const r = await callAIJSON(
@@ -677,7 +690,8 @@ export function backfillTopicsFromAtoms(raw, atoms, objectives = []) {
 }
 
 export async function generateFromAtoms(cfg = {}, deps = {}) {
-  const { callAIJSON, maxTokens = 8000 } = deps;
+  const { maxTokens = 8000 } = deps;
+  const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   const atoms = Array.isArray(cfg.atoms) ? cfg.atoms : [];
   if (!atoms.length) return { error: "No atoms to quiz — extract a lecture first.", questions: [] };
   try {
@@ -894,7 +908,7 @@ export function diversifyQuestionEndings(questions = []) {
 export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
-  const reviewer = deps.reviewAIJSON || deps.callAIJSON;
+  const reviewer = withQuestionAIRouting(deps.reviewAIJSON || deps.callAIJSON);
   const locallyValid = diversifyQuestionEndings(locallyValidClinicalQuestions(questions))
     .filter((question) => questionMatchesObjectiveDomain(question, cfg) && locallyUsableQuestions([question]).length > 0);
   // An explicit independent approval is stronger than the conservative clinical-shape screen.
@@ -1008,7 +1022,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     // checks and label them for later review instead of silently discarding the
     // whole batch.
     if (!distinctApproved.length && deps.skipRepair !== true) {
-      const repairer = deps.repairAIJSON || deps.callAIJSON;
+      const repairer = withQuestionAIRouting(deps.repairAIJSON || deps.callAIJSON);
       if (typeof repairer === "function") {
         const rejectedItems = questions.map((question, index) => ({
           index,
