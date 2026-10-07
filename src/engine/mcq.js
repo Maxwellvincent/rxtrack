@@ -960,7 +960,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (typeof reviewer !== "function") return keepLocallyValidated("reviewer not configured");
   try {
     let raw;
-    if (cfg.promptProfile === "compact" && questions.length > 1) {
+    if (cfg.promptProfile === "compact" && questions.length > 0) {
       // Small local models repeatedly reviewed only index zero of a batch,
       // then quoted generated explanations instead of the lecture. Give each
       // item an independent, source-focused review; merge indexes ourselves.
@@ -974,8 +974,20 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           comparisonStems: questions.filter((_, other) => other !== index).map(q => q.stem),
         };
         try {
-          const result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt([question], focused), { reviews: [] }, deps.auditMaxTokens || 1600);
-          const review = result?.reviews?.find(entry => Number(entry.index) === 0);
+          const prompt = buildQuestionAuditPrompt([question], focused);
+          let result = await reviewer(AUDIT_SYSTEM, prompt, { reviews: [] }, deps.auditMaxTokens || 1600);
+          let review = result?.reviews?.find(entry => Number(entry.index) === 0);
+          const normalizeSource = value => String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+          const factualSource = normalizeSource([cfg.lectureText || "", ...(cfg.atoms || []).map(a => `${a.term || ""} ${a.content || ""}`)].join(" "));
+          const quoted = (review?.reasoning?.sourceQuotes || []).map(normalizeSource);
+          const partialQuoteMatch = quoted.some(q => q.length >= 16 && factualSource.includes(q))
+            && quoted.some(q => q.length < 16 || !factualSource.includes(q));
+          if (cfg.requireReasoningAudit && review?.approved === true && partialQuoteMatch && !verifyReasoningReview(review, question, cfg)) {
+            // One correction attempt, never fuzzy-match or silently approve an
+            // unsupported quotation. The full question must still pass review.
+            result = await reviewer(AUDIT_SYSTEM, `${prompt}\nPREVIOUS REVIEW FAILED DETERMINISTIC VERIFICATION:\n${JSON.stringify(review)}\nRe-audit this item. Copy only exact contiguous source text, including table separators; do not merge columns or paraphrase. Check every sourceQuote against the supplied source. If the source or required reasoning cannot be verified, reject the item. Return one corrected review.`, { reviews: [] }, deps.auditMaxTokens || 1600);
+            review = result?.reviews?.find(entry => Number(entry.index) === 0);
+          }
           if (review) {
             reviews.push({ ...review, index });
             unverifiableInARow = cfg.requireReasoningAudit && review.approved === true && !verifyReasoningReview(review, question, cfg)
@@ -1155,7 +1167,7 @@ function compactStyle(cfg) {
   return `OFFICIAL SCHOOL STYLE (style only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nSOURCE TASK PATTERNS (homework/clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
 }
 
-const QUESTION_PLAN_CONTRACT = `Before drafting EACH item, build its questionPlan from the supplied lecture evidence in the same response (no separate request). Identify: relationship (the taught causal rule), perturbation (what changes or is observed), inference (the required hidden intermediate and its downstream effect), endpoint (ONE thing the lead-in asks), nearestDistractor (a plausible competing explanation), discriminator (the observation that separates it from the key), and sourceQuotes (short exact contiguous lecture/fact excerpts supporting the relationships). Then write the stem and choices from that plan.
+const QUESTION_PLAN_CONTRACT = `Before drafting EACH item, build its questionPlan from the supplied lecture evidence in the same response (no separate request). Identify: relationship (the taught causal rule), perturbation (what changes or is observed), inference (the required hidden intermediate and its downstream effect), endpoint (ONE thing the lead-in asks), nearestDistractor (a plausible competing explanation), discriminator (the observation that separates it from the key), and sourceQuotes (short exact contiguous lecture/fact excerpts supporting the relationships). First choose a causal prediction endpoint, then work backward to the hidden intermediate and discriminating observation. Only then write the stem and choices from that plan. Do not select a definition and decorate it with a patient or experiment.
 For second-order, make the learner interpret an observation and apply a taught relationship to infer the requested endpoint. For third-order, require a second connected relationship to predict a further consequence. A normal application of a causal rule can be second-order even if the rule is familiar; a verbatim named-definition lookup is first-order. Do not count extra words or separately recalled labels as extra steps.
 Perform a choice-blind solve, then a choice-visible shortcut check: would the key still require the inference? Choose distractors from entities/processes actually present in the supplied lecture; their whyWrong explanations must also be supported there. Do not import receptor names, drug mechanisms, or ion conductances from general medical knowledge to fill choices. If the source offers few named alternatives, use plausible different outcomes of the same supported process. Keep each plan concise (about 60 words excluding quotes). Include at least two alternatives that remain plausible from the main cue alone and require the discriminating observation to separate them. All alternatives should compete at the SAME endpoint; do not put one ion-channel answer among four G-protein answers when fast-versus-slow wording gives the key away. Add a meaningful competing alternative and its discriminating observation, not more filler. Do not state the hidden intermediate in the stem. If the supplied evidence cannot support the requested depth, do not invent a mechanism or relabel recall. The plan is untrusted drafting metadata, not evidence of correctness.`;
 const QUESTION_PLAN_JSON = '"questionPlan":{"relationship":"lecture causal rule","perturbation":"change or observation","inference":"hidden intermediate to endpoint","endpoint":"one requested output","nearestDistractor":"plausible rival","discriminator":"decisive observation","sourceQuotes":["exact lecture excerpt"]}';
@@ -1186,7 +1198,7 @@ Return ONLY JSON: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"
 }
 
 function buildCompactAuditPrompt(questions, cfg) {
-  const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}` }));
+  const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}`, sourceQuotes: q.questionPlan?.sourceQuotes || [] }));
   return `Independently audit every generated question. Fail uncertain items; never infer approval from writing quality.
 ${CONNECTED_REASONING_CONTRACT}
 Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied official school style; homework/clickers establish task patterns only. Objective verbs define scope but do not prohibit applying lecture-supported relationships.

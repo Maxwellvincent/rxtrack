@@ -47,7 +47,19 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
     seen.add(key); return true;
   });
   const wanted = tokens([...objectives.map(textOf), ...atoms.map(a => `${a.term} ${a.content}`)].join(' '));
+  // A draft's quote is only a retrieval hint: include it only if it occurs in
+  // the actual lecture. Pin its surrounding context so review cannot lose the
+  // evidence used by the writer to broader objective vocabulary.
+  const normalizedSource = source.replace(/\s+/g, ' ').trim();
+  const pinned = [...new Set(atoms.flatMap(a => a.sourceQuotes || []))].flatMap(quote => {
+    const normalizedQuote = String(quote).replace(/\s+/g, ' ').trim();
+    const at = normalizedSource.toLowerCase().indexOf(normalizedQuote.toLowerCase());
+    if (normalizedQuote.length < 16 || at < 0) return [];
+    return [normalizedSource.slice(Math.max(0, at - 250), at + normalizedQuote.length + 250)];
+  }).slice(0, 6).join('\n');
+  const pinnedText = pinned ? `[Source-verified quote context]\n${pinned}\n` : '';
+  const remaining = Math.max(0, budget - pinnedText.length);
   const ranked = chunks.map((text,index) => ({ text,index,score:[...tokens(text)].filter(w=>wanted.has(w)).length }))
-    .sort((a,b)=>b.score-a.score || a.index-b.index).slice(0, Math.max(1,Math.floor(budget/930))).sort((a,b)=>a.index-b.index);
-  return ranked.map(c=>`[Lecture excerpt ${c.index+1}]\n${c.text}`).join('\n').slice(0,budget);
+    .sort((a,b)=>b.score-a.score || a.index-b.index).slice(0, Math.max(1,Math.floor(remaining/930))).sort((a,b)=>a.index-b.index);
+  return (pinnedText + ranked.map(c=>`[Lecture excerpt ${c.index+1}]\n${c.text}`).join('\n').slice(0, remaining)).slice(0,budget);
 }

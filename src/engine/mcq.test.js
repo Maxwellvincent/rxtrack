@@ -811,6 +811,16 @@ describe("separate reasoning review gate", () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });
     expect(result.questions).toEqual([]);
   });
+  it("rechecks a partially grounded quotation once without accepting paraphrased evidence", async () => {
+    const reasoning = { orderLevel: "third-order", steps: ["Localize obstruction", "Trace fluid passage", "Predict upstream expansion"], sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
+    const reviewer = vi.fn()
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [], reasoning: { ...reasoning, sourceQuotes: [cfg.atoms[0].content, "Continued production makes the ventricles bigger"] } }] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, issues: [], reasoning }] });
+    const result = await auditGeneratedQuestions([question], { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer, skipRepair: true });
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    expect(result.questions[0]?.reasoningAudit.sourceQuotes).toEqual(cfg.atoms.map(a => a.content));
+  });
+
   it("attaches the separately verified chain and actual order to accepted questions", async () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [], reasoning: {
       orderLevel: "third-order", steps: ["Localize aqueduct obstruction", "Trace the upstream CSF route", "Predict expansion with continuing secretion"],

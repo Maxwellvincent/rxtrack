@@ -36,3 +36,12 @@ it("preserves explanatory text when the extraction has no page separators", () =
   const source = index.repeat(15) + "Communicating hydrocephalus arises from impaired absorption of CSF through the arachnoid villi. ".repeat(15);
   expect(retrieveLectureEvidence(source, [{ objective: "Describe communicating hydrocephalus" }])).toContain("impaired absorption");
 });
+
+ it('pins verified draft evidence but never promotes fabricated draft quotes to source',()=>{
+   const quote='Gap junctions permit direct ion flow between adjacent cells.';
+   const source=quote+' '+('Aromatase androgen estrogen. '.repeat(500));
+   const result=retrieveLectureEvidence(source,[objective],[{term:'aromatase',content:'estrogen',sourceQuotes:[quote,'Fabricated lecture evidence about dopamine']}],1600);
+   expect(result).toContain(quote);
+   expect(result).not.toContain('Fabricated lecture evidence about dopamine');
+   expect(result.length).toBeLessThanOrEqual(1600);
+ });
