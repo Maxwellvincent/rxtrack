@@ -25,12 +25,9 @@ import { read as readLearnerEvidence } from "../../../stores/learnerEvidence.js"
 import { buildOrderBlueprint } from "../../../engine/questionOrder.js";
 import { buildStyleProfile, STYLE_PROFILE_VERSION } from "../../../engine/styleProfile.js";
 
-// Rich clinical stems plus five per-choice explanations are large JSON
-// objects. Asking for ten in one response routinely truncates otherwise good
-// batches. Five keeps each model/reviewer exchange reliable while the
-// preparation loop still fills any requested quiz size and saves each accepted
-// batch immediately.
-export const PREPARE_BATCH_SIZE = 5;
+// Three source-focused items keep local-model drafts small while the preparation
+// loop preserves quotas, fills missing slots, and saves each verified batch.
+export const PREPARE_BATCH_SIZE = 3;
 
 /** Weakest first — repair, then consolidation, then first-pass coverage. */
 export function sortWeakestFirst(objectives) {
@@ -298,6 +295,7 @@ export function buildQuizConfig({
   objectives,
   lectureTitle,
   lectureIdHint = null,
+  lectureText: suppliedLectureText = "",
   blockId,
   lectures = [],
   exemplars = [],
@@ -322,7 +320,7 @@ export function buildQuizConfig({
     || (pool.map((objective) => objective?.linkedLecId).find(Boolean)
       ? (lectures || []).find((item) => item?.id === pool.map((objective) => objective?.linkedLecId).find(Boolean))
       : findLectureForQuiz(lectures, blockId, lectureTitle));
-  const lectureText = lecture ? getLecText(lecture) : "";
+  const lectureText = String(suppliedLectureText || (lecture ? getLecText(lecture) : ""));
   const recurringClinicalCorrelates = clinicalCorrelateLibrary || buildClinicalCorrelateLibrary({
     atoms,
     examples: selectClinicalExamplesForBlock(exemplars, blockId),

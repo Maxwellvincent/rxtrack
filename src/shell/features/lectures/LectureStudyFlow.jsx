@@ -1258,7 +1258,7 @@ export function LectureStudyFlow({
     setRound(index);
     setAdHocQuiz(false);
     startQuizSession(questions, { isAdHoc: false, roundIndex: index });
-  }, [lecture, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
+  }, [lecture, text, images, rounds, userId, blockId, objectiveById, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary]);
 
   /**
    * "Quiz this lecture" — any count, any difficulty, drawn from real atoms same as a Study
@@ -1369,6 +1369,7 @@ export function LectureStudyFlow({
         initialQuestions: reserve,
         plannedCount: count,
         lectureTitle: title,
+        lectureText: text,
         lectureIdHint: lecture?.id,
         blockId,
         atoms,
@@ -1462,7 +1463,7 @@ export function LectureStudyFlow({
     setAdHocQuiz(true);
     startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
-  }, [orderedObjectives, title, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data]);
+  }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
   // Background work only saves unseen questions; it does not create a session or grade answers.
@@ -1482,7 +1483,7 @@ export function LectureStudyFlow({
     prefetchInFlightRef.current = true;
     void prepareObjectiveQuiz({
       objectives: orderedObjectives, evidenceModel: learnerEvidence.data,
-      lectureTitle: title, lectureIdHint: lecture.id, blockId, atoms, userId,
+      lectureTitle: title, lectureText: text, lectureIdHint: lecture.id, blockId, atoms, userId,
       difficulty: questions[0]?.difficulty || resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2",
       questionCount: PREPARE_BATCH_SIZE, exemplars: schoolExemplars, clinicalCorrelateLibrary,
       avoidStems: [...history, ...questions].map(question => question.stem).filter(Boolean),
@@ -1492,7 +1493,7 @@ export function LectureStudyFlow({
       onAccepted: batch => generatedQuestionsStore.addQuestions(userId, lecture.id, batch),
     }).catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
   }, [questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
-    learnerEvidence.data, title, blockId, atoms, schoolExemplars, clinicalCorrelateLibrary, qStats.accuracy]);
+    learnerEvidence.data, title, text, blockId, atoms, schoolExemplars, clinicalCorrelateLibrary, qStats.accuracy]);
 
   const reviewableQuizQuestions = lecture?.id
     ? locallyValidClinicalQuestions(generatedQuestionsStore.questionsForLecture(userId, lecture.id))

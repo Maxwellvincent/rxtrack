@@ -300,9 +300,9 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.incomplete).toBe(true);
     const prompts = callAIJSON.mock.calls.map(call => call[1]);
     expect(prompts[0]).toContain("[rotation-1]");
-    expect(prompts[1]).toContain("[rotation-6]");
-    expect(prompts[2]).toContain("[rotation-11]");
-    expect(callAIJSON).toHaveBeenCalledTimes(3);
+    expect(prompts[1]).toContain("[rotation-4]");
+    expect(prompts[2]).toContain("[rotation-7]");
+    expect(callAIJSON).toHaveBeenCalledTimes(5);
   });
 
   it.each([[4, 1], [2, 1], [4, 2]])("fills 15 slots with %i candidates per round and concurrency %i", async (yieldPerRound, prepareConcurrency) => {
@@ -556,7 +556,7 @@ describe("prepareObjectiveQuiz", () => {
     expect(callAIJSON).toHaveBeenCalledTimes(3);
   });
 
-  it("builds large reserves in five-question batches instead of one oversized response", async () => {
+  it("builds large reserves in three-question batches instead of one oversized response", async () => {
     let batch = 0;
     const callAIJSON = vi.fn().mockImplementation(async () => {
       const current = batch++;
@@ -576,7 +576,7 @@ describe("prepareObjectiveQuiz", () => {
     );
     expect(result.questions.length).toBeGreaterThan(0);
     expect(callAIJSON).toHaveBeenCalled();
-    expect(callAIJSON.mock.calls.every((call) => (call[1].match(/^\d+\. \[/gm) || []).length <= 5)).toBe(true);
+    expect(callAIJSON.mock.calls.every((call) => (call[1].match(/^\d+\. \[/gm) || []).length <= 3)).toBe(true);
   });
 });
 
@@ -740,4 +740,12 @@ describe("live evidence allocation", () => {
     expect(result.config.requireReasoningAudit).toBe(true);
     expect(result.config.orderBlueprint.targets["first-order"]).toBe(0);
   });
+});
+
+
+it("uses the active lecture text when its detail view does not pass a lecture collection", () => {
+  const { config } = buildQuizConfig({ objectives: [{ id: "source", objective: "Explain synaptic release" }],
+    lectureIdHint: "active", lectureTitle: "Active lecture", lectureText: "Calcium entry triggers vesicle fusion. " + LECTURE_BODY, questionCount: 3 });
+  expect(config.lectureText).toContain("Calcium entry triggers vesicle fusion.");
+  expect(config.lectureText).toContain(LECTURE_BODY);
 });

@@ -71,9 +71,23 @@ const reviewAIJSON = cachedReviewFile ? (...params) => {
   if (cachedIndex < cachedReviews.length) return Promise.resolve(cachedReviews[cachedIndex++].result);
   return callAIJSON(...params);
 } : callAIJSON;
-const result = reviewFile
-  ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !cachedReviewFile })
-  : await generateMcqs(cfg, { callAIJSON });
-const report = { requested: cfg.count, accepted: result.questions?.length || 0, elapsedSeconds: (performance.now() - started) / 1000, result, calls };
+const prepare = process.argv.includes("--prepare");
+const requested = Number(option("--count", cfg.count));
+let result;
+if (prepare) {
+  const { prepareObjectiveQuiz } = await import("../src/shell/features/objectives/quizLaunch.js");
+  result = await prepareObjectiveQuiz({
+    lectureTitle: cfg.subject, lectureIdHint: "benchmark-private", blockId: "benchmark-private",
+    lectures: [{ id: "benchmark-private", blockId: "benchmark-private", lectureTitle: cfg.subject, chunks: [{ markdown: cfg.lectureText }] }],
+    objectives: cfg.objectives, atoms: cfg.atoms || [], exemplars: cfg.examples || [],
+    questionCount: requested, generationVersion: "v2", difficulty: cfg.difficulty || "medium",
+    evidenceModel: {}, clinicalCorrelateLibrary: cfg.clinicalCorrelateLibrary || [],
+  }, { callAIJSON, maxPreparationMs: budget }, progress => console.log(JSON.stringify({ event: "progress", ...progress })));
+} else {
+  result = reviewFile
+    ? await auditGeneratedQuestions(questions || [], { ...cfg, promptProfile: "compact" }, { callAIJSON, reviewAIJSON, skipRepair: !cachedReviewFile })
+    : await generateMcqs(cfg, { callAIJSON });
+}
+const report = { requested, accepted: result.questions?.length || 0, elapsedSeconds: (performance.now() - started) / 1000, result, calls };
 await writeFile(output, JSON.stringify(report, null, 2));
 console.log(JSON.stringify({ requested: report.requested, accepted: report.accepted, seconds: Math.round(report.elapsedSeconds), error: result.error, output }));
