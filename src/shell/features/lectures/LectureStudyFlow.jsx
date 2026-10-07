@@ -416,6 +416,7 @@ export function LectureStudyFlow({
   // Inline quiz config picker state
   const [quizPicker, setQuizPicker] = useState(null); // null | { count, difficulty }
   const [quizPreparation, setQuizPreparation] = useState(null);
+  const [pendingQuiz, setPendingQuiz] = useState(null);
   // True while `questions` came from the picker's ad-hoc "Quiz this lecture" (any count, any
   // atoms) rather than a sequential Study round — onDone below skips round-index bookkeeping
   // for these (there is no "next round" to resume into) but still updates atom/objective
@@ -1291,6 +1292,7 @@ export function LectureStudyFlow({
       setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
     }
+    setPendingQuiz(null);
     setBusy("Preparing quiz…"); setError(""); setObjectiveNotice(""); setQuestions(null);
     setQuizPreparation({ requested: count, ready: 0, attempt: 0, phase: "generating" });
 
@@ -1402,18 +1404,17 @@ export function LectureStudyFlow({
           text: objective.objective || objective.text || objective.title || "",
         })).filter((objective) => objective.text),
     }));
-    const launchPartialQuiz = (items, detail) => {
+    const retainPartialQuiz = (items, detail) => {
       const partial = attachObjectiveTexts(items);
       if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, partial);
-      setObjectiveNotice(`Starting a ${partial.length}-question quiz; ${Math.max(0, count - partial.length)} of ${count} requested questions could not be prepared. ${detail || "You can retry later for more."}`);
-      setAdHocQuiz(true);
-      startQuizSession(partial);
+      setPendingQuiz({ questions: partial, count, difficulty, reason: detail });
+      setObjectiveNotice("");
       setQuizPreparation(null);
     };
     if (result.error) {
       setQuizPreparation(null);
       if (progressiveQuestions.length) {
-        launchPartialQuiz(progressiveQuestions, result.error);
+        retainPartialQuiz(progressiveQuestions, result.reason || result.error);
         return;
       }
       // Saved questions are an offline/error fallback, never the default path. Reusing them
@@ -1448,7 +1449,7 @@ export function LectureStudyFlow({
     }
     if (result.incomplete || progressiveQuestions.length < count) {
       if (progressiveQuestions.length) {
-        launchPartialQuiz(progressiveQuestions, "Retry later to add questions for the missing objectives.");
+        retainPartialQuiz(progressiveQuestions, result.reason || result.error || "The remaining questions did not pass preparation checks.");
       } else {
         setQuizPreparation(null);
         setError(`No questions could be prepared for this ${count}-question quiz. Retry after the source is available.`);
@@ -2127,6 +2128,15 @@ export function LectureStudyFlow({
       </details>
       </header>
 
+      {pendingQuiz && <div role="status" className="my-3 rounded-lg border border-border bg-panel p-3 text-sm">
+        <strong>{pendingQuiz.questions.length}/{pendingQuiz.count} questions ready</strong>
+        <p className="mt-1 text-text-2">Your ready questions are saved. Retry to fill the remaining {pendingQuiz.count - pendingQuiz.questions.length} slots, or choose a shorter quiz.</p>
+        <details className="mt-2 text-xs text-text-3"><summary className="cursor-pointer">Why preparation stopped</summary><p className="mt-1">{pendingQuiz.reason}</p></details>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <Button onClick={() => runQuiz(pendingQuiz.count, pendingQuiz.difficulty)} disabled={!!busy}>Retry missing questions</Button>
+          <Button onClick={() => { setAdHocQuiz(true); startQuizSession(pendingQuiz.questions); setPendingQuiz(null); }} disabled={!!busy}>Start with {pendingQuiz.questions.length}</Button>
+        </div>
+      </div>}
       {objectiveNotice && <p role="status" className="my-2 text-sm text-good">{objectiveNotice}</p>}
       {stage !== "loading" && !lectureObjectives.length && text.trim().length >= 200 && (
         <div className="my-3 flex flex-wrap items-center gap-3 rounded border border-warn/40 p-3">

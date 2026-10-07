@@ -664,6 +664,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         : { error: `Only ${accepted.length}/${requested} questions could be prepared. ${lastError || "Retry to generate the remaining questions."}` }),
       questions: accepted,
       incomplete: true,
+      reason: lastError || "No additional distinct questions meeting the lecture, objective, and reasoning checks were accepted within this preparation run.",
       requested,
     };
   }
