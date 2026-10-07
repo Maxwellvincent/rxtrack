@@ -445,6 +445,26 @@ describe("prepareObjectiveQuiz", () => {
     expect(callAIJSON).toHaveBeenCalledTimes(2);
   });
 
+  it("shares a preparation deadline across calls and stops refill after it expires", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    const callAIJSON = vi.fn().mockImplementation(async (...params) => {
+      expect(params[6].timeoutMs).toBe(100);
+      now.mockReturnValue(1101);
+      return { questions: [] };
+    });
+    try {
+      const result = await prepareObjectiveQuiz(
+        { objectives: [], atoms: [{ term: "Fact", content: "One fact." }], questionCount: 2, generationVersion: "v2" },
+        { callAIJSON, maxPreparationMs: 100, skipQuestionAudit: true }
+      );
+      expect(callAIJSON).toHaveBeenCalledOnce();
+      expect(result.incomplete).toBe(true);
+      expect(result.reason).toMatch(/time budget/);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("builds credit-independent questions only from uploaded facts", () => {
     const questions = buildGroundedRecallQuestions({
       atoms: [

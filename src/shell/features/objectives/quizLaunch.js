@@ -553,6 +553,21 @@ export function remainingObjectiveAllocation(plan = [], answered = [], limit = 5
  * Refill only the missing slots and carry accepted stems forward so retries stay fresh.
  */
 export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {}) {
+  // Draft, review and repair share one wall-clock budget. Independent per-call
+  // five-minute timeouts otherwise multiply into a very long preparation run.
+  const preparationDeadline = Date.now() + Math.max(1, Number(deps.maxPreparationMs) || 240000);
+  const preparationTimeout = "Question preparation timed out after its time budget. Reviewed questions are saved; retry only the missing slots or start with the ready questions.";
+  const originalCall = deps.callAIJSON;
+  const boundedDeps = {
+    ...deps,
+    callAIJSON: typeof originalCall === "function" ? (...params) => {
+      const remaining = preparationDeadline - Date.now();
+      if (remaining <= 0) return Promise.reject(new Error(preparationTimeout));
+      const options = params[6] || {};
+      params[6] = { ...options, timeoutMs: Math.min(Number(options.timeoutMs) || remaining, remaining) };
+      return originalCall(...params);
+    } : originalCall,
+  };
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
   const allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
@@ -578,6 +593,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const concurrency = Math.min(2, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
   let stopPreparation = false;
   for (let wave = 1; wave <= attempts && accepted.length < requested && !stopPreparation; wave += concurrency) {
+    if (Date.now() >= preparationDeadline) {
+      lastError = preparationTimeout;
+      break;
+    }
     const jobs = [];
     const reserved = [];
     for (let slot = 0; slot < concurrency && wave + slot <= attempts; slot += 1) {
@@ -611,7 +630,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         objectiveAllocation: enforceAllocation ? batchAllocation : null,
         questionCount: batchCount,
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
-      }, deps).then(result => ({ attempt, result })));
+      }, boundedDeps).then(result => ({ attempt, result })));
     }
     if (!jobs.length) break;
     // Independent drafts and reviews overlap, but allocation, duplicate checks, and
