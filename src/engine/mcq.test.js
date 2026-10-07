@@ -91,6 +91,21 @@ describe("styleProfilePrompt", () => {
 });
 
 describe("buildMcqPrompt", () => {
+  it("compacts repeated school examples while retaining objective and factual contracts", () => {
+    const cfg = { subject: "Synapses", count: 5, lectureText: "Synapses release neurotransmitter after calcium entry. ".repeat(100),
+      objectives: [{ id: "synapse", code: "SOM.NB.8", objective: "Explain release of neurotransmitter", _targetOrder: "third-order", _targetQuestionCount: 2 }],
+      atoms: [{ term: "Calcium entry", content: "Calcium entry triggers vesicle fusion.", exceptions: ["Electrical synapses transmit ions directly."] }],
+      examples: Array.from({ length: 12 }, (_, i) => ({ sourceKind: "examsoft", stem: `Case ${i}: ${"A distinct clinical finding. ".repeat(20)} Which synaptic process explains the observation?`, choices: { A: "Calcium influx", B: "Sodium efflux", C: "Vesicle depletion", D: "Gap junction" }, correct: "A" })) };
+    const full = buildMcqPrompt(cfg);
+    const compact = buildMcqPrompt({ ...cfg, promptProfile: "compact" });
+    expect(compact.length).toBeLessThan(full.length * 0.75);
+    expect(compact).toContain("SOM.NB.8");
+    expect(compact).toContain("Calcium entry triggers vesicle fusion.");
+    expect(compact).toContain("Electrical synapses transmit ions directly.");
+    expect(compact).toContain('"targetOrder":"third-order"');
+    expect(compact).toContain('"targetCount":2');
+    expect(compact).toContain("one unambiguous best answer");
+  });
   const prompt = buildMcqPrompt({
     subject: "Endocrine hormones",
     lectureText: "Insulin is an anabolic hormone secreted by beta cells.",
@@ -733,6 +748,65 @@ describe("separate reasoning review gate", () => {
     explanation: "An obstruction interrupts the passage of CSF, and continued production expands the upstream ventricular spaces.", objectiveIds: ["o1"], orderLevel: "third-order" };
   const cfg = { requireReasoningAudit: true, objectives: [{ id: "o1", objective: "Analyze CSF obstruction", bloom_level: 3 }],
     atoms: [{ term: "Obstruction", content: "Aqueduct obstruction prevents CSF passage into the fourth ventricle." }, { term: "Expansion", content: "Continued CSF production expands the spaces upstream of an obstruction." }] };
+  it("reviews each compact item and rejects quotes copied from generated explanations", async () => {
+    const reasoning = { orderLevel: "third-order", steps: ["Localize obstruction", "Trace upstream flow", "Predict expansion"],
+      sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
+    const reviewer = vi.fn()
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning }] })
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: { ...reasoning, sourceQuotes: [question.explanation] } }] });
+    const result = await auditGeneratedQuestions([question, { ...question, stem: "A patient develops pressure upstream of an obstruction. What fluid compartment expands?" }],
+      { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer, skipRepair: true });
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    expect(reviewer.mock.calls.every(call => call[1].includes("REQUIRED REVIEW COUNT: 1"))).toBe(true);
+    expect(reviewer.mock.calls[1][1]).toContain("OTHER BATCH STEMS");
+    expect(result.questions).toHaveLength(1);
+    expect(result.questions[0].reasoningAudit.status).toBe("verified");
+  });
+  it("retains verified reviews when a later reviewer request times out", async () => {
+    const reasoning = { orderLevel: "third-order", steps: ["Localize obstruction", "Trace upstream flow", "Predict expansion"],
+      sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
+    const reviewer = vi.fn()
+      .mockResolvedValueOnce({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning }] })
+      .mockRejectedValueOnce(new Error("Local review timed out"));
+    const result = await auditGeneratedQuestions([question, { ...question, stem: "A patient has an upstream obstruction. What space expands as secretion continues?" }],
+      { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer });
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    expect(result.questions).toHaveLength(1);
+    expect(result.warning).toMatch(/timed out/);
+  });
+  it("stops repair loops when claimed approvals cannot be grounded in the source", async () => {
+    const reviewer = vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, reasoning: {
+      orderLevel: "third-order", steps: ["Localize obstruction", "Trace upstream flow", "Predict expansion"],
+      sourceQuotes: [question.explanation], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
+    } }] });
+    const repair = vi.fn();
+    const result = await auditGeneratedQuestions([question], { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer, repairAIJSON: repair });
+    expect(result.questions).toEqual([]);
+    expect(result.error).toMatch(/stronger reviewer/);
+    expect(repair).not.toHaveBeenCalled();
+  });
+  it("stops a compact reviewer after repeated ungrounded approvals instead of reviewing and repairing the whole batch", async () => {
+    const reviewer = vi.fn().mockResolvedValue({ reviews: [{ index: 0, approved: true, reasoning: {
+      orderLevel: "third-order", steps: ["Locate obstruction", "Trace flow", "Predict expansion"], sourceQuotes: [question.explanation],
+      allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
+    } }] });
+    const repair = vi.fn();
+    const result = await auditGeneratedQuestions([question, question, question, question, question],
+      { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer, repairAIJSON: repair });
+    expect(reviewer).toHaveBeenCalledTimes(2);
+    expect(result.questions).toEqual([]);
+    expect(result.error).toMatch(/stronger reviewer/);
+    expect(repair).not.toHaveBeenCalled();
+  });
+  it("does not credit verified recall when the objective requests application", async () => {
+    const result = await auditGeneratedQuestions([question], { ...cfg, promptProfile: "compact", objectives: [{ ...cfg.objectives[0], _targetOrder: "second-order" }] }, {
+      skipRepair: true,
+      reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, objectiveAligned: true, issues: [], reasoning: {
+        orderLevel: "first-order", steps: ["Recall obstruction"], sourceQuotes: [cfg.atoms[0].content], allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
+      } }] }),
+    });
+    expect(result.questions).toEqual([]);
+  });
   it("withholds self-labeled advanced questions if the separate review has no chain", async () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });
     expect(result.questions).toEqual([]);

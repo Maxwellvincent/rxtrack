@@ -237,7 +237,8 @@ describe("startObjectiveQuiz", () => {
 
     expect(result.questions).toHaveLength(1);
     expect(result.error).toBeUndefined();
-    expect(callAIJSON.mock.calls[0][1]).toContain("[objective] SOM-1: Describe the brachial plexus.");
+    expect(callAIJSON.mock.calls[0][1]).toContain("SOM-1");
+    expect(callAIJSON.mock.calls[0][1]).toContain("Describe the brachial plexus.");
   });
 
   it("maps objectives to atoms and drops text-less ones", () => {
@@ -660,8 +661,9 @@ describe("objective-first atom coverage", () => {
     );
 
     const prompt = callAIJSON.mock.calls[0][1];
-    expect(prompt).toContain("[SOM-10] Explain objective 10.");
-    expect(prompt).not.toContain("[SOM-11]");
+    expect(prompt).toContain("SOM-10");
+    expect(prompt).toContain("Explain objective 10.");
+    expect(prompt).not.toContain("SOM-11");
   });
 
   it("distributes a 10-question lecture quiz evenly across two objectives", () => {

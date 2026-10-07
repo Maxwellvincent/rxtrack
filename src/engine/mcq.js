@@ -277,6 +277,7 @@ function withSchoolContext(questions, cfg) {
 
 /** Generate MCQs via an injected callAIJSON (testable without a live model). */
 export async function generateMcqs(cfg = {}, deps = {}) {
+  cfg = { ...cfg, promptProfile: cfg.promptProfile || "compact" };
   const { maxTokens = 8000 } = deps;
   const callAIJSON = withQuestionAIRouting(deps.callAIJSON);
   const text = String(cfg.lectureText || "");
@@ -729,6 +730,7 @@ function auditQuestionPayload(question, index) {
 }
 
 export function buildQuestionAuditPrompt(questions, cfg = {}) {
+  if (cfg.promptProfile === "compact") return buildCompactAuditPrompt(questions, cfg);
   const objectives = (cfg.objectives || []).map((objective) => ({
     id: String(objective.id || objective.code || ""),
     code: String(objective.code || ""),
@@ -776,13 +778,16 @@ export function buildQuestionAuditPrompt(questions, cfg = {}) {
 }
 
 function buildRepairPrompt(items, cfg = {}) {
-  const objectives = (cfg.objectives || []).map((o) => ({ id: o.id || o.code, text: o.objective || o.text }));
+  const objectives = (cfg.objectives || []).map((o) => ({ id: o.id || o.code, text: o.objective || o.text, targetOrder: o._targetOrder }));
   const atoms = (cfg.atoms || []).map((a) => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [] }));
-  const examples = (cfg.examples || []).slice(0, 6).map((q) => ({ stem: q.stem, choices: q.choices, correct: q.correct }));
+  const examples = selectStyleExemplars(cfg.examples || [], cfg.promptProfile === "compact" ? 2 : 6, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }).map((q) => ({ stem: q.stem, choices: q.choices, correct: q.correct }));
   return `Repair every rejected question below. Preserve the tested objective when it is valid, but change the stem, choices, key, explanation, and objectiveIds as needed to correct every listed issue. Use only the supplied lecture facts/objectives; do not add outside medical facts. Match the concise clinical/anatomic SGU ExamSoft/IMCQ style and use plausible same-category distractors. Return exactly one repaired question for each input item in the same order.
+${CONNECTED_REASONING_CONTRACT}
+Honor each objective's targetOrder. Replace recall with an actual lecture-supported perturbation and downstream prediction when application is requested. Do not decorate a definition with a vague symptom. Correct the causal sequence using the supplied lecture evidence. Return reasoningSteps and a concise whyWrong rationale for EVERY choice, including the key. An independent reviewer will verify each repair; a repaired item is not automatically approved.
 
 OBJECTIVES:\n${JSON.stringify(objectives)}
 LECTURE FACTS:\n${JSON.stringify(atoms)}
+LECTURE EVIDENCE:\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], items.map(item => ({ term: item.question?.topic || "", content: item.question?.stem || "" })), 6000)}
 STYLE EXAMPLES:\n${JSON.stringify(examples)}
 REJECTED ITEMS:\n${JSON.stringify(items)}
 
@@ -943,15 +948,45 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   };
   if (typeof reviewer !== "function") return keepLocallyValidated("reviewer not configured");
   try {
-    const raw = await reviewer(
-      AUDIT_SYSTEM,
-      buildQuestionAuditPrompt(questions, cfg),
-      { reviews: [] },
-      deps.auditMaxTokens || 4000
-    );
+    let raw;
+    if (cfg.promptProfile === "compact" && questions.length > 1) {
+      // Small local models repeatedly reviewed only index zero of a batch,
+      // then quoted generated explanations instead of the lecture. Give each
+      // item an independent, source-focused review; merge indexes ourselves.
+      const reviews = [];
+      let reviewError = "";
+      let unverifiableInARow = 0;
+      for (let index = 0; index < questions.length; index += 1) {
+        const question = questions[index];
+        const focused = { ...cfg,
+          objectives: (cfg.objectives || []).filter(o => (question.objectiveIds || []).includes(String(o.id || o.code))),
+          comparisonStems: questions.filter((_, other) => other !== index).map(q => q.stem),
+        };
+        try {
+          const result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt([question], focused), { reviews: [] }, deps.auditMaxTokens || 1600);
+          const review = result?.reviews?.find(entry => Number(entry.index) === 0);
+          if (review) {
+            reviews.push({ ...review, index });
+            unverifiableInARow = cfg.requireReasoningAudit && review.approved === true && !verifyReasoningReview(review, question, cfg)
+              ? unverifiableInARow + 1 : 0;
+            if (unverifiableInARow >= 2) {
+              reviewError = "Independent reviewer unavailable: repeated claimed approvals could not be grounded in the lecture. A stronger reviewer is needed.";
+              break;
+            }
+          }
+          else reviewError = `Independent reviewer unavailable: no review returned for question ${index + 1}.`;
+        } catch (error) {
+          reviewError = error?.message || String(error);
+          break;
+        }
+      }
+      raw = { reviews, error: reviewError };
+    } else {
+      raw = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(questions, cfg), { reviews: [] }, deps.auditMaxTokens || 4000);
+    }
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
-    if (!reviews.length) return keepLocallyValidated("malformed reviewer response");
+    if (!reviews.length) return keepLocallyValidated(raw.error || "malformed reviewer response");
     const nonBlockingReviewIssues = new Set(["repetitive_task_ending", "order_level_mismatch"]);
     const approved = questions.flatMap((question, index) => {
       const review = byIndex.get(index);
@@ -972,6 +1007,9 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       // leak, and explanation failures remain blocking.
       const acceptedWithNotes = review?.approved !== true && issues.length > 0 && blockingIssues.length === 0;
       const reasoningAudit = verifyReasoningReview(review, question, cfg);
+      const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
+      const orders = ["first-order", "second-order", "third-order"];
+      if (cfg.requireReasoningAudit && target && reasoningAudit && orders.indexOf(reasoningAudit.orderLevel) < orders.indexOf(normalizeQuestionOrder(target))) return [];
       const semanticObjectiveAlignment = review.objectiveAligned === true && !!reasoningAudit
         && (question.objectiveIds || []).length === 1
         && (cfg.objectives || []).some(o => String(o.id || o.code) === question.objectiveIds[0]);
@@ -1016,11 +1054,18 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       ? (await auditGeneratedQuestions(reviewerReplacements, cfg, { ...deps, skipRepair: true })).questions || []
       : reviewerReplacements;
     const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...verifiedReplacements]));
+    const unverifiableApprovals = cfg.requireReasoningAudit
+      ? questions.filter((question, index) => byIndex.get(index)?.approved === true && !verifyReasoningReview(byIndex.get(index), question, cfg)).length
+      : 0;
+    if (!distinctApproved.length && unverifiableApprovals) {
+      return keepLocallyValidated(`Independent reviewer unavailable: ${unverifiableApprovals}/${questions.length} claimed approvals had unverifiable source quotes or reasoning. A stronger reviewer is needed; repeating repairs cannot validate these claims.`);
+    }
     // A strict reviewer can reject every item when the local/cloud reviewer is
     // unavailable or over-sensitive. Do not strand the learner in an endless
     // replacement loop: retain questions that passed deterministic safety
     // checks and label them for later review instead of silently discarding the
     // whole batch.
+    if (!distinctApproved.length && raw.error) return keepLocallyValidated(raw.error);
     if (!distinctApproved.length && deps.skipRepair !== true) {
       const repairer = withQuestionAIRouting(deps.repairAIJSON || deps.callAIJSON);
       if (typeof repairer === "function") {
@@ -1028,6 +1073,9 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           index,
           question: auditQuestionPayload(question),
           issues: byIndex.get(index)?.issues || ["reviewer_rejected"],
+          reviewRationale: byIndex.get(index)?.rationale || "",
+          requiredOrder: (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder || "",
+          reviewedOrder: byIndex.get(index)?.reasoning?.orderLevel || "",
         }));
         try {
           const repairedRaw = await repairer(REPAIR_SYSTEM, buildRepairPrompt(rejectedItems, cfg), { questions: [] }, deps.repairMaxTokens || 6000);
@@ -1046,7 +1094,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     return {
       questions: distinctApproved,
       rejectedCount: questions.length - distinctApproved.length,
-      warning: distinctApproved.length < questions.length ? `${questions.length - distinctApproved.length} generated question${questions.length - distinctApproved.length === 1 ? "" : "s"} failed independent review or duplicated another item and were withheld.` : null,
+      warning: raw.error || (distinctApproved.length < questions.length ? `${questions.length - distinctApproved.length} generated question${questions.length - distinctApproved.length === 1 ? "" : "s"} failed independent review or duplicated another item and were withheld.` : null),
     };
   } catch (error) {
     return keepLocallyValidated(error?.message || String(error));
@@ -1076,7 +1124,75 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-export function buildMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false } = {}) {
+function compactSource(cfg, queries = cfg.atoms || []) {
+  const atoms = (cfg.atoms || []).map(a => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [],
+    ...(a.testableDetails?.length ? { testableDetails: a.testableDetails } : {}),
+    ...(a.exceptions?.length ? { exceptions: a.exceptions } : {}),
+    ...(a.quantitativeDetails?.length ? { quantitativeDetails: a.quantitativeDetails } : {}) }));
+  return `KEY FACTS EXTRACTED FROM THE LECTURE (factual authority):\n${JSON.stringify(atoms)}\nLECTURE EXCERPTS (factual authority):\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, atoms.length ? 4000 : 7000)}`;
+}
+
+function compactObjectives(cfg) {
+  return (cfg.objectives || []).map(o => ({ id: o.id || o.code, code: o.code, text: o.objective || o.text,
+    targetCount: o._targetQuestionCount, targetOrder: o._targetOrder }));
+}
+
+function compactStyle(cfg) {
+  const examples = selectStyleExemplars(cfg.examples || [], 2, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms });
+  const fingerprint = buildStyleFingerprint(selectStyleExemplars(cfg.examples || [], STYLE_FINGERPRINT_LIMIT, cfg.difficulty, { objectives: cfg.objectives, atoms: cfg.atoms }));
+  const blueprint = buildQuestionSourceBlueprint(cfg.examples || [], cfg.objectives || [], cfg.count || 5);
+  return `OFFICIAL SCHOOL STYLE (style only, never factual authority):\n${JSON.stringify(examples.map(q => ({ sourceKind: exemplarSourceTier(q), stem: q.stem, choices: q.choices })))}\nSOURCE TASK PATTERNS (homework/clickers are task evidence only):\n${JSON.stringify({ homework: blueprint.homeworkTypes, clickers: blueprint.clickerTypes })}\nSTYLE FINGERPRINT:\n${JSON.stringify(fingerprint)}`;
+}
+
+function buildCompactMcqPrompt(cfg) {
+  const count = cfg.count || 5;
+  const order = cfg.orderBlueprint || buildQuestionSourceBlueprint(cfg.examples || [], cfg.objectives || [], count).order;
+  return `${CONNECTED_REASONING_CONTRACT}
+Write exactly ${count} NEW ${cfg.difficulty || "medium"} SGU/ExamSoft-style Step 1 questions for ${cfg.subject || "this lecture"}.
+Objectives define the target; lecture facts/excerpts alone establish factual truth. Use one primary objective per item. Honor each targetCount and targetOrder. Do not copy source cases. Prioritize second/third-order application where the objective supports it, never invent extra causal steps to label recall advanced.
+Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; otherwise use five choices A-E. Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
+When the lecture supports physiology but no named clinical condition, use a lecture-grounded experiment: a perturbation/blocker, its relevant recording or observation, then a predicted consequence. Do not invent a vague patient symptom to decorate a definition. Never turn "a researcher studies X" into "which is the first step/feature of X" and label it second-order. Conceal the process being inferred and make at least one supplied relationship necessary to select the key. For transmitter-release timing, trace the taught sequence precisely; events after a response cannot be its initiating cause.
+Vary supported task families and objective facets; do not repeat one clue-to-answer route. An independent reviewer must verify the actual shortest reasoning route against exact source quotations.
+OBJECTIVES:\n${JSON.stringify(compactObjectives(cfg))}
+ORDER TARGETS:\n${JSON.stringify(order)}
+${objectiveFacetCoveragePrompt(cfg.objectives || [], count)}
+${objectiveModalitySection(cfg.objectives || [])}
+${compactStyle(cfg)}
+${styleProfilePrompt(cfg.styleProfile, count)}
+${questionWritingBenchmarkPrompt(cfg)}
+OPTIONAL CLINICAL PATTERNS (not factual authority; use only when the lecture supports them):\n${renderClinicalCorrelateLibrary((cfg.clinicalCorrelateLibrary || []).slice(0, 6))}
+LEARNER EMPHASIS:\n${cfg.focusNotes || "none"}
+PRIOR FEEDBACK:\n${JSON.stringify(cfg.feedback || {})}
+AVOID REPEATING THESE PRIOR STEMS:\n${JSON.stringify((cfg.avoidStems || []).slice(-10).map(s => String(s).slice(0, 180)))}
+${compactSource(cfg)}
+Return ONLY JSON: {"questions":[{"stem":"...","choices":{"A":"...","B":"...","C":"...","D":"...","E":"..."},"correct":"B","explanation":"...",${WHY_WRONG_JSON},"objectiveIds":["exact id"],"objectiveFacet":"specific clause tested","topic":"specific concept","taskType":"recognition|mechanism|clinical-application|fresh-retest","reasoningDepth":"state-recognition|pathway-process|mechanism|enzyme-structure|regulation-cofactor|clinical-consequence","orderLevel":"first-order|second-order|third-order","reasoningSteps":["clue interpretation","required relationship","second relationship only if required"],"difficulty":"${cfg.difficulty || "medium"}"}]}`;
+}
+
+function buildCompactAuditPrompt(questions, cfg) {
+  const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}` }));
+  return `Independently audit every generated question. Fail uncertain items; never infer approval from writing quality.
+${CONNECTED_REASONING_CONTRACT}
+Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied official school style; homework/clickers establish task patterns only. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
+Verify the ACTUAL shortest route to the answer with choices visible. First-order needs one fact; second-order needs clue interpretation plus one relationship; third-order needs clue interpretation plus TWO distinct connected relationships and a downstream prediction. Every step must be required, connected and have one endpoint; reject one-fact choice shortcuts. Copy short EXACT contiguous lecture/fact quotes (16+ characters), never paraphrase or use objective text as factual evidence. Third-order requires two distinct quotes. Unsupported/mislabeled depth must be rejected, not credited.
+Reject an item below its objective's explicit targetOrder even when the recalled fact is correct. Do not certify a researcher/patient story as application if the final ask simply repeats a named fact.
+Return exactly ${questions.length} reviews for indexes ${JSON.stringify(questions.map((_, index) => index))}. Give a concise rationale and issues for rejections. Do not generate replacements here: repair is a separate request followed by independent review. This review must never teach or rewrite the questions.
+SUBJECT: ${cfg.subject || "this lecture"}
+OBJECTIVES:\n${JSON.stringify(compactObjectives(cfg))}
+${objectiveModalitySection(cfg.objectives || [])}
+${compactStyle(cfg)}
+${compactSource(cfg, queries)}
+QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}
+OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonStems || [])}
+REQUIRED REVIEW COUNT: ${questions.length}; REQUIRED INDEXES: ${JSON.stringify(questions.map((_, index) => index))}. Review ALL items. sourceQuotes must come ONLY from the LECTURE FACTS/EXCERPTS above, NEVER from QUESTIONS, explanations, choices or this schema. If no exact source quote supports a claim, reject it as unsupported_fact.
+Return ONLY JSON: {"reviews":[{"index":0,"approved":true,"objectiveAligned":true,"objectiveFacet":"tested clause","issues":[],"rationale":"brief evidence-based judgment","reasoning":{"orderLevel":"second-order","steps":["interpret clue","apply required relationship"],"sourceQuotes":["verbatim source excerpt"],"allStepsRequired":true,"connectedChain":true,"singleEndpoint":true,"choiceShortcut":false}}]}
+Issue codes: incorrect_key, ambiguous_key, unsupported_fact, objective_mismatch, duplicate_choices, duplicate_question, answer_leak, weak_explanation, inconsistent_vignette, non_discriminating_clues, multiple_true_choices, repetitive_task_ending, school_style_mismatch, disconnected_recall_tasks, answer_choice_shortcut, order_level_mismatch.`;
+}
+
+export function buildMcqPrompt(cfg = {}) {
+  return cfg.promptProfile === "compact" ? buildCompactMcqPrompt(cfg) : buildFullMcqPrompt(cfg);
+}
+
+function buildFullMcqPrompt({ subject = "this lecture", lectureText = "", examples = [], styleProfile = null, objectives = [], atoms = [], difficulty = "medium", count = 10, studyMode = "balanced", generationVersion = "v2", feedback = null, clinicalCorrelateLibrary = [], orderBlueprint = null, focusNotes = "", reasoningDepthPlan = null, requireReasoningAudit = false } = {}) {
   const diff = String(difficulty).toLowerCase();
 
   const styleExamples = selectStyleExemplars(examples, STYLE_PROMPT_EXEMPLAR_LIMIT, diff, { objectives, atoms });
