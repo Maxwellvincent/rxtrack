@@ -524,7 +524,9 @@ describe("ExamSessionRunner", () => {
       expect(score.textContent).toMatch(/1\/2 correct · 50%/);
       expect(host.querySelectorAll('[data-testid="review-question"]')).toHaveLength(2);
       expect(host.textContent).not.toContain("Because reasons.");
-      expect(Array.from(host.querySelectorAll("details")).every(detail => detail.querySelector("summary")?.textContent.includes("Question/Source Issue"))).toBe(true);
+      const optionalRatings = host.querySelectorAll('[data-testid="question-quality-rating"]');
+      expect(optionalRatings).toHaveLength(2);
+      expect(Array.from(optionalRatings).every(detail => !detail.open && detail.querySelector("summary")?.textContent.includes("Rate or report question"))).toBe(true);
       // Tutor panel itself stays gated behind tutorModeEnabled.
       expect(host.querySelector('[data-testid="tutor-panel"]')).toBeFalsy();
 

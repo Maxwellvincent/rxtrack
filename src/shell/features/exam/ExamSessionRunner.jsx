@@ -438,10 +438,10 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
           </div>
         )}
 
-        {revealed && !isCorrect && <MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onComplete={(diagnostic) => {
+        {revealed && !isCorrect && <details key={`diagnosis-${q.questionId}`} className="text-sm"><summary className="cursor-pointer py-2 text-text-3">Review this miss · optional</summary><MissDiagnosis question={q} selectedChoice={picked} initialResult={diagnostics[q.questionId]} onSkip={() => setDiagnostics(current => ({ ...current, [q.questionId]: { skipped: true } }))} onComplete={(diagnostic) => {
           recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
           setDiagnostics(current => ({ ...current, [q.questionId]: diagnostic }));
-        }} />}
+        }} /></details>}
 
         {showAnswer && (
           <div className="mt-3 space-y-2">
@@ -560,9 +560,9 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             <SchoolQuestionFigure question={q} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
-            {picked != null && picked !== q.correct && <><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onComplete={(diagnostic) => {
+            {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onComplete={(diagnostic) => {
               recordMissType(userId, diagnostic.primaryType, `${session.sessionId}:${q.questionId}`);
-            }} /></>}
+            }} /></details>}
             {tutorModeEnabled && <TutorPanelForQuestion question={q} callAI={callAI} />}
           </article>
         );

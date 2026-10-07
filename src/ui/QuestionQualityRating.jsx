@@ -18,7 +18,9 @@ export function QuestionQualityRating({ userId, question, onChange }) {
   };
   const toggle = (field, value) => update({ [field]: value });
   return (
-    <div className="rounded border border-border bg-bg p-2.5" data-testid="question-quality-rating">
+    <details key={question.questionId || question.id} className="text-sm" data-testid="question-quality-rating">
+      <summary className="cursor-pointer py-2 text-text-3 hover:text-text-1">Rate or report question · optional</summary>
+      <div className="rounded border border-border bg-bg p-2.5">
       <details className="mb-2">
         <summary className="cursor-pointer text-sm font-semibold">⚑ Question/Source Issue{rating.sourceIssue ? " · contested" : ""}</summary>
         <p className="my-2 text-xs text-text-2">Flag a problem with the question, independently of your answer. Contested items are excluded from objective evidence until you undo the flag.</p>
@@ -43,6 +45,7 @@ export function QuestionQualityRating({ userId, question, onChange }) {
       </div>
       {reporting && <div className="mt-2 flex flex-wrap gap-1.5">{ISSUES.map(([value, label]) => <button key={value} type="button" aria-pressed={rating.issue === value} onClick={() => { update({ issue: rating.issue === value ? null : value }); setReporting(false); }} className={`rounded border px-2 py-1 text-[11px] ${rating.issue === value ? "border-bad text-text-1" : "border-border text-text-3"}`}>{label}</button>)}</div>}
       </>}
-    </div>
+      </div>
+    </details>
   );
 }
