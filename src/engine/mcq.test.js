@@ -811,6 +811,18 @@ describe("separate reasoning review gate", () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });
     expect(result.questions).toEqual([]);
   });
+  it("batches a capable reviewer while withholding missing item verdicts", async () => {
+    const review = { index: 0, approved: true, issues: [], reasoning: {
+      orderLevel: "third-order", steps: ["Localize obstruction", "Trace the fluid path", "Predict upstream expansion"], sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false,
+    } };
+    const reviewer = vi.fn().mockResolvedValue({ reviews: [review] });
+    const result = await auditGeneratedQuestions([question, { ...question, stem: "A patient's aqueduct is narrowed. CSF secretion continues; predict the upstream ventricular response." }], { ...cfg, promptProfile: "compact" }, { reviewAIJSON: reviewer, reviewBatchSize: 3, skipRepair: true });
+    expect(reviewer).toHaveBeenCalledTimes(1);
+    expect(reviewer.mock.calls[0][3]).toBe(3200);
+    expect(result.questions).toHaveLength(1);
+    expect(result.warning).toContain("no review returned");
+  });
+
   it("rechecks a partially grounded quotation once without accepting paraphrased evidence", async () => {
     const reasoning = { orderLevel: "third-order", steps: ["Localize obstruction", "Trace fluid passage", "Predict upstream expansion"], sourceQuotes: cfg.atoms.map(a => a.content), allStepsRequired: true, connectedChain: true, singleEndpoint: true, choiceShortcut: false };
     const reviewer = vi.fn()

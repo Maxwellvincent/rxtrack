@@ -26,6 +26,7 @@ const PROBE_FAIL_TTL_MS = 3_000;
 const PROBE_TIMEOUT_MS = 4_000;
 let probe = { at: 0, ok: false };
 let cooldownUntil = 0;
+let questionPreparation = null;
 
 /** True while the cached probe result is still worth reusing. */
 export function probeIsFresh(p, now = Date.now()) {
@@ -37,6 +38,7 @@ export function probeIsFresh(p, now = Date.now()) {
 export function resetBridgeProbe() {
   probe = { at: 0, ok: false };
   cooldownUntil = 0;
+  questionPreparation = null;
 }
 
 /** Off by default is wrong here — the point is zero-cost when available. Explicit opt-out only. */
@@ -62,11 +64,18 @@ export async function bridgeAvailable() {
     const t = setTimeout(() => ctl.abort(), PROBE_TIMEOUT_MS);
     const r = await fetch(`${BRIDGE_URL}/health`, { signal: ctl.signal });
     clearTimeout(t);
+    const health = r.ok && typeof r.json === "function" ? await r.json().catch(() => ({})) : {};
+    questionPreparation = health.questionPreparation || null;
     probe = { at: now, ok: r.ok };
   } catch {
     probe = { at: now, ok: false };
   }
   return probe.ok;
+}
+
+/** Only a privately configured bridge may advertise a cloud writer and independent reviewer. */
+export async function questionPreparationCapabilities() {
+  return await bridgeAvailable() ? questionPreparation : null;
 }
 
 /**
@@ -93,12 +102,14 @@ export async function bridgeComplete(req) {
         maxTokens: req.maxTokens,
         timeoutMs: req.timeoutMs || 300_000,
         ...(req.backend ? { backend: req.backend } : {}),
+        ...(req.backendOnly ? { backendOnly: true } : {}),
       }),
     });
       if (!r.ok) throw new Error(`bridge ${r.status}`);
       return r.json();
     }, req.timeoutMs || 300_000, req.signal, "Local AI bridge");
     if (!data.text) throw new Error("bridge returned no text");
+    if (req.backendOnly && data.backend !== req.backend) throw new Error("bridge returned an unexpected backend");
     // A completed call is far better evidence of health than a health check, and it costs
     // nothing to record — the next call in a round skips probing entirely.
     probe = { at: Date.now(), ok: true };

@@ -13,6 +13,7 @@ import { TutorMessage } from "../../../ui/TutorMessage.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
+import { questionPreparationDeps } from "../../../questionPreparation.js";
 import {
   fetchLectureContent,
   fetchLectureSourceUrl,
@@ -1385,10 +1386,7 @@ export function LectureStudyFlow({
         focusNotes: reasoningGuidance(learnerEvidence.data?.testTaking?.missTypes, missing),
       },
       {
-        callAIJSON,
-        // Ollama queues competing drafts ahead of reviews; finish and save one
-        // verified batch before submitting another local batch.
-        prepareConcurrency: 1,
+        ...await questionPreparationDeps(callAIJSON),
         onAccepted: (questions) => {
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
           appendPrepared(questions);

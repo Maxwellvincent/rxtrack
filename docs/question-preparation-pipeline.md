@@ -1,0 +1,28 @@
+# Lecture question preparation
+
+Local Ollama stays serial because competing drafts otherwise queue ahead of review.
+An explicitly configured desktop bridge can advertise separate Ollama Cloud writing
+and Codex review resources through `/health.questionPreparation`.
+
+For that route, lecture quizzes use two overlapping jobs with five candidates and
+five independent verdicts per batch. Each completion is saved immediately and frees
+its slot for a replacement batch. Missing reviews, unsupported source quotes,
+insufficient reasoning depth and duplicates remain excluded. Accepted questions and
+in-flight reservations share the same objective allocation; concurrent work cannot
+double-credit an objective. Rejections inform subsequent fresh candidates.
+
+All writing/review/repair calls share one preparation deadline. Neither cloud writing
+nor Codex review may silently switch backend or fall through to paid Gemini/Anthropic
+APIs. An incomplete batch remains explicitly incomplete.
+
+## Desktop bridge setup
+
+Apply `scripts/bridge-question-cloud.patch` to the existing bridge after its previous
+cancellation patch. It contains no credentials. The private credential file is
+`~/.config/rxtrack/ollama-cloud.key`; never include it in the repository or browser.
+Set `LLM_BRIDGE_QUESTION_CLOUD=on` for the bridge service and restart it.
+`LLM_BRIDGE_QUESTION_MODEL` optionally changes the writer; default is `gemma4:31b`.
+Ordinary bridge traffic retains its existing routing. Without the opt-in flag,
+private key and available Codex executable, the application keeps local serial
+preparation. This configuration is specific to lecture quizzes on the configured
+desktop; it does not establish cloud access for other devices.

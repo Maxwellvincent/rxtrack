@@ -497,7 +497,7 @@ export async function startObjectiveQuiz(args, deps = {}) {
     const relevantAtoms = [...atoms.filter(atom => atom.objectiveIds?.some(id => selectedIds.has(id))), ...atoms.filter(atom => !atom.objectiveIds?.some(id => selectedIds.has(id)))];
     const evidenceAtoms = atoms.length
       ? relevantAtoms.slice(0, selectedIds.size ? Math.max(12, config.count * 4) : Math.max(1, config.count))
-      : objectivesAsAtoms(config.objectives || []);
+      : [];
     const result = await generateMcqs({ ...config, atoms: evidenceAtoms, generationVersion: args.generationVersion }, deps);
     return { ...result, lectureId };
   }
@@ -555,16 +555,20 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   // five-minute timeouts otherwise multiply into a very long preparation run.
   const preparationDeadline = Date.now() + Math.max(1, Number(deps.maxPreparationMs) || 240000);
   const preparationTimeout = "Question preparation timed out after its time budget. Reviewed questions are saved; retry only the missing slots or start with the ready questions.";
-  const originalCall = deps.callAIJSON;
+  const boundCall = (call) => typeof call === "function" ? (...params) => {
+    const remaining = preparationDeadline - Date.now();
+    if (remaining <= 0) return Promise.reject(new Error(preparationTimeout));
+    const options = params[6] || {};
+    params[6] = { ...options, timeoutMs: Math.min(Number(options.timeoutMs) || remaining, remaining) };
+    return call(...params);
+  } : call;
   const boundedDeps = {
     ...deps,
-    callAIJSON: typeof originalCall === "function" ? (...params) => {
-      const remaining = preparationDeadline - Date.now();
-      if (remaining <= 0) return Promise.reject(new Error(preparationTimeout));
-      const options = params[6] || {};
-      params[6] = { ...options, timeoutMs: Math.min(Number(options.timeoutMs) || remaining, remaining) };
-      return originalCall(...params);
-    } : originalCall,
+    // Replace rejected candidates using their feedback instead of repairing a whole batch.
+    skipRepair: deps.skipRepair ?? true,
+    callAIJSON: boundCall(deps.callAIJSON),
+    reviewAIJSON: boundCall(deps.reviewAIJSON),
+    repairAIJSON: boundCall(deps.repairAIJSON),
   };
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
@@ -581,32 +585,42 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   // enough to draft 15 candidates, with no refill capacity after review.
   // Budget for roughly one-third acceptance, plus two recovery rounds. Stop as soon
   // as the requested set is complete; this is a ceiling, not mandatory work.
-  const plannedBatches = Math.max(1, Math.ceil(requested / PREPARE_BATCH_SIZE));
+  const batchSize = Math.min(5, Math.max(1, Math.floor(Number(deps.prepareBatchSize) || PREPARE_BATCH_SIZE)));
+  const plannedBatches = Math.max(1, Math.ceil(requested / batchSize));
   const attempts = Math.max(1, Number(deps.maxPrepareAttempts) || (plannedBatches * 3 + 2));
   let lastError = "";
+  const rejectionFeedback = [];
   let consecutiveEmptyRounds = 0;
-  const isProviderFailure = (message = "") => /provider\s+(?:unavailable|failure|error)|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
+  const isProviderFailure = (message = "") => {
+    // A malformed model response is retryable; the word "bridge" in a JSON
+    // parser error must not discard the remaining preparation budget.
+    if (/invalid json|not valid or repairable json|malformed.*json/i.test(String(message))) return false;
+    if (/claimed approvals.*unverifiable|claimed approvals could not be grounded/i.test(String(message))) return false;
+    return /provider\s+(?:unavailable|failure|error)|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
+  };
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   const concurrency = Math.min(2, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
   let stopPreparation = false;
-  for (let wave = 1; wave <= attempts && accepted.length < requested && !stopPreparation; wave += concurrency) {
+  let nextAttempt = 1;
+  const pendingJobs = new Map();
+  while ((nextAttempt <= attempts || pendingJobs.size) && accepted.length < requested) {
     if (Date.now() >= preparationDeadline) {
       lastError = preparationTimeout;
       break;
     }
-    const jobs = [];
-    const reserved = [];
-    for (let slot = 0; slot < concurrency && wave + slot <= attempts; slot += 1) {
-      const attempt = wave + slot;
+    const reserved = [...pendingJobs.values()].flatMap(job => job.reserved);
+    while (!stopPreparation && pendingJobs.size < concurrency && nextAttempt <= attempts) {
+      const attempt = nextAttempt++;
+      const reservationStart = reserved.length;
       const remaining = requested - accepted.length - reserved.length;
       if (remaining <= 0) break;
-      const allocationOffset = ((attempt - 1) * PREPARE_BATCH_SIZE) % Math.max(1, allocationPlan.length);
+      const allocationOffset = ((attempt - 1) * batchSize) % Math.max(1, allocationPlan.length);
       const rotatedPlan = [...allocationPlan.slice(allocationOffset), ...allocationPlan.slice(0, allocationOffset)];
-      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, PREPARE_BATCH_SIZE));
+      const batchAllocation = remainingObjectiveAllocation(rotatedPlan, [...(args.initialQuestions || []), ...accepted, ...reserved], Math.min(remaining, batchSize));
       const batchCount = enforceAllocation
         ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
-        : Math.min(remaining, PREPARE_BATCH_SIZE, ATOM_QUIZ_CAP);
+        : Math.min(remaining, batchSize, ATOM_QUIZ_CAP);
       if (!batchCount) break;
       if (enforceAllocation) {
         for (const objective of batchAllocation) {
@@ -617,25 +631,35 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       }
       const rotate = (items = []) => {
         if (!items.length) return items;
-        const offset = ((attempt - 1) * PREPARE_BATCH_SIZE) % items.length;
+        const offset = ((attempt - 1) * batchSize) % items.length;
         return [...items.slice(offset), ...items.slice(0, offset)];
       };
-      onProgress({ requested, ready: accepted.length, attempt, phase: wave === 1 ? "generating" : "refilling" });
-      jobs.push(startObjectiveQuiz({
+      onProgress({ requested, ready: accepted.length, attempt, phase: attempt <= concurrency ? "generating" : "refilling" });
+      const promise = startObjectiveQuiz({
         ...args,
         atoms: rotate(args.atoms || []),
         objectives: enforceAllocation ? batchAllocation : rotate(args.objectives || []),
         objectiveAllocation: enforceAllocation ? batchAllocation : null,
         questionCount: batchCount,
+        focusNotes: [args.focusNotes || "", ...rejectionFeedback.slice(-6),
+          ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
+        ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
-      }, boundedDeps).then(result => ({ attempt, result })));
+      }, boundedDeps).then(result => ({ attempt, result }));
+      pendingJobs.set(attempt, { promise, reserved: reserved.slice(reservationStart) });
     }
-    if (!jobs.length) break;
+    if (!pendingJobs.size) break;
     // Independent drafts and reviews overlap, but allocation, duplicate checks, and
     // persistence merge sequentially so concurrent batches cannot double-credit a slot.
-    const results = await Promise.all(jobs);
-    for (const { attempt, result } of results) {
+    // Merge the first completed batch immediately; its freed slot can draft the next
+    // batch while the other reviewer is still working. Preserve allocation reservations.
+    const { attempt, result } = await Promise.race([...pendingJobs.values()].map(job => job.promise));
+    pendingJobs.delete(attempt);
+    {
       lastError = result.error || lastError;
+      for (const rejection of result.rejections || []) {
+        rejectionFeedback.push(`Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 420)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.`);
+      }
       const newlyAccepted = [];
       for (const question of result.questions || []) {
         if (accepted.length >= requested) break;
@@ -670,7 +694,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       // Stop instead of making the learner wait through several more minute-long
       // generation and review calls.
     }
-    if (consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / PREPARE_BATCH_SIZE))) stopPreparation = true;
+    if (consecutiveEmptyRounds >= Math.max(3, Math.ceil(allocationPlan.length / batchSize))) stopPreparation = true;
   }
 
   if (accepted.length < requested) {

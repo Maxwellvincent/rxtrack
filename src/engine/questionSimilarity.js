@@ -28,7 +28,9 @@ export function areNearDuplicateQuestions(left, right, threshold = 0.9) {
   if (!left || !right) return false;
   const objectiveOverlap = !(left.objectiveIds?.length && right.objectiveIds?.length) ||
     left.objectiveIds.some((id) => right.objectiveIds.includes(id));
-  return objectiveOverlap && questionSimilarity(left, right) >= threshold;
+  // Reworded options must not disguise an almost identical clinical/task stem.
+  const stemSimilarity = questionSimilarity({ stem: left.stem }, { stem: right.stem });
+  return objectiveOverlap && (questionSimilarity(left, right) >= threshold || stemSimilarity >= threshold);
 }
 
 export function uniqueQuestions(questions = [], existing = []) {

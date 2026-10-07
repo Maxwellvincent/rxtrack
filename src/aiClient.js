@@ -327,6 +327,7 @@ export async function callAIJSON(
       signal: options.signal,
       timeoutMs: options.bridgeTimeoutMs,
       backend: options.bridgeBackend,
+      backendOnly: options.bridgeBackendOnly,
     });
     if (bridged !== null) return parseBridgeJSON(bridged);
   } catch (err) {

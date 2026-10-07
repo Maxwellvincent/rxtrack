@@ -222,7 +222,7 @@ describe("startObjectiveQuiz", () => {
     expect(prompt).toContain("Describe the brachial plexus.");
   });
 
-  it("falls back to quizzing the objectives themselves when no lecture text exists", async () => {
+  it("does not promote objective wording to factual source when lecture evidence is missing", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [question] });
 
     const result = await startObjectiveQuiz(
@@ -235,10 +235,9 @@ describe("startObjectiveQuiz", () => {
       { callAIJSON, skipQuestionAudit: true }
     );
 
-    expect(result.questions).toHaveLength(1);
-    expect(result.error).toBeUndefined();
-    expect(callAIJSON.mock.calls[0][1]).toContain("SOM-1");
-    expect(callAIJSON.mock.calls[0][1]).toContain("Describe the brachial plexus.");
+    expect(result.questions).toEqual([]);
+    expect(result.error).toContain("Not enough lecture text");
+    expect(callAIJSON).not.toHaveBeenCalled();
   });
 
   it("maps objectives to atoms and drops text-less ones", () => {
@@ -250,7 +249,7 @@ describe("startObjectiveQuiz", () => {
   it("reports the generator's error instead of throwing", async () => {
     const callAIJSON = vi.fn().mockRejectedValue(new Error("model down"));
     const result = await startObjectiveQuiz(
-      { objectives: [{ id: "a", objective: "One." }], blockId: "b1", lectures: [] },
+      { objectives: [{ id: "a", objective: "One." }], blockId: "b1", lectures: [], lectureText: "Actual explanatory lecture source. ".repeat(12) },
       { callAIJSON, skipQuestionAudit: true }
     );
     expect(result.error).toBe("model down");
@@ -259,6 +258,31 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
+  it("refills after malformed bridge JSON instead of treating it as an outage", async () => {
+    const callAIJSON = vi.fn().mockRejectedValueOnce(new Error("bridge reply was not valid or repairable JSON")).mockResolvedValue({ questions: [] });
+    await prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Source", content: "Actual explanatory lecture evidence." }], questionCount: 5 },
+      { callAIJSON, maxPrepareAttempts: 2, skipQuestionAudit: true }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+  });
+
+  it("persists a completed batch and refills its slot while another batch is pending", async () => {
+    const pending = [];
+    const callAIJSON = vi.fn().mockImplementation(() => new Promise(resolve => pending.push(resolve)));
+    const onAccepted = vi.fn();
+    const preparation = prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Histamine", content: "Histamine stimulates cyclic AMP in parietal cells." }], questionCount: 10 },
+      { callAIJSON, prepareConcurrency: 2, maxPrepareAttempts: 3, skipQuestionAudit: true, onAccepted }
+    );
+    pending[0]({ questions: [{ stem: "A patient develops reduced gastric acid secretion after a histamine receptor antagonist. Which signaling mechanism accounts for this finding?", choices: { A: "Reduced cyclic AMP", B: "Increased calcium", C: "Nuclear transcription", D: "Increased chloride transport" }, correct: "A" }] });
+    await vi.waitFor(() => expect(callAIJSON).toHaveBeenCalledTimes(3));
+    expect(onAccepted).toHaveBeenCalledOnce();
+    pending[1]({ questions: [] });
+    pending[2]({ questions: [] });
+    expect((await preparation).questions).toHaveLength(1);
+  });
+
   it("merges overlapping parallel outputs once without exceeding the requested count", async () => {
     const question = { stem: "A patient develops reduced gastric acid secretion after a histamine receptor antagonist. Which signaling mechanism accounts for this finding?",
       choices: { A: "Reduced cyclic AMP", B: "Increased calcium", C: "Nuclear transcription", D: "Increased chloride transport" }, correct: "A" };
@@ -544,6 +568,33 @@ describe("prepareObjectiveQuiz", () => {
     );
     expect(result.incomplete).toBe(true);
     expect(result.questions.length).toBeGreaterThan(0);
+  });
+
+  it("feeds rejection reasons into fresh refills without whole-batch repair requests", async () => {
+    const prompts = [];
+    const q = { stem: "A patient's aqueduct is narrowed while cerebrospinal fluid production continues. Imaging demonstrates upstream pressure. Which ventricular change is expected?", choices: { A: "Upstream expansion", B: "Upstream collapse", C: "No change", D: "Isolated fourth ventricle expansion" }, correct: "A", objectiveIds: ["o1"] };
+    const callAIJSON = vi.fn(async (_system, prompt) => {
+      prompts.push(prompt);
+      if (prompt.startsWith("Independently audit")) return { reviews: [{ index: 0, approved: false, issues: ["answer_choice_shortcut"], rationale: "The named intermediate gives away the key; ask for its downstream prediction instead." }] };
+      return { questions: [q] };
+    });
+    await prepareObjectiveQuiz({ objectives: [{ id: "o1", objective: "Analyze CSF obstruction" }], atoms: [{ term: "Aqueduct", content: "Aqueduct obstruction prevents passage into the fourth ventricle." }], questionCount: 3, generationVersion: "v2" }, { callAIJSON, maxPrepareAttempts: 2 });
+    const drafts = prompts.filter(p => !p.startsWith("Independently audit"));
+    expect(drafts).toHaveLength(2);
+    expect(drafts[1]).toContain("The named intermediate gives away the key");
+    expect(prompts.some(p => p.startsWith("Repair every"))).toBe(false);
+  });
+
+  it("treats unverifiable claimed approvals as retryable quality failures", async () => {
+    const q = { stem: "A patient's aqueduct is narrowed while cerebrospinal fluid production continues. Imaging demonstrates upstream pressure. Which ventricular change is expected?", choices: { A: "Upstream expansion", B: "Upstream collapse", C: "No change", D: "Isolated fourth ventricle expansion" }, correct: "A", objectiveIds: ["o1"] };
+    const callAIJSON = vi.fn(async (_system, prompt) => prompt.startsWith("Independently audit")
+      ? { reviews: [{ index: 0, approved: true, issues: [], reasoning: { orderLevel: "second-order", connectedChain: true, singleEndpoint: true, choiceShortcut: false, allStepsRequired: true, steps: ["Locate obstruction", "Predict upstream enlargement"], sourceQuotes: ["A fabricated quotation absent from the lecture"] } }] }
+      : { questions: [q] });
+    const result = await prepareObjectiveQuiz({ objectives: [{ id: "o1", objective: "Analyze CSF obstruction" }], atoms: [{ term: "Aqueduct", content: "Aqueduct obstruction prevents passage into the fourth ventricle." }], questionCount: 3, generationVersion: "v2" }, { callAIJSON, maxPrepareAttempts: 2 });
+    const drafts = callAIJSON.mock.calls.map(c => c[1]).filter(p => !p.startsWith("Independently audit"));
+    expect(drafts).toHaveLength(2);
+    expect(drafts[1]).toContain("exact contiguous lecture excerpts");
+    expect(result.questions).toHaveLength(0);
   });
 
   it("stops after three empty replacement rounds instead of grinding through every retry", async () => {

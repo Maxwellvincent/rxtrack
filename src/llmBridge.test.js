@@ -1,8 +1,20 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { probeIsFresh, bridgeComplete, parseBridgeJSON, resetBridgeProbe } from "./llmBridge.js";
+import { probeIsFresh, bridgeComplete, parseBridgeJSON, resetBridgeProbe, questionPreparationCapabilities } from "./llmBridge.js";
 import { installDomStorage } from "./stores/testEnv.js";
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetBridgeProbe(); });
+
+it("reads configured preparation capabilities and refuses reviewer fallback", async () => {
+  installDomStorage(); resetBridgeProbe();
+  const capability = { writer: "ollama-cloud", reviewer: "codex" };
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ questionPreparation: capability }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ text: "unverified", backend: "ollama" }) });
+  vi.stubGlobal("fetch", fetchMock);
+  expect(await questionPreparationCapabilities()).toEqual(capability);
+  expect(await bridgeComplete({ prompt: "review", backend: "codex", backendOnly: true })).toBeNull();
+  expect(JSON.parse(fetchMock.mock.calls[1][1].body).backendOnly).toBe(true);
+});
 
 it("bounds a stalled completion and cools down before using the bridge again", async () => {
   installDomStorage(); vi.useFakeTimers(); resetBridgeProbe();

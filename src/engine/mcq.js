@@ -960,7 +960,25 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (typeof reviewer !== "function") return keepLocallyValidated("reviewer not configured");
   try {
     let raw;
-    if (cfg.promptProfile === "compact" && questions.length > 0) {
+    const reviewBatchSize = Math.min(5, Math.max(1, Math.floor(Number(deps.reviewBatchSize) || 1)));
+    if (cfg.promptProfile === "compact" && reviewBatchSize > 1 && questions.length > 1) {
+      // Explicit capability opt-in. Local models retain item-by-item auditing;
+      // capable reviewers amortize startup while still returning every verdict.
+      const reviews = [];
+      let reviewError = "";
+      for (let offset = 0; offset < questions.length; offset += reviewBatchSize) {
+        const group = questions.slice(offset, offset + reviewBatchSize);
+        try {
+          const result = await reviewer(AUDIT_SYSTEM, buildQuestionAuditPrompt(group, cfg), { reviews: [] }, (deps.auditMaxTokens || 1600) * group.length);
+          for (let index = 0; index < group.length; index++) {
+            const review = result?.reviews?.find(entry => Number(entry.index) === index);
+            if (review) reviews.push({ ...review, index: offset + index });
+            else reviewError = `Independent reviewer unavailable: no review returned for question ${offset + index + 1}.`;
+          }
+        } catch (error) { reviewError = error?.message || String(error); break; }
+      }
+      raw = { reviews, error: reviewError };
+    } else if (cfg.promptProfile === "compact" && questions.length > 0) {
       // Small local models repeatedly reviewed only index zero of a batch,
       // then quoted generated explanations instead of the lecture. Give each
       // item an independent, source-focused review; merge indexes ourselves.
@@ -1009,6 +1027,13 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
     }
     const reviews = Array.isArray(raw?.reviews) ? raw.reviews : [];
     const byIndex = new Map(reviews.map((review) => [Number(review?.index), review]));
+    const rejections = questions.flatMap((question, index) => {
+      const review = byIndex.get(index);
+      if (cfg.requireReasoningAudit && review?.approved === true && !verifyReasoningReview(review, question, cfg)) {
+        return [{ objectiveIds: question.objectiveIds || [], issues: ["unverifiable_reasoning"], rationale: "The reviewer could not verify the source quotes or reasoning. Use exact contiguous lecture excerpts; do not paraphrase or join separated table columns. Construct a new source-supported causal task." }];
+      }
+      return review?.approved === false ? [{ objectiveIds: question.objectiveIds || [], issues: review.issues || [], rationale: String(review.rationale || "").slice(0, 600) }] : [];
+    });
     if (!reviews.length) return keepLocallyValidated(raw.error || "malformed reviewer response");
     const nonBlockingReviewIssues = new Set(["repetitive_task_ending", "order_level_mismatch"]);
     const approved = questions.flatMap((question, index) => {
@@ -1081,7 +1106,7 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       ? questions.filter((question, index) => byIndex.get(index)?.approved === true && !verifyReasoningReview(byIndex.get(index), question, cfg)).length
       : 0;
     if (!distinctApproved.length && unverifiableApprovals) {
-      return keepLocallyValidated(`Independent reviewer unavailable: ${unverifiableApprovals}/${questions.length} claimed approvals had unverifiable source quotes or reasoning. A stronger reviewer is needed; repeating repairs cannot validate these claims.`);
+      return { ...keepLocallyValidated(`Independent reviewer unavailable: ${unverifiableApprovals}/${questions.length} claimed approvals had unverifiable source quotes or reasoning. A stronger reviewer is needed; repeating repairs cannot validate these claims.`), rejections };
     }
     // A strict reviewer can reject every item when the local/cloud reviewer is
     // unavailable or over-sensitive. Do not strand the learner in an endless
@@ -1112,10 +1137,11 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           // must not erase otherwise structurally sound questions.
         }
       }
-      return keepLocallyValidated("reviewer rejected the batch after repair");
+      return { ...keepLocallyValidated("reviewer rejected the batch after repair"), rejections };
     }
     return {
       questions: distinctApproved,
+      rejections,
       rejectedCount: questions.length - distinctApproved.length,
       warning: raw.error || (distinctApproved.length < questions.length ? `${questions.length - distinctApproved.length} generated question${questions.length - distinctApproved.length === 1 ? "" : "s"} failed independent review or duplicated another item and were withheld.` : null),
     };
@@ -1147,12 +1173,12 @@ const DIFF_LINE = {
 };
 
 /** Assemble the generation prompt. Exemplars + objectives + atoms + lecture drive style/scope. */
-function compactSource(cfg, queries = cfg.atoms || []) {
+function compactSource(cfg, queries = cfg.atoms || [], evidenceBudget = null) {
   const atoms = (cfg.atoms || []).map(a => ({ term: a.term, content: a.content, objectiveIds: a.objectiveIds || [],
     ...(a.testableDetails?.length ? { testableDetails: a.testableDetails } : {}),
     ...(a.exceptions?.length ? { exceptions: a.exceptions } : {}),
     ...(a.quantitativeDetails?.length ? { quantitativeDetails: a.quantitativeDetails } : {}) }));
-  return `KEY FACTS EXTRACTED FROM THE LECTURE (factual authority):\n${JSON.stringify(atoms)}\nLECTURE EXCERPTS (factual authority):\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, (cfg.objectives || []).length <= 3 ? (atoms.length ? 2500 : 4500) : (atoms.length ? 4000 : 7000))}`;
+  return `KEY FACTS EXTRACTED FROM THE LECTURE (factual authority):\n${JSON.stringify(atoms)}\nLECTURE EXCERPTS (factual authority):\n${retrieveLectureEvidence(cfg.lectureText || "", cfg.objectives || [], queries, evidenceBudget || ((cfg.objectives || []).length <= 3 ? (atoms.length ? 2500 : 4500) : (atoms.length ? 4000 : 7000)))}`;
 }
 
 function compactObjectives(cfg) {
@@ -1169,7 +1195,7 @@ function compactStyle(cfg) {
 
 const QUESTION_PLAN_CONTRACT = `Before drafting EACH item, build its questionPlan from the supplied lecture evidence in the same response (no separate request). Identify: relationship (the taught causal rule), perturbation (what changes or is observed), inference (the required hidden intermediate and its downstream effect), endpoint (ONE thing the lead-in asks), nearestDistractor (a plausible competing explanation), discriminator (the observation that separates it from the key), and sourceQuotes (short exact contiguous lecture/fact excerpts supporting the relationships). First choose a causal prediction endpoint, then work backward to the hidden intermediate and discriminating observation. Only then write the stem and choices from that plan. Do not select a definition and decorate it with a patient or experiment.
 For second-order, make the learner interpret an observation and apply a taught relationship to infer the requested endpoint. For third-order, require a second connected relationship to predict a further consequence. A normal application of a causal rule can be second-order even if the rule is familiar; a verbatim named-definition lookup is first-order. Do not count extra words or separately recalled labels as extra steps.
-Perform a choice-blind solve, then a choice-visible shortcut check: would the key still require the inference? Choose distractors from entities/processes actually present in the supplied lecture; their whyWrong explanations must also be supported there. Do not import receptor names, drug mechanisms, or ion conductances from general medical knowledge to fill choices. If the source offers few named alternatives, use plausible different outcomes of the same supported process. Keep each plan concise (about 60 words excluding quotes). Include at least two alternatives that remain plausible from the main cue alone and require the discriminating observation to separate them. All alternatives should compete at the SAME endpoint; do not put one ion-channel answer among four G-protein answers when fast-versus-slow wording gives the key away. Add a meaningful competing alternative and its discriminating observation, not more filler. Do not state the hidden intermediate in the stem. If the supplied evidence cannot support the requested depth, do not invent a mechanism or relabel recall. The plan is untrusted drafting metadata, not evidence of correctness.`;
+Perform a choice-blind solve, then a choice-visible shortcut check: would the key still require the inference? Choose distractors from entities/processes actually present in the supplied lecture; their whyWrong explanations must also be supported there. Do not import receptor names, drug mechanisms, or ion conductances from general medical knowledge to fill choices. If the source offers few named alternatives, use plausible different outcomes of the same supported process. Keep each plan concise (about 60 words excluding quotes). Include at least two alternatives that remain plausible from the main cue alone and require the discriminating observation to separate them. All alternatives should compete at the SAME endpoint; do not put one ion-channel answer among four G-protein answers when fast-versus-slow wording gives the key away. Add a meaningful competing alternative and its discriminating observation, not more filler. Do not state the hidden intermediate in the stem. If the supplied evidence cannot support the requested depth, do not invent a mechanism or relabel recall. CONSTRUCTION EXAMPLE (abstract logic only, not medical source): if the lecture teaches A activates B and B suppresses C, a second-order item can change A and ask what happens to B without naming B's activation in the stem; a third-order item changes A and asks the resulting direction of C. Alternatives should be competing outcomes, not unrelated labels. A vignette naming B and asking what B is remains recall. Transfer this construction only to actual relationships explicitly supported by this lecture. Never insert this abstract example into a medical question. The plan is untrusted drafting metadata, not evidence of correctness.`;
 const QUESTION_PLAN_JSON = '"questionPlan":{"relationship":"lecture causal rule","perturbation":"change or observation","inference":"hidden intermediate to endpoint","endpoint":"one requested output","nearestDistractor":"plausible rival","discriminator":"decisive observation","sourceQuotes":["exact lecture excerpt"]}';
 
 function buildCompactMcqPrompt(cfg) {
@@ -1179,6 +1205,7 @@ function buildCompactMcqPrompt(cfg) {
 ${QUESTION_PLAN_CONTRACT}
 Write exactly ${count} NEW ${cfg.difficulty || "medium"} SGU/ExamSoft-style Step 1 questions for ${cfg.subject || "this lecture"}.
 Objectives define the target; lecture facts/excerpts alone establish factual truth. Use one primary objective per item. Honor each targetCount and targetOrder. Do not copy source cases. Prioritize second/third-order application where the objective supports it, never invent extra causal steps to label recall advanced.
+For application targets, prefer an intervention-and-prediction task over naming a synapse, receptor class or numbered life-cycle step. Describe what a selective intervention does using a relationship from the source, conceal the intermediate, then ask for the downstream change. Do not introduce toxin names, receptor subtypes, second messengers, ion species or timings unless the source explicitly supports their role. Use generic transmitter or experimental labels when specific names are unnecessary.
 Use a focused clinical, experimental, imaging, anatomy or laboratory scenario. Include only discriminating clues. Hide diagnosis when it must be inferred. Ask one mechanism, structure, pathway or downstream prediction. Choices must be plausible near-neighbors of the same category; one unambiguous best answer. No decorative story, answer leak, equivalent choices, unsupported disease/drug/finding, or image reference without a supplied image. Preserve tables when appropriate using choiceLayout and choiceColumns; otherwise use five choices A-E. Explanation must connect clues to the mechanism. whyWrong must explain why each distractor was tempting and the decisive contradiction; include the correct option's rationale too.
 When the lecture supports physiology but no named clinical condition, use a lecture-grounded experiment: a perturbation/blocker, its relevant recording or observation, then a predicted consequence. Do not invent a vague patient symptom to decorate a definition. Never turn "a researcher studies X" into "which is the first step/feature of X" and label it second-order. Conceal the process being inferred and make at least one supplied relationship necessary to select the key. For transmitter-release timing, trace the taught sequence precisely; events after a response cannot be its initiating cause.
 Vary supported task families and objective facets; do not repeat one clue-to-answer route. An independent reviewer must verify the actual shortest reasoning route against exact source quotations.
@@ -1201,6 +1228,7 @@ function buildCompactAuditPrompt(questions, cfg) {
   const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}`, sourceQuotes: q.questionPlan?.sourceQuotes || [] }));
   return `Independently audit every generated question. Fail uncertain items; never infer approval from writing quality.
 ${CONNECTED_REASONING_CONTRACT}
+A new hypothetical scenario is allowed: source-supported rules may be applied to a novel intervention or observation. Require evidence for the causal relationships, not a literal matching patient age, invented protocol label or logically derived observation. Do not reject a counterfactual wrong answer simply because that wrong outcome is absent from the lecture; verify the source-supported explanation for why it is wrong. Reject added medical mechanisms, diagnostic claims or quantitative thresholds not established by the source.
 Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied official school style; homework/clickers establish task patterns only. Objective verbs define scope but do not prohibit applying lecture-supported relationships.
 Treat questionPlan as an untrusted hypothesis: verify its quoted relationships against the actual lecture source, and check that its hidden inference and discriminator are required in the FINAL stem and choices. Reject fabricated plans or plans that describe reasoning the question itself gives away. Do not reject causal application merely because one taught rule supplies the relationship: interpreting a novel perturbation then predicting its consequence can be second-order. Reject direct definition lookup or a keyed option identifiable solely by category mismatch. A shared word such as "calcium" is NOT by itself an answer leak: distinguish a valid clue-to-cause inference from a meaningless repeated label. To report answer_choice_shortcut, state which required causal inference can be skipped and show the specific stem/option cue that replaces it. If alternative mechanisms are plausible until the discriminating observations are interpreted, recognize the causal application as second-order. Do not demand two causal relationships for second-order or three for third-order; count interpreting the clue separately from applying the relationship(s). A correct prediction after an unfamiliar intervention is application, even when only one taught causal rule is needed.
 Verify the ACTUAL shortest route to the answer with choices visible. First-order needs one fact; second-order needs clue interpretation plus one relationship; third-order needs clue interpretation plus TWO distinct connected relationships and a downstream prediction. Every step must be required, connected and have one endpoint; reject one-fact choice shortcuts. Copy short EXACT contiguous lecture/fact quotes (16+ characters), never paraphrase or use objective text as factual evidence. Third-order requires two distinct quotes. Unsupported/mislabeled depth must be rejected, not credited.
@@ -1210,7 +1238,7 @@ SUBJECT: ${cfg.subject || "this lecture"}
 OBJECTIVES:\n${JSON.stringify(compactObjectives(cfg))}
 ${objectiveModalitySection(cfg.objectives || [])}
 ${compactStyle(cfg)}
-${compactSource(cfg, queries)}
+${compactSource(cfg, queries, 9000)}
 QUESTIONS:\n${JSON.stringify(questions.map(auditQuestionPayload))}
 OTHER BATCH STEMS (comparison only; never factual evidence):\n${JSON.stringify(cfg.comparisonStems || [])}
 REQUIRED REVIEW COUNT: ${questions.length}; REQUIRED INDEXES: ${JSON.stringify(questions.map((_, index) => index))}. Review ALL items. sourceQuotes must come ONLY from the LECTURE FACTS/EXCERPTS above, NEVER from QUESTIONS, explanations, choices or this schema. If no exact source quote supports a claim, reject it as unsupported_fact.

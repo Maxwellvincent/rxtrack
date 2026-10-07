@@ -8,6 +8,11 @@ const first = {
 };
 
 describe("semantic question deduplication", () => {
+  it("rejects identical tasks even when new distractors change the full token set", () => {
+    const rewritten = { ...first, choices: { A: "Endothelium", B: "Fibroblasts", C: "Smooth muscle", D: "Collagen" } };
+    expect(questionSimilarity(first, rewritten)).toBeLessThan(0.9);
+    expect(areNearDuplicateQuestions(first, rewritten)).toBe(true);
+  });
   it("treats demographic and option-order changes as the same reasoning route", () => {
     const paraphrase = {
       ...first,
