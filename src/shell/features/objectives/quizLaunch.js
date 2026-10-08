@@ -600,7 +600,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   };
 
   onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
-  const concurrency = Math.min(2, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
+  const concurrency = Math.min(3, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
   let stopPreparation = false;
   let nextAttempt = 1;
   const pendingJobs = new Map();

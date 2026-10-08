@@ -1,10 +1,11 @@
 # Lecture question preparation
 
 Local Ollama stays serial because competing drafts otherwise queue ahead of review.
-An explicitly configured desktop bridge can advertise separate Ollama Cloud writing
-and Codex review resources through `/health.questionPreparation`.
+An explicitly configured desktop bridge advertises Codex as the preferred writer
+and reviewer, with Ollama Cloud as the quota fallback, through
+`/health.questionPreparation`.
 
-For that route, lecture quizzes use two overlapping jobs with five candidates and
+For that route, lecture quizzes use three overlapping jobs with five candidates and
 five independent verdicts per batch. Each completion is saved immediately and frees
 its slot for a replacement batch. Missing reviews, unsupported source quotes,
 insufficient reasoning depth and duplicates remain excluded. Accepted questions and
@@ -17,9 +18,19 @@ has fewer candidates than the batch limit. Reservations and saved quiz counts
 still cover only actual missing slots. Rejection feedback is scoped to the
 objectives being retried, so unrelated failures do not displace the useful lesson.
 
-All writing/review/repair calls share one preparation deadline. Neither cloud writing
-nor Codex review may silently switch backend or fall through to paid Gemini/Anthropic
-APIs. An incomplete batch remains explicitly incomplete.
+All writing/review/repair calls share one preparation deadline: six minutes for the
+configured Codex route, four minutes for the serial default. Preparation finishes
+as soon as the requested count passes review; the ceiling permits a refill wave.
+Codex handles both drafting and separate review requests until it returns an actual
+usage/rate/quota limit. Then drafting and separate review requests use Ollama Cloud;
+keeping an exhausted Codex reviewer would strand the fallback writer. These are
+separate passes with source checks, not independent providers during fallback.
+The limit is remembered across reloads in local storage. An explicit retry interval
+is honored; otherwise Codex is rechecked after 15 minutes. The switch preserves the
+remaining original deadline. Timeouts, outages, invalid JSON and medical rejections
+are not usage limits and do not trigger this fallback. Lecture preparation never
+falls through to paid Gemini/Anthropic APIs. An incomplete batch remains explicitly
+incomplete.
 
 Compact reviews cite numbered excerpts from the actual retrieved lecture text and
 extracted facts. The engine resolves those IDs back to source text before checking
@@ -36,7 +47,7 @@ Apply `scripts/bridge-question-cloud.patch` to the existing bridge after its pre
 cancellation patch. It contains no credentials. The private credential file is
 `~/.config/rxtrack/ollama-cloud.key`; never include it in the repository or browser.
 Set `LLM_BRIDGE_QUESTION_CLOUD=on` for the bridge service and restart it.
-`LLM_BRIDGE_QUESTION_MODEL` optionally changes the writer; default is `gemma4:31b`.
+`LLM_BRIDGE_QUESTION_MODEL` optionally changes the fallback model; default is `gemma4:31b`.
 Ordinary bridge traffic retains its existing routing. Without the opt-in flag,
 private key and available Codex executable, the application keeps local serial
 preparation. This configuration is specific to lecture quizzes on the configured

@@ -105,7 +105,11 @@ export async function bridgeComplete(req) {
         ...(req.backendOnly ? { backendOnly: true } : {}),
       }),
     });
-      if (!r.ok) throw new Error(`bridge ${r.status}`);
+      if (!r.ok) {
+        const payload = await r.json().catch(() => ({}));
+        const message = typeof payload.error === "string" ? payload.error : payload.error?.message;
+        throw new Error(`bridge ${r.status}${message ? `: ${String(message).slice(0, 2000)}` : ""}`);
+      }
       return r.json();
     }, req.timeoutMs || 300_000, req.signal, "Local AI bridge");
     if (!data.text) throw new Error("bridge returned no text");
@@ -121,6 +125,9 @@ export async function bridgeComplete(req) {
     return data.text;
   } catch (err) {
     req.signal?.throwIfAborted();
+    // Explicit provider routing needs the real failure (including usage limits)
+    // so its policy can choose a fallback. A provider limit is not bridge downtime.
+    if (req.backendOnly) throw err;
     cooldownUntil = Date.now() + 30_000;
     console.warn("llm-bridge unavailable, using cloud:", err.message);
     probe = { at: Date.now(), ok: false };

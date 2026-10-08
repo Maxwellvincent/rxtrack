@@ -339,6 +339,20 @@ describe("prepareObjectiveQuiz", () => {
     expect(result.incomplete).toBe(true);
   });
 
+  it("dispatches all three five-question batches before waiting on a cloud-capable route", async () => {
+    const pending = [];
+    const callAIJSON = vi.fn().mockImplementation(() => new Promise(resolve => pending.push(resolve)));
+    const preparation = prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Source", content: "Lecture evidence." }], questionCount: 15 },
+      { callAIJSON, prepareConcurrency: 3, prepareBatchSize: 5, maxPrepareAttempts: 3, skipQuestionAudit: true }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(3);
+    for (const resolve of pending) resolve({ error: "provider unavailable" });
+    const result = await preparation;
+    expect(result.incomplete).toBe(true);
+    expect(callAIJSON).toHaveBeenCalledTimes(3);
+  });
+
   it("tries later objectives when the first group produces no usable questions", async () => {
     const objectives = Array.from({ length: 15 }, (_, index) => ({
       id: `rotation-${index + 1}`, objective: `Explain source relationship ${index + 1}.`,

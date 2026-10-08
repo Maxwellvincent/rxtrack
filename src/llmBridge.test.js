@@ -12,8 +12,20 @@ it("reads configured preparation capabilities and refuses reviewer fallback", as
     .mockResolvedValueOnce({ ok: true, json: async () => ({ text: "unverified", backend: "ollama" }) });
   vi.stubGlobal("fetch", fetchMock);
   expect(await questionPreparationCapabilities()).toEqual(capability);
-  expect(await bridgeComplete({ prompt: "review", backend: "codex", backendOnly: true })).toBeNull();
+  await expect(bridgeComplete({ prompt: "review", backend: "codex", backendOnly: true })).rejects.toThrow("unexpected backend");
   expect(JSON.parse(fetchMock.mock.calls[1][1].body).backendOnly).toBe(true);
+});
+
+it("preserves a Codex usage limit and permits the immediate strict cloud fallback", async () => {
+  installDomStorage(); resetBridgeProbe();
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({ error: { message: "codex: You have hit your usage limit. Try again in 2 hours." } }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ text: '{"questions":[]}', backend: "ollama-cloud" }) });
+  vi.stubGlobal("fetch", fetchMock);
+  await expect(bridgeComplete({ prompt: "draft", backend: "codex", backendOnly: true })).rejects.toThrow("usage limit");
+  expect(await bridgeComplete({ prompt: "draft", backend: "ollama-cloud", backendOnly: true })).toBe('{"questions":[]}');
+  expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
 it("bounds a stalled completion and cools down before using the bridge again", async () => {

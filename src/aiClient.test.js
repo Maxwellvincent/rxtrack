@@ -27,3 +27,10 @@ it("passes the shared preparation deadline into the bridge instead of leaving a 
   expect(bridgeCall.mock.calls[0][0].timeoutMs).toBe(100);
   expect(call).not.toHaveBeenCalled();
 });
+
+it("preserves strict provider errors for limit routing without calling paid API fallbacks", async () => {
+  const error = new Error("bridge 502: codex usage limit reached");
+  bridgeCall.mockRejectedValue(error);
+  await expect(callAIJSON("s", "u", {}, 1000, undefined, undefined, { bridgeOnly: true, bridgeBackend: "codex", bridgeBackendOnly: true })).rejects.toBe(error);
+  expect(call).not.toHaveBeenCalled();
+});

@@ -10,6 +10,14 @@
  const OLLAMA_URL = process.env.OLLAMA_HOST || 'http://localhost:11434';
  // Prefer a known installed general model on this machine. If it is absent,
  // resolveOllamaModel still matches an installed tag or falls back safely.
+@@ -109,6 +109,6 @@
+     p.on('error', e => { clearTimeout(timer); reject(e); });
+     p.on('close', code => {
+       clearTimeout(timer);
+-      if (code !== 0) return reject(new Error(`${cmd} exited ${code}: ${err.trim().slice(0, 300)}`));
++      if (code !== 0) return reject(new Error(`${cmd} exited ${code}: ${err.trim().slice(-1200)}`));
+       resolve(out);
+     });
 @@ -248,6 +251,20 @@
      return run('gemini', ['-p', `${refs}\n\n${composePrompt(req)}`], { cwd: files.length ? dirname(files[0]) : dir, signal: req.signal });
    },
@@ -49,7 +57,7 @@
        backends: BACKENDS.filter(b => b === 'ollama' || have(b)),
 -      configured: BACKENDS
 +      configured: BACKENDS,
-+      ...(QUESTION_CLOUD_ENABLED && BACKENDS.includes('codex') && have('codex') ? { questionPreparation: { writer: 'ollama-cloud', reviewer: 'codex', writerModel: QUESTION_CLOUD_MODEL } } : {})
++      ...(QUESTION_CLOUD_ENABLED && BACKENDS.includes('codex') && have('codex') ? { questionPreparation: { writer: 'codex', reviewer: 'codex', fallbackWriter: 'ollama-cloud', fallbackModel: QUESTION_CLOUD_MODEL } } : {})
      });
    }
  

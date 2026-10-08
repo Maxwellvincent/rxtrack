@@ -333,7 +333,7 @@ export async function callAIJSON(
   } catch (err) {
     options.signal?.throwIfAborted();
     if (options.bridgeOnly) {
-      throw new Error(`Local bridge returned invalid JSON: ${err?.message || String(err)}`);
+      throw err;
     }
     console.warn("bridge JSON parse failed, using cloud:", err.message);
   }
