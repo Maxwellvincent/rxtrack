@@ -52,3 +52,18 @@ Ordinary bridge traffic retains its existing routing. Without the opt-in flag,
 private key and available Codex executable, the application keeps local serial
 preparation. This configuration is specific to lecture quizzes on the configured
 desktop; it does not establish cloud access for other devices.
+
+## Output latency
+
+Compact drafting and review responses use unindented JSON and concise metadata.
+Draft plans keep short causal clauses and only the source quotations needed to
+establish the relationships. Every question retains its full stem, all options,
+key explanation, rationale for every choice, objective attribution and independent
+source/depth review. Nothing is truncated to satisfy a byte limit.
+
+The NB08 comparison requested 15 fresh questions across nine objectives. The prior
+route completed 15/15 in 252 seconds; compact output completed 15/15 in 228 seconds
+(about 10% faster in that run). This is a single comparison, not a guaranteed timing
+for every lecture or provider load. A lower drafting-effort experiment did not
+reliably fill the batch and was rejected; Codex retains its configured effort for
+both writing and review. The quota-triggered Ollama Cloud fallback is preserved.
