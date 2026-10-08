@@ -36,11 +36,13 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
   // Repeated objective/index slides establish scope, not factual support. They used to
   // occupy the entire retrieval budget and hide the explanatory (blue) slides.
   const pages = String(text || '').split(/\f/);
-  const source = pages.length > 1
-    ? pages.filter(page => (page.match(/SOM\.[A-Z0-9.]+/g) || []).length < 3).join('\n')
-    : pages[0];
+  const sourcePages = pages.length > 1
+    ? pages.filter(page => (page.match(/SOM\.[A-Z0-9.]+/g) || []).length < 3)
+    : pages;
+  // Chunk each real page independently. Joining across removed objective slides
+  // creates excerpts that never occur contiguously in the original source.
   const seen = new Set();
-  const chunks = (source.match(/[\s\S]{1,900}/g) || []).filter(chunk => {
+  const chunks = sourcePages.flatMap(page => page.match(/[\s\S]{1,900}/g) || []).filter(chunk => {
     if ((chunk.match(/SOM\.[A-Z0-9.]+/g) || []).length >= 3) return false;
     const key = chunk.toLowerCase().replace(/\s+/g, ' ').trim();
     if (seen.has(key)) return false;
@@ -50,14 +52,18 @@ export function retrieveLectureEvidence(text, objectives = [], atoms = [], budge
   // A draft's quote is only a retrieval hint: include it only if it occurs in
   // the actual lecture. Pin its surrounding context so review cannot lose the
   // evidence used by the writer to broader objective vocabulary.
-  const normalizedSource = source.replace(/\s+/g, ' ').trim();
+  const normalizedPages = sourcePages.map(page => page.replace(/\s+/g, ' ').trim());
   const pinned = [...new Set(atoms.flatMap(a => a.sourceQuotes || []))].flatMap(quote => {
     const normalizedQuote = String(quote).replace(/\s+/g, ' ').trim();
-    const at = normalizedSource.toLowerCase().indexOf(normalizedQuote.toLowerCase());
-    if (normalizedQuote.length < 16 || at < 0) return [];
-    return [normalizedSource.slice(Math.max(0, at - 250), at + normalizedQuote.length + 250)];
-  }).slice(0, 6).join('\n');
-  const pinnedText = pinned ? `[Source-verified quote context]\n${pinned}\n` : '';
+    if (normalizedQuote.length < 16) return [];
+    const page = normalizedPages.find(text => text.toLowerCase().includes(normalizedQuote.toLowerCase()));
+    if (!page) return [];
+    const at = page.toLowerCase().indexOf(normalizedQuote.toLowerCase());
+    return [page.slice(Math.max(0, at - 250), at + normalizedQuote.length + 250)];
+  }).slice(0, 6);
+  // Label each context separately so citation consumers do not concatenate
+  // unrelated verified quotes into one non-contiguous evidence claim.
+  const pinnedText = pinned.map(text => `[Source-verified quote context]\n${text}\n`).join('');
   const remaining = Math.max(0, budget - pinnedText.length);
   const ranked = chunks.map((text,index) => ({ text,index,score:[...tokens(text)].filter(w=>wanted.has(w)).length }))
     .sort((a,b)=>b.score-a.score || a.index-b.index).slice(0, Math.max(1,Math.floor(remaining/930))).sort((a,b)=>a.index-b.index);

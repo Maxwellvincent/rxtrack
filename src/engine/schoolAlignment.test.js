@@ -1,6 +1,7 @@
 import { describe,it,expect } from 'vitest';
 import { alignSchoolQuestions,retrieveLectureEvidence,schoolEvidencePrompt } from './schoolAlignment.js';
 import { selectStyleExemplars,buildMcqPrompt } from './mcq.js';
+import { numberedAuditEvidence } from './auditEvidence.js';
 const objective={id:'o1',code:'SOM.MK.ER.PHYS.1076',text:'Granulosa aromatase converts androgen substrate into estrogen'};
 const question={id:'q1',stem:'Which ovarian cells convert androgens?',choices:{A:'Granulosa cells',B:'Theca cells'},correct:'A',schoolObjectiveCode:objective.code,sourceFile:'ExamSoftPractice.pdf'};
 describe('school evidence alignment',()=>{
@@ -9,6 +10,30 @@ describe('school evidence alignment',()=>{
    expect(linked.links[0]).toMatchObject({basis:'school-code',targetId:'o1',evidence:[objective.code]});
    expect(alignSchoolQuestions([{...question,schoolObjectiveCode:null,stem:objective.text}],[objective])[0].links[0].basis).toBe('candidate-overlap');
  });
+
+it('keeps factual excerpts contiguous across removed objective pages',()=>{
+  const first='Electrical coupling permits direct ion flow between adjacent cells. '.repeat(5);
+  const index='SOM.MK.001 Describe synapses. SOM.MK.002 Describe receptors. SOM.MK.003 Describe transport.';
+  const second='Metabotropic receptors activate G proteins to alter downstream signaling. '.repeat(5);
+  const source=[first,index,second].join('\f');
+  const retrieved=retrieveLectureEvidence(source,[],[],2500);
+  const catalog=numberedAuditEvidence({lectureText:source},retrieved);
+  expect(catalog).toContain('Electrical coupling');
+  expect(catalog).toContain('Metabotropic receptors');
+  const entries=JSON.parse(catalog.split('SOURCE EVIDENCE CATALOG:\n')[1].split('\nEND SOURCE EVIDENCE CATALOG')[0]);
+  const normalize=x=>x.toLowerCase().replace(/\s+/g,' ').trim();
+  expect(entries.every(entry=>normalize(source).includes(normalize(entry.text)))).toBe(true);
+});
+
+it('keeps multiple pinned contexts independently usable by the reviewer',()=>{
+  const first='Calcium influx triggers vesicle fusion at the presynaptic terminal.';
+  const second='Blocking degradation prolongs the transmitter effect at its receptor.';
+  const source=[first,'Unrelated introductory material. '.repeat(100),second].join('\f');
+  const retrieved=retrieveLectureEvidence(source,[],[{sourceQuotes:[first,second]}],2500);
+  const catalog=numberedAuditEvidence({lectureText:source},retrieved);
+  expect(catalog).toContain(first);
+  expect(catalog).toContain(second);
+});
  it('does not claim alignment without evidence or accept an unverified key',()=>{
    expect(alignSchoolQuestions([question],[{id:'x',text:'cardiac preload'}])[0].links).toEqual([]);
    expect(alignSchoolQuestions([{...question,answerKeyVerified:false}],[objective])).toEqual([]);

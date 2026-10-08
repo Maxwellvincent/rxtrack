@@ -611,7 +611,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     }
     const reserved = [...pendingJobs.values()].flatMap(job => job.reserved);
     while (!stopPreparation && pendingJobs.size < concurrency && nextAttempt <= attempts) {
-      const attempt = nextAttempt++;
+      const attempt = nextAttempt;
       const reservationStart = reserved.length;
       const remaining = requested - accepted.length - reserved.length;
       if (remaining <= 0) break;
@@ -622,6 +622,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
         : Math.min(remaining, batchSize, ATOM_QUIZ_CAP);
       if (!batchCount) break;
+      // Reservations can temporarily cover every missing slot. Waiting for an
+      // in-flight review must not spend a retry that never called a provider.
+      nextAttempt += 1;
       if (enforceAllocation) {
         for (const objective of batchAllocation) {
           for (let n = 0; n < objective._targetQuestionCount; n += 1) reserved.push({ objectiveIds: [objective.id || objective.code] });

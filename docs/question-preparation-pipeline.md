@@ -10,6 +10,8 @@ its slot for a replacement batch. Missing reviews, unsupported source quotes,
 insufficient reasoning depth and duplicates remain excluded. Accepted questions and
 in-flight reservations share the same objective allocation; concurrent work cannot
 double-credit an objective. Rejections inform subsequent fresh candidates.
+Only dispatched batches consume retry attempts; waiting for reserved slots to
+finish review does not reduce the refill budget.
 
 All writing/review/repair calls share one preparation deadline. Neither cloud writing
 nor Codex review may silently switch backend or fall through to paid Gemini/Anthropic
@@ -20,6 +22,9 @@ extracted facts. The engine resolves those IDs back to source text before checki
 reasoning depth. Unknown IDs fail closed; legacy exact quotations remain supported.
 This removes transcription failures without replacing independent medical review
 or relaxing the connected-reasoning and answer-choice-shortcut checks.
+Retrieval chunks each original page independently and labels each pinned quotation
+context separately. Removing objective slides must not manufacture an excerpt
+across a gap; every catalog citation must remain contiguous in the original source.
 
 ## Desktop bridge setup
 

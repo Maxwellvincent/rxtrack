@@ -258,6 +258,15 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
+  it("does not spend a retry while the remaining slots are reserved by an in-flight review", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Source", content: "Actual explanatory lecture evidence." }], questionCount: 5 },
+      { callAIJSON, prepareBatchSize: 5, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+    expect(result.incomplete).toBe(true);
+  });
   it("refills after malformed bridge JSON instead of treating it as an outage", async () => {
     const callAIJSON = vi.fn().mockRejectedValueOnce(new Error("bridge reply was not valid or repairable JSON")).mockResolvedValue({ questions: [] });
     await prepareObjectiveQuiz(
