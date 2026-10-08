@@ -1228,6 +1228,7 @@ function buildCompactMcqPrompt(cfg) {
   return `${CONNECTED_REASONING_CONTRACT}
 ${QUESTION_PLAN_CONTRACT}
 Write exactly ${count} NEW ${cfg.difficulty || "medium"} SGU/ExamSoft-style Step 1 questions for ${cfg.subject || "this lecture"}.
+JSON NESTING: whyWrong is a nested object within each question. After closing whyWrong, use a comma and objectiveIds INSIDE that same question; do not close the question until after difficulty. Validate balanced braces before responding.
 OUTPUT ECONOMY: return compact JSON on one line, without indentation, markdown or introductory text. Keep each questionPlan field to one short clause (aim for 6-8 words), excluding sourceQuotes. Quote only the minimum contiguous source sentences that establish the required relationships; never repeat an entire slide. Keep reasoningSteps to short causal links. Explain the key in two concise sentences and each choice in one concise sentence (aim for 12-18 words) stating the discriminating reason. Preserve every required field, every choice rationale, necessary clinical clues, qualifiers and source-supported relationships; brevity must not change the question or replace the rationale with a label.
 
 Objectives define the target; lecture facts/excerpts alone establish factual truth. Use one primary objective per item. Honor each targetCount and targetOrder. Do not copy source cases. Prioritize second/third-order application where the objective supports it, never invent extra causal steps to label recall advanced.

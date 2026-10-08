@@ -151,6 +151,46 @@ export async function bridgePdf2md(file, timeoutMs = 900000) {
   return result?.markdown || null;
 }
 
+/** Remove a reproduced Cloud delimiter defect without changing any values.
+ * Only an extra question-closing brace immediately after whyWrong, followed by
+ * objectiveIds, qualifies. Require the questions-array nesting and a complete
+ * strictly parseable result; never reconstruct truncated questions or keys.
+ */
+export function repairQuestionMetadataBrace(text) {
+  const tokens = [...text.matchAll(/"(?:\\.|[^"\\])*"|[{}\[\],:]/g)];
+  const stack = [];
+  const removals = [];
+  let justClosedWhyWrong = false;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index][0];
+    const parent = stack.at(-1);
+    if (token === "}" && justClosedWhyWrong && parent?.kind === "question"
+      && tokens[index + 1]?.[0] === "," && tokens[index + 2]?.[0] === '"objectiveIds"'
+      && tokens[index + 3]?.[0] === ":") {
+      removals.push(tokens[index].index);
+      justClosedWhyWrong = false;
+      continue;
+    }
+    justClosedWhyWrong = false;
+    if (token === "{" || token === "[") {
+      const key = tokens[index - 1]?.[0] === ":" ? tokens[index - 2]?.[0] : null;
+      const kind = token === "[" && key === '"questions"' ? "questions"
+        : token === "{" && parent?.kind === "questions" ? "question"
+        : token === "{" && key === '"whyWrong"' && parent?.kind === "question" ? "whyWrong" : "other";
+      stack.push({ token, kind });
+    } else if (token === "}" || token === "]") {
+      const closed = stack.pop();
+      if (!closed || closed.token !== (token === "}" ? "{" : "[")) return null;
+      justClosedWhyWrong = closed.kind === "whyWrong";
+    }
+  }
+  if (!removals.length || stack.length) return null;
+  const removed = new Set(removals);
+  const corrected = text.split("").filter((_, index) => !removed.has(index)).join("");
+  // This path repairs punctuation only. Strict JSON parsing is mandatory.
+  try { return JSON.parse(corrected); } catch { return null; }
+}
+
 /** Bridge backends are told to emit bare JSON, but CLIs still like to wrap it in chatter. */
 export function parseBridgeJSON(text) {
   const cleaned = String(text || "")
@@ -160,6 +200,8 @@ export function parseBridgeJSON(text) {
   try {
     return JSON.parse(cleaned);
   } catch {
+    const delimiterRepair = repairQuestionMetadataBrace(cleaned);
+    if (delimiterRepair) return delimiterRepair;
     const m = cleaned.match(/[[{][\s\S]*[\]}]/);
     const candidate = m?.[0] || cleaned;
     try {

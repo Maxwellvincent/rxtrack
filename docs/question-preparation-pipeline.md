@@ -77,3 +77,7 @@ Practice options exposes an opt-in reserve of at most three fresh questions per 
 Preparation reuses only independently verified relationship quotations that still occur in the current lecture as objective scaffolds. This does not reuse old scenarios and does not bypass review. On a first run, the existing objective question-plan contract constructs the source-grounded plan; subsequent runs can reuse verified relationships.
 
 A review whose sole defect is weak_explanation can provide a prose-only correction. Stem, choices, correct key and objective IDs must be identical. The corrected explanation and option rationales undergo a separate full review once; unsupported facts, ambiguous keys and reasoning shortcuts still require a new question.
+
+### Ollama Cloud JSON delimiter recovery
+
+Live Cloud drafts reproduced a specific syntax defect: `whyWrong` closes correctly, then an extra `}` closes the question before `objectiveIds`. The bridge parser now recognizes that pattern only inside a question object in the `questions` array. It removes only the extra punctuation, preserves every string and answer value, and requires the complete corrected response to pass strict JSON parsing. Truncated responses and unrelated delimiter defects do not qualify for this targeted repair. Normal source/order review remains mandatory. The drafting prompt also specifies that objective metadata must remain inside the question object.

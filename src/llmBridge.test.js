@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { probeIsFresh, bridgeComplete, parseBridgeJSON, resetBridgeProbe, questionPreparationCapabilities } from "./llmBridge.js";
+import { probeIsFresh, bridgeComplete, parseBridgeJSON, repairQuestionMetadataBrace, resetBridgeProbe, questionPreparationCapabilities } from "./llmBridge.js";
 import { installDomStorage } from "./stores/testEnv.js";
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); resetBridgeProbe(); });
@@ -91,5 +91,22 @@ describe("parseBridgeJSON", () => {
 
   it("repairs fenced JSON with a trailing comma", () => {
     expect(parseBridgeJSON('```json\n{"questions":[],}\n```')).toEqual({ questions: [] });
+  });
+});
+
+describe("Cloud question metadata delimiter recovery", () => {
+  const item = '{"stem":"A patient has weakness 🧠","choices":{"A":"One","B":"Two"},"correct":"A","explanation":"Keep every value unchanged.","whyWrong":{"A":"Correct","B":"Wrong"}},"objectiveIds":["o1"],"difficulty":"medium"}';
+  it("repairs the reproduced extra whyWrong brace in multiple complete questions", () => {
+    const parsed = parseBridgeJSON(`{"questions":[${item},${item}]}`);
+    expect(parsed.questions).toHaveLength(2);
+    expect(parsed.questions[0]).toMatchObject({ stem: "A patient has weakness 🧠", correct: "A", objectiveIds: ["o1"], whyWrong: { A: "Correct", B: "Wrong" } });
+  });
+  it("leaves a valid response and punctuation inside strings unchanged", () => {
+    const valid = { questions: [{ stem: 'Quoted }},"objectiveIds": example', whyWrong: { A: 'A } brace' }, objectiveIds: ["o1"] }] };
+    expect(parseBridgeJSON(JSON.stringify(valid))).toEqual(valid);
+  });
+  it("does not apply the Cloud-specific repair to an unrelated malformed field", () => {
+    expect(repairQuestionMetadataBrace(`{"questions":[${item.replace('"objectiveIds"', '"unrecognized"')}]}`)).toBeNull();
+    expect(repairQuestionMetadataBrace(`{"questions":[${item.slice(0, -15)}`)).toBeNull();
   });
 });
