@@ -191,12 +191,32 @@ export function repairQuestionMetadataBrace(text) {
   try { return JSON.parse(corrected); } catch { return null; }
 }
 
+// Preserve literal math commands such as \omega when a model forgets to
+// escape their backslash for JSON. Leave every already-valid JSON escape alone.
+function escapeLiteralBackslashes(text) {
+  let inString = false;
+  let output = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (inString && character === "\\") {
+      const next = text[index + 1];
+      if (next && !'"\\/bfnrtu'.includes(next)) output += "\\";
+      output += character;
+      if (next) output += text[++index];
+      continue;
+    }
+    if (character === '"') inString = !inString;
+    output += character;
+  }
+  return output;
+}
+
 /** Bridge backends are told to emit bare JSON, but CLIs still like to wrap it in chatter. */
 export function parseBridgeJSON(text) {
-  const cleaned = String(text || "")
+  const cleaned = escapeLiteralBackslashes(String(text || "")
     .replace(/^\s*```(?:json)?/i, "")
     .replace(/```\s*$/, "")
-    .trim();
+    .trim());
   try {
     return JSON.parse(cleaned);
   } catch {

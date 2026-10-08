@@ -110,3 +110,11 @@ describe("Cloud question metadata delimiter recovery", () => {
     expect(repairQuestionMetadataBrace(`{"questions":[${item.slice(0, -15)}`)).toBeNull();
   });
 });
+
+it("preserves unescaped LaTeX commands when combined with the Cloud brace defect", () => {
+  const raw = String.raw`{"questions":[{"stem":"A $\omega$-conotoxin experiment","whyWrong":{"A":"$\omega$ blocks entry"}},"objectiveIds":["o1"]}]}`;
+  const result = parseBridgeJSON(raw);
+  expect(result.questions[0].stem).toBe(String.raw`A $\omega$-conotoxin experiment`);
+  expect(result.questions[0].whyWrong.A).toBe(String.raw`$\omega$ blocks entry`);
+  expect(parseBridgeJSON(String.raw`{"text":"line\nnext; quoted \"word\"; slash \\"}`)).toEqual({ text: 'line\nnext; quoted "word"; slash \\' });
+});
