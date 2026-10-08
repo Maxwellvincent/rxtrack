@@ -258,6 +258,24 @@ describe("startObjectiveQuiz", () => {
 });
 
 describe("prepareObjectiveQuiz", () => {
+  it("reviews spare refill candidates without adding more than the requested slots", async () => {
+    const questions = [
+      { stem: "A patient develops reduced gastric acid secretion after receiving a histamine receptor antagonist. Which intracellular change accounts for this response?", choices: { A: "Reduced cyclic AMP", B: "Increased calcium" }, correct: "A" },
+      { stem: "A fasting patient receives stimulation of the vagus nerve. Pancreatic fluid secretion rises markedly. Which autonomic pathway accounts for this observation?", choices: { A: "Parasympathetic stimulation", B: "Sympathetic stimulation" }, correct: "A" },
+      { stem: "A patient with renal artery narrowing develops hypertension and elevated aldosterone concentrations. Which circulating signal links reduced perfusion to adrenal secretion?", choices: { A: "Angiotensin II", B: "Insulin" }, correct: "A" },
+    ];
+    const callAIJSON = vi.fn().mockResolvedValueOnce({ questions: [] }).mockResolvedValue({ questions });
+    const onAccepted = vi.fn();
+    const result = await prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Source", content: "Histamine, vagal signaling and angiotensin regulate physiological responses." }], questionCount: 2 },
+      { callAIJSON, prepareBatchSize: 5, reviewBatchSize: 5, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true, onAccepted }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+    expect(callAIJSON.mock.calls[1][1]).toContain("4 distinct candidate routes for 2 missing slots");
+    expect(result.questions).toHaveLength(2);
+    expect(result.incomplete).toBe(false);
+    expect(onAccepted.mock.calls.flatMap(call => call[0])).toHaveLength(2);
+  });
   it("does not spend a retry while the remaining slots are reserved by an in-flight review", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
     const result = await prepareObjectiveQuiz(

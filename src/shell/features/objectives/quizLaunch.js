@@ -622,6 +622,14 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         ? batchAllocation.reduce((sum, objective) => sum + objective._targetQuestionCount, 0)
         : Math.min(remaining, batchSize, ATOM_QUIZ_CAP);
       if (!batchCount) break;
+      // A capable batched reviewer can compare a few alternatives for the last
+      // slots in one startup. Reserve only real slots, never the spare drafts.
+      const candidateCount = Number(deps.reviewBatchSize) > 1 && attempt > 1
+        ? Math.min(batchSize, batchCount + 2) : batchCount;
+      const candidateAllocation = batchAllocation.map(objective => ({ ...objective }));
+      for (let extra = batchCount; enforceAllocation && extra < candidateCount; extra += 1) {
+        candidateAllocation[(extra - batchCount) % candidateAllocation.length]._targetQuestionCount += 1;
+      }
       // Reservations can temporarily cover every missing slot. Waiting for an
       // in-flight review must not spend a retry that never called a provider.
       nextAttempt += 1;
@@ -641,10 +649,11 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       const promise = startObjectiveQuiz({
         ...args,
         atoms: rotate(args.atoms || []),
-        objectives: enforceAllocation ? batchAllocation : rotate(args.objectives || []),
-        objectiveAllocation: enforceAllocation ? batchAllocation : null,
-        questionCount: batchCount,
-        focusNotes: [args.focusNotes || "", ...rejectionFeedback.slice(-6),
+        objectives: enforceAllocation ? candidateAllocation : rotate(args.objectives || []),
+        objectiveAllocation: enforceAllocation ? candidateAllocation : null,
+        questionCount: candidateCount,
+        focusNotes: [args.focusNotes || "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
+          candidateCount > batchCount ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.` : "",
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
@@ -661,7 +670,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     {
       lastError = result.error || lastError;
       for (const rejection of result.rejections || []) {
-        rejectionFeedback.push(`Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 420)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.`);
+        rejectionFeedback.push({ objectiveIds: rejection.objectiveIds || [], text: `Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 600)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.` });
       }
       const newlyAccepted = [];
       for (const question of result.questions || []) {

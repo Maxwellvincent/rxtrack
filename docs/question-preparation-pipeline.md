@@ -12,6 +12,10 @@ in-flight reservations share the same objective allocation; concurrent work cann
 double-credit an objective. Rejections inform subsequent fresh candidates.
 Only dispatched batches consume retry attempts; waiting for reserved slots to
 finish review does not reduce the refill budget.
+Capable batch-review routes draft up to two spare alternatives when a later batch
+has fewer candidates than the batch limit. Reservations and saved quiz counts
+still cover only actual missing slots. Rejection feedback is scoped to the
+objectives being retried, so unrelated failures do not displace the useful lesson.
 
 All writing/review/repair calls share one preparation deadline. Neither cloud writing
 nor Codex review may silently switch backend or fall through to paid Gemini/Anthropic
