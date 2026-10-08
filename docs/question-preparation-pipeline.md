@@ -15,6 +15,12 @@ All writing/review/repair calls share one preparation deadline. Neither cloud wr
 nor Codex review may silently switch backend or fall through to paid Gemini/Anthropic
 APIs. An incomplete batch remains explicitly incomplete.
 
+Compact reviews cite numbered excerpts from the actual retrieved lecture text and
+extracted facts. The engine resolves those IDs back to source text before checking
+reasoning depth. Unknown IDs fail closed; legacy exact quotations remain supported.
+This removes transcription failures without replacing independent medical review
+or relaxing the connected-reasoning and answer-choice-shortcut checks.
+
 ## Desktop bridge setup
 
 Apply `scripts/bridge-question-cloud.patch` to the existing bridge after its previous
