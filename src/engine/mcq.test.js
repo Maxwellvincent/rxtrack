@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { vi } from "vitest";
-import { questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
+import { explanationOnlyReplacement, questionMatchesObjectiveDomain, normalizeQuestions, buildMcqPrompt, generateMcqs, buildExemplarParsePrompt, parseExemplarsFromMd, buildAtomQuestionsPrompt, generateFromAtoms, selectStyleExemplars, exemplarSourceTier, buildQuestionAuditPrompt, auditGeneratedQuestions, locallyValidClinicalQuestions, locallyUsableQuestions, buildStyleFingerprint, questionEndingTask, diversifyQuestionEndings, buildQuestionSourceBlueprint, styleProfilePrompt } from "./mcq.js";
 
 describe("normalizeQuestions", () => {
   const good = {
@@ -876,3 +876,15 @@ it("preserves a drafting plan for independent review without treating it as appr
   const result = await auditGeneratedQuestions([question], { requireReasoningAudit: true, promptProfile: "compact" }, { skipRepair: true, reviewAIJSON: async () => ({ reviews: [] }) });
   expect(result.questions).toEqual([]);
 });
+
+ describe("explanation-only repair boundaries", () => {
+   const question = { stem: "unchanged", correct: "A", choices: { A: "one", B: "two" }, objectiveIds: ["o1"], explanation: "old", whyWrong: {} };
+   const review = { approved: false, issues: ["weak_explanation"], replacement: { ...question, explanation: "source-supported correction", whyWrong: { A: "right", B: "wrong" } } };
+   it("preserves every tested field while updating prose", () => {
+     expect(explanationOnlyReplacement(question, review)).toEqual({ ...question, explanation: review.replacement.explanation, whyWrong: review.replacement.whyWrong });
+   });
+   it("rejects changed keys and non-prose defects", () => {
+     expect(explanationOnlyReplacement(question, { ...review, replacement: { ...review.replacement, correct: "B" } })).toBeNull();
+     expect(explanationOnlyReplacement(question, { ...review, issues: ["weak_explanation", "unsupported_fact"] })).toBeNull();
+   });
+ });

@@ -922,6 +922,18 @@ export function diversifyQuestionEndings(questions = []) {
  * A distinct model request reviews the completed batch. Missing, malformed, or uncertain reviews
  * fail closed: unapproved questions never reach the quiz or saved Firestore reserve.
  */
+// A reviewer may fix prose only. The tested problem and key stay immutable.
+export function explanationOnlyReplacement(question, review) {
+  if (review?.approved !== false || !review.replacement || !review.issues?.length
+    || review.issues.some(issue => issue !== "weak_explanation")) return null;
+  const replacement = review.replacement;
+  if (replacement.stem !== question.stem || replacement.correct !== question.correct
+    || JSON.stringify(replacement.choices) !== JSON.stringify(question.choices)
+    || JSON.stringify(replacement.objectiveIds) !== JSON.stringify(question.objectiveIds)) return null;
+  if (!replacement.explanation || !replacement.whyWrong) return null;
+  return { ...question, explanation: replacement.explanation, whyWrong: replacement.whyWrong };
+}
+
 export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   if (!questions.length) return { questions: [] };
   if (deps.skipQuestionAudit === true) return { questions };
@@ -1100,10 +1112,20 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           },
         }));
     });
+    // Re-review narrow explanation corrections once, even in strict preparation.
+    // Never accept a changed key, scenario, choice set or objective through this path.
+    const proseRepairs = deps.skipExplanationRepair ? [] : reviews.flatMap(review => {
+      const question = questions[Number(review.index)];
+      const repaired = question && explanationOnlyReplacement(question, review);
+      return repaired ? [repaired] : [];
+    });
+    const verifiedProseRepairs = proseRepairs.length
+      ? (await auditGeneratedQuestions(proseRepairs, cfg, { ...deps, skipRepair: true, skipExplanationRepair: true })).questions || []
+      : [];
     const verifiedReplacements = cfg.requireReasoningAudit && reviewerReplacements.length
       ? (await auditGeneratedQuestions(reviewerReplacements, cfg, { ...deps, skipRepair: true })).questions || []
       : reviewerReplacements;
-    const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...verifiedReplacements]));
+    const distinctApproved = diversifyQuestionEndings(uniqueQuestions([...approved, ...verifiedReplacements, ...verifiedProseRepairs]));
     const unverifiableApprovals = cfg.requireReasoningAudit
       ? questions.filter((question, index) => byIndex.get(index)?.approved === true && !verifyReasoningReview(byIndex.get(index), question, cfg)).length
       : 0;
@@ -1233,7 +1255,7 @@ Return ONLY JSON: {"questions":[{${QUESTION_PLAN_JSON},"stem":"...","choices":{"
 
 function buildCompactAuditPrompt(questions, cfg) {
   const queries = questions.map(q => ({ term: q.topic || "", content: `${q.stem} ${Object.values(q.choices || {}).join(" ")} ${q.explanation || ""}`, sourceQuotes: q.questionPlan?.sourceQuotes || [] }));
-  return `Independently audit every generated question. Fail uncertain items; never infer approval from writing quality. Return compact JSON without indentation. Keep approved-item rationale to one concise sentence; rejected-item rationale must name the specific defect and repair needed. Use short causal clauses for reasoning steps, preserving every necessary relationship.
+  return `Independently audit every generated question. If the ONLY defect is weak_explanation, return a complete replacement with the identical stem, choices, correct key and objectiveIds, changing only explanation and whyWrong. Other defects must remain rejected. Fail uncertain items; never infer approval from writing quality. Return compact JSON without indentation. Keep approved-item rationale to one concise sentence; rejected-item rationale must name the specific defect and repair needed. Use short causal clauses for reasoning steps, preserving every necessary relationship.
 ${CONNECTED_REASONING_CONTRACT}
 A new hypothetical scenario is allowed: source-supported rules may be applied to a novel intervention or observation. Require evidence for the causal relationships, not a literal matching patient age, invented protocol label or logically derived observation. Do not reject a counterfactual wrong answer simply because that wrong outcome is absent from the lecture; verify the source-supported explanation for why it is wrong. Reject added medical mechanisms, diagnostic claims or quantitative thresholds not established by the source.
 Check every item for a medically correct single best key, factual support for ALL relationships, meaningful primary-objective alignment and facet, plausible same-category distinct choices, sufficient discriminating clues, consistent scenario, no leaked answer, and a mechanistic explanation. Reject unsupported named diseases, drugs, findings or image dependencies. Compare items for duplicate clue-to-answer routes and repetitive asks. Match the supplied official school style; homework/clickers establish task patterns only. Objective verbs define scope but do not prohibit applying lecture-supported relationships.

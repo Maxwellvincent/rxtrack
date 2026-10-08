@@ -29,6 +29,19 @@ import { buildStyleProfile, STYLE_PROFILE_VERSION } from "../../../engine/styleP
 // loop preserves quotas, fills missing slots, and saves each verified batch.
 export const PREPARE_BATCH_SIZE = 3;
 
+/** Reuse verified relationships, never previously seen scenarios or answer routes. */
+export function objectiveReasoningScaffolds(objectives = [], history = [], lectureText = "", atoms = []) {
+  const source = [lectureText, ...atoms.map(atom => `${atom.term || ""} ${atom.content || ""}`)].join(" ").replace(/\s+/g, " ").toLowerCase();
+  return objectives.flatMap(objective => {
+    const id = String(objective.id || objective.code);
+    const verified = history.filter(question => hasCurrentReasoningAudit(question)
+      && question.objectiveIds?.includes(id)).slice(-2);
+    const quotes = [...new Set(verified.flatMap(question => question.reasoningAudit?.sourceQuotes || []))]
+      .filter(quote => String(quote).length >= 16 && source.includes(String(quote).replace(/\s+/g, " ").toLowerCase())).slice(0, 3);
+    return quotes.length ? [{ objectiveId: id, targetOrder: objective._targetOrder || "second-order", sourceQuotes: quotes }] : [];
+  });
+}
+
 /** Weakest first — repair, then consolidation, then first-pass coverage. */
 export function sortWeakestFirst(objectives) {
   const rank = (objective) => {
@@ -574,6 +587,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
   const allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";
+  const scaffolds = objectiveReasoningScaffolds(allocationPlan, args.avoidQuestions || [], args.lectureText || "", args.atoms || []);
   const accepted = [];
   const seen = new Set();
   const normalizeStem = (stem) => String(stem || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -652,7 +666,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         objectives: enforceAllocation ? candidateAllocation : rotate(args.objectives || []),
         objectiveAllocation: enforceAllocation ? candidateAllocation : null,
         questionCount: candidateCount,
-        focusNotes: [args.focusNotes || "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
+        focusNotes: [args.focusNotes || "", scaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(scaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
           candidateCount > batchCount ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.` : "",
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),

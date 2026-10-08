@@ -876,6 +876,7 @@ export function LectureStudyFlow({
     const current = quizMetaRef.current;
     if (!current) return;
     const session = { ...current, progress };
+    quizMetaRef.current = session;
     lectureQuizSessionsStore.save(userId, session);
     setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
   }, [blockId, lecture?.id, userId]);
@@ -894,6 +895,7 @@ export function LectureStudyFlow({
       lectureTitle: renamedTitle || title,
       blockName,
       questions: nextQuestions,
+      requestedCount: options.expectedCount || nextQuestions.length,
       progress: { i: 0, picked: null, confidence: null, records: [], crossed: [], errorReason: null, highlights: {} },
       isAdHoc: options.isAdHoc ?? true,
       roundIndex: options.roundIndex ?? round,
@@ -903,6 +905,8 @@ export function LectureStudyFlow({
     quizMetaRef.current = session;
     lectureQuizSessionsStore.save(userId, session);
     setSavedLectureQuizzes(lectureQuizSessionsStore.read(userId, lecture?.id, blockId));
+    setActiveRequestedCount(options.expectedCount || nextQuestions.length);
+    quizMetaRef.current.requestedCount = options.expectedCount || nextQuestions.length;
     setQuestions(nextQuestions);
   }, [blockId, blockName, lecture?.id, renamedTitle, round, title, userId]);
 
@@ -910,6 +914,7 @@ export function LectureStudyFlow({
     if (!session?.questions?.length) return;
     quizMetaRef.current = session;
     setQuizResumeState(session.progress || null);
+    setActiveRequestedCount(session.requestedCount || session.questions.length);
     setQuestions(session.questions);
     setAdHocQuiz(session.isAdHoc !== false);
     setRound(Number.isInteger(session.roundIndex) ? session.roundIndex : 0);
@@ -1287,7 +1292,14 @@ export function LectureStudyFlow({
       .sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
+  const preparationRunRef = useRef(0);
+  const [activeRequestedCount, setActiveRequestedCount] = useState(null);
+  const [backgroundReserveEnabled, setBackgroundReserveEnabled] = useState(false);
+  useEffect(() => () => { preparationRunRef.current += 1; }, [lecture?.id, userId]);
+
   const runQuiz = useCallback(async (count, difficulty) => {
+    const runId = ++preparationRunRef.current;
+    setActiveRequestedCount(count);
     const generationVersion = "v2";
     if (schoolExamplesLoading) {
       setError("Your uploaded school examples are still loading. Try again in a moment.");
@@ -1347,9 +1359,9 @@ export function LectureStudyFlow({
       return;
     }
 
-    // Keep the requested count as a hard contract. Generation progress is shown
-    // in the preparation card, but the runner does not open until the complete
-    // set is ready; otherwise a shortfall can look like a successful 6/15 quiz.
+    // Open after a reviewed starter batch; append without restarting the session.
+    // Requested count remains visible even if later preparation stops.
+    let startedEarly = false;
     let progressiveQuestions = [...reserve];
     const appendPrepared = (batch = []) => {
       const known = new Set(progressiveQuestions.map((question) => String(question?.stem || "").trim().toLowerCase()));
@@ -1357,9 +1369,22 @@ export function LectureStudyFlow({
         const key = String(question?.stem || "").trim().toLowerCase();
         if (!key || known.has(key)) continue;
         known.add(key);
-        progressiveQuestions.push(question);
+        progressiveQuestions.push({ ...question, objectiveTexts: question.objectiveTexts?.length ? question.objectiveTexts
+          : (question.objectiveIds || []).map(id => objectiveById.get(id)).filter(Boolean).map(objective => ({ id: objective.id, code: objective.code || "", text: objective.objective || objective.text || objective.title || "" })).filter(objective => objective.text) });
       }
       progressiveQuestions = progressiveQuestions.slice(0, count);
+      if (preparationRunRef.current !== runId) return;
+      if (!startedEarly && progressiveQuestions.length >= Math.min(3, count)) {
+        startedEarly = true;
+        setAdHocQuiz(true);
+        startQuizSession([...progressiveQuestions], { expectedCount: count });
+      } else if (startedEarly) {
+        setQuestions([...progressiveQuestions]);
+        if (quizMetaRef.current) {
+          quizMetaRef.current = { ...quizMetaRef.current, questions: [...progressiveQuestions] };
+          lectureQuizSessionsStore.save(userId, quizMetaRef.current);
+        }
+      }
     };
     if (reserve.length) appendPrepared([]);
 
@@ -1392,9 +1417,15 @@ export function LectureStudyFlow({
           appendPrepared(questions);
         },
       },
-      (progress) => setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready })
+      (progress) => { if (preparationRunRef.current === runId) setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready }); }
     );
+    if (preparationRunRef.current !== runId) return;
     setBusy("");
+    if (startedEarly) {
+      setQuizPreparation(null);
+      if (progressiveQuestions.length < count) setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. Preparation stopped: ${result.reason || result.error || "Remaining questions did not pass review."}`);
+      return;
+    }
     const attachObjectiveTexts = (items) => items.map((question) => ({
       ...question,
       objectiveTexts: question.objectiveTexts?.length
@@ -1470,7 +1501,7 @@ export function LectureStudyFlow({
   const prefetchQuizRef = useRef(null);
   const prefetchInFlightRef = useRef(false);
   useEffect(() => {
-    if (!questions?.length || !lecture?.id || !userId || schoolExamplesLoading || prefetchInFlightRef.current) return;
+    if (!backgroundReserveEnabled || quizPreparation || busy || !questions?.length || !lecture?.id || !userId || schoolExamplesLoading || prefetchInFlightRef.current) return;
     const key = `${userId}:${lecture.id}:${quizSessionId}`;
     if (prefetchQuizRef.current === key) return;
     prefetchQuizRef.current = key;
@@ -1481,7 +1512,7 @@ export function LectureStudyFlow({
       && hasCurrentReasoningAudit(question) && !activeStems.has(question.stem));
     if (unused.length >= PREPARE_BATCH_SIZE * 2) return;
     prefetchInFlightRef.current = true;
-    void prepareObjectiveQuiz({
+    void (async () => prepareObjectiveQuiz({
       objectives: orderedObjectives, evidenceModel: learnerEvidence.data,
       lectureTitle: title, lectureText: text, lectureIdHint: lecture.id, blockId, atoms, userId,
       difficulty: questions[0]?.difficulty || resolveDefaultDifficulty(qStats.accuracy), generationVersion: "v2",
@@ -1489,10 +1520,10 @@ export function LectureStudyFlow({
       avoidStems: [...history, ...questions].map(question => question.stem).filter(Boolean),
       avoidQuestions: [...history, ...questions],
     }, {
-      callAIJSON, maxPrepareAttempts: 2,
+      ...await questionPreparationDeps(callAIJSON), maxPrepareAttempts: 1, maxPreparationMs: 90000, prepareConcurrency: 1,
       onAccepted: batch => generatedQuestionsStore.addQuestions(userId, lecture.id, batch),
-    }).catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
-  }, [questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
+    }))().catch(() => {}).finally(() => { prefetchInFlightRef.current = false; });
+  }, [backgroundReserveEnabled, quizPreparation, busy, questions, lecture?.id, userId, quizSessionId, schoolExamplesLoading, orderedObjectives,
     learnerEvidence.data, title, text, blockId, atoms, schoolExemplars, clinicalCorrelateLibrary, qStats.accuracy]);
 
   const reviewableQuizQuestions = lecture?.id
@@ -1628,6 +1659,12 @@ export function LectureStudyFlow({
             )}
           </div>
         )}
+        {objectiveNotice && <p role="status" className="mb-3 text-sm text-text-2">{objectiveNotice}</p>}
+        <details className="mb-3 text-sm text-text-2"><summary>Practice options</summary>
+        <label className="mt-2 flex items-center gap-2">
+          <input type="checkbox" checked={backgroundReserveEnabled} onChange={event => setBackgroundReserveEnabled(event.target.checked)} />
+          Prepare up to 3 fresh reserve questions while I practice (90-second budget)
+        </label></details>
         <AtomQuiz
           key={quizSessionId}
           questions={questions}
@@ -1638,10 +1675,10 @@ export function LectureStudyFlow({
           blockName={blockName}
           lectureNumber={lecture?.lectureNumber ?? lecture?.number ?? null}
           userId={userId}
-          expectedCount={quizPreparation?.requested || questions.length}
+          expectedCount={activeRequestedCount || questions.length}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
           onCheckpoint={checkpointLectureQuiz}
-          onExit={() => { setQuestions(null); setQuizResumeState(null); }}
+          onExit={() => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); }}
           onAnswer={() => {
             // Opening or abandoning a quiz is not study activity. Record the
             // lecture only after the learner actually submits an answer, once
@@ -1650,7 +1687,7 @@ export function LectureStudyFlow({
             loggedQuizActivityRef.current = quizSessionId;
             logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
-          onReviewAtom={(atomKey) => { setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
+          onReviewAtom={(atomKey) => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             setCompletedQuizSessionId(quizSessionId);
             lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);

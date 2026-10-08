@@ -67,3 +67,13 @@ route completed 15/15 in 252 seconds; compact output completed 15/15 in 228 seco
 for every lecture or provider load. A lower drafting-effort experiment did not
 reliably fill the batch and was rejected; Codex retains its configured effort for
 both writing and review. The quota-triggered Ollama Cloud fallback is preserved.
+
+### Progressive practice and bounded reserve
+
+Lecture quizzes open after three independently reviewed questions (or the requested count for shorter quizzes). Later accepted batches append to the same session without resetting answers. The header retains the requested total. If preparation stops short, practice remains available and explicitly reports the shortfall. At the available-question frontier, Next waits while preparation is active. Exiting prevents late callbacks from reopening the quiz; already accepted questions remain saved.
+
+Practice options exposes an opt-in reserve of at most three fresh questions per quiz, one drafting attempt and a shared 90-second drafting/review budget. It waits until foreground preparation finishes and uses the same Codex-first, quota-aware Ollama Cloud route. It never marks reserve questions seen or completed.
+
+Preparation reuses only independently verified relationship quotations that still occur in the current lecture as objective scaffolds. This does not reuse old scenarios and does not bypass review. On a first run, the existing objective question-plan contract constructs the source-grounded plan; subsequent runs can reuse verified relationships.
+
+A review whose sole defect is weak_explanation can provide a prose-only correction. Stem, choices, correct key and objective IDs must be identical. The corrected explanation and option rationales undergo a separate full review once; unsupported facts, ambiguous keys and reasoning shortcuts still require a new question.

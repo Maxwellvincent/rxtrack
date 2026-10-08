@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import {
+  objectiveReasoningScaffolds,
   sortWeakestFirst,
   buildAdaptiveObjectivePlan,
   remainingObjectiveAllocation,
@@ -840,4 +841,14 @@ it("uses the active lecture text when its detail view does not pass a lecture co
     lectureIdHint: "active", lectureTitle: "Active lecture", lectureText: "Calcium entry triggers vesicle fusion. " + LECTURE_BODY, questionCount: 3 });
   expect(config.lectureText).toContain("Calcium entry triggers vesicle fusion.");
   expect(config.lectureText).toContain(LECTURE_BODY);
+});
+
+describe("objective reasoning scaffolds", () => {
+  const quote = "A selective intervention blocks calcium entry and vesicle fusion.";
+  const question = { objectiveIds: ["o1"], reasoningAudit: { version: 2, status: "verified", connectedChain: true, singleEndpoint: true, choiceShortcut: false, orderLevel: "second-order", sourceQuotes: [quote] } };
+  it("uses only reviewed relationships still present in the current lecture", () => {
+    expect(objectiveReasoningScaffolds([{ id: "o1" }], [question], quote)[0]?.sourceQuotes).toEqual([quote]);
+    expect(objectiveReasoningScaffolds([{ id: "o1" }], [question], "updated source")).toEqual([]);
+    expect(objectiveReasoningScaffolds([{ id: "other" }], [question], quote)).toEqual([]);
+  });
 });
