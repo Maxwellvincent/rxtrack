@@ -15,7 +15,7 @@ import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { LectureReviewLog } from "./LectureReviewLog.jsx";
-import { questionPreparationDeps } from "../../../questionPreparation.js";
+import { questionPreparationDeps, QUESTION_PREPARATION_BUDGET_MS } from "../../../questionPreparation.js";
 import {
   fetchLectureContent,
   fetchLectureSourceUrl,
@@ -1425,7 +1425,7 @@ export function LectureStudyFlow({
         },
       },
       (progress) => { if (preparationRunRef.current === runId) setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready }); }
-    ), 360000, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message }));
+    ), QUESTION_PREPARATION_BUDGET_MS, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message }));
     if (preparationRunRef.current !== runId) return;
     setBusy("");
     if (startedEarly) {

@@ -1046,6 +1046,12 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
       if (cfg.requireReasoningAudit && review?.approved === true && !verifyReasoningReview(review, question, cfg)) {
         return [{ objectiveIds: question.objectiveIds || [], issues: ["unverifiable_reasoning"], rationale: "The reviewer could not verify the source quotes or reasoning. Use exact contiguous lecture excerpts; do not paraphrase or join separated table columns. Construct a new source-supported causal task." }];
       }
+      const target = (cfg.objectives || []).find(o => (question.objectiveIds || []).includes(String(o.id || o.code)))?._targetOrder;
+      const reasoning = cfg.requireReasoningAudit && review?.approved === true ? verifyReasoningReview(review, question, cfg) : null;
+      const levels = ["first-order", "second-order", "third-order"];
+      if (target && reasoning && levels.indexOf(reasoning.orderLevel) < levels.indexOf(normalizeQuestionOrder(target))) {
+        return [{ objectiveIds: question.objectiveIds || [], issues: ["insufficient_reasoning_depth"], rationale: `Reviewer verified ${reasoning.orderLevel}; this objective requires ${normalizeQuestionOrder(target)}. Generate the missing causal inference rather than relabeling the question.` }];
+      }
       return review?.approved === false ? [{ objectiveIds: question.objectiveIds || [], issues: review.issues || [], rationale: String(review.rationale || "").slice(0, 600) }] : [];
     });
     if (!reviews.length) return keepLocallyValidated(raw.error || "malformed reviewer response");
@@ -1161,12 +1167,15 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
           // must not erase otherwise structurally sound questions.
         }
       }
-      return { ...keepLocallyValidated("reviewer rejected the batch after repair"), rejections };
+      const reasons = [...new Set(rejections.flatMap(item => item.issues || []))].slice(0, 4).join(", ");
+      return { ...keepLocallyValidated(`reviewer rejected the batch after repair${reasons ? `: ${reasons}` : ""}`), rejections };
     }
     return {
       questions: distinctApproved,
       rejections,
       rejectedCount: questions.length - distinctApproved.length,
+      error: !distinctApproved.length && cfg.requireReasoningAudit
+        ? `Reasoning verification failed: ${[...new Set(rejections.flatMap(item => item.issues || []))].slice(0, 4).join(", ") || "no item passed all source, objective, structure and reasoning checks"}. No unverified items were counted as advanced practice.` : null,
       warning: raw.error || (distinctApproved.length < questions.length ? `${questions.length - distinctApproved.length} generated question${questions.length - distinctApproved.length === 1 ? "" : "s"} failed independent review or duplicated another item and were withheld.` : null),
     };
   } catch (error) {

@@ -1,15 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 vi.mock("./llmBridge.js", () => ({ questionPreparationCapabilities: vi.fn() }));
 import { questionPreparationCapabilities } from "./llmBridge.js";
-import { questionPreparationDeps, resetQuestionProviderLimit } from "./questionPreparation.js";
+import { questionPreparationDeps, resetQuestionProviderLimit, QUESTION_PREPARATION_BUDGET_MS } from "./questionPreparation.js";
 
 beforeEach(() => { resetQuestionProviderLimit(); questionPreparationCapabilities.mockResolvedValue({ writer: "ollama-cloud", reviewer: "codex" }); });
 afterEach(() => { vi.useRealTimers(); });
 describe("question preparation routing", () => {
-  it("keeps local generation serial when separate resources are unavailable", async () => {
+  it("fails promptly instead of silently using local Ollama when the route is unavailable", async () => {
     questionPreparationCapabilities.mockResolvedValue(null);
     const call = vi.fn();
-    expect(await questionPreparationDeps(call)).toEqual({ callAIJSON: call, prepareConcurrency: 1 });
+    await expect(questionPreparationDeps(call)).rejects.toThrow("provider route is unavailable");
+    expect(call).not.toHaveBeenCalled();
   });
   it("uses Codex for both independent calls while preserving strict routing", async () => {
     const call = vi.fn().mockResolvedValue({});
@@ -18,6 +19,8 @@ describe("question preparation routing", () => {
     await deps.reviewAIJSON("system", "review", {}, 8000, undefined, undefined, { timeoutMs: 987 });
     expect(call.mock.calls.every(args => args[6].bridgeBackend === "codex" && args[6].bridgeOnly && args[6].bridgeBackendOnly)).toBe(true);
     expect(deps.reviewBatchSize).toBe(5);
+    expect(deps.maxPreparationMs).toBe(QUESTION_PREPARATION_BUDGET_MS);
+    expect(QUESTION_PREPARATION_BUDGET_MS).toBe(180000);
   });
   it("switches drafts and subsequent reviews after a real usage limit", async () => {
     const call = vi.fn().mockRejectedValueOnce(new Error("You've hit your usage limit. Try again in 2 hours")).mockResolvedValue({ ready: true });

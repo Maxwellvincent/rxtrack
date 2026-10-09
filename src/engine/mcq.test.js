@@ -806,6 +806,8 @@ describe("separate reasoning review gate", () => {
       } }] }),
     });
     expect(result.questions).toEqual([]);
+    expect(result.rejections[0].issues).toEqual(["insufficient_reasoning_depth"]);
+    expect(result.error).toContain("insufficient_reasoning_depth");
   });
   it("withholds self-labeled advanced questions if the separate review has no chain", async () => {
     const result = await auditGeneratedQuestions([question], cfg, { reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: true, issues: [] }] }), skipRepair: true });
@@ -888,3 +890,13 @@ it("preserves a drafting plan for independent review without treating it as appr
      expect(explanationOnlyReplacement(question, { ...review, issues: ["weak_explanation", "unsupported_fact"] })).toBeNull();
    });
  });
+
+it("reports actual reviewer defects when strict preparation skips whole-batch repair", async () => {
+  const question = { stem: "A patient develops edema after ischemia. Which mechanism explains the intracellular swelling?", choices: { A: "Pump failure", B: "Protein leakage" }, correct: "A", objectiveIds: ["o1"], explanation: "ATP depletion impairs pumps." };
+  const result = await auditGeneratedQuestions([question], { requireReasoningAudit: true }, {
+    skipRepair: true, reviewAIJSON: async () => ({ reviews: [{ index: 0, approved: false, issues: ["unsupported_fact"], rationale: "The source does not support the discriminator." }] }),
+  });
+  expect(result.questions).toEqual([]);
+  expect(result.error).toContain("unsupported_fact");
+  expect(result.rejections[0].rationale).toContain("discriminator");
+});

@@ -1,5 +1,7 @@
 import { questionPreparationCapabilities } from "./llmBridge.js";
 
+export const QUESTION_PREPARATION_BUDGET_MS = 180_000;
+
 const LIMIT_KEY = "rxt_codex_lecture_limit_until";
 const RECHECK_MS = 15 * 60_000;
 let limitedUntil = 0;
@@ -33,7 +35,7 @@ export async function questionPreparationDeps(callAIJSON) {
   const capability = await questionPreparationCapabilities();
   const cloudAvailable = capability?.writer === "ollama-cloud" || capability?.fallbackWriter === "ollama-cloud";
   if (!cloudAvailable || capability?.reviewer !== "codex") {
-    return { callAIJSON, prepareConcurrency: 1 };
+    throw new Error("Lecture question provider route is unavailable. Check the bridge connection and reload RxTrack; generation was stopped before falling back to local Ollama.");
   }
   const routed = async (...params) => {
     const options = params[6] || {};
@@ -67,6 +69,6 @@ export async function questionPreparationDeps(callAIJSON) {
     prepareConcurrency: 3, prepareBatchSize: 5, reviewBatchSize: 5,
     // Permit one reviewed refill wave after the parallel initial drafts.
     // This is a shared ceiling, not a fresh timeout for each request.
-    maxPreparationMs: 360_000,
+    maxPreparationMs: QUESTION_PREPARATION_BUDGET_MS,
   };
 }
