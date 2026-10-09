@@ -89,7 +89,7 @@ export const completionKey = (lectureId, blockId) => `${lectureId}__${blockId}`;
  * @returns {{store: object, key: string, entry: object}|null} null when there is
  *   nothing to record, so a caller can skip the write entirely.
  */
-export function appendActivity(store, { lectureId, blockId, activityType, confidenceRating, date, examDate, durationMinutes = null, note = null, now = new Date(), id }) {
+export function appendActivity(store, { lectureId, blockId, activityType, confidenceRating, date, examDate, durationMinutes = null, note = null, reviewKind = null, now = new Date(), id }) {
   if (!lectureId || !blockId) return null;
 
   const activityDate = toDateString(date, localDateString(now));
@@ -103,6 +103,7 @@ export function appendActivity(store, { lectureId, blockId, activityType, confid
     confidenceRating: confidenceRating || "okay",
     durationMinutes,
     note,
+    ...(reviewKind ? { reviewKind } : {}),
   };
 
   // Newest first — the trend calculation reads the head of this list.

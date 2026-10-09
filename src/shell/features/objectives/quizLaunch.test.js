@@ -303,6 +303,7 @@ describe("prepareObjectiveQuiz", () => {
       { objectives: [], atoms: [{ term: "Histamine", content: "Histamine stimulates cyclic AMP in parietal cells." }], questionCount: 10 },
       { callAIJSON, prepareConcurrency: 2, maxPrepareAttempts: 3, skipQuestionAudit: true, onAccepted }
     );
+    await Promise.resolve();
     pending[0]({ questions: [{ stem: "A patient develops reduced gastric acid secretion after a histamine receptor antagonist. Which signaling mechanism accounts for this finding?", choices: { A: "Reduced cyclic AMP", B: "Increased calcium", C: "Nuclear transcription", D: "Increased chloride transport" }, correct: "A" }] });
     await vi.waitFor(() => expect(callAIJSON).toHaveBeenCalledTimes(3));
     expect(onAccepted).toHaveBeenCalledOnce();
@@ -332,6 +333,7 @@ describe("prepareObjectiveQuiz", () => {
       { objectives: [], atoms: [{ term: "Source", content: "Lecture evidence." }], questionCount: 10 },
       { callAIJSON, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true }
     );
+    await Promise.resolve();
     expect(callAIJSON).toHaveBeenCalledTimes(2);
     for (const resolve of pending) resolve({ error: "provider unavailable" });
     const result = await preparation;
@@ -347,6 +349,7 @@ describe("prepareObjectiveQuiz", () => {
       { objectives: [], atoms: [{ term: "Source", content: "Lecture evidence." }], questionCount: 15 },
       { callAIJSON, prepareConcurrency: 3, prepareBatchSize: 5, maxPrepareAttempts: 3, skipQuestionAudit: true }
     );
+    await Promise.resolve();
     expect(callAIJSON).toHaveBeenCalledTimes(3);
     for (const resolve of pending) resolve({ error: "provider unavailable" });
     const result = await preparation;
@@ -851,4 +854,28 @@ describe("objective reasoning scaffolds", () => {
     expect(objectiveReasoningScaffolds([{ id: "o1" }], [question], "updated source")).toEqual([]);
     expect(objectiveReasoningScaffolds([{ id: "other" }], [question], quote)).toEqual([]);
   });
+});
+
+it('returns at the shared deadline even when an adapter ignores timeout options', async () => {
+  vi.useFakeTimers();
+  try {
+    const task = prepareObjectiveQuiz({ lectureText: LECTURE_BODY, lectureTitle: 'Brachial plexus', questionCount: 3 }, {
+      callAIJSON: () => new Promise(() => {}), maxPreparationMs: 100, maxPrepareAttempts: 1,
+    });
+    await vi.advanceTimersByTimeAsync(101);
+    const result = await task;
+    expect(result.questions).toHaveLength(0);
+    expect(result.error || result.reason).toMatch(/timed out|time budget/);
+  } finally { vi.useRealTimers(); }
+});
+
+it('cancels an unresponsive adapter without waiting for the full preparation budget', async () => {
+  const controller = new AbortController();
+  const callAIJSON = vi.fn(() => new Promise(() => {}));
+  const task = prepareObjectiveQuiz({ lectureText: LECTURE_BODY, lectureTitle: 'Brachial plexus', questionCount: 3 }, { callAIJSON, signal: controller.signal, maxPrepareAttempts: 1 });
+  await Promise.resolve();
+  controller.abort(new Error('User stopped preparation'));
+  const result = await task;
+  expect(result.questions).toHaveLength(0);
+  expect(result.error || result.reason).toMatch(/stopped/);
 });

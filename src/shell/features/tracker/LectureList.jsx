@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import * as atomProgressStore from "../../../stores/atomProgress.js";
 import { useStoreResource } from "../../hooks/useStoreResource.js";
+import { lectureReviewStats } from "../lectures/lectureReviewStats.js";
 import { RenameLecture } from "../lectures/RenameLecture.jsx";
 import { useToday } from "../today/useToday.js";
 import { useLectureQuestionStats } from "../../hooks/useLectureQuestionStats.js";
@@ -149,6 +150,7 @@ function Row({ row, userId, stats, onStudy, onQuiz, onLog, onUpdateDate, onPreRe
             {row.completedToday && <span className="rounded bg-good/10 px-1.5 py-0.5 font-bold text-good">studied today</span>}
             <span className="desk-lecture-stat">{row.total > 0 ? `${row.mastered}/${row.total} objectives` : "No objectives linked"}</span>
             {row.struggling > 0 && <span className="desk-lecture-stat desk-lecture-stat--warn">{row.struggling} struggling</span>}
+            {stats?.slideReviews > 0 && <span className="desk-lecture-stat">{stats.slideReviews} slide reviews</span>}
             {answered > 0 && <span className="desk-lecture-stat" title={`${stats.correct} of ${answered} correct`}>{answered} questions · <span className={accuracy >= 85 ? "text-good" : accuracy >= 70 ? "text-accent" : "text-bad"}>{accuracy}%</span></span>}
             {!answered && <span className="desk-lecture-stat">{row.sessions > 0 ? `${row.sessions} sessions` : row.hasPreRead ? "Pre-read only" : "Not started"}</span>}
           </div>
@@ -606,7 +608,7 @@ export function LectureList({
             <Row
               key={row.lectureId}
               row={row}
-              stats={questionStats.data?.[row.lectureId]}
+              stats={{ ...questionStats.data?.[row.lectureId], slideReviews: lectureReviewStats(context.completion?.[`${row.lectureId}__${blockId}`]).count }}
               busy={quizBusyLectureId}
               onStudy={onStudyLecture}
               onQuiz={onQuiz}

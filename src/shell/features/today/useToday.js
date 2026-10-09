@@ -159,7 +159,7 @@ export function useToday(blockId, userId, { now } = {}) {
 
   const mutateCompletion = completion.mutate;
   const logActivity = useCallback(
-    ({ lectureId, activityType, confidenceRating, durationMinutes = null, note = null }) => {
+    ({ lectureId, activityType, confidenceRating, durationMinutes = null, note = null, reviewKind = null }) => {
       const uid = userId ?? getStoreHookUserId();
       const current = completionStore.read(uid) || {};
       const result = appendActivity(current, {
@@ -170,6 +170,7 @@ export function useToday(blockId, userId, { now } = {}) {
         examDate: context.examDate,
         durationMinutes,
         note,
+        reviewKind,
         now: new Date(),
       });
       if (!result) return null;

@@ -1,3 +1,4 @@
+import { withDeadline } from "../../../asyncDeadline.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 /**
  * SP1 T1.3 — the objective-quiz launch contract for the shell.
@@ -573,7 +574,10 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     if (remaining <= 0) return Promise.reject(new Error(preparationTimeout));
     const options = params[6] || {};
     params[6] = { ...options, timeoutMs: Math.min(Number(options.timeoutMs) || remaining, remaining) };
-    return call(...params);
+    return withDeadline(signal => {
+      params[6] = { ...params[6], signal };
+      return call(...params);
+    }, params[6].timeoutMs, options.signal || deps.signal, "Question preparation");
   } : call;
   const boundedDeps = {
     ...deps,
@@ -619,8 +623,8 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
   let nextAttempt = 1;
   const pendingJobs = new Map();
   while ((nextAttempt <= attempts || pendingJobs.size) && accepted.length < requested) {
-    if (Date.now() >= preparationDeadline) {
-      lastError = preparationTimeout;
+    if (deps.signal?.aborted || Date.now() >= preparationDeadline) {
+      lastError = deps.signal?.aborted ? "Question preparation stopped. Reviewed questions are saved." : preparationTimeout;
       break;
     }
     const reserved = [...pendingJobs.values()].flatMap(job => job.reserved);
@@ -671,7 +675,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
         avoidStems: [...(args.avoidStems || []), ...accepted.map(question => question.stem)],
-      }, boundedDeps).then(result => ({ attempt, result }));
+      }, boundedDeps).then(result => ({ attempt, result }), error => ({ attempt, result: { questions: [], error: error?.message || String(error) } }));
       pendingJobs.set(attempt, { promise, reserved: reserved.slice(reservationStart) });
     }
     if (!pendingJobs.size) break;

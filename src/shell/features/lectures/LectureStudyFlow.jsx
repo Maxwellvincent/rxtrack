@@ -13,6 +13,8 @@ import { TutorMessage } from "../../../ui/TutorMessage.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { callAIJSON } from "../../../aiClient.js";
+import { withDeadline } from "../../../asyncDeadline.js";
+import { LectureReviewLog } from "./LectureReviewLog.jsx";
 import { questionPreparationDeps } from "../../../questionPreparation.js";
 import {
   fetchLectureContent,
@@ -1249,8 +1251,7 @@ export function LectureStudyFlow({
     if (r.error) { setError(r.error); return; }
     if (!r.questions?.length) {
       setError(
-        "No questions came back. The local bridge was unreachable and the cloud provider returned " +
-        "nothing — check that llm-bridge is running, or the console for the bridge reason."
+        result.reason || result.error || "No reviewed questions were prepared. Please retry."
       );
       return;
     }
@@ -1293,11 +1294,15 @@ export function LectureStudyFlow({
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
   const preparationRunRef = useRef(0);
+  const preparationControllerRef = useRef(null);
   const [activeRequestedCount, setActiveRequestedCount] = useState(null);
   const [backgroundReserveEnabled, setBackgroundReserveEnabled] = useState(false);
-  useEffect(() => () => { preparationRunRef.current += 1; }, [lecture?.id, userId]);
+  useEffect(() => () => { preparationRunRef.current += 1; preparationControllerRef.current?.abort(); }, [lecture?.id, userId]);
 
   const runQuiz = useCallback(async (count, difficulty) => {
+    preparationControllerRef.current?.abort();
+    const controller = new AbortController();
+    preparationControllerRef.current = controller;
     const runId = ++preparationRunRef.current;
     setActiveRequestedCount(count);
     const generationVersion = "v2";
@@ -1305,6 +1310,7 @@ export function LectureStudyFlow({
       setError("Your uploaded school examples are still loading. Try again in a moment.");
       return;
     }
+    try {
     setPendingQuiz(null);
     setBusy("Preparing quiz…"); setError(""); setObjectiveNotice(""); setQuestions(null);
     setQuizPreparation({ requested: count, ready: 0, attempt: 0, phase: "generating" });
@@ -1388,7 +1394,7 @@ export function LectureStudyFlow({
     };
     if (reserve.length) appendPrepared([]);
 
-    const result = await prepareObjectiveQuiz(
+    const result = await withDeadline(async (signal) => prepareObjectiveQuiz(
       {
         objectives: orderedObjectives,
         evidenceModel: learnerEvidence.data,
@@ -1412,13 +1418,14 @@ export function LectureStudyFlow({
       },
       {
         ...await questionPreparationDeps(callAIJSON),
+        signal,
         onAccepted: (questions) => {
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
           appendPrepared(questions);
         },
       },
       (progress) => { if (preparationRunRef.current === runId) setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready }); }
-    );
+    ), 360000, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message }));
     if (preparationRunRef.current !== runId) return;
     setBusy("");
     if (startedEarly) {
@@ -1474,8 +1481,7 @@ export function LectureStudyFlow({
     if (progressiveQuestions.length < count && !result.questions?.length) {
       setQuizPreparation(null);
       setError(
-        "No questions came back. The local bridge was unreachable and the cloud provider returned " +
-        "nothing — check that llm-bridge is running, or the console for the bridge reason."
+        result.reason || result.error || "No reviewed questions were prepared. Please retry."
       );
       return;
     }
@@ -1494,6 +1500,9 @@ export function LectureStudyFlow({
     setAdHocQuiz(true);
     startQuizSession(questionsWithObjectiveText);
     setQuizPreparation(null);
+    } catch (error) {
+      if (preparationRunRef.current === runId) { setBusy(""); setQuizPreparation(null); setError(error?.message || "Quiz preparation failed. Please retry."); }
+    }
   }, [orderedObjectives, title, text, blockId, atoms, userId, lecture?.id, logActivity, startQuizSession, schoolExemplars, schoolExamplesLoading, clinicalCorrelateLibrary, objectiveById, learnerEvidence.data]);
 
   // Prepare at most one small reserve batch per active quiz, never on page load.
@@ -1598,7 +1607,8 @@ export function LectureStudyFlow({
           <span className="font-mono text-xs text-text-3">{title} · figures</span>
           {busyLabel && <span className="font-mono text-[13px] text-text-3">{busyLabel}</span>}
         </div>
-        {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
+        {quizPreparation && <button type="button" className="mb-3 text-sm underline text-text-2" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparation · keep ready questions</button>}
+      {error && <div className="mb-3 rounded-lg border border-bad bg-bg-elevated p-3 text-xs text-bad">{error}</div>}
         <FigureReview
           figures={figures}
           busy={busy}
@@ -1659,6 +1669,7 @@ export function LectureStudyFlow({
             )}
           </div>
         )}
+        {quizPreparation && <button type="button" className="mb-2 text-sm underline" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparing more · keep ready questions</button>}
         {objectiveNotice && <p role="status" className="mb-3 text-sm text-text-2">{objectiveNotice}</p>}
         <details className="mb-3 text-sm text-text-2"><summary>Practice options</summary>
         <label className="mt-2 flex items-center gap-2">
@@ -1678,7 +1689,7 @@ export function LectureStudyFlow({
           expectedCount={activeRequestedCount || questions.length}
           preparing={!!quizPreparation && quizPreparation.ready < quizPreparation.requested}
           onCheckpoint={checkpointLectureQuiz}
-          onExit={() => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); }}
+          onExit={() => { preparationRunRef.current += 1; preparationControllerRef.current?.abort(); setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); }}
           onAnswer={() => {
             // Opening or abandoning a quiz is not study activity. Record the
             // lecture only after the learner actually submits an answer, once
@@ -1687,7 +1698,7 @@ export function LectureStudyFlow({
             loggedQuizActivityRef.current = quizSessionId;
             logActivity?.({ lectureId: lecture?.id, activityType: "deep_learn", confidenceRating: null });
           }}
-          onReviewAtom={(atomKey) => { preparationRunRef.current += 1; setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
+          onReviewAtom={(atomKey) => { preparationRunRef.current += 1; preparationControllerRef.current?.abort(); setBusy(""); setQuizPreparation(null); setActiveRequestedCount(null); setQuestions(null); setQuizResumeState(null); setReviewAtomKey(atomKey); }}
           onDone={({ correct = 0, total = 0, avgConfidence = 0, hasLandmines = false, records = [] } = {}) => {
             setCompletedQuizSessionId(quizSessionId);
             lectureQuizSessionsStore.remove(userId, quizMetaRef.current?.id);
@@ -1879,6 +1890,7 @@ export function LectureStudyFlow({
       </div>
       <p className="mb-1 font-condensed text-xs font-semibold uppercase tracking-[0.16em] text-accent">Lecture</p>
       <h2 className="max-w-4xl text-2xl font-bold leading-tight text-text-1 sm:text-3xl">{renamedTitle || title}</h2>
+      <LectureReviewLog key={`${userId}:${lecture?.id}`} userId={userId} lectureId={lecture?.id} blockId={blockId} logActivity={logActivity} />
       {lecture?.sourceFiles?.length > 0 && (
         <details className="mt-3 max-w-4xl rounded-lg border border-border bg-panel px-3 py-2">
           <summary className="cursor-pointer text-sm font-semibold text-text-2">
