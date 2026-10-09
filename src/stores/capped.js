@@ -97,4 +97,10 @@ export function applyLocalCap(key, value) {
  * 51 files, 618KB — so a local copy is dead weight that only competes with the
  * store for the same document.
  */
-export const SKIP_ON_PULL = new Set(["rxt-dl-sessions", "rxt-question-banks"]);
+// These stores already hydrate directly from Firestore; restoring kv copies
+// into localStorage duplicates data without improving offline durability.
+export const SKIP_ON_PULL = new Set([
+  "rxt-dl-sessions", "rxt-question-banks", "rxt-gen-questions",
+  "rxt-lecture-quiz-sessions", "rxt-lecture-qstats", "rxt-learner-evidence-v1",
+  "rxt-question-ratings-v1", "rxt-question-style-profile-v1",
+]);

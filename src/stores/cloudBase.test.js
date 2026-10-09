@@ -266,3 +266,17 @@ describe("listener errors", () => {
     expect(isHydrated("u1", "rxt-exam-dates")).toBe(true);
   });
 });
+
+it('reclaims a cloud-only duplicate only after a confirmed server snapshot', () => {
+  const key='rxt-gen-questions'; const data={lecture:[]};
+  localStorage.setItem(key,JSON.stringify(data));
+  readCloud('u1',key,{});
+  const listener=backend.listeners.get(docPathFor('u1',key).join('/'));
+  listener.next({exists:()=>true,data:()=>({data}),metadata:{fromCache:true,hasPendingWrites:false}});
+  expect(localStorage.getItem(key)).not.toBeNull();
+  listener.next({exists:()=>true,data:()=>({data}),metadata:{fromCache:false,hasPendingWrites:false}});
+  expect(localStorage.getItem(key)).toBeNull();
+  localStorage.setItem(key,JSON.stringify({lecture:['unsynced']}));
+  listener.next({exists:()=>true,data:()=>({data}),metadata:{fromCache:false,hasPendingWrites:false}});
+  expect(JSON.parse(localStorage.getItem(key)).lecture).toEqual(['unsynced']);
+});

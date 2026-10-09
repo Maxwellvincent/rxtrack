@@ -1,3 +1,5 @@
+import { releaseConfirmedCloudCopy } from "../browserStorage.js";
+import { SKIP_ON_PULL } from "./capped.js";
 /**
  * Firestore-backed store primitives — the same read/write/subscribe contract
  * `base.js` exposes, with Firestore as the source of truth instead of a
@@ -182,6 +184,10 @@ export function ensureSubscribed(userId, logicalKey) {
       entry.value = snap.exists() ? snap.data()?.data : undefined;
       entry.hydrated = true;
       entry.error = null;
+      if (SKIP_ON_PULL.has(logicalKey) && snap.metadata?.fromCache === false && snap.metadata?.hasPendingWrites === false) {
+        releaseConfirmedCloudCopy(logicalKey, entry.value);
+        releaseConfirmedCloudCopy(`rxt:${userId}:${logicalKey}`, entry.value);
+      }
       // A change made on another device has to reach App's copy too.
       mirrorLocally(userId, logicalKey, entry.value);
       notifyStoreChanged(logicalKey, { userId, source: "firestore" });

@@ -1,3 +1,4 @@
+import { releaseConfirmedCloudCopy } from "./browserStorage.js";
 // Firebase Auth + Firestore + Storage — the sole backend (Task 3: auth
 // cutover; Task 4: JSON-doc primitives; Task 5: push/pull/kv; Task 6:
 // mcq/images/recognition tables). The Supabase JS client and its stub
@@ -814,7 +815,14 @@ export async function pullUserKvFromSupabase(userId) {
       const val = d.data()?.data;
       if (val == null) return;
       const key = decodeDocId(d.id);
-      if (SKIP_ON_PULL.has(key)) return; // lives in its own collection now
+      if (SKIP_ON_PULL.has(key)) {
+        // Only redundant, byte-identical cloud copies can be reclaimed.
+        if (snap.metadata?.fromCache === false && snap.metadata?.hasPendingWrites === false) {
+          releaseConfirmedCloudCopy(key, val);
+          releaseConfirmedCloudCopy(`rxt:${userId}:${key}`, val);
+        }
+        return;
+      } // read directly from cloud stores
       try {
         // Same cap on the way in: a pull must not restore the whole history
         // that the push just declined to mirror.

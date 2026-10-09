@@ -1,15 +1,16 @@
+import { readPreference, writePreference, storageReport } from "../../../browserStorage.js";
 import { useState, useCallback } from "react";
 
 function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${new Date().toDateString()}`; }
 function lecConfigKey(blockId) { return `rxt-lecconfig-${blockId}`; }
 
 function readSleepWake(blockId) {
-  try { return JSON.parse(localStorage.getItem(sleepWakeKey(blockId)) || "{}"); }
+  try { return JSON.parse(readPreference(sleepWakeKey(blockId)) || "{}"); }
   catch { return {}; }
 }
 function readLecConfig(blockId) {
   try {
-    const raw = localStorage.getItem(lecConfigKey(blockId));
+    const raw = readPreference(lecConfigKey(blockId));
     if (raw) return { smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30", ...JSON.parse(raw) };
     const oldTime = localStorage.getItem(`rxt-lectime-${blockId}`);
     return { time: oldTime || "08:00", duration: 60, smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30" };
@@ -20,11 +21,14 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
   const [wakeTime, setWakeTime] = useState(() => readSleepWake(blockId).wakeTime ?? "");
   const [lecConfig, setLecConfig] = useState(() => readLecConfig(blockId));
 
+  const [storageNotice, setStorageNotice] = useState("");
+  const [report, setReport] = useState(null);
   const commit = useCallback(() => {
-    localStorage.setItem(sleepWakeKey(blockId), JSON.stringify({ wakeTime: wakeTime || null }));
-    localStorage.setItem(lecConfigKey(blockId), JSON.stringify(lecConfig));
+    const wakeSaved = writePreference(sleepWakeKey(blockId), JSON.stringify({ wakeTime: wakeTime || null }));
+    const configSaved = writePreference(lecConfigKey(blockId), JSON.stringify(lecConfig));
     window.dispatchEvent(new CustomEvent("rxt-dayplan-settings-changed", { detail: { blockId } }));
-    onClose?.();
+    if (wakeSaved && configSaved) onClose?.();
+    else setStorageNotice("Browser storage is full. Settings apply for this session, but may reset after a reload.");
   }, [blockId, wakeTime, lecConfig, onClose]);
 
   return (
@@ -35,7 +39,7 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-14"
     >
-      <div className="w-full max-w-sm rounded-xl border border-border bg-bg p-5 shadow-xl">
+      <div className="w-full max-w-sm max-h-[80vh] overflow-y-auto rounded-xl border border-border bg-bg p-5 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-bold text-text-1">Daily plan settings</h2>
           <button onClick={onClose} className="font-mono text-xs text-text-3 hover:text-text-1">✕</button>
@@ -118,6 +122,13 @@ export function DailyPlanSettingsModal({ blockId, onClose }) {
           </div>
         </div>
 
+        {storageNotice && <p role="status" className="mt-3 text-sm text-text-2">{storageNotice}</p>}
+        <details className="mt-4 text-xs" onToggle={event => { if (event.currentTarget.open) setReport(storageReport()); }}>
+          <summary className="cursor-pointer text-text-2">Browser storage details</summary>
+          {report && <><p className="my-2">RxTrack records: approximately {(report.bytes / 1048576).toFixed(2)} MB. This measures browser records, not cloud storage.</p>
+            <ul>{report.entries.slice(0, 8).map((entry, index) => <li key={`${entry.key}:${index}`} className="break-all py-1">{entry.key} · {(entry.bytes / 1024).toFixed(0)} KB</li>)}</ul>
+            <p className="mt-2">Cloud-only duplicates are reclaimed only after an exact match with confirmed cloud data. Unsynced or differing records are preserved.</p></>}
+        </details>
         <div className="mt-5 flex justify-end gap-2">
           <button
             onClick={onClose}

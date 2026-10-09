@@ -1,3 +1,4 @@
+import { readPreference, writePreference } from "../../../browserStorage.js";
 import { useCallback, useState, useMemo, useEffect } from "react";
 import { Button } from "../../../ui/Button.jsx";
 import { useToday } from "./useToday.js";
@@ -23,12 +24,12 @@ const DAY_MODES = [
 ];
 
 function dayModeKey(blockId, todayKey) { return `rxt-day-mode-${blockId}-${todayKey}`; }
-function readDayMode(blockId, todayKey) { return localStorage.getItem(dayModeKey(blockId, todayKey)) || null; }
-function writeDayMode(blockId, todayKey, mode) { localStorage.setItem(dayModeKey(blockId, todayKey), mode); }
+function readDayMode(blockId, todayKey) { return readPreference(dayModeKey(blockId, todayKey)) || null; }
+function writeDayMode(blockId, todayKey, mode) { return writePreference(dayModeKey(blockId, todayKey), mode); }
 
 function sleepWakeKey(blockId) { return `rxt-sleepwake-${blockId}-${new Date().toDateString()}`; }
 function readSleepWake(blockId) {
-  try { return JSON.parse(localStorage.getItem(sleepWakeKey(blockId)) || "{}"); }
+  try { return JSON.parse(readPreference(sleepWakeKey(blockId)) || "{}"); }
   catch { return {}; }
 }
 
@@ -52,7 +53,7 @@ export function suggestedDayMode(daysLeft, wakeTime) {
 function lecConfigKey(blockId) { return `rxt-lecconfig-${blockId}`; }
 function readLecConfig(blockId) {
   try {
-    const raw = localStorage.getItem(lecConfigKey(blockId));
+    const raw = readPreference(lecConfigKey(blockId));
     if (raw) return { smallGroup: true, gymTime: "21:00", leaveHomeTime: "06:30", ...JSON.parse(raw) };
     // Migrate from old single-key format
     const oldTime = localStorage.getItem(`rxt-lectime-${blockId}`);
@@ -964,6 +965,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
     enabled: !workAhead.hidden,
   });
 
+  const [storageNotice, setStorageNotice] = useState("");
   const [dayMode, setDayMode] = useState(() => readDayMode(blockId, todayKey));
   const [modePickerOpen, setModePickerOpen] = useState(() => !readDayMode(blockId, todayKey));
   const [checked, setChecked] = useState(() => readChecked(blockId));
@@ -1013,7 +1015,8 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
 
   const handleDayMode = useCallback((m) => {
     setDayMode(m);
-    writeDayMode(blockId, todayKey, m);
+    const saved = writeDayMode(blockId, todayKey, m);
+    setStorageNotice(saved ? "" : "Browser storage is full. Your mode is active for this session but may reset after a reload.");
     setModePickerOpen(false);
   }, [blockId, todayKey]);
 
@@ -1189,6 +1192,7 @@ export function Today({ blockId, userId, onStudyLecture, onStartObjectiveQuiz, o
 
   return (
     <div className="desk-today today-page flex flex-col gap-5">
+      {storageNotice && <p role="status" className="text-sm text-text-2">{storageNotice}</p>}
       <section className="today-hero">
         <div className="today-hero-copy">
           <div className="today-eyebrow">{dateStr} · {examCountdown}</div>
