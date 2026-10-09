@@ -51,6 +51,18 @@ it("forwards the requested output budget to the local bridge", async () => {
   expect(JSON.parse(fetchMock.mock.calls[1][1].body).timeoutMs).toBe(2500);
 });
 
+it("forwards a named cloud tier without exposing a raw model id", async () => {
+  installDomStorage(); resetBridgeProbe();
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce({ ok: true })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ text: "ok", backend: "ollama-cloud" }) });
+  vi.stubGlobal("fetch", fetchMock);
+  await bridgeComplete({ prompt: "review", backend: "ollama-cloud", backendOnly: true, modelTier: "quality" });
+  const body = JSON.parse(fetchMock.mock.calls[1][1].body);
+  expect(body.modelTier).toBe("quality");
+  expect(body.model).toBeUndefined();
+});
+
 const NOW = 1_000_000;
 
 describe("probeIsFresh", () => {

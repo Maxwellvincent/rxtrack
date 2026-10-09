@@ -25,6 +25,7 @@ describe("question preparation routing", () => {
     await deps.callAIJSON("system", "draft");
     await deps.reviewAIJSON("system", "review");
     expect(call.mock.calls.map(args => args[6].bridgeBackend)).toEqual(["codex", "ollama-cloud", "ollama-cloud"]);
+    expect(call.mock.calls.slice(1).every(args => args[6].bridgeModelTier === "routine")).toBe(true);
   });
   it("does not disguise timeouts, outages or malformed JSON as a usage limit", async () => {
     for (const message of ["network failure", "timeout", "invalid JSON", "source review failed"]) {

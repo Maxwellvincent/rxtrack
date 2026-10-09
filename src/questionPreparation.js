@@ -43,7 +43,14 @@ export async function questionPreparationDeps(callAIJSON) {
       const remaining = deadline === null ? null : deadline - Date.now();
       if (remaining !== null && remaining <= 0) throw new Error("Question preparation deadline exceeded before provider fallback");
       const args = [...params];
-      args[6] = { ...options, ...(remaining === null ? {} : { timeoutMs: remaining }), bridgeBackend: backend, bridgeBackendOnly: true, bridgeOnly: true };
+      args[6] = {
+        ...options,
+        ...(remaining === null ? {} : { timeoutMs: remaining }),
+        bridgeBackend: backend,
+        bridgeBackendOnly: true,
+        bridgeOnly: true,
+        ...(backend === "ollama-cloud" ? { bridgeModelTier: "routine" } : {}),
+      };
       return callAIJSON(...args);
     };
     if (Date.now() < limitDeadline()) return call("ollama-cloud");

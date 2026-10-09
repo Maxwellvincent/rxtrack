@@ -103,6 +103,7 @@ export async function bridgeComplete(req) {
         timeoutMs: req.timeoutMs || 300_000,
         ...(req.backend ? { backend: req.backend } : {}),
         ...(req.backendOnly ? { backendOnly: true } : {}),
+        ...(req.modelTier ? { modelTier: req.modelTier } : {}),
       }),
     });
       if (!r.ok) {
