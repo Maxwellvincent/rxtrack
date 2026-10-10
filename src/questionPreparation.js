@@ -53,6 +53,7 @@ export async function questionPreparationDeps(callAIJSON) {
         bridgeOnly: true,
         ...(backend === "ollama-cloud" ? { bridgeModelTier: "routine" } : {}),
       };
+      options.onProviderEvent?.({ provider: backend });
       return callAIJSON(...args);
     };
     if (Date.now() < limitDeadline()) return call("ollama-cloud");

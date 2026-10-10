@@ -1,3 +1,5 @@
+import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
+import { QuestionPreparationDetails } from "./QuestionPreparationDetails.jsx";
 import { questionWritingBenchmarkPrompt } from "../../../engine/questionWritingStandard.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 import { TutorMessage } from "../../../ui/TutorMessage.jsx";
@@ -1293,6 +1295,8 @@ export function LectureStudyFlow({
       .sort((a, b) => rank(a) - rank(b));
   }, [lectureObjectives, focusObjectiveIds, learnerEvidence.data]);
 
+  const [preparationDetails, setPreparationDetails] = useState(null);
+  useEffect(() => { setPreparationDetails(readQuestionDiagnostics(userId, lecture?.id)); }, [userId, lecture?.id]);
   const preparationRunRef = useRef(0);
   const preparationControllerRef = useRef(null);
   const [activeRequestedCount, setActiveRequestedCount] = useState(null);
@@ -1305,6 +1309,7 @@ export function LectureStudyFlow({
     preparationControllerRef.current = controller;
     const runId = ++preparationRunRef.current;
     setActiveRequestedCount(count);
+    setPreparationDetails(null);
     const generationVersion = "v2";
     if (schoolExamplesLoading) {
       setError("Your uploaded school examples are still loading. Try again in a moment.");
@@ -1424,9 +1429,13 @@ export function LectureStudyFlow({
           appendPrepared(questions);
         },
       },
-      (progress) => { if (preparationRunRef.current === runId) setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready }); }
+      (progress) => { if (preparationRunRef.current === runId) {
+        setQuizPreparation({ ...progress, requested: count, ready: reserve.length + progress.ready });
+        if (progress.diagnostics) { const report = { ...progress.diagnostics, requested: count, accepted: reserve.length + progress.diagnostics.accepted }; setPreparationDetails(report); saveQuestionDiagnostics(userId, lecture?.id, report); }
+      } }
     ), QUESTION_PREPARATION_BUDGET_MS, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message }));
     if (preparationRunRef.current !== runId) return;
+    if (result.diagnostics) { const report = { ...result.diagnostics, requested: count, accepted: reserve.length + result.diagnostics.accepted }; setPreparationDetails(report); saveQuestionDiagnostics(userId, lecture?.id, report); }
     setBusy("");
     if (startedEarly) {
       setQuizPreparation(null);
@@ -1669,6 +1678,7 @@ export function LectureStudyFlow({
             )}
           </div>
         )}
+        <QuestionPreparationDetails report={preparationDetails} />
         {quizPreparation && <button type="button" className="mb-2 text-sm underline" onClick={() => preparationControllerRef.current?.abort(new Error("Question preparation stopped. Reviewed questions are saved."))}>Stop preparing more · keep ready questions</button>}
         {objectiveNotice && <p role="status" className="mb-3 text-sm text-text-2">{objectiveNotice}</p>}
         <details className="mb-3 text-sm text-text-2"><summary>Practice options</summary>
@@ -2462,6 +2472,7 @@ export function LectureStudyFlow({
             </div>
           )}
 
+          <QuestionPreparationDetails report={preparationDetails} />
           {quizPreparation && (
             <div role="status" aria-live="polite" className="rounded-xl border border-accent/40 bg-bg-elevated p-4">
               <div className="flex items-center justify-between gap-3 text-sm font-semibold text-text-1">
@@ -2487,7 +2498,7 @@ export function LectureStudyFlow({
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-border" aria-hidden="true">
                 <div className="h-full rounded-full bg-accent transition-all" style={{ width: `${Math.round((quizPreparation.ready / quizPreparation.requested) * 100)}%` }} />
               </div>
-              <p className="mt-2 text-xs text-text-3">Accepted questions stay saved while only missing slots are refilled. Replacement rounds generate a few spare candidates to reduce waiting.</p>
+              <p className="mt-2 text-xs text-text-3">Accepted questions stay saved while only missing slots are refilled. Small replacement rounds focus on the remaining objectives.</p>
             </div>
           )}
 

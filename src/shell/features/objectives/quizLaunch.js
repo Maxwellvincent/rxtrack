@@ -567,31 +567,42 @@ export function remainingObjectiveAllocation(plan = [], answered = [], limit = 5
 export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {}) {
   // Draft, review and repair share one wall-clock budget. Independent per-call
   // five-minute timeouts otherwise multiply into a very long preparation run.
-  const preparationDeadline = Date.now() + Math.max(1, Number(deps.maxPreparationMs) || 240000);
+  const startedAt = Date.now();
+  const diagnostics = { version: 1, requested: Number(args.questionCount) || 0, accepted: 0, calls: [], rejections: {}, source: { objectives: args.objectives?.length || 0, schoolExamples: args.exemplars?.length || 0 } };
+  const diagnosticSnapshot = () => ({ ...diagnostics, elapsedMs: Date.now() - startedAt, calls: diagnostics.calls.map(call => ({ ...call })), rejections: { ...diagnostics.rejections } });
+  const reportProgress = progress => onProgress({ ...progress, diagnostics: diagnosticSnapshot() });
+  const reject = issue => { diagnostics.rejections[issue] = (diagnostics.rejections[issue] || 0) + 1; };
+  const preparationDeadline = startedAt + Math.max(1, Number(deps.maxPreparationMs) || 240000);
   const preparationTimeout = "Question preparation timed out after its time budget. Reviewed questions are saved; retry only the missing slots or start with the ready questions.";
-  const boundCall = (call) => typeof call === "function" ? (...params) => {
+  const boundCall = (call, stage) => typeof call === "function" ? (...params) => {
     const remaining = preparationDeadline - Date.now();
     if (remaining <= 0) return Promise.reject(new Error(preparationTimeout));
     const options = params[6] || {};
     params[6] = { ...options, timeoutMs: Math.min(Number(options.timeoutMs) || remaining, remaining) };
+    const event = { stage, status: "running", startedMs: Date.now() - startedAt, provider: "unreported" };
+    diagnostics.calls.push(event);
     return withDeadline(signal => {
-      params[6] = { ...params[6], signal };
+      params[6] = { ...params[6], signal, onProviderEvent: ({ provider }) => { event.provider = provider; } };
       return call(...params);
-    }, params[6].timeoutMs, options.signal || deps.signal, "Question preparation");
+    }, params[6].timeoutMs, options.signal || deps.signal, "Question preparation").then(result => {
+      event.status = "complete"; return result;
+    }, error => {
+      event.status = /abort|stop/i.test(String(error?.message)) ? "cancelled" : /timeout|timed out|deadline/i.test(String(error?.message)) ? "timeout" : "failed";
+      throw error;
+    }).finally(() => { event.durationMs = Date.now() - startedAt - event.startedMs; });
   } : call;
   const boundedDeps = {
     ...deps,
     // Replace rejected candidates using their feedback instead of repairing a whole batch.
     skipRepair: deps.skipRepair ?? true,
-    callAIJSON: boundCall(deps.callAIJSON),
-    reviewAIJSON: boundCall(deps.reviewAIJSON),
-    repairAIJSON: boundCall(deps.repairAIJSON),
+    callAIJSON: boundCall(deps.callAIJSON, "draft"),
+    reviewAIJSON: boundCall(deps.reviewAIJSON, "review"),
+    repairAIJSON: boundCall(deps.repairAIJSON, "repair"),
   };
   const requested = resolveQuestionCount(args.questionCount, Math.max((args.objectives || []).length, 1));
   const plannedObjectives = objectivesWithPracticeEvidence(args.objectives || [], args.evidenceModel || readLearnerEvidence(args.userId));
   const allocationPlan = buildAdaptiveObjectivePlan(plannedObjectives, args.plannedCount || requested);
   const enforceAllocation = allocationPlan.length > 0 && args.generationVersion === "v2";
-  const scaffolds = objectiveReasoningScaffolds(allocationPlan, args.avoidQuestions || [], args.lectureText || "", args.atoms || []);
   const accepted = [];
   const seen = new Set();
   const normalizeStem = (stem) => String(stem || "").trim().toLowerCase().replace(/\s+/g, " ");
@@ -617,7 +628,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     return /provider\s+(?:unavailable|failure|error)|bridge|quota|rate limit|timed out|timeout|network|unavailable|not enough lecture|no quiz source|no quiz source material/i.test(String(message));
   };
 
-  onProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
+  reportProgress({ requested, ready: 0, attempt: 0, phase: "generating" });
   const concurrency = Math.min(3, Math.max(1, Math.floor(Number(deps.prepareConcurrency) || 1)));
   let stopPreparation = false;
   let nextAttempt = 1;
@@ -642,8 +653,9 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       if (!batchCount) break;
       // A capable batched reviewer can compare a few alternatives for the last
       // slots in one startup. Reserve only real slots, never the spare drafts.
+      const spareCandidates = Math.min(2, Math.max(0, Math.floor(Number(deps.prepareSpareCandidates) || 0)));
       const candidateCount = Number(deps.reviewBatchSize) > 1 && attempt > 1
-        ? Math.min(batchSize, batchCount + 2) : batchCount;
+        ? Math.min(batchSize, batchCount + spareCandidates) : batchCount;
       const candidateAllocation = batchAllocation.map(objective => ({ ...objective }));
       for (let extra = batchCount; enforceAllocation && extra < candidateCount; extra += 1) {
         candidateAllocation[(extra - batchCount) % candidateAllocation.length]._targetQuestionCount += 1;
@@ -658,19 +670,20 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
       } else {
         reserved.push(...Array.from({ length: batchCount }, () => ({})));
       }
+      const currentScaffolds = objectiveReasoningScaffolds(batchAllocation, [...avoidedQuestions, ...accepted], args.lectureText || "", args.atoms || []);
       const rotate = (items = []) => {
         if (!items.length) return items;
         const offset = ((attempt - 1) * batchSize) % items.length;
         return [...items.slice(offset), ...items.slice(0, offset)];
       };
-      onProgress({ requested, ready: accepted.length, attempt, phase: attempt <= concurrency ? "generating" : "refilling" });
+      reportProgress({ requested, ready: accepted.length, attempt, phase: attempt <= concurrency ? "generating" : "refilling" });
       const promise = startObjectiveQuiz({
         ...args,
         atoms: rotate(args.atoms || []),
         objectives: enforceAllocation ? candidateAllocation : rotate(args.objectives || []),
         objectiveAllocation: enforceAllocation ? candidateAllocation : null,
         questionCount: candidateCount,
-        focusNotes: [args.focusNotes || "", scaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(scaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
+        focusNotes: [args.focusNotes || "", currentScaffolds.length ? `VERIFIED OBJECTIVE RELATIONSHIPS: ${JSON.stringify(currentScaffolds.filter(plan => batchAllocation.some(objective => String(objective.id || objective.code) === plan.objectiveId)))}. Build a fresh causal intervention and endpoint from these relationships; never reuse an old scenario or assume that a previous approval validates this new question. All new questions require independent review.` : "", ...rejectionFeedback.filter(feedback => !enforceAllocation || !feedback.objectiveIds.length || batchAllocation.some(objective => feedback.objectiveIds.includes(objective.id || objective.code))).slice(-6).map(feedback => feedback.text),
           candidateCount > batchCount ? `Generate ${candidateCount} distinct candidate routes for ${batchCount} missing slots. Use different source-supported perturbations or discriminating observations, not paraphrases of the same problem. Only independently approved questions can fill the slots.` : "",
           ...accepted.slice(-10).filter(q => q.questionPlan).map(q => `Already accepted task (do not reuse its perturbation-to-endpoint route): ${JSON.stringify({ objectiveIds: q.objectiveIds, perturbation: q.questionPlan.perturbation, endpoint: q.questionPlan.endpoint })}`),
         ].filter(Boolean).join("\n"),
@@ -688,6 +701,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     {
       lastError = result.error || lastError;
       for (const rejection of result.rejections || []) {
+        for (const issue of rejection.issues || []) reject(issue);
         rejectionFeedback.push({ objectiveIds: rejection.objectiveIds || [], text: `Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 600)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.` });
       }
       const newlyAccepted = [];
@@ -697,21 +711,22 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         if (enforceAllocation) {
           const target = remainingObjectiveAllocation(allocationPlan, [...(args.initialQuestions || []), ...accepted], requested).find(objective => question.objectiveIds?.[0] === (objective.id || objective.code));
           const levels = ["first-order", "second-order", "third-order"];
-          if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) continue;
+          if (!target || !hasCurrentReasoningAudit(question) || levels.indexOf(question.orderLevel) < levels.indexOf(target._targetOrder || "second-order")) { reject("allocation_or_reasoning_depth"); continue; }
         }
         const repeatsPriorQuestion = avoidedQuestions.some((other) => questionSimilarity(question, other) >= 0.9);
         // Repeated practice of one topic/objective is valid: a quiz count is a hard
         // request. Reject duplicate or near-duplicate questions, not distinct tasks
         // solely because they share an atom/topic label.
-        if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) continue;
+        if (!key || seen.has(key) || avoidedStemKeys.has(key) || repeatsPriorQuestion || accepted.some((other) => areNearDuplicateQuestions(question, other))) { reject("duplicate_or_recognizable_question"); continue; }
         seen.add(key);
         accepted.push(question);
         newlyAccepted.push(question);
         if (accepted.length >= requested) break;
       }
+      diagnostics.accepted = accepted.length;
       if (newlyAccepted.length) deps.onAccepted?.(newlyAccepted);
       consecutiveEmptyRounds = newlyAccepted.length ? 0 : consecutiveEmptyRounds + 1;
-      onProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
+      reportProgress({ requested, ready: accepted.length, attempt, phase: accepted.length >= requested ? "ready" : "reviewing" });
       // A fully rejected batch is a quality outcome, not a provider failure: use the remaining
       // attempts to generate fresh candidates. Transport, quota, and reviewer availability errors
       // cannot improve inside this preparation run, so stop those immediately.
@@ -735,6 +750,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
         : { error: `Only ${accepted.length}/${requested} questions could be prepared. ${lastError || "Retry to generate the remaining questions."}` }),
       questions: accepted,
       incomplete: true,
+      diagnostics: diagnosticSnapshot(),
       reason: lastError || "No additional distinct questions meeting the lecture, objective, and reasoning checks were accepted within this preparation run.",
       requested,
     };
@@ -743,6 +759,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     questions: accepted.slice(0, requested),
     requested,
     incomplete: false,
+    diagnostics: diagnosticSnapshot(),
     fallbackCount: accepted.filter((question) => question.generationMode === "grounded-fallback").length,
   };
 }

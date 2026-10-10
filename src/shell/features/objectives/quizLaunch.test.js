@@ -269,13 +269,23 @@ describe("prepareObjectiveQuiz", () => {
     const onAccepted = vi.fn();
     const result = await prepareObjectiveQuiz(
       { objectives: [], atoms: [{ term: "Source", content: "Histamine, vagal signaling and angiotensin regulate physiological responses." }], questionCount: 2 },
-      { callAIJSON, prepareBatchSize: 5, reviewBatchSize: 5, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true, onAccepted }
+      { callAIJSON, prepareBatchSize: 5, reviewBatchSize: 5, prepareSpareCandidates: 2, prepareConcurrency: 2, maxPrepareAttempts: 2, skipQuestionAudit: true, onAccepted }
     );
     expect(callAIJSON).toHaveBeenCalledTimes(2);
     expect(callAIJSON.mock.calls[1][1]).toContain("4 distinct candidate routes for 2 missing slots");
     expect(result.questions).toHaveLength(2);
     expect(result.incomplete).toBe(false);
     expect(onAccepted.mock.calls.flatMap(call => call[0])).toHaveLength(2);
+  });
+  it("refills only missing slots by default without extra draft candidates", async () => {
+    const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
+    await prepareObjectiveQuiz(
+      { objectives: [], atoms: [{ term: "Source", content: "Actual explanatory lecture evidence." }], questionCount: 2 },
+      { callAIJSON, prepareBatchSize: 5, reviewBatchSize: 5, maxPrepareAttempts: 2, skipQuestionAudit: true }
+    );
+    expect(callAIJSON).toHaveBeenCalledTimes(2);
+    expect(callAIJSON.mock.calls[1][1]).not.toContain("distinct candidate routes");
+    expect(callAIJSON.mock.calls[1][1]).toContain("2");
   });
   it("does not spend a retry while the remaining slots are reserved by an in-flight review", async () => {
     const callAIJSON = vi.fn().mockResolvedValue({ questions: [] });
@@ -878,4 +888,15 @@ it('cancels an unresponsive adapter without waiting for the full preparation bud
   const result = await task;
   expect(result.questions).toHaveLength(0);
   expect(result.error || result.reason).toMatch(/stopped/);
+});
+
+it('reports provider timings and rejection categories without retaining source or prompts', async () => {
+  const call = vi.fn(async (...params) => {
+    params[6].onProviderEvent({provider:'codex'});
+    return { questions: [] };
+  });
+  const result = await prepareObjectiveQuiz({ objectives:[{id:'o1',objective:'Analyze neurotransmitter release'}], lectureText:'Private source text about neurotransmitter release. '.repeat(20), questionCount:3, generationVersion:'v2' }, {callAIJSON:call,maxPrepareAttempts:1,skipQuestionAudit:true});
+  expect(result.diagnostics.calls[0]).toMatchObject({provider:'codex',stage:'draft',status:'complete'});
+  expect(result.diagnostics.elapsedMs).toBeGreaterThanOrEqual(0);
+  expect(JSON.stringify(result.diagnostics)).not.toContain('Private source text');
 });
