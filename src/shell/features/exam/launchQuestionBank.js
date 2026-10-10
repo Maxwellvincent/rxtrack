@@ -1,7 +1,7 @@
 import { createSessionShape } from "../../../examSessions.js";
 import { createExamSession } from "../../../supabase.js";
 import { examDurationMs } from "./examTiming.js";
-import { prepareBankQuestionSet } from "./questionBankLinks.js";
+import { linkSourceLecture, prepareBankQuestionSet } from "./questionBankLinks.js";
 
 function makeSessionId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -19,22 +19,25 @@ function validBankQuestion(question) {
   return !!question?.stem && letters.length >= 2 && choicesContiguous && letters.includes(question?.correct) && (!needsImage || hasImage);
 }
 
-export function prepareQuestionBankQuestions(questions, { blockId, filename, analysis = null }) {
+export function prepareQuestionBankQuestions(questions, { blockId, filename, analysis = null, lectures = [] }) {
   const { questions: distinctQuestions } = prepareBankQuestionSet(questions || [], analysis);
-  return distinctQuestions.map((question, index) => ({
+  return distinctQuestions.map((sourceQuestion, index) => {
+    const question = linkSourceLecture(sourceQuestion, lectures, blockId);
+    return {
     ...question,
     questionId: `bank:${filename}:${question.id || question.num || "q"}:${index + 1}`,
     blockId,
-    lectureId: question.curriculumLinkStatus === "user-confirmed" ? question.lectureId || null : null,
+    lectureId: ["user-confirmed", "source-label-matched"].includes(question.curriculumLinkStatus) ? question.lectureId || null : null,
     objectiveIds: question.curriculumLinkStatus === "user-confirmed" ? question.objectiveIds || [] : [],
     source: "Original school question",
     sourceFile: filename,
     sourceType: "question-bank",
-  }));
+    };
+  });
 }
 
 export async function launchQuestionBankSession(
-  { userId, blockId, filename, questions, analysis = null, format = "exam" },
+  { userId, blockId, filename, questions, analysis = null, lectures = [], format = "exam" },
   deps = {}
 ) {
   const create = deps.createExamSession || createExamSession;
@@ -49,12 +52,12 @@ export async function launchQuestionBankSession(
   }
 
   const sessionId = makeSessionId();
-  const prepared = prepareQuestionBankQuestions(sourceQuestions, { blockId, filename, analysis });
+  const prepared = prepareQuestionBankQuestions(sourceQuestions, { blockId, filename, analysis, lectures });
   const startedAt = format === "exam" ? Date.now() : null;
   const session = createSessionShape({
     sessionId,
     blockId,
-    lectureIds: [],
+    lectureIds: [...new Set(prepared.map(q => q.lectureId).filter(Boolean))],
     format,
     questions: prepared,
     startedAt,

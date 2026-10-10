@@ -130,7 +130,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
   const questionStats = useLectureQuestionStats(userId);
 
   const lectures = useMemo(() => lecturesRes.data || [], [lecturesRes.data]);
-  const completedQuestionTotal = useMemo(() => lectures.reduce((sum, lecture) => sum + (questionStats.data?.[lecture.id]?.answered || 0), 0) + bankAttempts.reduce((sum, session) => sum + (session.answers?.length || 0), 0) + resumableSessions.filter((session) => session?.sourceType === "question-bank").reduce((sum, session) => sum + (session.answers?.length || 0), 0), [lectures, questionStats.data, bankAttempts, resumableSessions]);
+  const completedQuestionTotal = useMemo(() => lectures.reduce((sum, lecture) => sum + (questionStats.data?.[lecture.id]?.answered || 0), 0) + bankAttempts.reduce((sum, session) => sum + (session.answers || []).filter(answer => !session.questions?.find(q => q.questionId === answer.questionId)?.lectureId).length, 0) + resumableSessions.filter((session) => session?.sourceType === "question-bank").reduce((sum, session) => sum + (session.answers || []).filter(answer => !session.questions?.find(q => q.questionId === answer.questionId)?.lectureId).length, 0), [lectures, questionStats.data, bankAttempts, resumableSessions]);
 
   const objectives = useMemo(
     () => dedupeByText(selectBlockObjectives(objectivesRes.data, blockId)),
@@ -635,6 +635,7 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
         filename: bank.filename,
         questions: bank.questions,
         analysis: bank.analysis,
+        lectures,
         format,
       });
       if (result.ok) {
@@ -666,6 +667,8 @@ export function ExamContainer({ blockId, blockName, userId, onNavigateToLecture 
           blockId={blockId}
           blockName={blockName}
           lectureLabelsByLectureId={lectureLabelsByLectureId}
+          lectures={lectures}
+          onNavigateToLecture={onNavigateToLecture}
           objectivesById={objectivesById}
           tutorModeEnabled={tutorModeEnabled}
           callAI={callAI}

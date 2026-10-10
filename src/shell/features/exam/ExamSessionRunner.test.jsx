@@ -570,3 +570,20 @@ describe("ExamSessionRunner", () => {
     });
   });
 });
+
+it("links resumed NB05 homework in review and opens the missed lecture", () => {
+  const controller = baseController();
+  controller.session.status = "submitted";
+  controller.session.questions = [{ ...makeQuestion("q1"), lectureId: null, sourceType: "question-bank", sourceSection: "NB 05", sourceSectionTitle: "Neurons and Glia" }];
+  controller.session.answers = [{ questionId: "q1", value: "B" }];
+  controllerMock.mockReturnValue(controller);
+  const navigate = vi.fn();
+  const { host, unmount } = render(<ExamSessionRunner sessionId="s1" userId="u1" lectures={[{ id: "l5", blockId: "b1", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }]} onNavigateToLecture={navigate} />);
+  expect(host.textContent).toContain("Lectures to revisit");
+  expect(host.textContent).toContain("Neurons and Glia");
+  expect(host.textContent).toContain("0/1 correct");
+  const button = [...host.querySelectorAll("button")].find(b => b.textContent === "Review lecture");
+  act(() => button.click());
+  expect(navigate).toHaveBeenCalledWith("l5");
+  unmount();
+});

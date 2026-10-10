@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { confirmQuestionBankCurriculumLinks, prepareBankQuestionSet, scoreAnsweredQuestions, sourceLectureClue } from "./questionBankLinks.js";
+import { linkSourceLecture, lectureReviewSummary, confirmQuestionBankCurriculumLinks, prepareBankQuestionSet, scoreAnsweredQuestions, sourceLectureClue } from "./questionBankLinks.js";
 
 const item = (id, stem, choices = { A: "Atresia", B: "Stenosis" }) => ({ id, stem, choices, correct: "A" });
 
@@ -36,4 +36,18 @@ describe("question-bank source linking", () => {
     expect(confirmQuestionBankCurriculumLinks(question, { ...proposal, objectiveLinkReviewStatus: "candidate" }, { objectiveIds: ["obj-1"] }))
       .toBeNull();
   });
+});
+
+it("attributes explicit NB05 homework labels only to a unique current-block number and title", () => {
+  const question = { ...item("q5", "Which organelle?"), sourceSection: "NB 05", sourceSectionTitle: "Neurons and Glia" };
+  const lectures = [{ id: "nb05", blockId: "nb1", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }, { id: "other05", blockId: "nb2", lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" }];
+  expect(linkSourceLecture(question, lectures, "nb1")).toMatchObject({ lectureId: "nb05", curriculumLinkStatus: "source-label-matched" });
+  expect(linkSourceLecture(question, lectures, "nb1").objectiveIds).toBeUndefined();
+  expect(linkSourceLecture(question, [...lectures, { ...lectures[0], id: "duplicate" }], "nb1").lectureId).toBeUndefined();
+  expect(linkSourceLecture(question, [{ ...lectures[0], lectureTitle: "Auditory pathways" }], "nb1").lectureId).toBeUndefined();
+});
+it("ranks missed lectures using answered questions only", () => {
+  const summary = lectureReviewSummary({ questions: [{ questionId: "a", lectureId: "l5", correct: "A" }, { questionId: "b", lectureId: "l6", correct: "A" }, { questionId: "c", lectureId: "l5", correct: "A" }], answers: [{ questionId: "a", value: "B" }, { questionId: "b", value: "A" }] }, { l5: "Neurons and Glia" });
+  expect(summary[0]).toMatchObject({ lectureId: "l5", label: "Neurons and Glia", answered: 1, misses: 1 });
+  expect(summary[1]).toMatchObject({ lectureId: "l6", answered: 1, correct: 1 });
 });

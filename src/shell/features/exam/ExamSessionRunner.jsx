@@ -17,7 +17,8 @@
  * component — Task 5 already filtered table-shaped choices out before a
  * session is ever created.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { linkSourceLecture, lectureReviewSummary } from "./questionBankLinks.js";
 import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
 import { Button } from "../../../ui/Button.jsx";
 import { advanceOnEnter } from "../../../ui/nextQuestion.js";
@@ -97,7 +98,7 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
       {objectiveLabels.map((label, index) => <span key={`${question.questionId}-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title={label}>Objective: {label}</span>)}
       {!objectiveCount && <span className="max-w-full rounded border border-border px-1.5 py-0.5">Objective: not linked yet</span>}
       {question?.source && <span className="rounded border border-border px-1.5 py-0.5">{question.source}</span>}
-      {question?.sourceLectureClue && <span className="rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5" title="Lecture label transcribed from the uploaded source; not a verified link to this block">Source says: {question.sourceLectureClue}</span>}
+      {question?.sourceLectureClue && <span className="rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5" title="Explicit source label; matched links use this block’s lecture number and title">Source says: {question.sourceLectureClue}</span>}
       {["needs-review", "unsupported-by-lecture"].includes(question?.sourceKeyReviewStatus) && <span className="rounded border border-bad/40 bg-bad/5 px-1.5 py-0.5 text-bad" title={question.sourceKeyCritique || "This imported source key/rationale needs review"}>Source key needs review</span>}
       {(question?.candidateLectureLinks || []).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-lecture-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Possible match based on uploaded question analysis; review before treating as a confirmed curriculum link">Possible lecture match: {link.label || link.id}</span>)}
       {(question?.candidateObjectiveLinks || []).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Candidate objective match for review; does not count as objective coverage evidence">Possible objective match: {link.label || link.id}</span>)}
@@ -482,7 +483,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
 // all. Now this always renders for a submitted format-"exam" session;
 // `tutorModeEnabled` only gates the `TutorPanelForQuestion` breakdown within
 // it, which is the actual preference-gated piece.
-function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId }) {
+function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, objectivesById, lectureLabelsByLectureId, onNavigateToLecture }) {
   const questions = session.questions || [];
   // Start with the complete, PDF-like exam review; filters remain available
   // for focused remediation after the full set is visible.
@@ -526,6 +527,11 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
           {correctCount}/{answered.length} correct · {percent}%
         </div>
       </div>
+      {lectureReviewSummary(session, lectureLabelsByLectureId).length > 0 && <section className="rounded-lg border border-border p-3">
+        <h3 className="font-semibold">Lectures to revisit</h3>
+        <p className="text-xs text-text-3">Based on answered questions in this session; a clean result does not establish mastery.</p>
+        <ul className="mt-2 space-y-2">{lectureReviewSummary(session, lectureLabelsByLectureId).map(row => <li key={row.lectureId} className="text-sm"><strong>{row.label}</strong> · {row.correct}/{row.answered} correct · {row.misses ? `${row.misses} missed — review this lecture, then try fresh questions` : "No misses in this session"}{onNavigateToLecture && row.misses > 0 && <button type="button" className="ml-2 text-accent underline" onClick={() => onNavigateToLecture(row.lectureId)}>Review lecture</button>}</li>)}</ul>
+      </section>}
       {incorrectCount > 0 && <div className="rounded-lg border border-accent/40 bg-bg-elevated p-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="text-sm font-semibold text-text-1">Take your missed questions to Goodnotes</div>
@@ -582,13 +588,17 @@ export function ExamSessionRunner({
   blockId,
   blockName = "",
   lectureLabelsByLectureId = {},
+  lectures = [],
+  onNavigateToLecture,
   objectivesById = {},
   onExit,
   tutorModeEnabled = false,
   callAI,
 }) {
   const controller = useExamSessionController(sessionId, userId);
-  const { session, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
+  const { session: storedSession, loading, error, submit, abandon, submitResult, submitting, syncStatus } = controller;
+
+  const session = useMemo(() => storedSession ? { ...storedSession, questions: (storedSession.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, storedSession.blockId) : q) } : null, [storedSession, lectures]);
 
   // I6 fix — `finalizeExamSession`'s `blockName`/`lectureLabelsByLectureId`
   // options were threaded correctly through finalize.js/finalizeLogic.js,
@@ -596,7 +606,7 @@ export function ExamSessionRunner({
   // every exam-derived weak-concept entry got a raw lectureId as its display
   // label forever. These come from ExamContainer (which already builds
   // `lecturesById`) via props, and are passed into every `submit()` call.
-  const submitOpts = { blockName, lectureLabelsByLectureId };
+  const submitOpts = { blockName, lectureLabelsByLectureId, ...(lectures.length ? { lectures } : {}) };
 
   // Resume-on-mount: a session left in "finalizing" (a prior submit call was
   // interrupted before completing) shows a distinct "finishing up" state and
@@ -640,7 +650,7 @@ export function ExamSessionRunner({
         <SessionTitle session={session} />
         <div className="sticky top-2 z-10 flex items-center justify-between rounded-lg border border-border bg-bg-elevated p-2 shadow-sm"><div className="text-sm font-bold text-text-1">Submitted. {sessionLabel(session)} saved and graded.</div>{onExit && <Button onClick={onExit}>Done</Button>}</div>
         {(session.questions || []).length > 0 && (
-          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+          <SubmittedExamReview session={session} tutorModeEnabled={tutorModeEnabled} callAI={callAI} userId={userId} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} onNavigateToLecture={onNavigateToLecture} />
         )}
       </div>
     );
@@ -673,10 +683,10 @@ export function ExamSessionRunner({
       {session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || "…"} questions ready. You can start answering now; missing questions are generating. {session.format === "exam" ? "The timer starts when the requested set is ready." : ""} Keep this tab open until preparation finishes.</div>}
       {session.fillStatus === "partial" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions ready. {session.fillError ? `The remaining questions could not be prepared: ${session.fillError}` : "The requested set could not be fully prepared."} You can continue with what is ready.</div>}
       {session.format === "exam" ? (
-        <ExamFormat controller={controller} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+        <ExamFormat controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (
         <PracticeFormat
-          controller={controller}
+          controller={{ ...controller, session }}
           tutorModeEnabled={tutorModeEnabled}
           submitOpts={submitOpts}
           callAI={callAI}

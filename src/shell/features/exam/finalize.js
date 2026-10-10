@@ -1,3 +1,4 @@
+import { linkSourceLecture } from "./questionBankLinks.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 /**
  * Integrated Exam finalization: the I/O orchestrator.
@@ -29,12 +30,12 @@ import { releaseUnansweredQuestions } from "../../../questionPool.js";
 export async function finalizeExamSession(
   userId,
   sessionId,
-  { blockName = "", lectureLabelsByLectureId = {} } = {}
+  { blockName = "", lectureLabelsByLectureId = {}, lectures = [] } = {}
 ) {
   // Step 1: lock via CAS transition in_progress -> finalizing.
   const lockResult = await updateExamSessionTransaction(userId, sessionId, (current) => {
     if (!current || current.status !== "in_progress") return null;
-    return { ...current, status: "finalizing", submittedAt: Date.now() };
+    return { ...current, questions: (current.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, current.blockId) : q), status: "finalizing", submittedAt: Date.now() };
   });
 
   if (lockResult === null) {
@@ -73,12 +74,10 @@ export async function finalizeExamSession(
     const wasCorrect = !!answer && answer.value === question?.correct;
 
     try {
-      // Authentic uploaded banks are not reliably linked to one RXtrack
-      // lecture. Keep their score/timing in the session without creating a
-      // fake lecture statistic. Objective evidence is independent of that
-      // optional lecture link: a valid objective tag must still flow through
-      // to the lecture's readiness model.
-      if (question?.sourceType !== "question-bank" && question?.lectureId) {
+      // Record imported answers only when the source label matches the
+      // current catalog or the learner confirmed its link. A lecture link
+      // never invents an objective tag or advanced-reasoning evidence.
+      if (question?.lectureId && (question?.sourceType !== "question-bank" || ["user-confirmed", "source-label-matched"].includes(question?.curriculumLinkStatus))) {
         await recordAnswerAwait(userId, question.lectureId, wasCorrect);
       }
       if (question?.lectureId || question?.objectiveIds?.length) {

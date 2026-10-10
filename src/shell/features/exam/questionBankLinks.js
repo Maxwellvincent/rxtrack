@@ -1,10 +1,11 @@
+import { cleanLectureTitle, formatLectureLabel } from "../../../lectureTitle.js";
 import { areNearDuplicateQuestions } from "../../../engine/questionSimilarity.js";
 
 const normalize = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /** Extract explicit course/lecture labels from the uploaded question itself. */
 export function sourceLectureClue(question = {}) {
-  const section = String(question.sourceSection || "").match(/^NB\s+(\d+)$/i);
+  const section = String(question.sourceSection || "").match(/^(?:NB|N|LEC|LECTURE)\s*0*(\d+)$/i);
   if (section && question.sourceSectionTitle) {
     return { number: Number(section[1]), title: question.sourceSectionTitle, label: `${question.sourceSection}: ${question.sourceSectionTitle}` };
   }
@@ -92,4 +93,36 @@ export function scoreAnsweredQuestions(session) {
   const valid = answers.filter((answer) => questions.has(answer.questionId) && answer.value != null);
   const correct = valid.filter((answer) => questions.get(answer.questionId)?.correct === answer.value).length;
   return { answered: valid.length, correct, incorrect: valid.length - correct, accuracy: valid.length ? Math.round(correct / valid.length * 100) : null };
+}
+
+/** Exact source labels can establish lecture attribution, but never objective mastery. */
+export function linkSourceLecture(question, lectures = [], blockId) {
+  if (question.curriculumLinkStatus === "user-confirmed" && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
+  const clue = sourceLectureClue(question);
+  if (!clue) return question;
+  const cleanTitle = value => normalize(cleanLectureTitle(value).replace(/^(?:lecture|lec|nb|n)\s*0*\d+\s*(?:[:.·–—-]\s*)?/i, "").replace(/^(?:nb|n)\s*0*\d+\s*/, ""));
+  const expectedTitle = cleanTitle(clue.title);
+  const candidates = lectures.filter(lecture => {
+    if (lecture.blockId && lecture.blockId !== blockId) return false;
+    if (/^(?:DLA|SG|TBL)$/i.test(lecture.lectureType || "")) return false;
+    const title = cleanLectureTitle(lecture.lectureTitle || lecture.title || lecture.fileName);
+    const prefix = title.match(/^(?:lecture|lec|nb|n)\s*0*(\d+)\b/i);
+    const number = lecture.lectureNumber ?? (prefix ? Number(prefix[1]) : null);
+    return Number(number) === clue.number && (!expectedTitle || cleanTitle(title) === expectedTitle);
+  });
+  if (candidates.length !== 1) return question;
+  return { ...question, lectureId: candidates[0].id, lectureLabel: formatLectureLabel(candidates[0]), curriculumLinkStatus: "source-label-matched", lectureLinkBasis: "explicit-source-number-and-title", sourceLectureClue: clue.label, sourceLectureNumber: clue.number };
+}
+
+export function lectureReviewSummary(session, labels = {}) {
+  const rows = new Map();
+  const answers = new Map((session.answers || []).filter(a => a.value != null).map(a => [a.questionId, a]));
+  for (const q of session.questions || []) {
+    const answer = answers.get(q.questionId);
+    if (!answer || !q.lectureId) continue;
+    const row = rows.get(q.lectureId) || { lectureId: q.lectureId, label: labels[q.lectureId] || q.lectureLabel || q.lectureId, answered: 0, correct: 0, misses: 0 };
+    row.answered++; if (answer.value === q.correct) row.correct++; else row.misses++;
+    rows.set(q.lectureId, row);
+  }
+  return [...rows.values()].sort((a, b) => b.misses - a.misses || a.correct / a.answered - b.correct / b.answered);
 }
