@@ -1,8 +1,10 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
 import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
+vi.mock("../../../supabase.js", () => ({ fetchQuestionBankSourceUrl: vi.fn(async () => "https://example.com/source.pdf") }));
+vi.mock("../../../examParser.js", () => ({ loadPDFJS: vi.fn(async () => {}) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host, root;
 beforeEach(() => {
@@ -43,4 +45,18 @@ describe("SchoolQuestionFigure", () => {
     render(<SchoolQuestionFigure question={{ hasImage: false }} />);
     expect(host.querySelector('[role="status"]')).toBeNull();
   });
+});
+
+it("loads the next archived source page on demand for cropping without re-uploading", async () => {
+  const getPage = vi.fn(async () => ({ getViewport: () => ({ width: 500, height: 700 }), render: () => ({ promise: Promise.resolve() }) }));
+  window.pdfjsLib = { getDocument: vi.fn(() => ({ promise: Promise.resolve({ numPages: 8, getPage, destroy: vi.fn() }) })) };
+  const context = vi.spyOn(window.HTMLCanvasElement.prototype, "getContext").mockReturnValue({});
+  const dataUrl = vi.spyOn(window.HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,page8");
+  render(<SchoolQuestionFigure question={{ hasImage: true, sourceImageUrl: "https://example.com/page7.png", sourcePage: 7, sourceStoragePath: "exam-sources/u1/original.pdf" }} userId="u1" />);
+  const next = [...host.querySelectorAll("button")].find(b => b.textContent === "Next source page");
+  await act(async () => { next.click(); await Promise.resolve(); });
+  expect(getPage).toHaveBeenCalledWith(8);
+  expect(host.querySelector("img").getAttribute("src")).toBe("data:image/jpeg;base64,page8");
+  expect(host.textContent).toContain("Show source figure · page 8");
+  context.mockRestore(); dataUrl.mockRestore(); delete window.pdfjsLib;
 });

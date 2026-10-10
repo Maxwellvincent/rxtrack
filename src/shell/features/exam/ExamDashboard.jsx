@@ -1,5 +1,5 @@
 /**
- * Task 9 — read-only per-lecture Integrated Exam performance dashboard.
+ * Task 9 — read-only per-lecture Homework, quiz & exam performance dashboard.
  *
  * Derived exclusively from submitted `examSessions` (never
  * `lectureQuestionStats`, which mixes exam and ordinary Quiz-mode answers
@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { deleteExamSession, listExamSessions } from "../../../supabase.js";
 import { releaseSessionQuestions } from "../../../questionPool.js";
 import { read as readWeakConcepts } from "../../../stores/weakConcepts.js";
+import { linkSourceLecture } from "./questionBankLinks.js";
 import { evaluateSessionForLecture } from "./finalizeLogic.js";
 import * as learnerEvidenceStore from "../../../stores/learnerEvidence.js";
 import { MISS_TYPE_LABELS, REASONING_DEPTHS } from "../../../engine/questionReasoning.js";
@@ -100,6 +101,9 @@ export function buildLectureRepairContext(sessions = [], lectureId, objectives =
           selected: choiceText(question.choices, value),
           correct: choiceText(question.choices, question.correct),
           objectiveIds: question.objectiveIds || [],
+          explanation: question.explanation || "",
+          sourceFile: session.sourceFile || question.sourceFile || null,
+          sourceSection: question.sourceSectionTitle || question.sourceLectureClue || null,
         });
       }
     }
@@ -288,7 +292,8 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   }, [userId, blockId]);
 
   const integratedSessions = useMemo(() => sessions.filter((session) => session?.sourceType !== "question-bank"), [sessions]);
-  const lectureStats = useMemo(() => computeLectureStats(integratedSessions), [integratedSessions]);
+  const performanceSessions = useMemo(() => sessions.map(session => ({ ...session, questions: (session.questions || []).map(q => q.sourceType === "question-bank" ? linkSourceLecture(q, lectures, blockId) : q) })), [sessions, lectures, blockId]);
+  const lectureStats = useMemo(() => computeLectureStats(performanceSessions), [performanceSessions]);
 
   const weakLectureIds = useMemo(() => {
     const forBlock = readWeakConcepts(userId)?.[blockId] || [];
@@ -303,10 +308,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
           label: formatLectureLabel(lecturesById?.[lectureId] || { id: lectureId }),
           ...stat,
           weak: weakLectureIds.has(lectureId),
-          ...repairActivity(lectureId,integratedSessions,modelActivity.data,atomActivity.data,queueNow),
+          ...repairActivity(lectureId,performanceSessions,modelActivity.data,atomActivity.data,queueNow),
         }))
         .sort((a, b) => Number(a.workedToday)-Number(b.workedToday) || (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.totalQuestions - a.totalQuestions || a.label.localeCompare(b.label)),
-    [lectureStats, lecturesById, weakLectureIds, integratedSessions, modelActivity.data, atomActivity.data,queueNow]
+    [lectureStats, lecturesById, weakLectureIds, performanceSessions, modelActivity.data, atomActivity.data,queueNow]
   );
   const actionableObjectives = useMemo(
     () => selectLinkedObjectives(objectives, lectures),
@@ -331,19 +336,42 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
   const missTypeTotal = missTypeRows.reduce((sum, row) => sum + row.count, 0);
   const depthRows = REASONING_DEPTHS.map(id => ({ id, ...(process.reasoningDepths?.[id] || {}) })).filter(row => row.attempts);
   const positionStats = process.positionStats || {};
+  const recoveredQuestionStats = useMemo(() => {
+    const next = Object.fromEntries(Object.entries(questionStats).map(([id, row]) => [id, { ...row }]));
+    // Older unlinked bank answers were deliberately excluded from lecture totals.
+    // Add only those newly resolved answers; already-linked sessions overlap.
+    for (let index = 0; index < sessions.length; index++) {
+      const original = sessions[index];
+      if (original.sourceType !== "question-bank") continue;
+      const answers = new Map((original.answers || []).filter(a => a.value != null).map(a => [a.questionId, a.value]));
+      for (let position = 0; position < (original.questions || []).length; position++) {
+        const before = original.questions[position];
+        const after = performanceSessions[index]?.questions[position];
+        if (before.lectureId || !after?.lectureId || !answers.has(before.questionId)) continue;
+        const row = next[after.lectureId] || { answered: 0, correct: 0 };
+        row.answered = (Number(row.answered) || 0) + 1;
+        row.correct = (Number(row.correct) || 0) + Number(answers.get(before.questionId) === before.correct);
+        next[after.lectureId] = row;
+      }
+    }
+    for (const [id, row] of Object.entries(lectureStats)) {
+      if (row.totalQuestions > (Number(next[id]?.answered) || 0)) next[id] = { answered: row.totalQuestions, correct: row.totalQuestions - row.totalMisses };
+    }
+    return next;
+  }, [questionStats, lectureStats, sessions, performanceSessions]);
   const weakAreas = useMemo(() => buildWeakAreaMap({
     lectures,
     objectives,
-    questionStats,
+    questionStats: recoveredQuestionStats,
     learnerEvidence: learnerProfile,
-  }), [lectures, objectives, questionStats, learnerProfile]);
+  }), [lectures, objectives, recoveredQuestionStats, learnerProfile]);
   const priorityAreas = weakAreas.filter((row) => row.objectivesUntested > 0 || row.strugglingObjectives > 0 || (row.accuracy != null && row.accuracy < 0.8));
 
   if (loading) {
     return (
       <div className="p-5">
         <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
-          Integrated Exam performance
+          Homework, quiz & exam performance
         </div>
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">Loading…</div>
       </div>
@@ -354,10 +382,10 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
     return (
       <div className="p-5">
         <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
-          Integrated Exam performance
+          Homework, quiz & exam performance
         </div>
         <div data-testid="exam-dashboard-error" className="rounded-lg border border-bad/40 p-3 text-xs text-bad">
-          Could not load Integrated Exam performance: {error}
+          Could not load Homework, quiz & exam performance: {error}
         </div>
       </div>
     );
@@ -392,7 +420,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
             const coverage = row.objectiveTotal ? row.objectivesTested / row.objectiveTotal : null;
             return <div key={row.lectureId} className="rounded-lg border border-border bg-bg-elevated p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId)} className="text-left font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent">{label} →</button>
+                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))} className="text-left font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent">{label} →</button>
                 <div className="flex flex-wrap gap-x-3 text-sm text-text-2">
                   <span>{row.totalQuestions ? `${Math.round(row.accuracy * 100)}% correct · ${row.misses} missed of ${row.totalQuestions}` : "No graded practice yet"}</span>
                   <span>{row.objectiveTotal ? `${row.objectivesTested}/${row.objectiveTotal} objectives seen · ${row.objectivesUntested} untested` : "No linked objectives"}</span>
@@ -419,13 +447,13 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
             <summary className="cursor-pointer py-2 text-sm font-semibold text-text-2">Show {priorityAreas.length - 8} more priority lectures</summary>
             <div className="space-y-3 pb-3">
               {priorityAreas.slice(8).map((row) => <div key={row.lectureId} className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-2 text-sm">
-                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId)} className="text-left font-semibold underline decoration-border underline-offset-2 hover:text-accent">{formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture)}</button>
+                <button type="button" onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))} className="text-left font-semibold underline decoration-border underline-offset-2 hover:text-accent">{formatLectureLabel(lecturesById?.[row.lectureId] || row.lecture)}</button>
                 <span>{row.accuracy == null ? "No graded practice" : `${Math.round(row.accuracy * 100)}% · ${row.misses}/${row.totalQuestions} missed`} · {row.objectivesUntested} objectives untested</span>
               </div>)}
             </div>
           </details>}
         </div> : <p className="mt-3 text-sm text-text-2">No current low-accuracy or untested-objective priorities. Lectures with no objective links or evidence are not ranked as covered.</p>}
-        <details className="mt-3 text-xs text-text-3"><summary className="cursor-pointer py-1 font-semibold">How this map is calculated</summary><p className="mt-1">Practice totals come from the saved per-lecture question record, which includes lecture quizzes and finalized exam practice. Objective exposure counts linked objective attempts or an explicit non-untested status. Exposure means seen, not mastered; outside-app question logs count toward volume but do not have per-lecture accuracy unless linked in the app.</p></details>
+        <details className="mt-3 text-xs text-text-3"><summary className="cursor-pointer py-1 font-semibold">How this map is calculated</summary><p className="mt-1">Practice uses saved lecture totals, with source-linked submitted homework as a fallback for older missing records. Overlapping records are not added twice. Objective exposure counts linked objective attempts or an explicit non-untested status. Exposure means seen, not mastered; outside-app question logs count toward volume but do not have per-lecture accuracy unless linked in the app.</p></details>
       </section>
       {generationCoverage && (
         <section className="mb-4 rounded-xl border border-border bg-panel p-4" aria-label="Prepared question objective coverage">
@@ -438,7 +466,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
         </section>
       )}
       <div className="mb-2 font-mono text-[12px] uppercase tracking-wider text-text-3">
-        Integrated Exam performance
+        Homework, quiz & exam performance
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Step 1 readiness summary">
@@ -510,7 +538,7 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
 
       {rows.length === 0 ? (
         <div className="rounded-lg border border-border p-3 text-xs text-text-3">
-          No Integrated Exam attempts yet for this block.
+          No linked homework, quiz or exam answers yet for this block.
         </div>
       ) : (
         <details className="rounded-lg border border-border px-3">
@@ -525,16 +553,16 @@ export function ExamDashboard({ blockId, userId, lectures = [], questionStats = 
                 <button
                   type="button"
                   className="font-semibold text-text-1 underline decoration-border underline-offset-2 hover:text-accent"
-                  onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(integratedSessions, row.lectureId, objectives))}
+                  onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))}
                   title="Open this lecture and continue studying its weak objectives"
                 >{row.label} · Study lecture →</button>
                 {row.workedToday && <span className="ml-2 font-semibold">✓ Worked today{row.followupQuestions?` · ${row.followupQuestions} follow-up questions`:''}</span>}
                 {(row.weak || (row.accuracy !== null && row.accuracy < 0.6)) && (
                   <button
                     type="button"
-                    onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(integratedSessions, row.lectureId, objectives))}
+                    onClick={() => onNavigateToLecture?.(row.lectureId, buildLectureRepairContext(performanceSessions, row.lectureId, objectives))}
                     className="ml-2 font-mono text-[12px] text-bad underline"
-                    title="flagged struggling from Integrated Exam performance"
+                    title="flagged struggling from Homework, quiz & exam performance"
                   >
                     {row.workedToday ? (row.remainingRepairs ? `Review ${row.remainingRepairs} remaining atom gaps` : 'Review lecture') : '⚠ Repair model'}
                   </button>

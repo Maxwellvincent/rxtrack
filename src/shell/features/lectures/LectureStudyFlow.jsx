@@ -1934,6 +1934,7 @@ export function LectureStudyFlow({
             <div className="mt-2 space-y-2">{examRepairContext.missedQuestions.map((miss) => <article key={miss.key} className="rounded border border-border bg-panel p-2 text-sm">
               <p className="font-medium text-text-1">{miss.stem}</p>
               <p className="mt-1 text-text-2"><span className="text-bad">Your answer:</span> {miss.selected} · <span className="text-good">Keyed answer:</span> {miss.correct}</p>
+              {miss.explanation && <p className="mt-1 text-text-2"><strong>Source explanation / clinical connection:</strong> {miss.explanation}</p>}
               <p className="mt-0.5 text-xs text-text-3">{miss.title}{miss.submittedAt ? ` · ${new Date(miss.submittedAt).toLocaleDateString()}` : ""}</p>
             </article>)}</div>
           </details>}

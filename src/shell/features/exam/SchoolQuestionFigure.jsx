@@ -1,3 +1,5 @@
+import { fetchQuestionBankSourceUrl } from "../../../supabase.js";
+import * as questionBankMeta from "../../../stores/questionBankMeta.js";
 import { useEffect, useRef, useState } from "react";
 
 export function questionReferencesVisual(stem = "") {
@@ -9,7 +11,13 @@ function cropKey(question) {
 }
 
 /** A source PDF page can include the answer key. Let the learner isolate only the exhibit. */
-export function SchoolQuestionFigure({ question }) {
+export function SchoolQuestionFigure({ question, userId }) {
+  const [selectedPage, setSelectedPage] = useState(null);
+  const [pageUrl, setPageUrl] = useState(null);
+  const [pageBusy, setPageBusy] = useState(false);
+  const [pageError, setPageError] = useState("");
+  const pdfRef = useRef(null);
+  const pageRequest = useRef(0);
   const [failedUrl, setFailedUrl] = useState(null);
   const [cropUrl, setCropUrl] = useState(null);
   const [cropping, setCropping] = useState(false);
@@ -17,19 +25,53 @@ export function SchoolQuestionFigure({ question }) {
   const imageRef = useRef(null);
   const dragStart = useRef(null);
   const referencesVisual = questionReferencesVisual(question?.stem);
-  const url = question?.sourceImageUrl || question?.sourceImageDataUrl || (typeof question?.image === "string" ? question.image : question?.image?.url);
+  const originalUrl = question?.sourceImageUrl || question?.sourceImageDataUrl || (typeof question?.image === "string" ? question.image : question?.image?.url);
   const key = cropKey(question || {});
-  const visualPage = question?.sourceVisualPage || question?.sourcePage;
+  const originalPage = Number(question?.sourceVisualPage || question?.sourcePage) || 1;
+  const visualPage = selectedPage || originalPage;
+  const url = pageUrl || originalUrl;
+  const sourcePath = question?.sourceStoragePath || Object.values(questionBankMeta.read(userId) || {}).find(entry => entry.filename === question?.sourceFile || entry.aliases?.includes(question?.sourceFile))?.sourceStoragePath;
 
   useEffect(() => {
+    pageRequest.current++;
+    pdfRef.current?.destroy?.(); pdfRef.current = null;
+    setSelectedPage(null); setPageUrl(null); setPageBusy(false); setPageError("");
     setFailedUrl(null);
     setCropping(false);
     setSelection(null);
-    try { setCropUrl(localStorage.getItem(key)); } catch { setCropUrl(null); }
-  }, [key, url]);
+    try { setCropUrl(localStorage.getItem(key)); const savedPage = Number(localStorage.getItem(`${key}:page`)); if (savedPage > 0) setSelectedPage(savedPage); } catch { setCropUrl(null); }
+  }, [key, originalUrl]);
+
+  const changePage = async pageNumber => {
+    if (!sourcePath || pageBusy || pageNumber < 1) return;
+    const request = ++pageRequest.current;
+    setPageBusy(true); setPageError("");
+    try {
+      if (!pdfRef.current) {
+        const sourceUrl = await fetchQuestionBankSourceUrl(sourcePath);
+        if (!sourceUrl) throw new Error("Original PDF unavailable. Re-upload the source PDF to enable page navigation.");
+        const { loadPDFJS } = await import("../../../examParser.js");
+        await loadPDFJS();
+        const pdf = await window.pdfjsLib.getDocument(sourceUrl).promise;
+        if (request !== pageRequest.current) { pdf.destroy(); return; }
+        pdfRef.current = pdf;
+      }
+      if (pageNumber > pdfRef.current.numPages) throw new Error("This is the last source page.");
+      const page = await pdfRef.current.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1.35 });
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+      if (request !== pageRequest.current) return;
+      setPageUrl(canvas.toDataURL("image/jpeg", 0.85)); setSelectedPage(pageNumber);
+      setCropping(true); setSelection(null); setFailedUrl(null);
+    } catch (error) { if (request === pageRequest.current) setPageError(error.message || "Could not load the source page."); }
+    finally { if (request === pageRequest.current) setPageBusy(false); }
+  };
+  useEffect(() => () => { pageRequest.current++; pdfRef.current?.destroy?.(); }, []);
 
   if (!question?.hasImage && !referencesVisual) return null;
-  if (!url || failedUrl === url) return (
+  if ((!url || failedUrl === url) && !sourcePath) return (
     <p role="status" className="mb-3 rounded-lg border border-border p-3 text-sm text-text-2">
       This question refers to a source visual, but it is not available here. Do not answer from incomplete information; flag the item for repair.
     </p>
@@ -61,7 +103,7 @@ export function SchoolQuestionFigure({ question }) {
     canvas.height = Math.max(1, Math.round(selection.h * image.naturalHeight));
     canvas.getContext("2d").drawImage(image, left, top, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
     const next = canvas.toDataURL("image/jpeg", 0.9);
-    try { localStorage.setItem(key, next); } catch { /* Still apply the crop for this session if storage is full. */ }
+    try { localStorage.setItem(key, next); localStorage.setItem(`${key}:page`, String(visualPage)); } catch { /* Still apply the crop for this session if storage is full. */ }
     setCropUrl(next);
     setCropping(false);
     setSelection(null);
@@ -71,10 +113,17 @@ export function SchoolQuestionFigure({ question }) {
     <details className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
       <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">Show source figure{visualPage ? ` · page ${visualPage}` : ""}</summary>
       <figure className="mt-2">
+        {sourcePath ? <div className="mb-2 flex gap-2 text-xs">
+          <button type="button" disabled={pageBusy || visualPage <= 1} className="rounded border border-border px-2 py-1" onClick={() => changePage(visualPage - 1)}>Previous source page</button>
+          <button type="button" disabled={pageBusy} className="rounded border border-border px-2 py-1" onClick={() => changePage(visualPage + 1)}>Next source page</button>
+          {pageBusy && <span role="status">Loading page…</span>}
+        </div> : <p className="mb-2 text-xs text-text-3">Only this saved page is available. Re-upload the original PDF if the figure is on another page.</p>}
+        {pageError && <p role="status" className="mb-2 text-xs text-bad">{pageError}</p>}
+
         {cropUrl && !cropping ? (
           <>
             <img src={cropUrl} alt="Cropped question figure" className="h-auto max-h-[75vh] w-auto max-w-full rounded-lg border border-border" />
-            <button type="button" className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-2" onClick={() => { setSelection(null); setCropping(true); }}>Adjust figure crop</button>
+            <button type="button" className="mt-2 rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-2" onClick={() => { setSelection(null); setCropping(true); if (selectedPage && !pageUrl && selectedPage !== originalPage) changePage(selectedPage); }}>Adjust figure crop</button>
           </>
         ) : (
           <>

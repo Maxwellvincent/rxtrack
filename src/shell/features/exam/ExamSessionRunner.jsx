@@ -310,7 +310,7 @@ function QuestionNavigator({ questions, session, currentIndex, onSelect }) {
   );
 }
 
-function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId }) {
+function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLectureId, userId }) {
   const { session, currentIndex, setCurrentIndex, remainingMs, answerQuestion, submit, submitting } =
     controller;
   const questions = session.questions || [];
@@ -342,7 +342,7 @@ function ExamFormat({ controller, submitOpts, objectivesById, lectureLabelsByLec
           <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
           <LeadInCue stem={q.stem} />
           <QuestionStem text={q.stem} questionId={q.questionId} />
-          <SchoolQuestionFigure question={q} />
+          <SchoolQuestionFigure question={q} userId={userId} />
           <ChoiceList
             questionId={q.questionId}
             choices={q.choices}
@@ -418,7 +418,7 @@ function PracticeFormat({ controller, tutorModeEnabled, submitOpts, callAI, user
         <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
         <LeadInCue stem={q.stem} />
         <QuestionStem text={q.stem} questionId={q.questionId} />
-        <SchoolQuestionFigure question={q} />
+        <SchoolQuestionFigure question={q} userId={userId} />
         <ChoiceList
           questionId={q.questionId}
           choices={q.choices}
@@ -563,7 +563,7 @@ function SubmittedExamReview({ session, tutorModeEnabled, callAI, userId, object
             </div>
             <QuestionMeta question={q} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
             <QuestionStem text={q.stem} questionId={q.questionId} />
-            <SchoolQuestionFigure question={q} />
+            <SchoolQuestionFigure question={q} userId={userId} />
             <ChoiceList questionId={q.questionId} choices={q.choices} choiceColumns={q.choiceColumns} choiceLayout={q.choiceLayout} picked={picked} revealed correct={q.correct} onPick={() => {}} />
             <div className="mt-2"><QuestionQualityRating userId={userId} question={q} /></div>
             {picked != null && picked !== q.correct && <details><summary className="cursor-pointer py-2 text-sm text-text-3">Review this miss · optional</summary><MissReflection userId={userId} /><MissDiagnosis question={q} selectedChoice={picked} onComplete={(diagnostic) => {
@@ -683,7 +683,7 @@ export function ExamSessionRunner({
       {session.fillStatus === "generating" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || "…"} questions ready. You can start answering now; missing questions are generating. {session.format === "exam" ? "The timer starts when the requested set is ready." : ""} Keep this tab open until preparation finishes.</div>}
       {session.fillStatus === "partial" && <div role="status" className="rounded-lg border border-accent/40 bg-bg-elevated px-3 py-2 text-sm text-text-2">{session.questions?.length || 0}/{session.targetQuestionCount || session.questions?.length || 0} questions ready. {session.fillError ? `The remaining questions could not be prepared: ${session.fillError}` : "The requested set could not be fully prepared."} You can continue with what is ready.</div>}
       {session.format === "exam" ? (
-        <ExamFormat controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
+        <ExamFormat userId={userId} controller={{ ...controller, session }} submitOpts={submitOpts} objectivesById={objectivesById} lectureLabelsByLectureId={lectureLabelsByLectureId} />
       ) : (
         <PracticeFormat
           controller={{ ...controller, session }}

@@ -185,7 +185,7 @@ describe("ExamDashboard", () => {
     expect(map.textContent).toContain("LEC 1 · Lecture One");
     expect(map.textContent).toContain("40% correct · 3 missed of 5");
     expect(map.textContent).toContain("1/2 objectives seen · 1 untested");
-    expect(host.textContent).toContain("No Integrated Exam attempts yet for this block");
+    expect(host.textContent).toContain("No linked homework, quiz or exam answers yet for this block");
     unmount();
   });
 
@@ -260,7 +260,7 @@ describe("ExamDashboard", () => {
     );
     await flush();
 
-    expect(host.textContent).toMatch(/No Integrated Exam attempts yet for this block/);
+    expect(host.textContent).toMatch(/No linked homework, quiz or exam answers yet for this block/);
     unmount();
   });
 
@@ -381,4 +381,20 @@ describe("ExamDashboard", () => {
     expect(listExamSessionsMock).toHaveBeenCalledWith(USER, BLOCK, { status: "submitted" });
     unmount();
   });
+});
+
+it("recovers older homework lecture labels into the weak overview and repair context", async () => {
+  const question = { questionId: "q", sourceType: "question-bank", sourceSection: "NB 05", sourceSectionTitle: "Neurons and Glia", stem: "A child has seizures. Which organelle?", choices: { A: "Lysosome", B: "Golgi" }, correct: "A", explanation: "The clinical signs reflect undegraded material accumulating." };
+  listExamSessionsMock.mockResolvedValue([{ ...makeSession({ id: "hw", questions: [question], answers: [a("q", "B")] }), sourceType: "question-bank" }]);
+  const navigate = vi.fn();
+  const lecture = { id: "l5", blockId: BLOCK, lectureNumber: 5, lectureTitle: "NB 05 Neurons and Glia" };
+  const { host, unmount } = render(<ExamDashboard userId={USER} blockId={BLOCK} lectures={[lecture]} lecturesById={{ l5: lecture }} onNavigateToLecture={navigate} />);
+  await flush();
+  expect(host.textContent).toContain("Neurons and Glia");
+  expect(host.textContent).not.toContain("No linked homework");
+  const repair = [...host.querySelectorAll("button")].find(b => b.textContent.includes("Repair model"));
+  act(() => repair.click());
+  expect(navigate.mock.calls[0][0]).toBe("l5");
+  expect(navigate.mock.calls[0][1].missedQuestions[0]).toMatchObject({ explanation: question.explanation, stem: question.stem });
+  unmount();
 });

@@ -100,7 +100,7 @@ export function linkSourceLecture(question, lectures = [], blockId) {
   if (question.curriculumLinkStatus === "user-confirmed" && lectures.some(l => l.id === question.lectureId && (!l.blockId || l.blockId === blockId))) return question;
   const clue = sourceLectureClue(question);
   if (!clue) return question;
-  const cleanTitle = value => normalize(cleanLectureTitle(value).replace(/^(?:lecture|lec|nb|n)\s*0*\d+\s*(?:[:.·–—-]\s*)?/i, "").replace(/^(?:nb|n)\s*0*\d+\s*/, ""));
+  const cleanTitle = value => normalize(cleanLectureTitle(value).replace(/&/g, " and ").replace(/^(?:lecture|lec|nb|n)\s*0*\d+\s*(?:[:.·–—-]\s*)?/i, "").replace(/^(?:nb|n)\s*0*\d+\s*/, ""));
   const expectedTitle = cleanTitle(clue.title);
   const candidates = lectures.filter(lecture => {
     if (lecture.blockId && lecture.blockId !== blockId) return false;
