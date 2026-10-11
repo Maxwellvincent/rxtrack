@@ -1,4 +1,4 @@
-import { awaitStorageUpload } from "./storageUpload.js";
+import { uploadSchoolFile } from "./storageUpload.js";
 import { releaseConfirmedCloudCopy } from "./browserStorage.js";
 // Firebase Auth + Firestore + Storage — the sole backend (Task 3: auth
 // cutover; Task 4: JSON-doc primitives; Task 5: push/pull/kv; Task 6:
@@ -14,7 +14,7 @@ import {
   doc, getDoc, getDocFromServer, deleteDoc, collection, getDocs, query, where, orderBy, limit,
   setDoc, runTransaction, writeBatch, serverTimestamp,
 } from "firebase/firestore";
-import { ref as storageRef, uploadBytes, uploadBytesResumable, getDownloadURL, deleteObject } from "firebase/storage";
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage";
 import { encodeDocId, decodeDocId } from "./idCodec";
 import { storeForKey } from "./stores/index.js";
 import { applyLocalCap, SKIP_ON_PULL } from "./stores/capped.js";
@@ -1118,7 +1118,7 @@ export async function uploadQuestionBankPage(userId, bankTitle, pageNumber, data
   const response = await fetch(dataUrl);
   const blob = await response.blob();
   const path = `question-images/${userId}/banks/${encodeDocId(bankTitle)}/page-${pageNumber}.jpg`;
-  await awaitStorageUpload(uploadBytesResumable(storageRef(storage, path), blob, { contentType: blob.type || "image/jpeg" }));
+  await uploadSchoolFile({ auth, userId, bucket: storageRef(storage, path).bucket, path, blob, metadata: { contentType: blob.type || "image/jpeg" } });
   return getDownloadURL(storageRef(storage, path));
 }
 
@@ -1130,10 +1130,10 @@ export async function uploadQuestionBankSource(userId, blockId, file) {
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const path = `exam-sources/${userId}/${encodeDocId(blockId || "unassigned")}/${id}-${name}`;
-  await awaitStorageUpload(uploadBytesResumable(storageRef(storage, path), file, {
+  await uploadSchoolFile({ auth, userId, bucket: storageRef(storage, path).bucket, path, blob: file, metadata: {
     contentType: file.type || "application/pdf",
     customMetadata: { originalName: String(file.name || "source.pdf"), blockId: String(blockId || "") },
-  }));
+  } });
   return path;
 }
 
