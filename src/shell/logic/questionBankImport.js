@@ -1,3 +1,4 @@
+import { archiveQuestionSource } from "../../storageUpload.js";
 import { parseExamPDF } from "../../examParser.js";
 import { callAIJSON, callAIWithImage } from "../../aiClient.js";
 import { tryParseJSON } from "../../lib/aiJson.js";
@@ -126,7 +127,7 @@ export async function processQuestionBankFiles({
   const files = selectQuestionBankFiles(selectedFiles);
   if (!files.length) return "No supported question-bank files found.";
 
-  const report = { results: [], weakCategories: [], savedResults: [], pendingAnalyses: [] };
+  const report = { results: [], weakCategories: [], savedResults: [], pendingAnalyses: [], sourceWarnings: [] };
   let pendingBanks = { ...(questionBanksStore.read(userId) || {}) };
   let pendingMeta = { ...(questionBankMetaStore.read(userId) || {}) };
   let banksChanged = false;
@@ -281,7 +282,7 @@ export async function processQuestionBankFiles({
       // or localStorage. Parsed questions remain independently usable.
       const isPdf = file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
       const sourceStoragePath = userId && isPdf
-        ? await uploadQuestionBankSource(userId, blockId, file)
+        ? await archiveQuestionSource(() => uploadQuestionBankSource(userId, blockId, file), warning => report.sourceWarnings.push(`${bankTitle}: ${warning}`))
         : null;
 
       const pageUrls = new Map();
@@ -402,5 +403,5 @@ export async function processQuestionBankFiles({
     : "";
   const reportDetail = report.savedResults.length ? ` · ${report.savedResults.length} score report${report.savedResults.length === 1 ? "" : "s"} saved` : "";
   const failureDetail = summary.failed.length ? ` · ${summary.failed.length} failed` : "";
-  return `${summary.saved} bank${summary.saved === 1 ? "" : "s"} imported · ${summary.questions} questions${reportDetail}${critiqueDetail}${failureDetail}`;
+  return `${summary.saved} bank${summary.saved === 1 ? "" : "s"} imported · ${summary.questions} questions${reportDetail}${critiqueDetail}${failureDetail}${report.sourceWarnings.length ? ` · ${report.sourceWarnings.join("; ")}` : ""}`;
 }
