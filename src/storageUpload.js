@@ -64,3 +64,15 @@ export async function uploadSchoolFile({ auth, userId, bucket, path, blob, metad
     throw error;
   } finally { clearTimeout(timer); }
 }
+
+/** Fetch PDF bytes with the current user's auth; PDF.js never needs a token URL or range requests. */
+export async function downloadSchoolSource({ auth, bucket, path, fetchImpl = fetch, timeoutMs = 30000 }) {
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user || !String(path).startsWith(`exam-sources/${user.uid}/`)) throw Object.assign(new Error("This source PDF is not available to the signed-in account."), { code: "storage/unauthorized" });
+  const signal = AbortSignal.timeout(timeoutMs);
+  const token = await user.getIdToken();
+  const response = await fetchImpl(`https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}?alt=media`, { headers: { Authorization: `Firebase ${token}` }, signal });
+  if (!response.ok) throw new Error(response.status === 404 ? "Original PDF not found. Re-upload this question bank to restore its source pages." : `Source PDF could not load (HTTP ${response.status}).`);
+  return response.arrayBuffer();
+}

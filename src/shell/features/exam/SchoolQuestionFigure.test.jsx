@@ -2,8 +2,8 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { installDomStorage } from "../../../stores/testEnv.js";
-import { SchoolQuestionFigure } from "./SchoolQuestionFigure.jsx";
-vi.mock("../../../supabase.js", () => ({ fetchQuestionBankSourceUrl: vi.fn(async () => "https://example.com/source.pdf") }));
+import { SchoolQuestionFigure, questionReferencesVisual } from "./SchoolQuestionFigure.jsx";
+vi.mock("../../../supabase.js", () => ({ fetchQuestionBankSourceBytes: vi.fn(async () => new Uint8Array([37,80,68,70]).buffer) }));
 vi.mock("../../../examParser.js", () => ({ loadPDFJS: vi.fn(async () => {}) }));
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let host, root;
@@ -59,4 +59,31 @@ it("loads the next archived source page on demand for cropping without re-upload
   expect(host.querySelector("img").getAttribute("src")).toBe("data:image/jpeg;base64,page8");
   expect(host.textContent).toContain("Show source figure · page 8");
   context.mockRestore(); dataUrl.mockRestore(); delete window.pdfjsLib;
+});
+
+it("detects plural photomicrographs and exposes original page recovery when no exhibit was extracted", () => {
+  expect(questionReferencesVisual("A biopsy is shown in the attached photomicrographs.")).toBe(true);
+  render(<SchoolQuestionFigure question={{ stem:"A biopsy is shown in the attached photomicrographs.", sourcePage:10, sourceStoragePath:"exam-sources/u1/original.pdf" }} userId="u1" />);
+  expect(host.textContent).toContain("Load original question page");
+  expect(host.querySelector("details").open).toBe(true);
+  expect([...host.querySelectorAll("button")].find(b=>b.textContent==="Use cropped figure").disabled).toBe(true);
+  expect(host.textContent).toContain("Select a figure area first");
+});
+it('enables cropping after a loaded image and a real selection, then displays the saved crop', () => {
+  const draw=vi.fn();
+  const context=vi.spyOn(window.HTMLCanvasElement.prototype,'getContext').mockReturnValue({drawImage:draw});
+  const data=vi.spyOn(window.HTMLCanvasElement.prototype,'toDataURL').mockReturnValue('data:image/jpeg;base64,selected');
+  render(<SchoolQuestionFigure question={{id:'crop-test',hasImage:true,sourceImageUrl:'https://example.com/source.jpg'}} />);
+  const image=host.querySelector('img');const region=image.parentElement;
+  Object.defineProperties(image,{naturalWidth:{value:1000},naturalHeight:{value:1000}});
+  region.getBoundingClientRect=()=>({left:0,top:0,width:500,height:500});
+  const save=[...host.querySelectorAll('button')].find(b=>b.textContent==='Use cropped figure');
+  act(()=>image.dispatchEvent(new window.Event('load')));
+  act(()=>region.dispatchEvent(new window.MouseEvent('pointerdown',{bubbles:true,clientX:50,clientY:50})));
+  act(()=>region.dispatchEvent(new window.MouseEvent('pointermove',{bubbles:true,clientX:250,clientY:250})));
+  act(()=>region.dispatchEvent(new window.MouseEvent('pointerup',{bubbles:true})));
+  expect(save.disabled).toBe(false);
+  act(()=>save.click());
+  expect(draw).toHaveBeenCalled();expect(host.querySelector('img').alt).toBe('Cropped question figure');
+  context.mockRestore();data.mockRestore();
 });

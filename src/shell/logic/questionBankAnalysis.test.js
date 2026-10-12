@@ -74,3 +74,7 @@ describe("question bank analysis", () => {
     expect(analysis.items[0]).toMatchObject({ sourceAttemptCorrect: false, sourceScore: "0/1", schoolLearningOutcomes: "Gastrointestinal system" });
   });
 });
+it('does not suggest neuro objectives from generic lower/upper and exam wording in a GI question', () => {
+  const analysis=buildQuestionBankAnalysis({questions:[{id:'gi',stem:'A man comes to the physician with a history of blood and mucus in stool and pain in the lower abdomen. Endoscopy of the upper and lower gastrointestinal tract is performed. Which of the following is the biopsy specimen?',choices:{A:'Colon'},correct:'A'}],objectives:[{id:'motor',objective:'Correlate upper and lower motor neuronal signs with lesions affecting central and peripheral nervous sites'}]});
+  expect(analysis.items[0].objectiveIds).not.toContain('motor');
+});

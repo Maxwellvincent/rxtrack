@@ -1,4 +1,4 @@
-import { uploadSchoolFile } from "./storageUpload.js";
+import { uploadSchoolFile, downloadSchoolSource } from "./storageUpload.js";
 import { releaseConfirmedCloudCopy } from "./browserStorage.js";
 // Firebase Auth + Firestore + Storage — the sole backend (Task 3: auth
 // cutover; Task 4: JSON-doc primitives; Task 5: push/pull/kv; Task 6:
@@ -1135,6 +1135,10 @@ export async function uploadQuestionBankSource(userId, blockId, file) {
     customMetadata: { originalName: String(file.name || "source.pdf"), blockId: String(blockId || "") },
   } });
   return path;
+}
+
+export async function fetchQuestionBankSourceBytes(path) {
+  return downloadSchoolSource({ auth, bucket: storageRef(storage, path).bucket, path });
 }
 
 /** Resolve an archived source exam only when the user opens its source view. */

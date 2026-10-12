@@ -23,7 +23,7 @@ vi.mock("./useTutorExplanation.js", () => ({
   useTutorExplanation: (...args) => tutorHookMock(...args),
 }));
 
-const { ExamSessionRunner } = await import("./ExamSessionRunner.jsx");
+const { ExamSessionRunner, uniqueQuestionLinks } = await import("./ExamSessionRunner.jsx");
 
 function makeQuestion(questionId, letter = "A") {
   return {
@@ -586,4 +586,8 @@ it("links resumed NB05 homework in review and opens the missed lecture", () => {
   act(() => button.click());
   expect(navigate).toHaveBeenCalledWith("l5");
   unmount();
+});
+
+it("deduplicates candidate labels even when source IDs and capitalization differ", () => {
+  expect(uniqueQuestionLinks([{id:"a",label:"Correlate upper and lower motor signs"},{id:"b",label:"correlate upper and lower motor signs"}])).toHaveLength(1);
 });

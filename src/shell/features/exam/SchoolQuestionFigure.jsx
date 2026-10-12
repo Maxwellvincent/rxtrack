@@ -1,9 +1,9 @@
-import { fetchQuestionBankSourceUrl } from "../../../supabase.js";
+import { fetchQuestionBankSourceBytes } from "../../../supabase.js";
 import * as questionBankMeta from "../../../stores/questionBankMeta.js";
 import { useEffect, useRef, useState } from "react";
 
 export function questionReferencesVisual(stem = "") {
-  return /\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b.{0,90}\b(?:shown|below|above|provided|attached|following|numbered|labeled)\b|\b(?:shown|below|above|provided|attached|following)\b.{0,70}\b(?:figure|image|graph|chart|table|photomicrograph|radiograph|x[- ]ray|ultrasound)\b/i.test(String(stem));
+  return /\b(?:figures?|images?|graphs?|charts?|tables?|photomicrographs?|radiographs?|x[- ]ray|ultrasound)\b.{0,90}\b(?:shown|below|above|provided|attached|following|numbered|labeled)\b|\b(?:shown|below|above|provided|attached|following)\b.{0,70}\b(?:figures?|images?|graphs?|charts?|tables?|photomicrographs?|radiographs?|x[- ]ray|ultrasound)\b/i.test(String(stem));
 }
 
 function cropKey(question) {
@@ -20,6 +20,8 @@ export function SchoolQuestionFigure({ question, userId }) {
   const pageRequest = useRef(0);
   const [failedUrl, setFailedUrl] = useState(null);
   const [cropUrl, setCropUrl] = useState(null);
+  const [imageReady, setImageReady] = useState(false);
+  const [cropError, setCropError] = useState("");
   const [cropping, setCropping] = useState(false);
   const [selection, setSelection] = useState(null);
   const imageRef = useRef(null);
@@ -36,7 +38,7 @@ export function SchoolQuestionFigure({ question, userId }) {
     pageRequest.current++;
     pdfRef.current?.destroy?.(); pdfRef.current = null;
     setSelectedPage(null); setPageUrl(null); setPageBusy(false); setPageError("");
-    setFailedUrl(null);
+    setFailedUrl(null); setImageReady(false); setCropError("");
     setCropping(false);
     setSelection(null);
     try { setCropUrl(localStorage.getItem(key)); const savedPage = Number(localStorage.getItem(`${key}:page`)); if (savedPage > 0) setSelectedPage(savedPage); } catch { setCropUrl(null); }
@@ -48,11 +50,11 @@ export function SchoolQuestionFigure({ question, userId }) {
     setPageBusy(true); setPageError("");
     try {
       if (!pdfRef.current) {
-        const sourceUrl = await fetchQuestionBankSourceUrl(sourcePath);
-        if (!sourceUrl) throw new Error("Original PDF unavailable. Re-upload the source PDF to enable page navigation.");
+        const sourceBytes = await fetchQuestionBankSourceBytes(sourcePath);
+        if (!sourceBytes) throw new Error("Original PDF unavailable. Re-upload the source PDF to enable page navigation.");
         const { loadPDFJS } = await import("../../../examParser.js");
         await loadPDFJS();
-        const pdf = await window.pdfjsLib.getDocument(sourceUrl).promise;
+        const pdf = await window.pdfjsLib.getDocument({ data: new Uint8Array(sourceBytes) }).promise;
         if (request !== pageRequest.current) { pdf.destroy(); return; }
         pdfRef.current = pdf;
       }
@@ -63,14 +65,15 @@ export function SchoolQuestionFigure({ question, userId }) {
       canvas.width = viewport.width; canvas.height = viewport.height;
       await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
       if (request !== pageRequest.current) return;
+      setImageReady(false); setCropError("");
       setPageUrl(canvas.toDataURL("image/jpeg", 0.85)); setSelectedPage(pageNumber);
       setCropping(true); setSelection(null); setFailedUrl(null);
-    } catch (error) { if (request === pageRequest.current) setPageError(error.message || "Could not load the source page."); }
+    } catch (error) { if (request === pageRequest.current) setPageError(error.message === "Failed to fetch" ? "Could not reach the original PDF. Retry loading the page; if it persists, re-upload the bank to restore its source PDF." : error.message || "Could not load the source page."); }
     finally { if (request === pageRequest.current) setPageBusy(false); }
   };
   useEffect(() => () => { pageRequest.current++; pdfRef.current?.destroy?.(); }, []);
 
-  if (!question?.hasImage && !referencesVisual) return null;
+  if (!question?.hasImage && !referencesVisual && !originalUrl) return null;
   if ((!url || failedUrl === url) && !sourcePath) return (
     <p role="status" className="mb-3 rounded-lg border border-border p-3 text-sm text-text-2">
       This question refers to a source visual, but it is not available here. Do not answer from incomplete information; flag the item for repair.
@@ -78,6 +81,7 @@ export function SchoolQuestionFigure({ question, userId }) {
   );
 
   const startSelection = (event) => {
+    if (!imageReady) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const point = { x: Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)), y: Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height)) };
     dragStart.current = point;
@@ -95,22 +99,24 @@ export function SchoolQuestionFigure({ question, userId }) {
   const finishSelection = () => { dragStart.current = null; };
   const saveCrop = () => {
     const image = imageRef.current;
-    if (!image || !selection || selection.w < 0.02 || selection.h < 0.02) return;
+    if (!imageReady || !image || !selection || selection.w < 0.02 || selection.h < 0.02) return;
     const canvas = document.createElement("canvas");
     const left = Math.round(selection.x * image.naturalWidth);
     const top = Math.round(selection.y * image.naturalHeight);
     canvas.width = Math.max(1, Math.round(selection.w * image.naturalWidth));
     canvas.height = Math.max(1, Math.round(selection.h * image.naturalHeight));
+    try {
     canvas.getContext("2d").drawImage(image, left, top, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
     const next = canvas.toDataURL("image/jpeg", 0.9);
     try { localStorage.setItem(key, next); localStorage.setItem(`${key}:page`, String(visualPage)); } catch { /* Still apply the crop for this session if storage is full. */ }
     setCropUrl(next);
     setCropping(false);
     setSelection(null);
+    } catch { setCropError("This image could not be cropped. Open the original PDF page using the page controls, then select the figure again."); }
   };
 
   return (
-    <details className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
+    <details open={referencesVisual && !originalUrl ? true : undefined} className="mb-3 rounded-lg border border-border bg-bg-elevated p-2">
       <summary className="cursor-pointer px-1 py-1 text-sm font-medium text-text-2">Show source figure{visualPage ? ` · page ${visualPage}` : ""}</summary>
       <figure className="mt-2">
         {sourcePath ? <div className="mb-2 flex gap-2 text-xs">
@@ -127,13 +133,16 @@ export function SchoolQuestionFigure({ question, userId }) {
           </>
         ) : (
           <>
-            <p className="mb-2 text-xs text-text-2">This source page may include the answer choices or key. Drag around only the figure, then choose “Use cropped figure.” The crop is remembered on this device.</p>
-            <div className="relative inline-block max-w-full touch-none select-none" onPointerDown={startSelection} onPointerMove={moveSelection} onPointerUp={finishSelection} onPointerCancel={finishSelection}>
-              <img ref={imageRef} src={url} alt="Source page to crop; may contain answer choices or key" className="block h-auto max-h-[75vh] w-auto max-w-full rounded-lg border border-border" onError={() => setFailedUrl(url)} draggable="false" />
+            <p className="mb-2 text-xs text-text-2">This source page may include the answer choices or key. Drag a rectangle around only the figure to enable “Use cropped figure.”</p>
+            {(!url || failedUrl === url) && <div role="status" className="mb-2 text-sm">No figure loaded. <button type="button" disabled={pageBusy} className="underline" onClick={() => changePage(visualPage)}>Load original question page</button></div>}
+            {url && failedUrl !== url && <div className="relative inline-block max-w-full touch-none select-none" onPointerDown={startSelection} onPointerMove={moveSelection} onPointerUp={finishSelection} onPointerCancel={finishSelection}>
+              <img ref={imageRef} crossOrigin="anonymous" src={url} alt="Source page to crop; may contain answer choices or key" className="block h-auto max-h-[75vh] w-auto max-w-full rounded-lg border border-border" onLoad={() => setImageReady(true)} onError={() => { setFailedUrl(url); setImageReady(false); }} draggable="false" />
               {selection && <div aria-hidden="true" className="pointer-events-none absolute border-2 border-accent bg-accent/10" style={{ left: `${selection.x * 100}%`, top: `${selection.y * 100}%`, width: `${selection.w * 100}%`, height: `${selection.h * 100}%` }} />}
-            </div>
-            <div className="mt-2 flex gap-2">
-              <button type="button" className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50" disabled={!selection || selection.w < 0.02 || selection.h < 0.02} onClick={saveCrop}>Use cropped figure</button>
+            </div>}
+            {cropError && <p role="status" className="mt-2 text-xs text-bad">{cropError}</p>}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <button type="button" className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50" disabled={!imageReady || !selection || selection.w < 0.02 || selection.h < 0.02} onClick={saveCrop}>Use cropped figure</button>
+              {(!selection || selection.w < 0.02 || selection.h < 0.02) && <span className="text-xs text-text-3">Select a figure area first.</span>}
               {cropUrl && <button type="button" className="rounded-md border border-border px-3 py-1.5 text-xs text-text-2" onClick={() => setCropping(false)}>Cancel</button>}
             </div>
           </>

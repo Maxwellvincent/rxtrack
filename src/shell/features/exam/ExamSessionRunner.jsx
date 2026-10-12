@@ -76,6 +76,15 @@ function pickedFor(session, questionId) {
   return session?.answers?.find((a) => a.questionId === questionId)?.value ?? null;
 }
 
+export function uniqueQuestionLinks(links = []) {
+  const seen = new Set();
+  return links.filter(link => {
+    const label = String(link.label || link.id || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (!label || seen.has(label)) return false;
+    seen.add(label); return true;
+  });
+}
+
 function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId = {} }) {
   const objectiveCount = question?.objectiveIds?.length || 0;
   const lectureId = question?.lectureId || question?.lectureIds?.[0];
@@ -94,19 +103,21 @@ function QuestionMeta({ question, objectivesById = {}, lectureLabelsByLectureId 
       <span className="rounded border border-border px-1.5 py-0.5" title="Structural reasoning level, inferred from the question and objective; not a measure of medical correctness">
         {QUESTION_ORDER_LABELS[question?.orderLevel || classifyQuestionOrder(question, objectivesById[question?.objectiveIds?.[0]])]}
       </span>
+      <details className="w-full"><summary className="cursor-pointer py-1">Question details & source links</summary><div className="mt-1 flex flex-wrap gap-1.5">
       <span className="max-w-full rounded border border-border px-1.5 py-0.5">Lecture: {lectureLabel || lectureId || "not linked"}</span>
       {objectiveLabels.map((label, index) => <span key={`${question.questionId}-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title={label}>Objective: {label}</span>)}
       {!objectiveCount && <span className="max-w-full rounded border border-border px-1.5 py-0.5">Objective: not linked yet</span>}
       {question?.source && <span className="rounded border border-border px-1.5 py-0.5">{question.source}</span>}
       {question?.sourceLectureClue && <span className="rounded border border-accent/40 bg-accent/5 px-1.5 py-0.5" title="Explicit source label; matched links use this block’s lecture number and title">Source says: {question.sourceLectureClue}</span>}
       {["needs-review", "unsupported-by-lecture"].includes(question?.sourceKeyReviewStatus) && <span className="rounded border border-bad/40 bg-bad/5 px-1.5 py-0.5 text-bad" title={question.sourceKeyCritique || "This imported source key/rationale needs review"}>Source key needs review</span>}
-      {(question?.candidateLectureLinks || []).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-lecture-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Possible match based on uploaded question analysis; review before treating as a confirmed curriculum link">Possible lecture match: {link.label || link.id}</span>)}
-      {(question?.candidateObjectiveLinks || []).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Candidate objective match for review; does not count as objective coverage evidence">Possible objective match: {link.label || link.id}</span>)}
+      {uniqueQuestionLinks(question?.candidateLectureLinks).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-lecture-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Possible match based on uploaded question analysis; review before treating as a confirmed curriculum link">Possible lecture match: {link.label || link.id}</span>)}
+      {uniqueQuestionLinks(question?.candidateObjectiveLinks).slice(0, 2).map((link, index) => <span key={`${question.questionId}-candidate-objective-${index}`} className="max-w-full rounded border border-border px-1.5 py-0.5" title="Candidate objective match for review; does not count as objective coverage evidence">Possible objective match: {link.label || link.id}</span>)}
       {Number.isFinite(question?.schoolStyleScore) && (
         <span className="rounded border border-border px-1.5 py-0.5" title="Estimated structural fit against the aggregate shape of uploaded school questions; not a correctness or equivalence score">
           format fit (est.) {question.schoolStyleScore}%
         </span>
       )}
+      </div></details>
     </div>
   );
 }

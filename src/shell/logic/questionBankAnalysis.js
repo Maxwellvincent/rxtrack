@@ -18,7 +18,8 @@ const CUE_RULES = [
   ["decision lead-in", /most likely|best explains|would be expected|which finding|next step/i],
 ];
 
-const words = (value) => new Set((String(value || "").toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []));
+const GENERIC_WORDS = new Set("patient physician comes history month months year years following likely shown show shows studies study collected specimen attached performed upper lower presents symptoms explain describe identify correlate understanding function findings results question which what most best with from that this these those into both more than within between affect affecting".split(" "));
+const words = (value) => new Set((String(value || "").toLowerCase().match(/[a-z][a-z0-9-]{3,}/g) || []).filter(word => !GENERIC_WORDS.has(word)));
 const textOfObjective = (objective) => objective?.objective || objective?.text || objective?.content || "";
 
 export function sourceLabel(sourceKind = "school", filename = "") {

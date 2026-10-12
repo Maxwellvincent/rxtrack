@@ -58,3 +58,16 @@ it('aborts the request at the deadline', async () => {
   await vi.advanceTimersByTimeAsync(100);await rejected;
   expect(signal.aborted).toBe(true);vi.useRealTimers();
 });
+import { downloadSchoolSource } from './storageUpload.js';
+it('reads original PDF bytes with user auth instead of a download token URL', async () => {
+  const opts=schoolOptions();opts.fetchImpl=vi.fn(async()=>({ok:true,arrayBuffer:async()=>new Uint8Array([37,80,68,70]).buffer}));
+  expect(new Uint8Array(await downloadSchoolSource(opts))).toEqual(new Uint8Array([37,80,68,70]));
+  expect(opts.fetchImpl.mock.calls[0][0]).toContain('/o/exam-sources%2Ftest%2Fsource.pdf?alt=media');
+  expect(opts.fetchImpl.mock.calls[0][1].headers.Authorization).toBe('Firebase synthetic-token');
+});
+it('does not read another account source or hide missing original PDF errors', async () => {
+  const opts=schoolOptions();opts.path='exam-sources/other/file.pdf';opts.fetchImpl=vi.fn();
+  await expect(downloadSchoolSource(opts)).rejects.toMatchObject({code:'storage/unauthorized'});
+  expect(opts.fetchImpl).not.toHaveBeenCalled();
+  await expect(downloadSchoolSource({...schoolOptions(),fetchImpl:async()=>({ok:false,status:404})})).rejects.toThrow('Original PDF not found');
+});
