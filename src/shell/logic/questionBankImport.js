@@ -153,12 +153,13 @@ export async function processQuestionBankFiles({
 
   for (const { questionFile, answerFile } of pairedFiles) {
     update(`Reading paired answer key ${answerFile.name}…`);
-    const answerDoc = await parseExamPDF(answerFile, undefined, { textOnly: true });
+    const answerDoc = await parseExamPDF(answerFile, undefined, { textOnly: true, readBoldAnswerChoices: true });
     const answerKey = extractPairedAnswerKey(answerDoc.fullText);
-    if (answerKey.size < 3) {
+    const structuredPair = /SNL DES|Week 10 Anatomy/i.test(answerDoc.fullText);
+    if (answerKey.size < 3 && !structuredPair) {
       throw new Error(`${answerFile.name} did not contain at least three numbered letter answers.`);
     }
-    pairedAnswers.set(questionFile, answerKey);
+    pairedAnswers.set(questionFile, { answerKey, fullText: answerDoc.fullText, structuredPair });
     pairedAnswerFiles.add(answerFile);
   }
 
@@ -232,10 +233,12 @@ export async function processQuestionBankFiles({
 
     try {
       const bankTitle = cleanLectureTitle(file.name);
-      const pairedKey = pairedAnswers.get(file);
+      const pairedDoc = pairedAnswers.get(file);
+      const pairedKey = pairedDoc?.answerKey;
       update(`${index + 1}/${files.length} · parsing ${file.name}…`);
       let parsed = await parseExamPDF(file, (message) => update(`${index + 1}/${files.length} · ${file.name} — ${message}`), {
-        useLlm,
+        useLlm: pairedDoc?.structuredPair ? false : useLlm,
+        pairedAnswerText: pairedDoc?.structuredPair ? pairedDoc.fullText : null,
         forcePairedKey: file === imcqSource && imcqKeys,
         requireSourceKeys: !(file === imcqSource && imcqKeys || pairedKey),
       });
@@ -255,7 +258,10 @@ export async function processQuestionBankFiles({
         if (retry.questions.length === imcqKeys.length) parsed = retry;
       }
 
-      if (pairedKey) {
+      if (pairedDoc?.structuredPair) {
+        report.sourceWarnings.push(...(parsed.sourceIssues || []).map(issue => `${file.name}: excluded ${issue}.`));
+        parsed.expectedQuestions = parsed.questions.length;
+      } else if (pairedKey) {
         const parsedQuestions = parsed?.questions || [];
         const questionsByNumber = new Map(parsedQuestions.map((question, questionIndex) => [Number(question.num || questionIndex + 1), question]));
         const missing = [...pairedKey.keys()].filter((number) => !questionsByNumber.has(number));

@@ -28,6 +28,8 @@ function normalizedQuestionBankTitle(name) {
     .replace(/\.(?:pdf|md|markdown|txt)$/i, "")
     .replace(/\+/g, " ")
     .replace(/\b(?:answer(?:s)?|key|breakdown|solution(?:s)?|explanation(?:s)?)\b/gi, " ")
+    .replace(/\b(?:practice|questions?|quesxtions)\b/gi, " ")
+    .replace(/[^a-z0-9]+/gi, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
@@ -91,7 +93,8 @@ export function pairQuestionBankFiles(files = []) {
   const answerFiles = selected.filter((file) => ANSWER_FILE_HINT.test(String(file?.name || "")) && !/IMCQ/i.test(String(file?.name || "")));
   const questionFiles = selected.filter((file) => !ANSWER_FILE_HINT.test(String(file?.name || "")));
   return answerFiles.flatMap((answerFile) => {
-    const questionFile = questionFiles.find((candidate) => questionBankPairMatches(answerFile.name, candidate.name));
+    const matches = questionFiles.filter((candidate) => questionBankPairMatches(answerFile.name, candidate.name));
+    const questionFile = matches.length === 1 ? matches[0] : null;
     return questionFile ? [{ questionFile, answerFile }] : [];
   });
 }

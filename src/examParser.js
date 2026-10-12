@@ -1,3 +1,4 @@
+import { markBoldChoiceItems, parsePairedSourceDocuments } from "./shell/logic/pairedSourceParser.js";
 import { callAI, callAIWithImage, callAIWithImages } from "./aiClient.js";
 import { bridgePdf2md } from "./llmBridge.js";
 import { extractWithSmartFallback } from "./ingest/pdfText.js";
@@ -1515,7 +1516,14 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
       } catch (e) {
         // ignore
       }
-      pages.push({ num: i, text, layoutText, imgCount, pdfPage: page });
+      let answerLayoutText = layoutText;
+      if (opts.readBoldAnswerChoices) {
+        const marked = markBoldChoiceItems(content.items, name => {
+          try { return page.commonObjs.get(name)?.name || ""; } catch { return ""; }
+        });
+        answerLayoutText = pdfItemsToLayoutText(marked);
+      }
+      pages.push({ num: i, text, layoutText, answerLayoutText, imgCount, pdfPage: page });
     }
 
     const sequentialText = pages.map((p, index) => index === 0 ? p.text : `[PAGE_BREAK:${p.num}]\n${p.text}`).join("\n\n");
@@ -1537,7 +1545,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   // deck. Allow the uploader to request text extraction without invoking the
   // generic AI parser; the companion merge can then validate every key.
   if (opts?.textOnly) {
-    return { questions: [], examTitle: cleanLectureTitle(file.name), totalQuestions: 0, expectedQuestions: null, format: "text", fullText, chunks: pages.map((p) => ({ text: p.text })) };
+    return { questions: [], examTitle: cleanLectureTitle(file.name), totalQuestions: 0, expectedQuestions: null, format: "text", fullText: opts.readBoldAnswerChoices ? pages.map((p,i) => `${i ? `[PAGE_BREAK:${p.num}]\n` : ""}${p.answerLayoutText || p.text}`).join("\n\n") : fullText, chunks: pages.map((p) => ({ text: p.text })) };
   }
 
   const isMadcow = /madcow|m a d c o w/i.test(`${file?.name || ""} ${fullText.slice(0, 600)}`);
@@ -1559,9 +1567,10 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   const examTitle = cleanLectureTitle(file.name);
   let questions = [];
 
-  const deterministic = deterministicFromPdf?.length
+  const pairedSource = opts.pairedAnswerText ? parsePairedSourceDocuments(fullText, opts.pairedAnswerText) : null;
+  const deterministic = pairedSource || (deterministicFromPdf?.length
     ? deterministicFromPdf
-    : parseNumberedQuestionBankText(fullText, examTitle);
+    : parseNumberedQuestionBankText(fullText, examTitle));
   const expectedFromKey = expectedQuestionCountFromAnswerKey(fullText);
   if (opts?.requireSourceKeys && _isText && /!\[[^\]]*\]\([^)]+\)/.test(fullText)) {
     throw new Error("This Markdown question bank references external images that are not included in a text upload. Upload the original PDF so RXTrack can preserve its figures.");
@@ -1737,6 +1746,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
     format,
     fullText,
     chunks,
+    sourceIssues: pairedSource?.sourceIssues || [],
     lectureNumber: detectLectureNumber(examTitle || ""),
     lectureTitle: examTitle || "",
   };
