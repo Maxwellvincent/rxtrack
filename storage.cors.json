@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://rxtrack-gilt.vercel.app", "https://rxtrack-louis-maxwells-projects.vercel.app", "https://rxtrack-git-main-louis-maxwells-projects.vercel.app", "http://localhost:5173"],
+    "method": ["GET", "HEAD", "POST", "PUT", "DELETE"],
+    "responseHeader": ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"],
+    "maxAgeSeconds": 3600
+  }
+]
