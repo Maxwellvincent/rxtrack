@@ -1,3 +1,4 @@
+import { preparationErrorMessage } from "../../../preparationError.js";
 import { withDeadline } from "../../../asyncDeadline.js";
 import { hasCurrentReasoningAudit } from "../../../engine/questionOrder.js";
 /**
@@ -701,7 +702,7 @@ export async function prepareObjectiveQuiz(args, deps = {}, onProgress = () => {
     const { attempt, result } = await Promise.race([...pendingJobs.values()].map(job => job.promise));
     pendingJobs.delete(attempt);
     {
-      lastError = result.error || lastError;
+      lastError = result.error ? preparationErrorMessage(result.error) : lastError;
       for (const rejection of result.rejections || []) {
         for (const issue of rejection.issues || []) reject(issue);
         rejectionFeedback.push({ objectiveIds: rejection.objectiveIds || [], text: `Previous candidate rejected: ${String(rejection.rationale || "").slice(0, 600)}; issues: ${(rejection.issues || []).join(", ")}. Address this in a NEW causal problem; do not repeat the rejected route.` });

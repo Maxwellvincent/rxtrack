@@ -1,3 +1,4 @@
+import { preparationErrorMessage } from "../preparationError.js";
 import { numberedAuditEvidence, resolveAuditEvidence } from "./auditEvidence.js";
 import { questionWritingBenchmarkPrompt } from "./questionWritingStandard.js";
 // mcq.js — pure MCQ generation helpers (port of the monolith's
@@ -321,7 +322,7 @@ export async function generateMcqs(cfg = {}, deps = {}) {
       ...(deps.aiOptions || {}),
       throwOnError: true,
     });
-    if (result?.error) return { error: String(result.error), questions: [] };
+    if (result?.error) return { error: preparationErrorMessage(result.error), questions: [] };
     const candidates = questionCandidates(result);
     const generated = withSchoolContext(ensureClinicalCorrelateAttribution(stampQuestionOrders(ensureObjectiveAttribution(normalizeQuestions(result), cfg.objectives || []), cfg.objectives || []), cfg.clinicalCorrelateLibrary), cfg).map((question) => ({ ...question, generationVersion: "v2" }));
     if (!generated.length) {
@@ -979,7 +980,8 @@ export async function auditGeneratedQuestions(questions, cfg = {}, deps = {}) {
   const structurallyUsableSet = new Set(locallyUsableQuestions(questions));
   const locallyUsable = locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
   const locallyUsableSet = new Set(locallyUsable);
-  const keepLocallyValidated = (reason) => {
+  const keepLocallyValidated = (failure) => {
+    const reason = preparationErrorMessage(failure);
     const deferred = locallyValid.length ? [] : locallyUsableQuestions(questions).filter((question) => questionMatchesObjectiveDomain(question, cfg));
     const candidates = cfg.requireReasoningAudit ? [] : locallyValid.length ? locallyValid : deferred;
     return {

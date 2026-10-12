@@ -1,3 +1,4 @@
+import { preparationErrorMessage } from "../../../preparationError.js";
 import { readQuestionDiagnostics, saveQuestionDiagnostics } from "../../../questionDiagnostics.js";
 import { QuestionPreparationDetails } from "./QuestionPreparationDetails.jsx";
 import { questionWritingBenchmarkPrompt } from "../../../engine/questionWritingStandard.js";
@@ -1441,7 +1442,7 @@ export function LectureStudyFlow({
     setBusy("");
     if (startedEarly) {
       setQuizPreparation(null);
-      if (progressiveQuestions.length < count) setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. Preparation stopped: ${result.reason || result.error || "Remaining questions did not pass review."}`);
+      if (progressiveQuestions.length < count) setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. Preparation stopped: ${preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.")}`);
       return;
     }
     const attachObjectiveTexts = (items) => items.map((question) => ({
@@ -1457,7 +1458,7 @@ export function LectureStudyFlow({
     const retainPartialQuiz = (items, detail) => {
       const partial = attachObjectiveTexts(items);
       if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, partial);
-      setPendingQuiz({ questions: partial, count, difficulty, reason: detail });
+      setPendingQuiz({ questions: partial, count, difficulty, reason: preparationErrorMessage(detail) });
       setObjectiveNotice("");
       setQuizPreparation(null);
     };

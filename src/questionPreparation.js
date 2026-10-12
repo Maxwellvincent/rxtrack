@@ -68,6 +68,7 @@ export async function questionPreparationDeps(callAIJSON) {
   return {
     callAIJSON: routed, reviewAIJSON: routed,
     prepareConcurrency: 3, prepareBatchSize: 5, reviewBatchSize: 5,
+    prepareSpareCandidates: 2,
     // Permit one reviewed refill wave after the parallel initial drafts.
     // This is a shared ceiling, not a fresh timeout for each request.
     maxPreparationMs: QUESTION_PREPARATION_BUDGET_MS,
