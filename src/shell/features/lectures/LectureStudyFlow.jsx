@@ -1428,6 +1428,7 @@ export function LectureStudyFlow({
         ...await questionPreparationDeps(callAIJSON),
         signal,
         onAccepted: (questions) => {
+          if (preparationRunRef.current !== runId) return;
           if (lecture?.id) generatedQuestionsStore.addQuestions(userId, lecture.id, questions);
           appendPrepared(questions);
         },
@@ -1438,10 +1439,20 @@ export function LectureStudyFlow({
       } }
     ), QUESTION_PREPARATION_BUDGET_MS, controller.signal, "Quiz preparation").catch(error => ({ questions: [], error: error?.message || "Question preparation stopped.", reason: error?.message }));
     if (preparationRunRef.current !== runId) return;
+    // The outer deadline can finish before cancelled jobs deliver their last
+    // progress callback. Invalidate this run before clearing the UI so a late
+    // callback cannot resurrect the spinner or append questions to the session.
+    preparationRunRef.current += 1;
+    controller.abort();
+    setQuizPreparation(null);
     if (result.diagnostics) { const report = { ...result.diagnostics, requested: count, accepted: reserve.length + result.diagnostics.accepted }; setPreparationDetails(report); saveQuestionDiagnostics(userId, lecture?.id, report); }
     setBusy("");
     if (startedEarly) {
-      setQuizPreparation(null);
+      setActiveRequestedCount(progressiveQuestions.length);
+      if (quizMetaRef.current) {
+        quizMetaRef.current = { ...quizMetaRef.current, originalRequestedCount: count, requestedCount: progressiveQuestions.length };
+        lectureQuizSessionsStore.save(userId, quizMetaRef.current);
+      }
       if (progressiveQuestions.length < count) setObjectiveNotice(`${progressiveQuestions.length}/${count} ready. Preparation stopped: ${preparationErrorMessage(result.reason || result.error, "Remaining questions did not pass review.")}`);
       return;
     }
