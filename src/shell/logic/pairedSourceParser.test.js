@@ -1,6 +1,13 @@
 import { it, expect } from 'vitest';
 import { markBoldChoiceItems, parsePairedSourceDocuments } from './pairedSourceParser.js';
 import { pairQuestionBankFiles } from './questionBankIngest.js';
+it('preserves visual question page ranges without including the next question page',()=>{
+ const q='[PAGE_BREAK:28]\nNB 19 Eye\n1. Interpret the figure shown below.\n[PAGE_BREAK:29]\nA. First\nB. Second\n[PAGE_BREAK:30]\n2. Another question?\nA. One\nB. Two';
+ const a='NB 19 Eye\n1. A. Rationale.\n2. B. Rationale.';
+ const result=parsePairedSourceDocuments(q,a);
+ expect(result[0]).toMatchObject({sourcePage:28,sourceEndPage:29,hasImage:true});
+ expect(result[1]).toMatchObject({sourcePage:30,sourceEndPage:30});
+});
 it('pairs both supplied filename conventions despite parentheses and a typo',()=>{
  const files=['SNL DES SGU BPM II NB.pdf','SNL DES SGU BPM II NB (Answers).pdf','Week 10 Answers.pdf','Week 10 Practice Quesxtions.pdf'].map(name=>({name}));
  expect(pairQuestionBankFiles(files)).toHaveLength(2);

@@ -1669,7 +1669,8 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
   } else if (pdf && questions.some((question) => question.sourceSection && question.hasImage)) {
     for (const question of questions.filter((item) => item.sourceSection && item.hasImage)) {
       const canvases = [];
-      for (let pageNumber = question.sourcePage; pageNumber <= question.sourceEndPage; pageNumber++) {
+      const endPage = Math.max(question.sourcePage, Number(question.sourceEndPage) || Number(question.sourceVisualPage) || question.sourcePage);
+      for (let pageNumber = question.sourcePage; pageNumber <= endPage; pageNumber++) {
         const page = await pdf.getPage(pageNumber);
         const viewport = page.getViewport({ scale: 1.35 });
         const content = await page.getTextContent();
@@ -1697,6 +1698,7 @@ export async function parseExamPDF(file, onProgress, opts = {}) {
       let top = 0;
       for (const canvas of canvases) { combined.getContext("2d").drawImage(canvas, 0, top); top += canvas.height; }
       question.sourceImageDataUrl = combined.toDataURL("image/jpeg", 0.82);
+      if (!question.sourceImageDataUrl.startsWith("data:image/")) throw new Error(`Could not render the required figure on page ${question.sourcePage}.`);
     }
   } else if (format !== "report" && pdf && questions.some((question) => question.hasImage && question.sourcePage && !question.sourceImageUrl)) {
     const pageData = new Map();

@@ -9,7 +9,9 @@ function blocks(text) {
     const prefix=source.slice(0,h.index);
     const section=[...prefix.matchAll(/(?:^|\n)[ \t]*(NB[ \t]+\d+(?:[ \t]+and[ \t]+\d+)?)[ \t]+([^\n]+)/gi)].at(-1);
     const page=[...prefix.matchAll(/\[PAGE_BREAK:(\d+)\]/g)].at(-1);
-    return {num:Number(h[1]),section:section?.[1]?.replace(/\s+/g,' ')||'',title:section?.[2]||'',page:Number(page?.[1]||1),body:source.slice(h.index+h[0].length,headings[i+1]?.index??source.length).replace(/\[PAGE_BREAK:\d+\]/g,'').split(/(?:^|\n)\s*NB\s+\d+/i)[0].trim()};
+    const body=source.slice(h.index+h[0].length,headings[i+1]?.index??source.length).split(/(?:^|\n)\s*NB\s+\d+/i)[0].replace(/(?:\s*\[PAGE_BREAK:\d+\])+\s*$/, '').trim();
+    const endPage=[...body.matchAll(/\[PAGE_BREAK:(\d+)\]/g)].at(-1);
+    return {num:Number(h[1]),section:section?.[1]?.replace(/\s+/g,' ')||'',title:section?.[2]||'',page:Number(page?.[1]||1),endPage:Number(endPage?.[1]||page?.[1]||1),body:body.replace(/\[PAGE_BREAK:\d+\]/g,'').trim()};
   });
 }
 const normalize=s=>s.normalize('NFKC').toLowerCase().replace(/[^a-z0-9]+/g,'');
@@ -30,7 +32,7 @@ export function parsePairedSourceDocuments(questionText, answerText) {
     const highlighted=[...answer.body.matchAll(/(?:^|\n)\s*✓\s*(?:\(([A-H])\)|([A-H])[.)])/g)];
     const correct=direct?.[1] || (highlighted.length===1 ? highlighted[0][1]||highlighted[0][2] : null);
     if(!correct||!choices[correct]) throw new Error(`No unique source-marked answer: ${source.section || 'bank'} question ${source.num}.`);
-    output.push({id:`paired-q${output.length+1}`,num:output.length+1,sourceQuestionNumber:source.num,sourceSection:source.section||null,sourceSectionTitle:source.title||null,sourcePage:source.page,stem,choices,correct,explanation:direct?answer.body.slice(direct[0].length).trim():answer.body.split(/Explanation:\s*/i)[1]?.trim()||null,hasImage:/\b(?:images?|figures?|photomicrographs?|photographs?|diagrams?|graphs?|charts?|tables?)\b|\b(?:shown below|shown above|lab results are revealed|radiographic examinations[^?]{0,80}shown)\b/i.test(stem),sourceKeyStatus:'present'});
+    output.push({id:`paired-q${output.length+1}`,num:output.length+1,sourceQuestionNumber:source.num,sourceSection:source.section||null,sourceSectionTitle:source.title||null,sourcePage:source.page,sourceEndPage:source.endPage,stem,choices,correct,explanation:direct?answer.body.slice(direct[0].length).trim():answer.body.split(/Explanation:\s*/i)[1]?.trim()||null,hasImage:/\b(?:images?|figures?|photomicrographs?|photographs?|diagrams?|graphs?|charts?|tables?)\b|\b(?:shown below|shown above|lab results are revealed|radiographic examinations[^?]{0,80}shown)\b/i.test(stem),sourceKeyStatus:'present'});
   }
   if(!output.length) throw new Error('No complete paired source questions found.');
   return output;
