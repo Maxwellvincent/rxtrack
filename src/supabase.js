@@ -1118,8 +1118,24 @@ export async function uploadQuestionBankPage(userId, bankTitle, pageNumber, data
   const response = await fetch(dataUrl);
   const blob = await response.blob();
   const path = `question-images/${userId}/banks/${encodeDocId(bankTitle)}/page-${pageNumber}.jpg`;
-  await uploadSchoolFile({ auth, userId, bucket: storageRef(storage, path).bucket, path, blob, metadata: { contentType: blob.type || "image/jpeg" } });
-  return getDownloadURL(storageRef(storage, path));
+  if (!/^image\/(png|jpeg|jpg|webp)$/.test(blob.type) || blob.size >= 10 * 1024 * 1024) {
+    throw Object.assign(new Error(`Figure cannot upload: ${blob.type || "unknown format"}, ${Math.ceil(blob.size / 1024)} KB (image limit is 10 MB).`), { code: "storage/invalid-figure" });
+  }
+  const bucket = storageRef(storage, path).bucket;
+  const downloadToken = crypto.randomUUID();
+  try {
+    await uploadSchoolFile({ auth, userId, bucket, path, blob, metadata: {
+      contentType: blob.type,
+      customMetadata: { firebaseStorageDownloadTokens: downloadToken },
+    } });
+  } catch (error) {
+    error.message = `Figure upload: ${error.message || "Firebase rejected the file."}`;
+    throw error;
+  }
+  // The authenticated upload already confirmed this object. Use its assigned
+  // display token rather than performing a second SDK metadata request, which
+  // can fail independently and incorrectly report a successful upload as denied.
+  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}?alt=media&token=${downloadToken}`;
 }
 
 /** Archive the original uploaded school exam/report in Storage, not browser storage. */

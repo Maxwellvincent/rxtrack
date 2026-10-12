@@ -303,7 +303,7 @@ export async function processQuestionBankFiles({
             try {
               pageUrls.set(visualKey, await uploadQuestionBankPage(userId, bankTitle, visualKey, question.sourceImageDataUrl));
             } catch (error) {
-              throw new Error(`Required question figure on page ${visualPage} could not upload (${error?.code || "storage/upload-failed"}). This bank was not saved because its visual questions would be incomplete. Original PDF archival and figure storage are separate uploads.`);
+              throw new Error(`Required question figure on page ${visualPage} could not upload (${error?.code || "storage/upload-failed"}): ${error?.message || "No additional detail"}. This bank was not saved because its visual questions would be incomplete. Original PDF archival and figure storage are separate uploads.`);
             }
           }
           sourceImageUrl = pageUrls.get(visualKey);
