@@ -52,8 +52,9 @@ export async function uploadSchoolFile({ auth, userId, bucket, path, blob, metad
         body,
       });
       if (!response.ok) {
-        const code = response.status === 401 ? "storage/unauthenticated" : response.status === 403 ? "storage/unauthorized" : response.status === 404 ? "storage/bucket-not-found" : "storage/server-error";
-        throw Object.assign(new Error(`Firebase rejected the upload (HTTP ${response.status}). ${response.status === 403 ? "Check file permissions and size limits." : "Retry after checking storage connectivity."}`), { code });
+        const code = response.status === 400 ? "storage/invalid-request" : response.status === 401 ? "storage/unauthenticated" : response.status === 403 ? "storage/unauthorized" : response.status === 404 ? "storage/bucket-not-found" : "storage/server-error";
+        const hint = response.status === 400 ? "Firebase rejected the file metadata or upload format." : response.status === 403 ? "Check file permissions and size limits." : "Retry after checking storage connectivity.";
+        throw Object.assign(new Error(`Firebase rejected the upload (HTTP ${response.status}). ${hint}`), { code });
       }
       const result = await response.json();
       if (result.name !== path || result.bucket !== bucket) throw Object.assign(new Error("Firebase did not confirm the uploaded file."), { code: "storage/invalid-response" });

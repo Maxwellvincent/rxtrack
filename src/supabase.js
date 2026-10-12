@@ -1122,20 +1122,17 @@ export async function uploadQuestionBankPage(userId, bankTitle, pageNumber, data
     throw Object.assign(new Error(`Figure cannot upload: ${blob.type || "unknown format"}, ${Math.ceil(blob.size / 1024)} KB (image limit is 10 MB).`), { code: "storage/invalid-figure" });
   }
   const bucket = storageRef(storage, path).bucket;
-  const downloadToken = crypto.randomUUID();
+  let uploaded;
   try {
-    await uploadSchoolFile({ auth, userId, bucket, path, blob, metadata: {
-      contentType: blob.type,
-      customMetadata: { firebaseStorageDownloadTokens: downloadToken },
-    } });
+    uploaded = await uploadSchoolFile({ auth, userId, bucket, path, blob, metadata: { contentType: blob.type } });
   } catch (error) {
     error.message = `Figure upload: ${error.message || "Firebase rejected the file."}`;
     throw error;
   }
-  // The authenticated upload already confirmed this object. Use its assigned
-  // display token rather than performing a second SDK metadata request, which
-  // can fail independently and incorrectly report a successful upload as denied.
-  return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}?alt=media&token=${downloadToken}`;
+  // Firebase owns download tokens; setting its reserved metadata is rejected.
+  const downloadToken = String(uploaded.downloadTokens || "").split(",")[0];
+  if (downloadToken) return `https://firebasestorage.googleapis.com/v0/b/${encodeURIComponent(bucket)}/o/${encodeURIComponent(path)}?alt=media&token=${encodeURIComponent(downloadToken)}`;
+  return getDownloadURL(storageRef(storage, path));
 }
 
 /** Archive the original uploaded school exam/report in Storage, not browser storage. */
